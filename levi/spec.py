@@ -114,21 +114,25 @@ _landmarks()
 
 # ---------------------------------------------------------------- palette
 # base = lit colour, shade = toon shadow colour, line = outline colour (sRGB).
+# Sampled from ref/levi_threeview.png: base/shade are the lit and shadow
+# k-means clusters of line-free boxes inside each zone; line is the median of
+# the darkest ~3% of pixels across that zone's outline (the stroke core).
+# toon.py renders these hex values exactly (Standard view transform).
 PALETTE = {
-    'skin':        {'base': '#FBEDE6', 'shade': '#F2C9BE', 'line': '#B0786E'},
-    'hair':        {'base': '#F2F3F2', 'shade': '#C9D3CF', 'line': '#7E8C88'},
-    'hair_tip':    {'base': '#5FA37E', 'shade': '#3E7F5C', 'line': '#24513A'},
-    'eye':         {'base': '#3E9A62', 'shade': '#1F6A3E', 'line': '#123D24'},
-    'green':       {'base': '#2E8A3E', 'shade': '#1E6A2C', 'line': '#0F3E18'},
-    'leaf':        {'base': '#3FA34D', 'shade': '#2A7A36', 'line': '#14461C'},
-    'dress':       {'base': '#F7FAF2', 'shade': '#D9E8D6', 'line': '#7D9480'},
-    'dress_mint':  {'base': '#DCEFD9', 'shade': '#BCD9BA', 'line': '#6E8E70'},
-    'sleeve':      {'base': '#E8F3E2', 'shade': '#C6DEC0', 'line': '#6F8F6C'},
-    'sleeve_dark': {'base': '#7DB88A', 'shade': '#5A9A6A', 'line': '#2C5A36'},
-    'petticoat':   {'base': '#F6CFC6', 'shade': '#E9A99F', 'line': '#A86C63'},
-    'cuff':        {'base': '#FBF7F0', 'shade': '#E6DCCF', 'line': '#8E8478'},
-    'flower':      {'base': '#FFFFFF', 'shade': '#E3E6E2', 'line': '#7F8A84'},
-    'shoe':        {'base': '#2C7A3A', 'shade': '#1B5726', 'line': '#0C3014'},
+    'skin':        {'base': '#FEEAE1', 'shade': '#F3CDC2', 'line': '#9E7262'},
+    'hair':        {'base': '#F1F0EF', 'shade': '#C1C7C1', 'line': '#6E7676'},
+    'hair_tip':    {'base': '#76B48E', 'shade': '#619379', 'line': '#446E5A'},
+    'eye':         {'base': '#8ABF94', 'shade': '#5A9970', 'line': '#293540'},
+    'green':       {'base': '#2D8A3D', 'shade': '#1F6630', 'line': '#114923'},
+    'leaf':        {'base': '#63C177', 'shade': '#439357', 'line': '#1E462C'},
+    'dress':       {'base': '#FBFCF1', 'shade': '#CEDED0', 'line': '#59675F'},
+    'dress_mint':  {'base': '#E1EADC', 'shade': '#C4D0C0', 'line': '#59675F'},
+    'sleeve':      {'base': '#F4F9EC', 'shade': '#DAEBD7', 'line': '#46625C'},
+    'sleeve_dark': {'base': '#558A62', 'shade': '#325F3E', 'line': '#13401F'},
+    'petticoat':   {'base': '#FDE3DD', 'shade': '#F0C4BE', 'line': '#9F8780'},
+    'cuff':        {'base': '#FCF8F0', 'shade': '#F2DED5', 'line': '#5E625C'},
+    'flower':      {'base': '#F6F6F4', 'shade': '#D2D3CD', 'line': '#22372D'},
+    'shoe':        {'base': '#28663D', 'shade': '#1E5634', 'line': '#10391E'},
     'mouth':       {'base': '#D88A86', 'shade': '#B86A66', 'line': '#7A3C3A'},
 }
 
@@ -150,5 +154,8 @@ BUDGET = {
 }
 TOTAL_BUDGET = 32000
 
-# Outline (inverted hull) thickness in metres, per part default.
-OUTLINE_WIDTH = 0.0022
+# Outline (inverted hull) thickness in metres, per part default. The sheet's
+# strokes are ~1-1.5 px at 643 px/m; the ortho renders are 1:1 with the panel,
+# so a hull of OUTLINE_PX panel pixels reads as the same line weight.
+OUTLINE_PX = 1.25
+OUTLINE_WIDTH = OUTLINE_PX / PX_PER_M   # ~0.00194 m
