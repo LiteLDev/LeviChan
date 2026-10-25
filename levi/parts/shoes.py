@@ -7,19 +7,25 @@ Construction (left shoe, +X, mirrored for the right one):
     A hand-measured station table is resampled with a monotone cubic along the
     shoe, so the toe box, the arch and the heel curve have no kinks. Each
     section is a superellipse that is boxy below (flat sole with a defined
-    edge) and round above (toe box). The underside from the ball to the heel
-    seat and the lining are the sheet's tan `sole` key.
+    edge, resting level on the ground: no keel) and round above (toe box),
+    turning into a plain ellipse round the heel cup. The toe tapers almost
+    linearly in plan into a soft point a few px ahead of the foot (pumps have
+    empty toe room). The topline dips over the rear quarters and rises into a
+    narrow tab at the back (the sheet's back view). The underside from the
+    ball to the heel seat and the lining are the sheet's tan `sole` key.
   * topline: the open edge of the shell is rolled over into a short inner
     lining (green rim, tan lining), so the upper reads as a material with
     thickness, not a paper sheet.
   * stiletto: a tapered solid whose top is a broad heel-seat footprint sunk
     into the shell, narrowing smoothly to a small top lift.
-  * laces: flat ribbons (width + thickness, broad face toward the skin) kept
-    at a constant small offset from the leg. They start under the topline on
+  * laces: flat ribbons (triangular section: broad flat face outward, a low
+    ridge toward the skin) kept at a constant small offset from the leg. They start under the topline on
     both sides of the vamp, cross on the instep, wrap the ankle, cross again
     behind it above the heel counter, and are tied in a bow at the front with
     two short ends; one long end hangs at the outer back.
-  * leaves: two lens-shaped blades with a soft midrib fold.
+  * leaves: two ovate, cupped blades with a midrib groove, springing from
+    one point on top of the ankle wrap at the outer back (where the long lace
+    end also leaves the wrap), each rolled its own way so the pair fans.
 
 Every shell section keeps the body's foot (body.FOOT, imported so a foot
 change cannot make skin poke through) inside it with FOOT_CLEAR px to spare.
@@ -29,7 +35,9 @@ from ref/front.png, ref/side.png and ref/back.png, then mapped to world space.
 
 Local landmark corrections (spec.L is a +-3 px first pass):
   * toe tip: side col 227 -> y = -93 px (spec toe_tip_y = -95 px); front view
-    toe points at x = +-15 px (spec toe_tip_x = 22 px).
+    toe points at x = +-15 px (spec toe_tip_x = 22 px). The shell's tip is
+    at y = -97: the pointed toe runs ~4 px past the drawn tip so the point
+    can taper ahead of the foot instead of pinching it.
   * shoe centre x = 28 px at the heel, 27 px across the ball (spec
     ankle_center_x = 35 px is the ankle, which sits further out).
   * heel back y = +22.5 px (counter, side col 342); stiletto between
@@ -39,12 +47,15 @@ Local landmark corrections (spec.L is a +-3 px first pass):
     tips reach row 951 (the sheet is drawn with a slight top-down
     perspective).  Rows below 850 are squeezed so the sole lands ~4 px above
     the ground: within 3 px of the side profile and of the front/back tips.
+    (Grounding the sole, SOLE_LIFT 0.5, was tried in round 4: it costs
+    0.035 side / 0.009 front shoe IoU, so the lift stays a sheet
+    calibration; a ground offset belongs in the rig/export.)
 """
 import math
 
 import bmesh
 import numpy as np
-from mathutils import Vector
+from mathutils import Quaternion, Vector
 
 from .. import common, spec
 from .body import FOOT, LEG_FRONT, LEG_SIDE, MARGIN as BODY_MARGIN
@@ -100,51 +111,56 @@ def _pchip(xs, ys, x):
 # ---------------------------------------------------------------- shell
 # Key stations along the shoe, toe -> heel, panel px:
 #   y, centre x, half width, sole row, top row, opening angle (fraction of pi),
-#   inward skew of the sole (px; the front view narrows to a V on the inner side),
+#   inward skew of the sole (px; kept <= 1: a larger skew read as a keel),
 #   pinch (0..1: the upper half narrows toward the opening -> tapered heel cup
-#   in the back view), keel (px the sole corners are lifted -> pointed V bottom
-#   in the front view), inner-wall raise (px: the inner side of the opening
-#   sits higher than the outer one, hidden in the side view)
+#   in the back view), keel (px the sole corners are lifted; kept <= 1 so the
+#   forefoot rests level instead of on a V-shaped keel), inner-wall raise (px:
+#   the inner side of the opening sits higher than the outer one, hidden in
+#   the side view)
 # Closed toe box: frac = 1 (ring ends meet on the top centre line, top row =
 # toe-box top).  Open stations: ring ends sit on the topline at `top row`.
 # The heel half widths follow a circle of radius ~12 px around y = 10.5, so
 # the counter is round in plan view.
 STATIONS = [
-    (-91.0, 15.5, 1.8, 942.6, 939.6, 1.0, 0.5, 0.0, 1.0, 0.0),
-    (-85.0, 18.0, 5.4, 943.8, 935.0, 1.0, 2.0, 0.0, 2.0, 0.0),
-    (-78.0, 20.5, 9.0, 944.3, 930.5, 1.0, 4.0, 0.0, 3.0, 0.0),
-    (-71.0, 23.0, 12.2, 944.5, 927.5, 1.0, 4.0, 0.0, 3.8, 0.0),
-    (-66.0, 24.2, 14.6, 944.5, 925.5, 1.0, 3.0, 0.0, 4.5, 0.0),
-    (-62.0, 25.0, 15.8, 944.5, 923.5, 0.9, 2.5, 0.0, 5.0, 1.5),
-    (-56.0, 25.6, 17.2, 944.5, 920.5, 0.8, 2.5, 0.0, 5.8, 4.0),
-    (-50.0, 25.8, 18.0, 944.5, 918.0, 0.72, 3.0, 0.0, 6.0, 6.0),
-    (-40.0, 26.5, 18.6, 944.5, 916.5, 0.67, 3.0, 0.0, 6.5, 8.0),
-    (-30.0, 27.0, 18.0, 944.5, 916.0, 0.67, 3.0, 0.0, 6.5, 8.0),
-    (-23.0, 28.5, 17.0, 942.0, 914.0, 0.67, 2.5, 0.0, 4.5, 6.0),
-    (-18.0, 29.5, 15.5, 932.0, 903.0, 0.67, 1.5, 0.0, 0.5, 3.0),
-    (-13.0, 30.0, 14.5, 920.0, 893.0, 0.67, 1.0, 0.0, 0.0, 0.0),
-    (-8.0, 30.0, 14.0, 910.0, 884.0, 0.67, 0.0, 0.1, 0.0, 0.0),
-    (-3.0, 30.0, 13.5, 903.0, 876.0, 0.67, 0.0, 0.15, 0.0, 0.0),
-    (2.0, 30.0, 13.0, 899.5, 869.0, 0.67, 0.0, 0.2, 0.0, 0.0),
-    (7.0, 30.0, 12.5, 899.0, 865.0, 0.67, 0.0, 0.3, 0.0, 0.0),
-    (12.0, 30.0, 11.8, 899.0, 861.0, 0.67, 0.0, 0.45, 0.0, 0.0),
-    (16.0, 30.0, 10.8, 898.5, 859.0, 0.67, 0.0, 0.5, 0.0, 0.0),
-    (19.0, 30.0, 8.6, 896.0, 858.0, 0.67, 0.0, 0.5, 0.0, 0.0),
-    (21.2, 30.0, 5.8, 890.0, 858.5, 0.67, 0.0, 0.45, 0.0, 0.0),
-    (22.3, 30.0, 3.0, 884.0, 859.0, 0.67, 0.0, 0.4, 0.0, 0.0),
+    (-95.0, 15.4, 1.4, 942.6, 940.4, 1.0, 0.3, 0.0, 0.3, 0.0),
+    (-89.0, 17.0, 4.3, 943.5, 937.0, 1.0, 0.6, 0.0, 0.6, 0.0),
+    (-83.0, 18.8, 7.2, 944.1, 933.8, 1.0, 0.8, 0.0, 0.8, 0.0),
+    (-77.0, 20.6, 9.9, 944.4, 930.6, 1.0, 1.0, 0.0, 1.0, 0.0),
+    (-71.0, 22.6, 12.4, 944.5, 927.8, 1.0, 1.0, 0.0, 1.0, 0.0),
+    (-66.0, 24.0, 14.4, 944.5, 925.5, 1.0, 1.0, 0.0, 1.0, 0.0),
+    (-62.0, 25.0, 15.8, 944.5, 923.5, 0.9, 1.0, 0.0, 1.0, 1.5),
+    (-56.0, 25.6, 17.2, 944.5, 920.5, 0.8, 1.0, 0.0, 1.0, 4.0),
+    (-50.0, 25.8, 18.0, 944.5, 918.0, 0.72, 1.0, 0.0, 1.0, 6.0),
+    (-40.0, 26.5, 18.6, 944.5, 916.5, 0.67, 1.0, 0.0, 1.0, 8.0),
+    (-30.0, 27.0, 18.0, 944.5, 916.0, 0.67, 1.0, 0.0, 1.0, 8.0),
+    (-23.0, 28.5, 17.0, 942.5, 914.0, 0.67, 0.8, 0.0, 0.8, 6.0),
+    (-18.0, 29.5, 15.5, 933.0, 903.0, 0.67, 0.5, 0.0, 0.4, 3.0),
+    (-13.0, 30.0, 14.5, 923.5, 893.5, 0.67, 0.3, 0.05, 0.0, 0.0),
+    (-8.0, 30.0, 14.0, 914.5, 885.0, 0.67, 0.0, 0.1, 0.0, 0.0),
+    (-3.0, 30.0, 13.5, 907.0, 878.0, 0.67, 0.0, 0.15, 0.0, 0.0),
+    (2.0, 30.0, 12.4, 902.0, 872.0, 0.67, 0.0, 0.2, 0.0, 0.0),
+    (7.0, 30.0, 11.3, 900.0, 868.0, 0.67, 0.0, 0.25, 0.0, 0.0),
+    (12.0, 30.0, 10.3, 899.5, 864.5, 0.67, 0.0, 0.3, 0.0, 0.0),
+    (16.0, 30.0, 9.2, 898.5, 861.5, 0.67, 0.0, 0.35, 0.0, 0.0),
+    (19.0, 30.0, 7.6, 896.0, 859.5, 0.67, 0.0, 0.35, 0.0, 0.0),
+    (21.2, 30.0, 5.2, 890.0, 859.0, 0.67, 0.0, 0.35, 0.0, 0.0),
+    (22.3, 30.0, 2.7, 884.0, 858.3, 0.67, 0.0, 0.35, 0.0, 0.0),
 ]
 # Resampled stations (y): dense where the outline curves (toe, arch, heel).
-SAMPLES = (-91.0, -87.0, -82.0, -76.0, -70.0, -66.0, -62.0, -57.0, -50.0, -42.0,
-           -34.0, -27.0, -21.0, -15.5, -10.0, -4.0, 3.0, 10.0, 16.0, 19.5, 21.8)
-TOE_TIP = (15.0, -93.0, 941.5)
+SAMPLES = (-94.5, -88.0, -81.0, -74.0, -68.0, -62.0, -56.0, -49.0, -42.0,
+           -34.0, -27.0, -21.0, -15.5, -10.0, -4.0, 3.0, 10.0, 15.0, 18.5, 20.6, 21.8)
+TOE_TIP = (14.8, -97.0, 941.6)
 BACK_Y = 22.8      # heel back spine (centre line)
 RING = 13          # verts per cross-section (12 segments)
 SQ_LO = 0.7        # superellipse exponent of the lower half: flat sole, defined edge
-SQ_UP = 0.8        # upper half: rounded toe box / quarters
+SQ_UP = 0.9        # upper half: rounded toe box / quarters
+SQ_HEEL = 1.0      # ... both blend to a plain ellipse round the heel cup
+HEEL_ROUND = (-4.0, 12.0)  # y range (px) of that blend
 SOLE_Y = (-24.0, 6.0)  # the arch underside between these y is tan
-SOLE_HALF = 0.15   # ... within this fraction of pi of the bottom centre
+SOLE_HALF = 0.15   # ... within this fraction of pi of the bottom centre (2 of 12 faces,
+                   # the same faces on every span: the tan edge runs along the shoe)
 FOOT_P = 2.3       # body foot section exponent (body.build_foot)
-FOOT_CLEAR = 1.5   # px the shell keeps outside the foot
+FOOT_CLEAR = 1.8   # px the shell keeps outside the foot
 RIM_T = 1.3        # px: upper thickness at the rolled topline
 LINING_D = 2.5     # px the tan lining runs down inside the opening
 
@@ -206,14 +222,19 @@ def _ring(st, sx):
     phim = math.pi * (1.0 if closed else frac)
     zb_m, zt_m = zrow(zb), zrow(zt)
     cend = max(1e-6, -math.cos(phim))
+    # the heel cup turns elliptical (no boxy sole corners bulging round the
+    # heel seat in the back view)
+    u = min(1.0, max(0.0, (y - HEEL_ROUND[0]) / (HEEL_ROUND[1] - HEEL_ROUND[0])))
+    u = u * u * (3.0 - 2.0 * u)
+    sq_lo, sq_up = SQ_LO + (SQ_HEEL - SQ_LO) * u, SQ_UP + (SQ_HEEL - SQ_UP) * u
     # half height so the ring ends land on the top row
-    hh = (zt_m - zb_m) / (1.0 + abs(math.cos(phim)) ** SQ_UP)
+    hh = (zt_m - zb_m) / (1.0 + abs(math.cos(phim)) ** sq_up)
     zmid = zb_m + hh
     pts = []
     for k in range(RING):
         phi = phim * (2.0 * k / (RING - 1) - 1.0)
         s, c = math.sin(phi), math.cos(phi)
-        sq = SQ_LO if c > 0.0 else SQ_UP
+        sq = sq_lo if c > 0.0 else sq_up
         xo = hw * _spow(s, sq)
         if c < 0.0:     # upper half: pinch toward the centre line
             xo *= 1.0 - pinch * (-c / cend) ** 0.8
@@ -345,9 +366,10 @@ def _heel(bm, sx):
 
 # ---------------------------------------------------------------- ribbons
 def _ribbon(bm, pts, nrms, w, th, closed=False, taper=1.0):
-    """Flat ribbon along pts (world): rectangle section `w` wide and `th`
-    thick, broad face along nrms (e.g. away from the skin). `taper` scales the
-    width at the far end of an open ribbon."""
+    """Flat ribbon along pts (world): triangular section `w` wide and `th`
+    thick, the flat broad face toward +nrms (pass nrms pointing away from the
+    skin) and a low ridge toward -nrms. `taper` scales the width at the far
+    end of an open ribbon."""
     m = len(pts)
     rings = []
     prev = None
@@ -365,14 +387,16 @@ def _ribbon(bm, pts, nrms, w, th, closed=False, taper=1.0):
         b = t.cross(n)
         hw = 0.5 * w * (1.0 + (taper - 1.0) * (i / (m - 1) if not closed else 0.0))
         ht = 0.5 * th
+        # triangular section: the flat broad face outward, a low ridge toward
+        # the skin (reads as a flat strap at 3/4 the faces of a rectangle)
         rings.append([bm.verts.new(p + b * hw + n * ht), bm.verts.new(p - b * hw + n * ht),
-                      bm.verts.new(p - b * hw - n * ht), bm.verts.new(p + b * hw - n * ht)])
+                      bm.verts.new(p - n * ht)])
     pairs = list(zip(rings, rings[1:]))
     if closed:
         pairs.append((rings[-1], rings[0]))
     for a, b in pairs:
-        for j in range(4):
-            k = (j + 1) % 4
+        for j in range(3):
+            k = (j + 1) % 3
             bm.faces.new((a[j], a[k], b[k], b[j]))
     if not closed:
         bm.faces.new(list(reversed(rings[0])))
@@ -567,33 +591,53 @@ def _ribbons(bm, sx, line):
     # long end hanging at the outer back below the leaves, swinging out a
     # little (kept close to the heel: further back it crosses the ankle's
     # knee/ankle weight blend and stretches when the foot points)
-    tail = [(46.5, 8.0, 849.0), (50.0, 11.5, 857.0), (52.5, 15.0, 868.0),
-            (53.5, 17.5, 879.0), (53.0, 18.5, 890.0), (51.5, 19.0, 899.0)]
-    pts = [P(*p, sx) for p in tail]
+    # It leaves the wrap under the leaf root, so the leaves and the tail
+    # spring from one knot, and runs back along the wrap's direction before
+    # it falls (Catmull-Rom through the controls: no kinks).
+    tail = [(47.0, 9.0, 853.5), (52.2, 14.5, 866.0), (53.6, 18.0, 881.0),
+            (51.5, 19.2, 899.0)]
+    ctrl = [tuple(wrap_point(RIB_OFF, sx))] + [tuple(P(*p, sx)) for p in tail]
+    pts = [Vector(c) for c in _catmull(ctrl, 2)]
     _ribbon(bm, pts, [Vector((sx, 0.35, 0.0)).normalized()] * len(pts), RIB_W, RIB_T, taper=0.6)
 
 
 # ---------------------------------------------------------------- leaves
-LEAF_BASE = (46.0, 9.0, 848.0)
-LEAVES = [  # tip (x, y, row), half width px
-    ((65.0, 30.5, 804.0), 12.0),
-    ((73.0, 44.0, 824.0), 13.0),
+LEAF_THETA = 132.0   # leaf root on the ankle wrap: outer back (degrees from the front)
+LEAF_ROOT_OFF = 0.9  # px the root sits outside the wrap's centre line (on top of the ribbon)
+LEAVES = [  # tip (x, y, row), half width px, roll about the blade axis (deg)
+    ((65.0, 30.5, 804.0), 11.5, -38.0),
+    ((73.0, 44.0, 824.0), 12.5, 30.0),
 ]
-LEAF_RINGS = 5
+LEAF_FACE = (1.0, -0.5, 0.3)   # blade face normal before the roll: outer, a little front and up
+LEAF_RINGS = 6
 LEAF_T = 0.0008   # blade half thickness at the midrib, m
-LEAF_FOLD = 0.4   # blade halves fold up along the midrib (reads broad from all views)
+LEAF_CUP = 0.22   # the halves curve up toward the face (fraction of the half width at the edge)
+LEAF_RIB = 0.6    # midrib groove on the face, as a fraction of LEAF_T
+LEAF_PEAK = 0.8   # width profile exponent: widest at ~0.42 of the length (ovate)
 
 
-def _leaf(bm, base, tip, half_w, sx):
-    """Lens-shaped blade from base to tip (left-shoe world coordinates); the
-    finished points are mirrored for sx=-1 so both feet curl the same way."""
+def wrap_point(off, sx=1):
+    """World point `off` px outside the skin on the ankle wrap's line at
+    LEAF_THETA: the knot the leaves (off = RIB_OFF + LEAF_ROOT_OFF) and the
+    long lace end (off = RIB_OFF) spring from."""
+    return ank(LEAF_THETA, _band_row(LEAF_THETA), off, sx)
+
+
+def _leaf(bm, base, tip, half_w, roll, sx):
+    """Ovate, cupped blade from base to tip (left-shoe world coordinates) with
+    a soft midrib groove on its face; the finished points are mirrored for
+    sx=-1 so both feet curl the same way. The section is a closed lens: five
+    points across the face, three across the back, sharing the two edges."""
     def V(v):
         return bm.verts.new(Vector((sx * v.x, v.y, v.z)))
 
     axis = tip - base
     length = axis.length
     a = axis.normalized()
-    n0 = Vector((1.0, 1.0, 0.0)).normalized()   # blade faces outer-back
+    # blade faces outward and a little forward and up (LEAF_FACE): broad in
+    # the front, side and back views alike; each blade is rolled its own way
+    # about its axis so the pair fans and never turns edge-on together
+    n0 = Quaternion(a, math.radians(roll)) @ Vector(LEAF_FACE).normalized()
     wdir = a.cross(n0).normalized()
     nrm = wdir.cross(a).normalized()
     if nrm.dot(n0) < 0:
@@ -602,19 +646,28 @@ def _leaf(bm, base, tip, half_w, sx):
     rings = []
     for i in range(1, LEAF_RINGS + 1):
         t = i / (LEAF_RINGS + 1)
-        w = half_w * PX * math.sin(math.pi * t ** 0.8)
-        c = base + axis * t + nrm * (math.sin(math.pi * t) * 0.06 * length)
+        w = half_w * PX * math.sin(math.pi * t ** LEAF_PEAK)
+        c = base + axis * t + nrm * (math.sin(math.pi * t) * 0.05 * length)   # blade arches back
         c -= wdir * (0.05 * length * t * t)                 # slight sideways curl
-        f = nrm * (LEAF_FOLD * w)   # edges fold toward the face: V-section
-        rings.append([V(c - wdir * w + f), V(c + nrm * th), V(c + wdir * w + f), V(c - nrm * th)])
+        h = th * min(1.0, 4.0 * t * (1.0 - t) + 0.25)      # thinner toward root and tip
+
+        def pt(u, side):
+            lift = LEAF_CUP * w * (0.55 * abs(u) + 0.45 * u * u)
+            off = side * h * (1.0 - u * u)
+            if side > 0 and u == 0.0:
+                off -= LEAF_RIB * h                         # midrib groove
+            return V(c + wdir * (u * w) + nrm * (lift + off))
+        rings.append([pt(-1.0, 1), pt(-0.5, 1), pt(0.0, 1), pt(0.5, 1), pt(1.0, 1),
+                      pt(0.5, -1), pt(0.0, -1), pt(-0.5, -1)])
+    n = len(rings[0])
     for r0, r1 in zip(rings, rings[1:]):
-        for j in range(4):
-            k = (j + 1) % 4
+        for j in range(n):
+            k = (j + 1) % n
             bm.faces.new((r0[j], r0[k], r1[k], r1[j]))
     # bases pulled apart slightly so the two blades do not share a vertex
     vb, vt = V(base + a * (0.4 * PX)), V(tip)
-    for j in range(4):
-        k = (j + 1) % 4
+    for j in range(n):
+        k = (j + 1) % n
         bm.faces.new((vb, rings[0][k], rings[0][j]))
         bm.faces.new((vt, rings[-1][j], rings[-1][k]))
 
@@ -629,12 +682,14 @@ def _finish(bm):
 def build(col):
     shell_bm, rib_bm, leaf_bm = bmesh.new(), bmesh.new(), bmesh.new()
     heel_faces = []
+    # leaf root in left-shoe coordinates: _leaf mirrors its points itself
+    root = wrap_point(RIB_OFF + LEAF_ROOT_OFF)
     for sx in (1, -1):
         line = _shell(shell_bm, sx)
         heel_faces += _heel(shell_bm, sx)
         _ribbons(rib_bm, sx, line)
-        for tip, hw in LEAVES:
-            _leaf(leaf_bm, P(*LEAF_BASE), P(*tip), hw, sx)
+        for tip, hw, roll in LEAVES:
+            _leaf(leaf_bm, root, P(*tip), hw, roll, sx)
     # heels are closed: let bmesh orient them; the open shells are wound
     # outward by construction (_shell)
     bmesh.ops.recalc_face_normals(shell_bm, faces=heel_faces)
