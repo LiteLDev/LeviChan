@@ -1,7 +1,10 @@
-"""Detached bishop sleeves: a drawstring-gathered top whose fabric flares up
-into a muted-green petal ruffle, tied with a green ribbon bow; a drooping
-balloon of fabric (light green under the drawstring fading to pale mint); and
-a two-tier white frilled cuff at the wrist.
+"""Detached bishop sleeves, modelled as hanging cloth: a fabric tube gathered
+under a soft drawstring band whose fabric flares into a low scalloped
+dark-green frill, tied with a flat ribbon bow (folded loops, wrapped knot,
+tapered tails); below the band the sleeve opens into a bell with a few broad
+longitudinal folds (light green under the band fading to pale mint), and is
+gathered again at the wrist, where its hem turns inward and a single white
+ruffle spills out toward the hand.
 
 Everything is modelled for the character's left arm (+X) and mirrored to the
 right with a Mirror modifier that is applied before the outline is added.
@@ -36,43 +39,91 @@ px = spec.px_to_h   # pixel length -> metres
 
 Y = Vector((0.0, 1.0, 0.0))
 
+
+def _smooth(e0, e1, x):
+    t = max(0.0, min(1.0, (x - e0) / (e1 - e0)))
+    return t * t * (3.0 - 2.0 * t)
+
+
 # ---------------------------------------------------------------- balloon
 # Stations down the sleeve. Each ring lies in the plane spanned by the front-view
 # segment (outer edge -> inner edge) and world Y, so the front silhouette is the
 # union of those segments and the side silhouette the union of ellipses.
 #   (outer edge col,row), (inner edge col,row), side-view centre col, side half-depth px
+# The side view is a bell: narrow under the band (the sheet's sleeve is ~45 px
+# deep at row 280 and ~60 px at row 300), widening to ~100 px above the cuff
+# and rounding off into the wrist gather.
 STATIONS = [
-    ((433, 280), (398, 304), 296, 21),   # s0 gathered under the band
-    ((450, 288), (382, 320), 295, 30),
-    ((465, 301), (373, 338), 297, 38),
-    ((486, 325), (393, 366), 299, 44),
-    ((509, 347), (414, 392), 301, 48),
+    ((433, 280), (398, 304), 296, 19),   # s0 gathered under the band
+    ((450, 288), (384, 320), 296, 27),
+    ((465, 301), (376, 338), 297, 35),
+    ((486, 325), (394, 366), 299, 42),
+    ((509, 347), (414, 392), 301, 46),
     ((535, 370), (437, 421), 302, 51),
-    ((556, 385), (461, 451), 302, 51),   # widest, just above the cuff
-    ((553, 395), (480, 457), 301, 44),
-    ((546, 401), (493, 455), 299, 32),
-    ((537, 405), (506, 447), 297, 15),   # gathered into the cuff
+    ((556, 385), (461, 451), 302, 52),   # widest, just above the cuff
+    ((553, 395), (480, 457), 301, 46),
+    ((546, 401), (493, 455), 299, 34),
+    ((537, 405), (506, 447), 297, 19),   # gathered into the cuff
 ]
-RING_N = 24
-SUPER = 0.82          # superellipse exponent (<1 = fuller, boxier balloon)
+RING_N = 32
+SUPER = 0.85          # superellipse exponent (<1 = fuller, boxier balloon)
 SUBDIV = 2            # interpolated rings per station gap
+
+# Folds. The radius is modulated by fold profiles whose crests sit on the
+# fitted surface (so the silhouette stays where the sheet draws it) and whose
+# valleys pull in: fine pleats where the drawstring and the wrist gather the
+# cloth, a few broad folds of real depth in the bell. The broad folds drift a
+# little around the arm on the way down so they do not run dead straight.
+GATHER_K = 8                  # pleats at the gathers (4 ring vertices each)
+GATHER_TOP, GATHER_CUFF = 0.22, 0.12
+BROAD_AMP = 0.19              # depth of the broad folds (fraction of the radius)
+BROAD_DRIFT = 1.1             # radians of drift from the band to the wrist
+
+
+def _fold(th, s):
+    """Radial factor at ring angle th and sleeve parameter s (0 band .. 1 wrist).
+
+    Valleys pull in; the bell is inflated by 0.3 of the broad-fold depth so
+    its mean radius (not its crests) stays on the fitted stations."""
+    fine = GATHER_TOP * (1.0 - _smooth(0.0, 0.3, s)) + GATHER_CUFF * _smooth(0.8, 1.0, s)
+    broad = BROAD_AMP * _smooth(0.06, 0.3, s) * (1.0 - 0.6 * _smooth(0.85, 1.0, s))
+    g_fine = math.cos(GATHER_K * th + 0.4)
+    d = BROAD_DRIFT * s
+    # two fold families: five folds fall from the band, seven open toward the
+    # wrist, so folds appear and fade down the sleeve instead of running as ridges
+    w5, w7 = 1.0 - 0.6 * s, 0.4 + 0.6 * s
+    g_broad = (w5 * math.cos(5 * th + 0.3 + d) + w7 * math.cos(7 * th + 1.1 - d)) / (w5 + w7)
+    # 0 on a crest, 1 in a valley; the exponent keeps crests broad and valleys narrower
+    v_fine = (1.0 - g_fine) / 2.0
+    v_broad = ((1.0 - g_broad) / 2.0) ** 1.25
+    return 1.0 - fine * v_fine - broad * v_broad + 0.3 * broad
+
 
 # Gradient sleeve_dark -> sleeve (0..1) by front-sheet row. Measured on the
 # sheet: right under the drawstring the balloon is already a light green
-# (~#A8CCAC, t~0.45), it pales fast to ~#D9EDD7 by row 334 and only reaches
+# (~#A8CCAC, t~0.45), it pales fast to ~#D9EDD7 by row 330 and only reaches
 # the plain sleeve mint around the elbow-level row ~400.
-GRAD_KEYS = ((278, 0.42), (290, 0.50), (310, 0.70), (334, 0.80),
-             (352, 0.85), (372, 0.92), (398, 1.0))
+GRAD_KEYS = ((278, 0.42), (291, 0.50), (306, 0.68), (330, 0.80),
+             (352, 0.86), (372, 0.92), (398, 1.0))
+
+
+GRAD_SIDE = 0.14             # the gathered top is darker on the body side, lighter outward
 
 
 def _grad(co):
     row = spec.panel_px('front', co)[1]
+    t = 1.0
     if row <= GRAD_KEYS[0][0]:
-        return GRAD_KEYS[0][1]
-    for (r0, t0), (r1, t1) in zip(GRAD_KEYS, GRAD_KEYS[1:]):
-        if row <= r1:
-            return t0 + (t1 - t0) * (row - r0) / (r1 - r0)
-    return 1.0
+        t = GRAD_KEYS[0][1]
+    else:
+        for (r0, t0), (r1, t1) in zip(GRAD_KEYS, GRAD_KEYS[1:]):
+            if row <= r1:
+                t = t0 + (t1 - t0) * (row - r0) / (r1 - r0)
+                break
+    # The sheet keeps the dark green under the band on the inner side (front
+    # view) while the outer side (side view) is already light.
+    u = max(-1.0, min(1.0, (co - BAND_MID).dot(BAND_E) / px(TIE_R)))
+    return t + GRAD_SIDE * u * (1.0 - _smooth(292.0, 330.0, row))
 
 
 def _catmull(p0, p1, p2, p3, t):
@@ -98,7 +149,8 @@ def _spow(v, e):
     return math.copysign(abs(v) ** e, v)
 
 
-def _ring(st, n=RING_N, scale=1.0, shift=None):
+def _ring(st, s, n=RING_N, scale=1.0, shift=None):
+    """Folded superellipse ring of station st at sleeve parameter s."""
     oc, orow, ic, irow, sc, ry = st
     po, pi = W(oc, orow), W(ic, irow)
     mid = (po + pi) / 2 + Y * px(sc - CX) + (shift if shift is not None else Vector())
@@ -107,7 +159,8 @@ def _ring(st, n=RING_N, scale=1.0, shift=None):
     pts = []
     for k in range(n):
         th = 2 * math.pi * k / n
-        pts.append(mid + a * _spow(math.cos(th), SUPER) + Y * (b * _spow(math.sin(th), SUPER)))
+        m = _fold(th, s)
+        pts.append(mid + (a * _spow(math.cos(th), SUPER) + Y * (b * _spow(math.sin(th), SUPER))) * m)
     return pts
 
 
@@ -129,32 +182,37 @@ def _loft_out(rings):
     return _orient_outward(bm, [sum(r, Vector()) / len(r) for r in rings])
 
 
+def _station_mid(st):
+    (oc, orow), (ic, irow), sc, _ = st
+    return (W(oc, orow) + W(ic, irow)) / 2 + Y * px(sc - CX)
+
+
 def _balloon_bm():
     flat = [(o[0], o[1], i[0], i[1], sc, ry) for o, i, sc, ry in STATIONS]
     sts = _interp(flat, SUBDIV)
-    rings = [_ring(s) for s in sts]
+    last = len(sts) - 1
+    rings = [_ring(st, i / last) for i, st in enumerate(sts)]
 
-    # Turned-in hems at both openings so the fabric reads as having thickness.
-    def inward(st, toward):
+    def inward(st, toward, d):
+        """Shift of d px from station st's centre toward the point `toward` (up the arm)."""
         oc, orow, ic, irow, sc, _ = st
-        c = (W(oc, orow) + W(ic, irow)) / 2
-        return (toward - c).normalized() * px(3)
+        c = (W(oc, orow) + W(ic, irow)) / 2 + Y * px(sc - CX)
+        return (toward - c).normalized() * px(d)
 
-    top_c = (W(*STATIONS[1][0]) + W(*STATIONS[1][1])) / 2
-    bot_c = (W(*STATIONS[-2][0]) + W(*STATIONS[-2][1])) / 2
-    rings.insert(0, _ring(sts[0], scale=0.86, shift=inward(sts[0], top_c)))
-    rings.append(_ring(sts[-1], scale=0.82, shift=inward(sts[-1], bot_c)))
+    # Top: the cloth tucks up under the drawstring band.
+    top_c = _station_mid(STATIONS[1])
+    rings.insert(0, _ring(sts[0], 0.0, scale=0.86, shift=inward(sts[0], top_c, 3)))
+    # Wrist: the hem turns inward over a short interior return (a thin lip,
+    # then a facing running back up inside), so the opening has depth.
+    bot_c = _station_mid(STATIONS[-2])
+    # (The lip ring keeps ~2 px edges to the hem: shorter edges tear under skinning.)
+    rings.append(_ring(sts[-1], 1.0, scale=0.95, shift=inward(sts[-1], bot_c, 3.0)))
+    rings.append(_ring(sts[-1], 1.0, scale=0.89, shift=inward(sts[-1], bot_c, 8.5)))
     return _loft_out(rings)
 
 
 # ---------------------------------------------------------------- band, frills
 DOWN_ARM = Vector((0.6, 0.0, -0.8))   # rough forearm direction, for orienting frames
-
-
-def _station_mid(st):
-    (oc, orow), (ic, irow), sc, _ = st
-    return (W(oc, orow) + W(ic, irow)) / 2 + Y * px(sc - CX)
-
 
 BAND_MID = _station_mid(STATIONS[0])    # gathered band wraps the first ring
 CUFF_MID = _station_mid(STATIONS[-1])   # cuff wraps the last ring
@@ -176,7 +234,7 @@ def _frame(o_px, i_px):
 
 
 BAND_E, BAND_AX = _frame(STATIONS[0][0], STATIONS[0][1])
-TIE = BAND_MID - BAND_AX * px(1)        # drawstring centre (ruffle waist, bow knot)
+TIE = BAND_MID - BAND_AX * px(1)        # drawstring centre (frill waist, bow knot)
 
 
 def _perp_xz(f):
@@ -185,17 +243,20 @@ def _perp_xz(f):
     return -e if e.x < 0 else e
 
 
-def _petal(th, k, phase, point):
-    """Periodic petal profile in -1..1: cosine blended toward a triangle wave
-    (point=1) so the crests come to soft points like the sheet's frills."""
-    c = math.cos(k * th + phase)
-    return (1.0 - point) * c + point * (2.0 / math.pi) * math.asin(max(-1.0, min(1.0, c)))
+def _lobe(th, k, phase):
+    """Lobe profile (about -1.2..1.2) with broad rounded crests and narrower
+    valleys (cloth scallops: the fullness rolls over, the gathers pinch), the
+    lobes made up to 22% uneven so the ring does not read as a cut star."""
+    u = (1.0 - math.cos(k * th + phase)) / 2.0          # 0 on a crest, 1 in a valley
+    g = 1.0 - 2.0 * u ** 1.6
+    return g * (1.0 + 0.22 * math.cos(3 * th + 0.8 + phase))
 
 
-def _frill_ring(c, e, ra, rb, n, k=0, amp=0.0, lift_dir=None, lift=0.0, phase=0.0, point=0.5):
-    """Ellipse (e, b) of radii ra, rb around c; k petals push the ring out
-    radially by amp and along lift_dir by lift at their crests. b is world Y
-    made perpendicular to e and lift_dir (= Y when lift_dir lies in XZ)."""
+def _frill_ring(c, e, ra, rb, n, k=0, amp=0.0, lift_dir=None, lift=0.0, phase=0.0):
+    """Ellipse (e, b) of radii ra, rb around c; k rounded lobes push the ring
+    out radially by amp and along lift_dir by lift at their crests (and pull
+    it in / down in the valleys between them). b is world Y made
+    perpendicular to e and lift_dir (= Y when lift_dir lies in XZ)."""
     b = Y.copy()
     if lift_dir is not None:
         b = b - lift_dir * b.dot(lift_dir)
@@ -203,7 +264,7 @@ def _frill_ring(c, e, ra, rb, n, k=0, amp=0.0, lift_dir=None, lift=0.0, phase=0.
     pts = []
     for j in range(n):
         th = 2 * math.pi * j / n
-        g = _petal(th, k, phase, point) if k else 0.0
+        g = _lobe(th, k, phase) if k else 0.0
         w = 1.0 + amp * g
         p = c + e * (ra * w * math.cos(th)) + b * (rb * w * math.sin(th))
         if lift_dir is not None and lift:
@@ -212,112 +273,97 @@ def _frill_ring(c, e, ra, rb, n, k=0, amp=0.0, lift_dir=None, lift=0.0, phase=0.
     return pts
 
 
-def _tube_bm(c, e, axis, ra, rb, a0, a1, n=24):
-    rings = [_frill_ring(c + axis * a, e, ra, rb, n) for a in (a0, (a0 + a1) / 2, a1)]
-    return _loft_out(rings)
-
-
-# Top ruffle. The sheet's heading is a tulip of soft pointed petals rising
-# out of the drawstring and curling outward at the rim: in both the front and
-# the side view the middle petals stand tallest (front row ~244, ~37 px above
-# the tie) while the side petals splay out lower (front tips ~(382, 281) and
-# (456, 266); side cols 257..332). It is lit on its upper face and shaded
-# where the petals turn down; pleats between the petals give the alternating
-# lit/shade folds the sheet paints.
-TIE_R = 22.0                  # px, drawstring radius (covers the balloon's ~22 px top ring)
+# Top frill. The sheet's heading is a low, softly scalloped frill rising out
+# of the drawstring and turning outward at the rim; its middle lobes reach
+# front row ~245 and the side lobes splay out lower (side cols 257..332).
+# Above the tie a short band of gathered cloth, then the frill opens with
+# rounded lobes, lit on top and shaded where they turn down; the rim rolls
+# under so the edge has a thickness and an outline.
+TIE_R = 22.0                  # px, drawstring radius (covers the balloon's ~19 px top ring)
 # Axis at the rim: tilted toward the body, flatter than the band (the sheet's
-# side petal tips slope down toward the body).
+# side lobes slope down toward the body).
 RIM_NORMAL = Vector((-0.2, 0.0, 0.98)).normalized()
-RUFFLE_SHIFT = Vector((px(5.0), 0.0, 0.0))   # rim centre offset (front: ~col 419)
-# (height along the axis px, radius front px, radius side px, pleat amp, petal lift px)
+RUFFLE_SHIFT = Vector((px(8.0), 0.0, 0.0))   # rim centre offset (front: ~col 423)
+# (height along the axis px, radius front px, radius side px, lobe amp, lobe lift px)
 RUFFLE_PROFILE = (
-    (0.0, TIE_R, TIE_R, 0.03, 0.0),       # cinched by the drawstring
-    (16.0, 25.0, 25.0, 0.10, 1.5),
-    (33.0, 30.0, 31.0, 0.16, 5.5),        # shoulder: the tallest petals
-    (30.0, 35.0, 36.0, 0.22, 6.0),        # rim curling outward and down
-    (27.5, 34.0, 35.0, 0.22, 6.0),        # rolled hem (gives the rim a fold line)
+    (0.0, TIE_R, TIE_R, 0.05, 0.0),       # cinched by the drawstring
+    (8.0, 23.0, 23.0, 0.07, 0.3),         # gathered band
+    (22.0, 29.0, 30.0, 0.12, 1.6),        # the frill opens
+    (30.5, 34.5, 35.5, 0.13, 2.4),        # rim, curling outward
+    (28.7, 35.0, 36.0, 0.13, 2.4),        # rolled out and under (gives the rim a fold line)
 )
-RUFFLE_N = 40
-RUFFLE_PETALS = 10
-RUFFLE_POINT = 0.0            # profile blend; at 4 samples per petal it has no effect
+RUFFLE_N = 56
+RUFFLE_LOBES = 8              # 7 ring vertices per lobe: rounded, not pointed
 
 
 def _ruffle_bm():
-    k, n = RUFFLE_PETALS, RUFFLE_N
+    k, n = RUFFLE_LOBES, RUFFLE_N
     # tucked into the balloon's gathered top
-    rings = [_frill_ring(BAND_MID + BAND_AX * px(6), BAND_E, px(TIE_R + 1), px(TIE_R + 1), n)]
+    rings = [_frill_ring(BAND_MID + BAND_AX * px(6), BAND_E, px(TIE_R - 1), px(TIE_R - 1), n)]
     last = len(RUFFLE_PROFILE) - 1
     for i, (h, ra, rb, amp, lift) in enumerate(RUFFLE_PROFILE):
         s = min(1.0, i / (last - 1))      # the hem shares the rim's frame
         f = (-BAND_AX).lerp(RIM_NORMAL, s).normalized()
         c = TIE + f * px(h) + RUFFLE_SHIFT * s
-        rings.append(_frill_ring(c, _perp_xz(f), px(ra), px(rb), n, k, amp, f, px(lift),
-                                 point=RUFFLE_POINT))
+        rings.append(_frill_ring(c, _perp_xz(f), px(ra), px(rb), n, k, amp, f, px(lift), 0.3))
     return _loft_out(rings)
 
 
-def _flare(c0, d0, c1, d1, r0, r1, n, k, steps, phase=0.0, point=0.5, power=1.2):
-    """Fluted frill lofted from a gathered ring (centre c0, normal d0, radii
-    r0 px) to a flared rim (c1, d1, r1 px). steps: one (s 0..1, pleat amp,
-    petal lift px) per ring."""
-    rings = []
-    for s, amp, lift in steps:
-        f = d0.lerp(d1, s).normalized()
-        sc = s ** power
-        ra, rb = r0[0] + (r1[0] - r0[0]) * sc, r0[1] + (r1[1] - r0[1]) * sc
-        rings.append(_frill_ring(c0.lerp(c1, s), _perp_xz(f), px(ra), px(rb), n, k, amp, f,
-                                 px(lift), phase, point))
-    return rings
-
-
-# Cuff: two tiers of fluted white frill spilling out of the balloon hem
+# Cuff: one white ruffle attached inside the gathered hem, spilling out
 # toward the hand and drooping a little (so the side view sees a bell, as
-# drawn, rather than looking straight into the opening).
-#   (offset along the arm px, base radii, rim radii, length px, petal phase)
-CUFF_TIERS = (
-    (1.0, (21, 15), (33, 38), 16.0, 0.0),
-    (8.0, (19, 14), (28, 33), 15.0, math.pi / 7),
-)
-CUFF_N = 35
-CUFF_FLUTES = 7
+# drawn, rather than looking straight into the opening). It is a closed
+# fold of cloth -- outer face, rolled rim, inner face back up to the
+# attachment -- so the edge has thickness and an outline without a
+# solidified plate edge.
+CUFF_N = 48
+CUFF_LOBES = 8
+# A mild droop only: a strongly one-sided ruffle swings round with the
+# forearm twist and folds into the hem.
 CUFF_DROOP = 0.6              # downward tilt added to the arm axis at the rim
-CUFF_FORWARD = 0.5            # forward (-Y) tilt: the front view sees into the shaded underside
-CUFF_STEPS = ((0.0, 0.0, 0.0), (0.5, 0.07, 1.0), (1.0, 0.15, 2.5))
-# The tiers are thin closed shells, not open sheets: an open rim facing the
-# camera gets no inverted-hull line, and the sheet's frill lobes are all
-# outlined.
-CUFF_THICK = 1.0              # px
+CUFF_FORWARD = 0.35           # forward (-Y) tilt: the front view sees into the shaded underside
+CUFF_ROOT = -4.0              # px along the arm: attachment, inside the turned-in hem
+#   (s along the ruffle 0..1, radius front px, radius side px, lobe amp, lobe lift px)
+CUFF_PROFILE = (
+    (0.00, 20.0, 14.5, 0.03, 0.0),        # sewn inside the hem facing
+    (0.45, 24.5, 21.5, 0.10, 1.0),
+    (1.00, 33.0, 34.0, 0.14, 2.0),        # free edge
+    (0.96, 33.3, 34.3, 0.14, 2.0),        # rolled rim
+    (0.45, 23.5, 20.5, 0.10, 1.0),        # inner face
+    (0.05, 19.3, 13.8, 0.03, 0.0),
+)
+CUFF_LEN = 27.0               # px, attachment -> rim
 
 
-def _cuff_bms():
+def _cuff_bm():
     e, axis = _frame(STATIONS[-1][0], STATIONS[-1][1])
-    c = CUFF_MID
-    # Elliptical like the balloon's turned-in hem (~21 x 12 px) so no gap shows.
-    band = _tube_bm(c, e, axis, px(22), px(15), px(-3), px(6), n=16)
+    c0 = CUFF_MID + axis * px(CUFF_ROOT)
     droop = (axis + Vector((0.0, -CUFF_FORWARD, -CUFF_DROOP))).normalized()
-    tiers = []
-    for off, r0, r1, length, ph in CUFF_TIERS:
-        c0 = c + axis * px(off)
-        rings = _flare(c0, axis, c0 + droop * px(length), droop, r0, r1, CUFF_N, CUFF_FLUTES,
-                       CUFF_STEPS, ph, 0.0, power=1.4)
-        bm = _loft_out(rings)
-        bmesh.ops.solidify(bm, geom=bm.faces[:], thickness=px(CUFF_THICK))
-        bm.normal_update()
-        tiers.append(bm)
-    return band, tiers
+    rings = []
+    for s, ra, rb, amp, lift in CUFF_PROFILE:
+        f = axis.lerp(droop, s).normalized()
+        c = c0 + (axis.lerp(droop, 0.5).normalized()) * px(CUFF_LEN * s)
+        rings.append(_frill_ring(c, _perp_xz(f), px(ra), px(rb), CUFF_N, CUFF_LOBES,
+                                 amp * s ** 0.7, f, px(lift), math.pi / CUFF_LOBES))
+    return _loft_out(rings)
 
 
 # ---------------------------------------------------------------- bow + ribbons
 # The sheet draws the bow face-on in every view (front knot ~(430, 277), side
 # ~col 294), so it sits on the front-outer diagonal of the band where both
-# the front and the side views see it, its two loops lying along the band and
-# drooping down the sleeve, outlined dark green like the sheet's ribbon.
-RIB_R = 0.0019
+# the front and the side views see it. It is flat ribbon: two folded loops
+# (pinched at the knot, opening into broad wings, each a front and a back
+# layer joined by a rounded fold at the tip) lying along the band and
+# drooping down the sleeve, a wrapped knot over their roots, and two tails.
+RIB_W = 3.8                   # px, ribbon width (tails)
+RIB_T = 0.8                   # px, ribbon thickness
 BOW_ANG = math.radians(55.0)  # around the band from front (-Y) toward the outer side
-LOOP_LEN = 36.0               # px, knot -> loop tip
-LOOP_W = 15.0                 # px, loop opening
-LOOP_DROOP = math.radians(30.0)
-LOOP_SPLAY = 6.0              # px the loop tips stand off the band (seen in front and side)
+# (horizontal direction (x, y) for the +side loop, length px, wing width px at
+# the fold, droop deg, loop height px). The sheet draws the loops spread wide
+# in both the front and the side view, so they point between X and Y.
+LOOPS = (((0.75, 0.66), 29.0, 10.0, 22.0, 8.5), ((0.75, 0.66), 27.0, 9.5, 32.0, 8.0))
+LOOP_TILT = math.radians(30.0)   # wing width turned out of the cloth: the openings show
+LOOP_ROOT_W = 3.6             # px, ribbon width where the loop is pinched by the knot
+LOOP_M = 12                   # samples around a loop
 FRONT_TAILS = [
     [(437, 313), (453, 340), (457, 373), (442, 400), (432, 440)],
     [(429, 315), (427, 345), (428, 372), (417, 398), (413, 424)],
@@ -327,6 +373,7 @@ BACK_TAILS = [
     [(436, 312), (451, 335), (455, 372), (441, 401), (431, 441)],
     [(428, 316), (427, 347), (414, 373), (417, 400), (417, 426)],
 ]
+TAIL_SUB = 2                  # Catmull-Rom points per tail polyline gap
 
 
 def _polyline(pts, sub=2):
@@ -334,68 +381,188 @@ def _polyline(pts, sub=2):
     return [Vector(p) for p in _interp(rows, sub)]
 
 
-def _clear(p, bvhs, gap):
-    """Push p out of each (outward-oriented) surface in bvhs to at least gap."""
-    for bvh in bvhs:
-        loc, nrm, _, _ = bvh.find_nearest(p)
-        if loc is not None and (p - loc).dot(nrm) < gap:
-            p = loc + nrm * gap
-    return p
-
-
-def _knot_bm(c, r, u=8, v=5):
+def _strip(pts, wdirs, widths, thick, closed=False):
+    """Flat ribbon (4-vertex rectangular section) along pts. The width runs
+    along wdirs (made perpendicular to the path), the thickness across it.
+    Open strips are capped."""
+    n = len(pts)
     bm = bmesh.new()
-    bmesh.ops.create_uvsphere(bm, u_segments=u, v_segments=v, radius=r)
-    bmesh.ops.translate(bm, vec=c, verts=bm.verts)
+    rings = []
+    for i in range(n):
+        if closed:
+            t = pts[(i + 1) % n] - pts[(i - 1) % n]
+        else:
+            t = pts[min(i + 1, n - 1)] - pts[max(i - 1, 0)]
+        t.normalize()
+        w = wdirs[i] - t * wdirs[i].dot(t)
+        w.normalize()
+        nrm = t.cross(w)
+        hw, ht = px(widths[i]) / 2, px(thick) / 2
+        p = pts[i]
+        rings.append([bm.verts.new(p + w * hw + nrm * ht), bm.verts.new(p - w * hw + nrm * ht),
+                      bm.verts.new(p - w * hw - nrm * ht), bm.verts.new(p + w * hw - nrm * ht)])
+    pairs = list(zip(rings, rings[1:]))
+    if closed:
+        pairs.append((rings[-1], rings[0]))
+    for a, b in pairs:
+        for j in range(4):
+            k = (j + 1) % 4
+            bm.faces.new((a[j], a[k], b[k], b[j]))
+    if not closed:
+        bm.faces.new(list(reversed(rings[0])))
+        bm.faces.new(rings[-1])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     return bm
 
 
-def _bow(bvhs):
-    """Knot + two loops on the front-outer band; returns (knot point, [bm]).
-    Loop points are kept clear of the surfaces in bvhs (balloon, ruffle)."""
-    e0, ax0 = BAND_E, BAND_AX
-    d = e0 * math.sin(BOW_ANG) - Y * math.cos(BOW_ANG)   # out of the band
-    t = e0 * math.cos(BOW_ANG) + Y * math.sin(BOW_ANG)   # along the band
-    knot = TIE + d * px(TIE_R + 3.5)
-    out = [_knot_bm(knot, px(3.4))]
-    m = 16
-    L, Wd = px(LOOP_LEN), px(LOOP_W)
-    for s in (-1, 1):
-        u = t * (s * math.cos(LOOP_DROOP)) + ax0 * math.sin(LOOP_DROOP)
-        v = ax0 * math.cos(LOOP_DROOP) - t * (s * math.sin(LOOP_DROOP))
-        pts = []
-        for j in range(m + 1):
-            tau = 2 * math.pi * j / m
-            a = (1 - math.cos(tau)) / 2               # 0 at the knot, 1 at the tip
-            p = (knot + u * (L * a) + v * (Wd / 2 * math.sin(tau) * a ** 0.4)
-                 + d * (px(3.0) * math.sin(math.pi * a) + px(LOOP_SPLAY) * a))
-            pts.append(_clear(p, bvhs, px(2.2)))
-        pts[-1] = pts[0] + u * px(0.6)  # avoid a coincident start/end ring
-        out.append(common.tube_along(pts, [RIB_R] * len(pts), n=4))
+def _band_dirs(phi):
+    """(radial, tangent) unit vectors around the band at angle phi from the front."""
+    r = BAND_E * math.sin(phi) - Y * math.cos(phi)
+    t = BAND_E * math.cos(phi) + Y * math.sin(phi)
+    return r, t
+
+
+def _surface_r(bvh, r, z, floor):
+    """Radius of the sleeve surface around the band axis along radial r, z down the arm."""
+    o = TIE + BAND_AX * z
+    hit = bvh.ray_cast(o + r * px(2), r, px(60))
+    rad = (hit[0] - o).dot(r) if hit[0] is not None else floor
+    return max(rad, floor)
+
+
+def _band_coords(p):
+    """(z down the arm, unit radial vector, radius) of p around the band axis."""
+    d = p - TIE
+    z = d.dot(BAND_AX)
+    q = d - BAND_AX * z
+    rad = q.length
+    return z, q / rad, rad
+
+
+def _barrel(c, axis, u, ru, rv, length, n=8):
+    """Small capped barrel (the wrapped knot): axis direction, section radii
+    ru along u and rv across it."""
+    v = axis.cross(u).normalized()
+    rings = []
+    for a, s in ((-0.5, 0.8), (0.0, 1.0), (0.5, 0.8)):
+        cc = c + axis * (length * a)
+        rings.append([cc + u * (ru * s * math.cos(2 * math.pi * j / n))
+                      + v * (rv * s * math.sin(2 * math.pi * j / n)) for j in range(n)])
+    bm = common.loft(rings, closed=True, cap_start=True, cap_end=True)
+    return bm
+
+
+def _bow(bvh):
+    """Knot + two folded loops on the front-outer band; returns (knot point, [bm])."""
+    gap = px(1.2)
+    floor = px(TIE_R + 0.5)
+    r0, t0 = _band_dirs(BOW_ANG)
+    knot_r = _surface_r(bvh, r0, 0.0, floor) + gap + px(2.6)
+    knot = TIE + r0 * knot_r
+    out = [_barrel(knot, t0, BAND_AX, px(LOOP_ROOT_W / 2 + 1.6), px(3.1), px(5.5))]
+    down = Vector((0.0, 0.0, -1.0))
+    for side, (hdir, length, wing, droop_deg, height) in zip((-1, 1), LOOPS):
+        dr = math.radians(droop_deg)
+        u = (Vector((side * hdir[0], side * hdir[1], 0.0)).normalized() * math.cos(dr)
+             + down * math.sin(dr)).normalized()
+        pts, wd, ws = [], [], []
+        for j in range(LOOP_M):
+            tau = 2 * math.pi * j / LOOP_M
+            a = (1 - math.cos(tau)) / 2               # 0 at the knot, 1 at the fold
+            z, rr, rad = _band_coords(knot + u * (px(length) * a))
+            # the loop is a straight stiff wing, laid onto the cloth where it would cut in
+            base = max(rad - px(2.6), _surface_r(bvh, rr, z, floor) + gap)
+            # front layer (sin > 0) and back layer meet at the knot and the fold;
+            # the loop stands off most at its middle
+            lift = px(height) * (0.5 + 0.5 * math.sin(tau)) * math.sin(math.pi * min(a * 1.25, 1.0)) ** 0.6
+            pts.append(TIE + BAND_AX * z + rr * (base + lift))
+            # width across the path, lying on the cloth (tilted out a little)
+            wd.append(u.cross(rr) * math.cos(LOOP_TILT) + rr * math.sin(LOOP_TILT))
+            # teardrop wing: pinched at the knot, fullest before the fold, rounded at it
+            spread = math.sin(math.pi / 2 * min(a / 0.7, 1.0)) * (1.0 - 0.15 * _smooth(0.7, 1.0, a))
+            ws.append(LOOP_ROOT_W + (wing - LOOP_ROOT_W) * spread)
+        out.append(_strip(pts, wd, ws, RIB_T, closed=True))
     return knot, out
 
 
+def _stand(s):
+    """Tail clearance off the cloth at s (0 knot .. 1 end): closest at the ends."""
+    return px(1.6 + 1.6 * math.sin(math.pi * s) ** 2)
+
+
+SLEEVE_AXIS = (BAND_MID, CUFF_MID)
+
+
+def _outward(loc, nh):
+    """nh flipped, if needed, to point away from the sleeve axis at loc (the
+    turned-in hem facings have inward-facing normals)."""
+    a, b = SLEEVE_AXIS
+    d = b - a
+    t = max(0.0, min(1.0, (loc - a).dot(d) / d.length_squared))
+    return -nh if nh.dot(loc - (a + d * t)) < 0 else nh
+
+
 def _tails(knot, bvh, front=True):
-    """Ribbon tails hanging from the knot, draped just outside the balloon."""
+    """Flat ribbon tails hanging from the knot over the balloon, tapering and
+    turning a little as they fall, standing a little off the cloth mid-way."""
     out = []
     sign = -1.0 if front else 1.0
     kc, kr = spec.panel_px('front', knot)
-    for path in (FRONT_TAILS if front else BACK_TAILS):
-        pts2 = _polyline([(kc, kr)] + path)
-        pts = [knot]
-        y_prev = knot.y
-        for p2 in pts2[1:]:
+    for ti, path in enumerate(FRONT_TAILS if front else BACK_TAILS):
+        pts2 = _polyline([(kc, kr)] + path, TAIL_SUB)
+        m = len(pts2)
+        pts, nrms = [knot], [None]
+        y_prev, n_prev = knot.y, Vector((0.0, sign, 0.0))
+        for j, p2 in enumerate(pts2[1:], 1):
+            s = j / (m - 1)
             o = W(p2.x, p2.y)
             o.y = sign * 1.0
-            hit = bvh.ray_cast(o, Y * (-sign), 2.0)
-            y = hit[0].y + sign * px(2.2) if hit[0] is not None else y_prev
-            if sign * (y - knot.y) < 0:      # never tuck behind the knot
-                y = knot.y
-            y_prev = y
-            pts.append(Vector((o.x, y, o.z)))
-        radii = [RIB_R] * len(pts)
-        radii[-1] = RIB_R * 0.7
-        out.append(common.tube_along(pts, radii, n=4))
+            hit, nh, _, _ = bvh.ray_cast(o, Y * (-sign), 2.0)
+            stand = _stand(s)
+            if hit is not None:
+                if nh.y * sign < 0:
+                    nh = -nh
+                p = hit + nh * stand
+                y_prev, n_prev = p.y, nh
+            else:
+                # past the sleeve's edge: wrap onto the nearest cloth instead of
+                # hanging free (a free end would swing off the sleeve when the arm moves)
+                loc, nh, _, _ = bvh.find_nearest(Vector((o.x, y_prev, o.z)))
+                if loc is None:
+                    loc, nh = Vector((o.x, y_prev, o.z)), n_prev
+                else:
+                    nh = _outward(loc, nh)
+                p = loc + nh * stand
+                y_prev, n_prev = p.y, nh
+            if sign * (p.y - knot.y) < 0:      # never tuck behind the knot
+                p.y = knot.y
+            pts.append(p)
+            nrms.append(nh)
+        nrms[0] = nrms[1]
+        # relax kinks left by the projection, then keep the strip off the cloth
+        for _ in range(2):
+            pts = [pts[0]] + [(pts[j - 1] + pts[j] * 2 + pts[j + 1]) / 4 for j in range(1, m - 1)] + [pts[-1]]
+        for j in range(1, m):
+            s = j / (m - 1)
+            loc, nh, _, _ = bvh.find_nearest(pts[j])
+            if loc is not None:
+                nh = _outward(loc, nh)
+                if nh.dot(pts[j] - loc) < 0 or (pts[j] - loc).length < px(1.4):
+                    pts[j] = loc + nh * _stand(s)
+                nrms[j] = nh
+            if sign * (pts[j].y - knot.y) < 0:      # still never behind the knot
+                pts[j].y = knot.y
+        wd, ws = [], []
+        for j, p in enumerate(pts):
+            t = pts[min(j + 1, m - 1)] - pts[max(j - 1, 0)]
+            w = nrms[j].cross(t).normalized()
+            # gentle twist so the face turns toward and away from the light
+            s = j / (m - 1)
+            ang = 0.45 * math.sin(2 * math.pi * 1.1 * s + 1.7 * ti) * _smooth(0.0, 0.25, s)
+            nf = t.normalized().cross(w)
+            wd.append(w * math.cos(ang) + nf * math.sin(ang))
+            ws.append(RIB_W * (1.0 - 0.3 * s))
+        out.append(_strip(pts, wd, ws, RIB_T))
     return out
 
 
@@ -426,33 +593,24 @@ def _join(bms):
 def build(col):
     sleeve_mat = common.toon_material('sleeve_dark', gradient='sleeve')
     green = common.toon_material('green')
-    # Plain palette materials: the ruffle renders exactly sleeve_dark, the
-    # cuff exactly cuff (the sheet's cuff shade is greyer, ~#D8D0C9; that
-    # would be a palette change).
+    # Plain palette materials: the frill renders exactly sleeve_dark, the
+    # cuff exactly cuff.
     ruffle_mat = common.toon_material('sleeve_dark')
     cuff = common.toon_material('cuff')
 
     balloon = _balloon_bm()
     balloon.normal_update()
-    ruffle = _ruffle_bm()
-    ruffle.normal_update()
     bvh = BVHTree.FromBMesh(balloon)
 
-    # Bow and tails are fitted to the balloon before the meshes are handed to
-    # Blender. The loops are not pushed off the ruffle: its flare would fling
-    # them up the arm. They stay clear of it on their own (knot TIE_R + 3.5 px
-    # out, loops splaying further out, at most ~6 px up the arm where the
-    # ruffle is still ~23 px in radius).
-    knot, bow = _bow([bvh])
+    knot, bow = _bow(bvh)
     back = BAND_E * math.sin(BOW_ANG) + Y * math.cos(BOW_ANG)
     knot_b = TIE + back * px(TIE_R + 2.5)
+    _, tb = _band_dirs(math.pi - BOW_ANG)
     ribbon = (bow + _tails(knot, bvh, front=True)
-              + [_knot_bm(knot_b, px(2.6), 6, 4)] + _tails(knot_b, bvh, front=False))
+              + [_barrel(knot_b, tb, BAND_AX, px(2.6), px(2.2), px(4.0))]
+              + _tails(knot_b, bvh, front=False))
 
     _finish(col, 'sleeve_balloon', balloon, sleeve_mat, grad=_grad)
-    _finish(col, 'sleeve_ruffle', ruffle, ruffle_mat)
-
-    cuff_band, tiers = _cuff_bms()
-    _finish(col, 'sleeve_cuff', _join([cuff_band] + tiers), cuff)
-
+    _finish(col, 'sleeve_ruffle', _ruffle_bm(), ruffle_mat)
+    _finish(col, 'sleeve_cuff', _cuff_bm(), cuff)
     _finish(col, 'sleeve_ribbon', _join(ribbon), green, outline=spec.OUTLINE_WIDTH * 0.5)
