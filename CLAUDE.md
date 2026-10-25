@@ -47,6 +47,7 @@ The body part may store fitted limb joints for the rig as `obj["levi_joints"] = 
   - Twist bones 腕捩 and 手捩 have a fixed axis.
   - Skirt chains hang from `スカートN追従左/右`. Each of these appends (回転付与) a share of one thigh's rotation (`rig.skirt_follow`): 100% at centre front and 50% at the back, split between the two legs by angle.
   - Back hair and side locks hang from `髪追従`, which takes 60% of the head's turn.
+  - Elbow and knee helpers `ひじ補助` / `ひざ補助` take half of the lower bone's bend. They carry the band of skin and cloth around the joint, which avoids collapse and outer-side stretch at deep bends.
   - Blender evaluates these follows with Copy Rotation constraints. `export_pmx.py` writes them as PMX append, fixed-axis and local-axis bones.
 - Skinning, per part:
   - Garments are positional, but skirt and petticoat weights are angle × height blends of the two nearest skirt chains plus 上半身/下半身. They are never weighted to the legs directly, because the chains follow the legs. This holds for any skirt-family layer, including one between the thighs.
