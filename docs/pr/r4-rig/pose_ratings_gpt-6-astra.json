@@ -1,0 +1,89 @@
+{
+  "poses": [
+    {
+      "pose": "test",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "arms_up",
+      "rating": "minor",
+      "note": "The exposed underarm contours are slightly angular, and the bodice edge forms a small irregular pale patch at the side of the chest, most apparent in the shoulder close-up."
+    },
+    {
+      "pose": "arms_forward",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "wrist_twist_pos",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "wrist_twist_neg",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "squat",
+      "rating": "minor",
+      "note": "The deeply bent knees retain localized pinching and angular indentations at the inner folds in the clay close-up, but these are unobtrusive in the dressed views."
+    },
+    {
+      "pose": "walk",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "head_left",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "head_right",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "torso_left",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "torso_right",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "swing",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "fist",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "raise_bend",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "reach_forward",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "forward_bend",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "side_bend",
+      "rating": "clean",
+      "note": ""
+    }
+  ]
+}

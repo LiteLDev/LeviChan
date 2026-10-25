@@ -6,7 +6,7 @@
 POSES (rig_check deforms the model with every one of them):
   test             round-1 pose: elbows 60 deg, head 30 deg, left leg raised through
                    足ＩＫ.L, right knee 60 deg by FK, hair / sleeve / skirt chains swung a little
-  arms_up          both arms overhead, shoulders shrugged 15 deg (model lowered 17 cm to stay in frame)
+  arms_up          both arms overhead, shoulders shrugged 8 deg by hand + the rig's own shrug (model lowered 17 cm)
   arms_forward     upper arms forward, hands shoulder-width apart, elbows bent 120 deg upward
   wrist_twist_pos  forearms twisted +60 deg (手捩 when the rig has it, else 手首)
   wrist_twist_neg  ... -60 deg
@@ -14,7 +14,7 @@ POSES (rig_check deforms the model with every one of them):
   walk             stride: left foot forward and lifted, right foot back, arm swing
   head_left/right  head turned 45 deg and tilted 15 deg
   torso_left/right upper body twisted 30 deg
-  swing            back hair, side locks, sleeve drapes and skirt chains swung hard
+  swing            back hair (spread down each chain), side locks, sleeve drapes and skirt chains swung hard
   fist             both hands closed into fists (fingers curled 75/90/60 deg), elbows 30 deg
   raise_bend       arms raised 45 deg sideways, elbows 60 deg
   reach_forward    arms swung 45 deg forward, elbows 90 deg
@@ -152,9 +152,11 @@ def pose_test(arm):
 
 
 def pose_arms_up(arm):
+    # the rig lifts the shoulders by itself as the arms rise (rig.SHOULDER_SHRUG): 8 deg by
+    # hand on top of that (round 3: 15 deg with no automatic shrug)
     move(arm, '全ての親', (0.0, 0.0, -0.17))      # whole model lowered: keeps the hands inside render.py's frame
     for tag, s in (('L', 1), ('R', -1)):
-        bend(arm, f'肩.{tag}', (0, 0, 1), 15)
+        bend(arm, f'肩.{tag}', (0, 0, 1), 8)
         aim(arm, f'腕.{tag}', (0.6 * s, -0.1, 1.0))
         bend(arm, f'ひじ.{tag}', (0, -1, 0), 25)
 
@@ -226,10 +228,16 @@ def pose_torso_right(arm):
     turn(arm, '上半身2', (0, 0, 1), -10)
 
 
+SWING_SPREAD = (0.4, 0.25, 0.2, 0.15)   # share of a hair chain's swing per segment, root first
+
+
 def pose_swing(arm):
-    for n in _chains(arm, '後髪'):
-        turn(arm, n, (0, 1, 0), 20)
-        turn(arm, n, (1, 0, 0), 15)
+    # back hair swings like hanging hair under physics: the turn is spread down each chain
+    # (SWING_SPREAD), so a lock bends along its length instead of pivoting at the scalp
+    for i, share in enumerate(SWING_SPREAD):
+        for n in _chains(arm, '後髪', f'_{i}'):
+            turn(arm, n, (0, 1, 0), 20 * share)
+            turn(arm, n, (1, 0, 0), 15 * share)
     for n in _chains(arm, '横髪'):
         turn(arm, n, (1, 0, 0), 20)
     for n in _chains(arm, '袖'):

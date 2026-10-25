@@ -47,8 +47,11 @@ CORE_PARENTS = {
 }
 for _t in 'LR':
     CORE_PARENTS.update({
-        f'目.{_t}': '頭', f'肩.{_t}': '上半身2', f'腕.{_t}': f'肩.{_t}', f'ひじ.{_t}': f'腕捩.{_t}',
-        f'腕捩.{_t}': f'腕.{_t}', f'手捩.{_t}': f'ひじ.{_t}',
+        f'目.{_t}': '頭', f'肩.{_t}': '上半身2', f'ひじ.{_t}': f'腕捩.{_t}',
+        # with the shoulder shrug (rig.SHOULDER_SHRUG) 腕 is the keyed input and the arm
+        # chain hangs from the deforming 腕D
+        f'腕.{_t}': f'肩.{_t}',
+        f'腕捩.{_t}': f'腕D.{_t}' if rig.SHOULDER_SHRUG > 1e-4 else f'腕.{_t}', f'手捩.{_t}': f'ひじ.{_t}',
         f'手首.{_t}': f'手捩.{_t}', f'親指０.{_t}': f'手首.{_t}', f'親指１.{_t}': f'親指０.{_t}',
         f'親指２.{_t}': f'親指１.{_t}',
         f'足.{_t}': '下半身', f'ひざ.{_t}': f'足.{_t}', f'足首.{_t}': f'ひざ.{_t}', f'つま先.{_t}': f'足首.{_t}',

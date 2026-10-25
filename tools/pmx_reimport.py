@@ -31,7 +31,7 @@ def check_append(arm, errors, source='左足', deg=40.0):
     """Turn bone `source` and check every bone that appends its rotation (回転付与) turns
     by its influence times as much in the re-imported model."""
     import math
-    from mathutils import Quaternion
+    from mathutils import Matrix, Quaternion, Vector
     pbs = [pb for pb in arm.pose.bones if not pb.is_mmd_shadow_bone]
     leg = next((pb for pb in pbs if pb.mmd_bone.name_j == source), None)
     users = [pb for pb in pbs if pb.mmd_bone.has_additional_rotation and leg is not None
@@ -49,9 +49,18 @@ def check_append(arm, errors, source='左足', deg=40.0):
     leg.rotation_mode = 'QUATERNION'
     leg.rotation_quaternion = Quaternion((1, 0, 0), math.radians(deg))
     bpy.context.view_layer.update()
+    # the source's turn axis in world space (its parent stays at rest in this FK test)
+    src_axis = (leg.bone.matrix_local.to_3x3() @ Vector((1, 0, 0))).normalized()
     worst = 0.0
     for pb in users:
-        got = math.degrees(rest[pb.name].rotation_difference(own(pb)).angle)
+        d = own(pb) @ rest[pb.name].inverted()        # turn since rest, in the parent's frame
+        got = math.degrees(d.angle)
+        if got > 1e-3:
+            # signed by the turn axis (in world space) against the source's, so a negative
+            # share (cancel bones) must turn the other way
+            par = pb.parent.matrix.to_3x3() if pb.parent else Matrix.Identity(3)
+            if (par @ d.axis).dot(src_axis) < 0:
+                got = -got
         want = deg * pb.mmd_bone.additional_transform_influence
         worst = max(worst, abs(got - want))
     print(f'append check   {len(users)} bones follow {source}, worst error {worst:.2f} deg')
@@ -63,6 +72,25 @@ def check_append(arm, errors, source='左足', deg=40.0):
     bpy.context.view_layer.update()
 
 
+
+
+def check_morphs(pmx, want, errors):
+    """Every exported vertex morph (e.g. まばたき) is in the PMX, moves some vertices, and is
+    listed in a display frame so MMD's facial panel shows it."""
+    got = {m.name: m for m in pmx.morphs}
+    shown = {i for d in pmx.display for t, i in d.data if t == 1}     # type 1: morph items
+    for n in want:
+        m = got.get(n)
+        if m is None:
+            errors.append(f'vertex morph {n} missing after export')
+            continue
+        moved = sum(1 for o in m.offsets if max(abs(c) for c in o.offset) > 1e-6)
+        idx = pmx.morphs.index(m)
+        print(f'morph {n}: {moved} vertices move, panel {m.category}')
+        if not moved:
+            errors.append(f'vertex morph {n} moves no vertices')
+        if idx not in shown:
+            errors.append(f'vertex morph {n} is in no display frame')
 
 
 def check_names(pmx, errors):
@@ -412,6 +440,7 @@ def main():
     check_ik_limits(pmx, errors)
     check_textures(pmx, path, errors)
     print(f'morphs {len(pmx.morphs)}' + ('' if pmx.morphs else ' (none: the eyes and mouth are painted in the face texture)'))
+    check_morphs(pmx, expect.get('vertex_morphs', []), errors)
 
     if args.save:
         out = os.path.join(ROOT, args.save)
