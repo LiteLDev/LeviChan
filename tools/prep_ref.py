@@ -1,12 +1,19 @@
 """Crop the three-view sheet into per-view panels and silhouette masks.
 
 Run once (outputs are committed):
-    blender -b --factory-startup -P tools/prep_ref.py
+    blender -b --factory-startup -P tools/prep_ref.py [-- --regions-only]
 
 Writes ref/{front,side,back}.png (RGB crop) and ref/{front,side,back}_mask.png
 (white = character, black = background), each PANEL_W x PANEL_H, aligned so
 that spec.panel_px() maps world coordinates onto them.
+
+Then writes ref/{front,side,back}_regions.png: the character segmented into
+levi.regions regions (skin / hair / dress / green / petticoat / shoe) by
+nearest spec.PALETTE colour plus spatial priors, colour-coded with
+regions.LABEL_RGB. --regions-only rebuilds just these from the committed
+panels and masks (rerun it after retuning spec.PALETTE).
 """
+import argparse
 import os
 import sys
 
@@ -15,7 +22,7 @@ import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-from levi import spec  # noqa: E402
+from levi import regions, spec  # noqa: E402
 
 CLOSE_PX = 3
 
@@ -58,7 +65,18 @@ def grow(seed, allowed):
         cur = nxt
 
 
-def main():
+def write_regions():
+    for view in spec.VIEWS:
+        rgb = load_rgb(os.path.join(ROOT, 'ref', f'{view}.png'))
+        mask = load_rgb(os.path.join(ROOT, 'ref', f'{view}_mask.png'))[:, :, 0] > 0.5
+        labels = regions.classify_reference(rgb, mask, view)
+        save_rgb(os.path.join(ROOT, 'ref', f'{view}_regions.png'), regions.encode(labels))
+        counts = {r: int((labels == regions.LABEL[r]).sum()) for r in regions.REGION_NAMES}
+        counts['unknown'] = int((labels == regions.UNKNOWN).sum())
+        print(view, 'regions px', counts)
+
+
+def crop_panels():
     sheet = load_rgb(os.path.join(ROOT, 'ref', 'levi_threeview.png'))
     h, w = sheet.shape[:2]
     whiteish = sheet.min(axis=2) > 0.90
@@ -106,6 +124,15 @@ def main():
         save_rgb(os.path.join(ROOT, 'ref', f'{view}.png'), crop)
         save_rgb(os.path.join(ROOT, 'ref', f'{view}_mask.png'), mask)
         print(view, 'mask px', int(mask.sum()))
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--regions-only', action='store_true')
+    args = ap.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
+    if not args.regions_only:
+        crop_panels()
+    write_regions()
 
 
 main()
