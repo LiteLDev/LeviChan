@@ -1,9 +1,10 @@
 """Tile per-pose renders into one front | side | back sheet per pose.
 
-    blender -b --factory-startup -P tools/rig_sheet.py -- --dir out/poses --out docs/pr/r2-rig [--scale 0.5]
+    blender -b --factory-startup -P tools/rig_sheet.py -- --dir out/poses --out docs/pr/r2-rig [--scale 0.5] [--bg transparent]
 
 --dir holds one sub-folder per pose with render.py's front.png / side.png / back.png
-(see the pose-render loop in CLAUDE.md); writes <out>/<pose>.png. Only bpy + numpy.
+(see the pose-render loop in CLAUDE.md); writes <out>/<pose>.png, composited over
+white by default (--bg transparent keeps the alpha). Only bpy + numpy.
 """
 import argparse
 import os
@@ -48,6 +49,7 @@ def main():
     ap.add_argument('--dir', default='out/poses')
     ap.add_argument('--out', default='out/poses/sheets')
     ap.add_argument('--scale', type=float, default=1.0)
+    ap.add_argument('--bg', default='white', choices=('white', 'transparent'))
     args = ap.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
     src, out = os.path.join(ROOT, args.dir), os.path.join(ROOT, args.out)
     os.makedirs(out, exist_ok=True)
@@ -56,8 +58,12 @@ def main():
         if not all(os.path.isfile(f) for f in files):
             continue
         tiles = [shrink(load(f), args.scale) for f in files]
+        if args.bg == 'white':
+            tiles = [np.concatenate([t[..., :3] * t[..., 3:] + (1.0 - t[..., 3:]), np.ones_like(t[..., 3:])], 2)
+                     for t in tiles]
         h = min(t.shape[0] for t in tiles)
-        gap = np.ones((h, 4, 4), dtype=np.float32)
+        gap = np.zeros((h, 4, 4), dtype=np.float32)
+        gap[..., 3] = 1.0          # a dark separator line
         row = [tiles[0][:h]]
         for t in tiles[1:]:
             row += [gap, t[:h]]

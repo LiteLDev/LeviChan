@@ -32,10 +32,13 @@ import bpy  # noqa: E402
 import numpy as np  # noqa: E402
 from mathutils import Euler, Vector  # noqa: E402
 
-from levi import rig, spec  # noqa: E402
+from levi import rig, spec, toon  # noqa: E402
 
 MMD_SCALE = 12.5          # MMD units per metre
 TOON_SIZE = 32
+GRAD_SIZE = 64
+MMD_LIGHT = 154.0 / 255.0   # MMD's default light colour: lit = diffuse * light + ambient
+TEX_DIR = 'tex'             # textures and toon ramps, relative to the PMX
 
 MAT_JP = {
     'skin': '肌', 'hair': '髪', 'hair_tip': '髪先', 'eye': '目', 'green': '緑', 'leaf': '葉',
@@ -97,21 +100,98 @@ def strip_outlines_and_join(arm):
     return active, no_edge
 
 
+def _save_png(name, px, path):
+    """Write float RGBA rows (bottom row first, Blender's order) as an 8-bit PNG,
+    values taken as sRGB-encoded (no colour transform)."""
+    h, w = px.shape[:2]
+    img = bpy.data.images.new(name, w, h, alpha=True)
+    img.colorspace_settings.name = 'Non-Color'
+    img.pixels.foreach_set(np.ascontiguousarray(px, dtype=np.float32).ravel())
+    img.filepath_raw = path
+    img.file_format = 'PNG'
+    img.save()
+    bpy.data.images.remove(img)
+    return path
+
+
+def toon_split(key):
+    """Fraction of the toon texture (from the top) that is lit. MMD reads the toon at
+    v = 0.5 - 0.5 * N.L, so a lit/shade edge at the render's ramp threshold T sits at
+    v = 0.5 - 0.5 * T."""
+    return 0.5 - 0.5 * toon.ramp_threshold(key)
+
+
 def toon_ramp(key, out_dir):
-    """MMD toon texture: top half white (lit), bottom half shade/base (cel shadow)."""
+    """MMD toon texture: white where the cel render is lit, shade/base below the
+    key's ramp threshold, so MMD's toon pass gives the palette shade tone."""
     pal = spec.PALETTE[key]
     base, shade = hex_rgb(pal['base']), hex_rgb(pal['shade'])
     ratio = [min(1.0, s / max(b, 1e-3)) for s, b in zip(shade, base)]
     px = np.ones((TOON_SIZE, TOON_SIZE, 4), dtype=np.float32)
-    px[:TOON_SIZE // 2, :, :3] = ratio           # Blender rows go bottom -> top
-    path = os.path.join(out_dir, f'toon_{key}.png')
-    img = bpy.data.images.new(f'toon_{key}', TOON_SIZE, TOON_SIZE, alpha=False)
-    img.colorspace_settings.name = 'Non-Color'
-    img.pixels.foreach_set(px.ravel())
-    img.filepath_raw = path
-    img.file_format = 'PNG'
-    img.save()
-    return path
+    lit_rows = int(round(TOON_SIZE * toon_split(key)))
+    px[:TOON_SIZE - lit_rows, :, :3] = ratio    # Blender rows go bottom -> top: the bottom is shade
+    return _save_png(f'toon_{key}', px, os.path.join(out_dir, f'toon_{key}.png'))
+
+
+def gradient_texture(key, grad, out_dir):
+    """1-D base-colour ramp key -> grad (left -> right) for a gradient material; the
+    vertices' toon_grad value becomes their U coordinate."""
+    # blended in linear light like the cel material's mix (toon.srgb), then encoded
+    a, b = (np.array(toon.srgb(spec.PALETTE[k]['base'])[:3]) for k in (key, grad))
+    t = (np.arange(GRAD_SIZE) + 0.5) / GRAD_SIZE
+    lin = a[None] * (1 - t[:, None]) + b[None] * t[:, None]
+    row = np.where(lin <= 0.0031308, lin * 12.92, 1.055 * np.power(np.maximum(lin, 0.0), 1 / 2.4) - 0.055)
+    px = np.ones((4, GRAD_SIZE, 4), dtype=np.float32)
+    px[..., :3] = row[None]
+    return _save_png(f'grad_{key}_{grad}', px, os.path.join(out_dir, f'grad_{key}_{grad}.png'))
+
+
+def image_texture(mat, out_dir):
+    """Save the image of a part material's own image texture (the painted face) as a
+    PNG. Its alpha is a shading mask in the cel material, not transparency, so the
+    PNG is written opaque."""
+    # the part's own texture (mmd_tools renames it mmd_base_tex); never a toon / sphere map
+    node = next((n for n in mat.node_tree.nodes if n.type == 'TEX_IMAGE' and n.image
+                 and n.name not in ('mmd_toon_tex', 'mmd_sphere_tex')), None) if mat.node_tree else None
+    if node is None:
+        return None
+    img = node.image
+    w, h = img.size
+    px = np.empty(w * h * 4, dtype=np.float32)
+    img.pixels.foreach_get(px)
+    px = px.reshape(h, w, 4)
+    px[..., 3] = 1.0
+    name = ''.join(c if c.isalnum() or c in '_-' else '_' for c in img.name)
+    return _save_png(f'tex_{name}', px, os.path.join(out_dir, f'{name}.png'))
+
+
+def gradient_uvs(mesh):
+    """U = toon_grad (0..1) on every loop, V = 0.5: what gradient_texture() expects.
+    Only loops of gradient materials are read through this UV, the face keeps its own."""
+    me = mesh.data
+    attr = me.attributes.get(toon.GRAD_ATTR)
+    if attr is None or attr.domain != 'POINT':      # common.set_gradient writes per-vertex values
+        return
+    # the PMX's UV is the first layer (mmd_tools skips names starting with '_'), which
+    # also holds the face's UVs; joining can leave another layer active
+    base = [layer for layer in me.uv_layers if not layer.name.startswith('_')]
+    uv = base[0] if base else me.uv_layers.new(name='UVMap')
+    grad_mats = {i for i, m in enumerate(me.materials) if m and m.get('toon_gradient') and m.get('toon_std')}
+    if not grad_mats:
+        return
+    vals = np.empty(len(me.vertices))
+    attr.data.foreach_get('value', vals)
+    lv = np.empty(len(me.loops), dtype=np.int64)
+    me.loops.foreach_get('vertex_index', lv)
+    co = np.empty(len(me.loops) * 2)
+    uv.data.foreach_get('uv', co)
+    co = co.reshape(-1, 2)
+    for p in me.polygons:
+        if p.material_index in grad_mats:
+            s = slice(p.loop_start, p.loop_start + p.loop_total)
+            co[s, 0] = np.clip(vals[lv[s]], 0.0, 1.0)
+            co[s, 1] = 0.5
+    uv.data.foreach_set('uv', co.ravel())
 
 
 # ---------------------------------------------------------------- mmd conversion
@@ -157,18 +237,54 @@ def convert(arm, mesh, no_edge, out_dir):
             mb.local_axis_x = axis.col[0].xzy
             mb.local_axis_z = axis.col[2].xzy
 
-    toon_dir = os.path.join(out_dir, 'toon')
-    os.makedirs(toon_dir, exist_ok=True)
-    ramps = {}
+    for t in 'LR':
+        # the rig locks the thigh's twist for Blender's IK solver only; in the PMX the
+        # 足 link stays unlimited like the standard model's (a muted custom limit with
+        # no axes is mmd_tools' way to say so), the knee keeps its limit
+        ik = arm.pose.bones.get(f'足ＩＫ.{t}')
+        if ik is not None and 'mmd_ik_limit_custom1' not in ik.constraints:
+            c = ik.constraints.new('LIMIT_ROTATION')
+            c.name = 'mmd_ik_limit_custom1'
+            c.mute = True
+    write_materials(mesh, no_edge, out_dir)
+    setup_display_frames(root, arm)
+    return root
+
+
+def write_materials(mesh, no_edge, out_dir):
+    """Per material: palette colours set so MMD's lit colour (diffuse x light + ambient,
+    at MMD's default light) is exactly the palette base; a toon ramp that switches to the
+    palette shade at the render's ramp threshold; no sphere map (the cel look has no
+    highlight); edge in the palette line colour. Image textures (the painted face) and
+    gradient materials (hair -> hair_tip) get PNG textures. Everything is written under
+    <out_dir>/tex and referenced by relative paths, so the folder can be moved."""
+    from importlib import import_module
+    FnMaterial = import_module(mmd_tools().__name__ + '.core.material').FnMaterial
+    tex_dir = os.path.join(out_dir, TEX_DIR)
+    os.makedirs(tex_dir, exist_ok=True)
+    gradient_uvs(mesh)
+    ramps, grads = {}, {}
     for mat in mesh.data.materials:
         key = mat.get('toon_key', 'dress')
         pal = spec.PALETTE[key]
         mm = mat.mmd_material
         mm.name_j = MAT_JP.get(key, key) + ('' if mat.name == f'toon_{key}' else '_' + mat.name.split('__')[-1])
         mm.name_e = mat.name
-        base = hex_rgb(pal['base'])
+        grad = mat.get('toon_gradient') if mat.get('toon_std') else None
+        tex = image_texture(mat, tex_dir) if not grad else None
+        if grad in spec.PALETTE:
+            tex = grads.get((key, grad)) or grads.setdefault((key, grad), gradient_texture(key, grad, tex_dir))
+        fn = FnMaterial(mat)
+        if tex:
+            fn.create_texture(tex)
+            mm.texture_rel_path = f'{TEX_DIR}/{os.path.basename(tex)}'
+            base = (1.0, 1.0, 1.0)       # the texture carries the colour
+        else:
+            if fn.get_texture() is not None:
+                fn.remove_texture()
+            base = hex_rgb(pal['base'])
         mm.diffuse_color = base
-        mm.ambient_color = [c * 0.5 for c in base]
+        mm.ambient_color = [c * (1.0 - MMD_LIGHT) for c in base]
         mm.specular_color = (0.0, 0.0, 0.0)
         mm.shininess = 5.0
         mm.alpha = 1.0
@@ -179,16 +295,74 @@ def convert(arm, mesh, no_edge, out_dir):
         mm.enabled_toon_edge = mat.name not in no_edge
         mm.edge_color = (*hex_rgb(pal['line']), 1.0)
         mm.edge_weight = 1.0
-        path = ramps.get(key) or ramps.setdefault(key, toon_ramp(key, toon_dir))
+        mm.sphere_texture_type = '0'
+        path = ramps.get(key) or ramps.setdefault(key, toon_ramp(key, tex_dir))
         mm.is_shared_toon_texture = False
-        mm.toon_texture_rel_path = f'toon/{os.path.basename(path)}'
+        mm.toon_texture_rel_path = f'{TEX_DIR}/{os.path.basename(path)}'
         mm.toon_texture = path
-    return root
+
+
+# display frames (PMX 表示枠): (frame name, English name, bone-name stems in order)
+FRAMES = (
+    ('センター', 'Center', ('センター', 'グルーブ')),
+    ('ＩＫ', 'IK', ('足ＩＫ', 'つま先ＩＫ')),
+    ('体(上)', 'Upper Body', ('上半身', '上半身2', '首', '頭', '両目', '目')),
+    ('腕', 'Arms', ('肩', '腕', '腕捩', 'ひじ', '手捩', '手首')),
+    ('指', 'Fingers', tuple(f'{f}{n}' for f in ('親指',) for n in '０１２') +
+     tuple(f'{f}{n}' for f in ('人指', '中指', '薬指', '小指') for n in '１２３')),
+    ('体(下)', 'Lower Body', ('腰', '下半身')),
+    ('足', 'Legs', ('足', 'ひざ', '足首')),
+)
+CHAIN_FRAMES = (('髪', 'Hair', 'Hair'), ('スカート', 'Skirt', 'Skirt'), ('袖', 'Sleeves', 'Sleeve'))
+
+
+def frame_bones(arm):
+    """[(frame jp, frame en, [blender bone names])]: every bone an animator keys.
+    Helper bones driven by 回転付与 (補助 / 追従) and the つま先 IK targets are left out
+    (and hidden, as in the standard model)."""
+    names = [b.name for b in arm.data.bones]
+    out = []
+    for jp, en, stems in FRAMES:
+        sel = [n for st in stems for n in names if n.split('.')[0] == st]
+        out.append((jp, en, sel))
+    for jp, en, group in CHAIN_FRAMES:
+        sel = [b.name for b in arm.data.bones if b.collections and b.collections[0].name == group]
+        out.append((jp, en, sel))
+    return [f for f in out if f[2]]
+
+
+def is_helper(pb):
+    """Bones that only follow others (回転付与 helpers, the hair / skirt follow roots)."""
+    groups = {c.name for c in pb.bone.collections}
+    return ((bool(pb.get('mmd_append')) and not pb.bone.use_deform) or '補助' in pb.name
+            or bool(groups & {'HairFollow', 'SkirtFollow'}))
+
+
+def setup_display_frames(root, arm):
+    from importlib import import_module
+    FnModel = import_module(mmd_tools().__name__ + '.core.model').FnModel
+    FnModel.initalize_display_item_frames(root, reset=True)
+    frames = root.mmd_root.display_item_frames
+    for jp, en, bones in frame_bones(arm):
+        fr = frames.add()
+        fr.name, fr.name_e = jp, en
+        for n in bones:
+            it = fr.data.add()
+            it.type, it.name = 'BONE', n
+    for pb in arm.pose.bones:       # helpers follow other bones, つま先 is the toe IK's target: not for the animator
+        if not pb.is_mmd_shadow_bone and (is_helper(pb) or pb.name.split('.')[0] == 'つま先'):
+            pb.mmd_bone.is_controllable = False
+            pb.bone.hide = True
 
 
 # ---------------------------------------------------------------- physics
+# bone-following bodies the hair / skirt / sleeve chains collide with (group 0)
 STATIC_BODIES = ['頭', '首', '上半身', '上半身2', '下半身'] + \
     [f'{n}.{t}' for n in ('足', 'ひざ', '腕', 'ひじ') for t in 'LR']
+# the hands (group HAND_GROUP) push swinging hair and skirt off them; the sleeve drapes,
+# which hang right next to the wrists at rest, ignore them
+HAND_BODIES = [f'手首.{t}' for t in 'LR']
+HAND_GROUP, HAND_RADIUS = 4, 0.022
 CHAIN_GROUP = {'Hair': 1, 'Skirt': 2, 'Sleeve': 3}
 CHAIN_LIMIT = {'Hair': (20, 8, 20), 'Skirt': (30, 8, 15), 'Sleeve': (25, 8, 25)}   # degrees x, y, z
 
@@ -232,9 +406,13 @@ def add_physics(root, arm):
         else:
             r = 0.045 if bname in ('上半身', '上半身2', '下半身') else 0.03
             body(bname, 'CAPSULE', (r, max(0.01, b.length - r), 0), 0, 0, set())
+    for bname in HAND_BODIES:
+        if bname in bones:
+            b = bones[bname]
+            body(bname, 'CAPSULE', (HAND_RADIUS, max(0.01, b.length - HAND_RADIUS), 0), 0, HAND_GROUP, set())
     if rig.HAIR_ROOT in bones:
-        # the hair chains hang from the head-follow bone (60 % of the head's turn, as in
-        # Blender): a small bone-following body there anchors their joints; it collides with nothing
+        # the back hair hangs from the head-follow bone (rig.HAIR_FOLLOW of the head's turn,
+        # as in Blender): a small bone-following body there anchors their joints; it collides with nothing
         body(rig.HAIR_ROOT, 'SPHERE', (0.01, 0, 0), 0, 0, set(range(16)), location=bones[rig.HAIR_ROOT].head_local)
 
     chain_groups = set(CHAIN_GROUP.values())
@@ -244,8 +422,14 @@ def add_physics(root, arm):
         if grp not in CHAIN_GROUP:
             continue
         rad = 0.018 if grp == 'Hair' else 0.025
-        root_of_chain = b.parent is None or b.parent.collections[0].name != grp
-        mask = chain_groups | ({0} if root_of_chain else set())   # chain roots sit on the body: no collision
+        # the nearest chain bone above, skipping the skirt follow bones between segments
+        up = b.parent
+        while up is not None and up.collections and up.collections[0].name == 'SkirtFollow':
+            up = up.parent
+        root_of_chain = up is None or not up.collections or up.collections[0].name != grp
+        mask = chain_groups | ({0, HAND_GROUP} if root_of_chain else set())   # chain roots sit on the body: no collision
+        if grp == 'Sleeve':
+            mask |= {HAND_GROUP}
         # skirt chain roots follow the bone (their follow parents add the thighs' rotation);
         # everything below them is simulated
         dyn = 0 if grp == 'Skirt' and root_of_chain else 1
@@ -312,6 +496,10 @@ def main():
         'fixed_axis_bones': sum(1 for pb in arm.pose.bones if pb.mmd_bone.enabled_fixed_axis),
         'local_axes_bones': sum(1 for pb in arm.pose.bones if pb.mmd_bone.enabled_local_axes),
         'ik_bones': sorted({c.subtarget for pb in arm.pose.bones for c in pb.constraints if c.type == 'IK'}),
+        'textured_materials': sorted(m.mmd_material.name_j for m in mesh.data.materials
+                                     if m.mmd_material.texture_rel_path),
+        'display_frames': [f.name for f in root.mmd_root.display_item_frames],
+        'hidden_helpers': sum(1 for pb in arm.pose.bones if not pb.is_mmd_shadow_bone and is_helper(pb)),
     }
     with open(os.path.splitext(out)[0] + '.json', 'w', encoding='utf-8') as f:
         json.dump(summary, f, ensure_ascii=False, indent=1)

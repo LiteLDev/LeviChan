@@ -88,7 +88,7 @@ def _landmarks():
         'petticoat_hem_z': z(620),
         # legs
         'crotch_z': z(460),
-        'knee_z': z(740),
+        'knee_z': z(700),             # the knee kink on the sheet / widest leg loop (was 740)
         'ankle_z': z(830),
         'leg_center_x': h(43),        # thigh/knee centre offset from midline
         'thigh_half_w': h(22),
