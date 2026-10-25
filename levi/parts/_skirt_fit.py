@@ -385,7 +385,7 @@ PARAMS = {
     6: ((2, 1, -1, -2), (15, 20)),              # hem lobe exponent x10 (wider lobe bottom)
 }
 DEFAULTS = (0, 0, 0, 18, 0, 6, 16)    # for columns a stored table lacks
-CREST_GAP = 16        # min degrees between neighbouring crests (no narrow pinched folds)
+CREST_GAP = 20        # min degrees between neighbouring crests (no narrow pinched folds)
 CREST_SLACK = 8       # max degrees a crest may move from its initial azimuth
 
 

@@ -163,8 +163,7 @@ FOLDS = [
     (29, 583, 551, 14, 26, 14, 16),
     (52, 575, 543, 10, 20, 14, 15),
     (92, 552, 530, 10, 17, 14, 15),
-    (134, 567, 547, 14, 26, 9, 15),
-    (150, 569, 555, 10, 22, 1, 17),
+    (142, 568, 553, 12, 24, 5, 16),
     (179, 606, 553, 10, 10, 15, 20),
     (206, 593, 552, 16, 14, 14, 15),
     (230, 565, 529, 14, 14, 14, 15),
@@ -404,7 +403,7 @@ def flare_k(t):
     return np.clip((np.asarray(t, dtype=np.float64) - HEM_FLARE_T) / (1 - HEM_FLARE_T), 0, 1) ** 2
 
 
-def initial_folds(crests=(0, 31, 53, 92, 132, 152, 180, 206, 231, 256, 295, 325)):
+def initial_folds(crests=(0, 31, 53, 92, 142, 180, 206, 231, 256, 295, 325)):
     """Starting guess for the fit: crest / trough rows read off the view tables
     (front/back weighted by cos^2 of the azimuth, side by sin^2)."""
     front, back, side = (parse_table(s) for s in (FRONT_HEM, BACK_HEM, SIDE_HEM))
