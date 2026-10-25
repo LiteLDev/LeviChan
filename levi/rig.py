@@ -270,6 +270,25 @@ def finger_chains(F, wr, d, f, hand_len, palm_end, fingers):
         yield jp, en, F.get(jp, [base + d * (t * ln * hand_len) for t in (0.0, 0.4, 0.73, 1.0)])
 
 
+JOINT_AUX_LEN = 0.04  # length of the elbow / knee helper bones
+JOINT_AUX_BLEND = 0.06  # half-width (m) along the limb of the band the helper carries
+# per part: (blend start before the joint, blend end after it, use the half-turn helper).
+# Puffed sleeves spread the elbow bend over the whole balloon instead (no helper): from
+# 8 cm above to 15 cm below the joint.
+JOINT_BAND = {'sleeves': (0.06, 0.06, True)}
+JOINT_AUX_FOLLOW = 0.5  # share of the lower bone's rotation the helper takes
+
+
+def _joint_aux(add, jp, en, joint, nxt, parent, lower, upper, s, sfx, jp_side, en_sfx, group):
+    """Elbow / knee helper: a deform bone at the joint, child of the upper limb, that takes
+    JOINT_AUX_FOLLOW of the lower bone's rotation (回転付与). The band of skin and cloth
+    around the joint follows it, so a deep bend is shared between two half-turns instead
+    of being stretched (or collapsed) across one blend."""
+    tail = joint + (nxt - joint).normalized() * JOINT_AUX_LEN
+    add(Bone(jp + sfx, jp_side + jp, en + en_sfx, _mx(joint, s), _mx(tail, s), parent, group=group,
+             meta={'follow': (lower, JOINT_AUX_FOLLOW), 'joint_aux': (list(upper), lower)}))
+
+
 def _core_bones(J=None, H=None, F=None):
     """Core MMD skeleton. Spine/head from landmarks (head depth and eyes from the
     head mesh fit H when given), limbs from joints J (left side, built at +X and
@@ -340,6 +359,8 @@ def _core_bones(J=None, H=None, F=None):
                  '腕' + sfx, group='Arms', meta={'twist_of': '腕' + sfx}))
         add(Bone('ひじ' + sfx, jp_side + 'ひじ', 'Elbow' + en_sfx, _mx(el, s), _mx(wr, s), '腕捩' + sfx, connect=True,
                  r=0.035, r_end=0.03, group='Arms'))
+        _joint_aux(add, 'ひじ補助', 'ElbowAux', el, wr, '腕捩' + sfx, 'ひじ' + sfx, ('腕' + sfx, '腕捩' + sfx),
+                   s, sfx, jp_side, en_sfx, 'Arms')
         add(Bone('手捩' + sfx, jp_side + '手捩', 'WristTwist' + en_sfx, _mx(el.lerp(wr, TWIST_AT), s), _mx(wr, s),
                  'ひじ' + sfx, group='Arms', meta={'twist_of': 'ひじ' + sfx}))
         add(Bone('手首' + sfx, jp_side + '手首', 'Wrist' + en_sfx, _mx(wr, s), _mx(palm_end, s), '手捩' + sfx,
@@ -364,6 +385,8 @@ def _core_bones(J=None, H=None, F=None):
                  r=0.065, r_end=0.04, group='Legs'))
         add(Bone('ひざ' + sfx, jp_side + 'ひざ', 'Knee' + en_sfx, _mx(knee, s), _mx(ankle, s), '足' + sfx,
                  connect=True, r=0.05, r_end=0.035, group='Legs'))
+        _joint_aux(add, 'ひざ補助', 'KneeAux', knee, ankle, '足' + sfx, 'ひざ' + sfx, ('足' + sfx,),
+                   s, sfx, jp_side, en_sfx, 'Legs')
         add(Bone('足首' + sfx, jp_side + '足首', 'Ankle' + en_sfx, _mx(ankle, s), _mx(toe, s), 'ひざ' + sfx,
                  connect=True, r=0.04, r_end=0.03, group='Legs'))
         add(Bone('つま先' + sfx, jp_side + 'つま先', 'Toe' + en_sfx, _mx(toe, s),
@@ -577,7 +600,7 @@ def _candidates(part, obj, bones):
     if part in ('skirt', 'petticoat'):
         return ['上半身', '下半身'] + grp('Skirt')
     if part == 'sleeves':      # detached sleeves: arm only, never the torso
-        return _names(bones, lambda b: base(b) in ('肩', '腕', '腕捩', 'ひじ', '手捩', '手首')) + grp('Sleeve')
+        return _names(bones, lambda b: base(b) in ('肩', '腕', '腕捩', 'ひじ補助', 'ひじ', '手捩', '手首')) + grp('Sleeve')
     if part == 'bodice':       # a strapless corset: torso only; anything hanging below the hip rides the skirt
         return ['上半身', '上半身2', '首', '下半身'] + grp('Skirt')
     if part == 'shoes':
@@ -671,7 +694,7 @@ def _skirt_weights(co, bones):
 # ---- per-object helpers: topology, sides, smoothing, pruning
 SMOOTH_RADIUS = {     # metres of weight smoothing along the surface, per part
     'body': 0.008, 'head': 0.01, 'shoes': 0.012, 'accessories': 0.012, 'bodice': 0.02,
-    'hair_front': 0.025, 'hair_back': 0.03, 'sleeves': 0.08, 'skirt': 0.02, 'petticoat': 0.02,
+    'hair_front': 0.025, 'hair_back': 0.03, 'sleeves': 0.065, 'skirt': 0.02, 'petticoat': 0.02,
 }
 DEFAULT_SMOOTH = 0.012
 MAX_SMOOTH_ITERS = 300
@@ -778,6 +801,58 @@ ANKLE_BLEND = 0.03    # foot / shin blend half-width around the ankle joint heig
 DRAPE_NEAR, DRAPE_FAR = 0.04, 0.13   # sleeve drape weight fades in between these from the arm axis
 
 
+def _split_joint_aux(w, co, bones, band):
+    """Spread each elbow / knee bend over three rotations: the upper limb (0), its helper
+    bone (half the bend) and the lower limb with everything hanging from it (full bend).
+    Along the lower bone, within `width` of the joint, the limb's total weight is
+    re-split by a smooth partition of unity (upper -> helper -> lower); inside each group
+    the bones keep their envelope proportions."""
+    before, after, helper = band
+    col = {b.name: i for i, b in enumerate(bones)}
+    kids = {}
+    for b in bones:
+        kids.setdefault(b.parent, []).append(b.name)
+
+    def below(name):
+        out, todo = [], [name]
+        while todo:
+            n = todo.pop()
+            out.append(n)
+            todo += kids.get(n, [])
+        return out
+    for j, b in enumerate(bones):
+        if 'joint_aux' not in b.meta:
+            continue
+        upper, lower = b.meta['joint_aux']
+        if lower not in col:
+            continue
+        up = [col[n] for n in upper if n in col]
+        # the limb and what it carries rigidly; secondary chains (sleeve drapes) keep their own weights
+        lo = [col[n] for n in below(lower) if n in col and bones[col[n]].group not in ('Sleeve', 'Hair', 'Skirt')]
+        if not up:
+            continue
+        L = bones[col[lower]]
+        d = np.array((L.tail - L.head).normalized())
+        t = (co - np.array(b.head)) @ d
+        if helper:
+            f_lo = _smoothstep(0.0, after, t)
+            f_up = 1.0 - _smoothstep(-before, 0.0, t)
+        else:
+            f_lo = _smoothstep(-before, after, t)
+            f_up = 1.0 - f_lo
+        f_aux = 1.0 - f_lo - f_up
+        su, sl = w[:, up].sum(1), w[:, lo].sum(1)
+        tot = su + sl
+        live = tot > 1e-9
+        pu = np.where(live[:, None], w[:, up] / np.maximum(su, 1e-12)[:, None], 0.0)
+        pu[su <= 1e-12] = np.eye(len(up))[-1]          # empty group: its main bone
+        pl = np.where(live[:, None], w[:, lo] / np.maximum(sl, 1e-12)[:, None], 0.0)
+        pl[sl <= 1e-12] = np.eye(len(lo))[0]
+        w[:, up] = pu * (tot * f_up)[:, None]
+        w[:, lo] = pl * (tot * f_lo)[:, None]
+        w[:, j] += tot * f_aux
+
+
 def _split_twist(w, co, bones):
     """Give each twist bone (meta 'twist_of') the share of its limb segment's weight that
     grows smoothly from 0 at the segment's top to 1 at its bottom (TWIST_RAMP)."""
@@ -830,7 +905,7 @@ def _drape_only_away_from_arm(w, co, bones):
 
 def _base_weights(part, co, bones):
     """(V, B) weights before side masking / smoothing / pruning."""
-    plain = [j for j, b in enumerate(bones) if 'twist_of' not in b.meta]
+    plain = [j for j, b in enumerate(bones) if 'twist_of' not in b.meta and 'joint_aux' not in b.meta]
     sub = [bones[j] for j in plain]
     if part in ('skirt', 'petticoat'):
         w0 = _skirt_weights(co, sub)
@@ -847,6 +922,7 @@ def _base_weights(part, co, bones):
         _drape_only_away_from_arm(w, co, bones)
     _split_ankle(w, co, bones)
     _split_twist(w, co, bones)
+    _split_joint_aux(w, co, bones, JOINT_BAND.get(part, (JOINT_AUX_BLEND, JOINT_AUX_BLEND, True)))
     return w
 
 

@@ -19,17 +19,17 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import bpy  # noqa: E402
 
 
-def check_append(arm, errors, deg=40.0):
-    """Turn 左足 forward and check every bone that appends its rotation (回転付与) turns
+def check_append(arm, errors, source='左足', deg=40.0):
+    """Turn bone `source` and check every bone that appends its rotation (回転付与) turns
     by its influence times as much in the re-imported model."""
     import math
     from mathutils import Quaternion
     pbs = [pb for pb in arm.pose.bones if not pb.is_mmd_shadow_bone]
-    leg = next((pb for pb in pbs if pb.mmd_bone.name_j == '左足'), None)
+    leg = next((pb for pb in pbs if pb.mmd_bone.name_j == source), None)
     users = [pb for pb in pbs if pb.mmd_bone.has_additional_rotation and leg is not None
              and pb.mmd_bone.additional_transform_bone == leg.name]
     if leg is None or not users:
-        print('append check   no bones append 左足')
+        print(f'append check   no bones append {source}')
         return
     rest = {pb.name: pb.matrix.to_quaternion() for pb in users}
     ik = [c for pb in arm.pose.bones for c in pb.constraints if c.type == 'IK' and not c.mute]
@@ -43,9 +43,9 @@ def check_append(arm, errors, deg=40.0):
         got = math.degrees(rest[pb.name].rotation_difference(pb.matrix.to_quaternion()).angle)
         want = deg * pb.mmd_bone.additional_transform_influence
         worst = max(worst, abs(got - want))
-    print(f'append check   {len(users)} bones follow 左足, worst error {worst:.2f} deg')
+    print(f'append check   {len(users)} bones follow {source}, worst error {worst:.2f} deg')
     if worst > 1.0:
-        errors.append(f'回転付与 of 左足 off by {worst:.1f} deg after reimport')
+        errors.append(f'回転付与 of {source} off by {worst:.1f} deg after reimport')
     leg.rotation_quaternion = Quaternion()
     for c in ik:
         c.mute = False
@@ -119,7 +119,8 @@ def main():
         errors.append(f'{unweighted} vertices without weights after reimport')
     if arms:
         importlib.import_module(pkg.__name__ + '.core.bone').FnBone.apply_additional_transformation(arms[0])
-        check_append(arms[0], errors)
+        for source in ('左足', '左ひざ', '左ひじ', '頭'):
+            check_append(arms[0], errors, source)
     rb = [o for o in bpy.data.objects if getattr(o, 'mmd_type', '') == 'RIGID_BODY']
     same('blender rigid', len(rb), expect['rigid_bodies'])
 
