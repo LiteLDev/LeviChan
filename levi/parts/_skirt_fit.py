@@ -1,6 +1,6 @@
 """Fit the skirt's godet folds (skirt.FOLDS) to the three reference views.
 
-    blender -b --factory-startup -P levi/parts/_skirt_fit.py [-- [--fresh] [--write] | --report]
+    blender -b --factory-startup -P levi/parts/_skirt_fit.py [-- [--fresh] [--write] | --report] [--baseline OLD_SKIRT.py]
 
 The cloth is skirt.profiles(FOLDS). Each fold has a crest azimuth, the hem
 row at its crest and at the following trough, a half-depth and a smooth
@@ -18,7 +18,6 @@ radial offset. The fit compares, per view, against the measured outline tables i
 Coordinate descent over the fold parameters, deterministic. With --write the
 FOLDS table in skirt.py is replaced in place; --report only scores it.
 """
-import math
 import os
 import re
 import sys
@@ -34,14 +33,22 @@ N = skirt.N_PHI
 MISS = 25.0        # per-column penalty where the reference has skirt and the model none
 STICK = 12.0       # per-column penalty where the model sticks out past the reference
 OFF_RANGE = (-50.0, 30.0)
+CURL_RANGE = (-10.0, 24.0)   # a deeper tuck collapses the lobe under the bell
+CURL_SIDE = 11.0   # crest tuck beyond this is penalised, except toward the centre front / back lobes
+CURL_W = 20.0
+CURL_SMOOTH = 0.3
+DEPTH_MAX = 50.0   # trough arches higher than this above a neighbouring crest are penalised
+DEPTH_W = 2.0
+INSIDE_W = 200.0   # per px of cloth more than INSIDE_TOL inside the baseline skirt (--baseline)
+INSIDE_TOL = 2.5
 ROW_RANGE = (525.0, 625.0)
-AMP_RANGE = (6.0, 30.0)
+AMP_RANGE = (10.0, 28.0)
 AMP_TARGET = 20.0  # fold half-depth the prior pulls toward (px)
-AMP_W = 1.0
+AMP_W = 2.0
 BASE_SMOOTH = 1.0
 ORDER_W = 100.0
 LOBE_MIN = 10.0    # a trough is at least this many rows above its crests
-VIEW_W = {'front': 1.0, 'back': 1.0, 'side': 1.5}
+VIEW_W = {'front': 1.0, 'back': 1.5, 'side': 1.5}
 LOW_W = {'front': 0.5, 'back': 0.5, 'side': 4.0}   # extra per px hanging below the outline
 LOW_TOL = 6.0
 OUT_W = 6.0        # per px a strip past the outline's ends hangs below its end row
@@ -64,7 +71,7 @@ def COL_W(view, c):
     # y ~ +95..+150, where the side view ends the skirt at rows ~550-589: the
     # back view wins there too.
     if view == 'side' and 85 <= c <= 150:
-        return 0.4
+        return 0.2
     return 1.0
 
 
@@ -176,13 +183,13 @@ def build_occluders(px):
     return zb, rr
 
 
-ZB, RAD = None, None
+ZB, RAD, BASE_RAD = None, None, None
 
 
 # ---------------------------------------------------------------- error terms
 def hem_curves(P):
-    """Hem-zone points (last main rings + roll/lip), upsampled along azimuth."""
-    k0 = len(skirt.T_STEPS) - 3
+    """Hem-zone points (the last rings), upsampled along azimuth."""
+    k0 = len(skirt.T_STEPS) - 5
     H = P[:, k0:, :]
     nxt = np.roll(H, -1, axis=0)
     parts = [H + (nxt - H) * (j / UPS) for j in range(UPS)]
@@ -284,6 +291,48 @@ def clearance_error(P):
     return np.maximum(0.0, rp + CLEAR - r).sum()
 
 
+def cloth_samples(P):
+    """Main-sheet points below the hips plus points along the faces between rings."""
+    Q = P[:, 2:len(skirt.T_STEPS), :]
+    a, b = Q[:, :-1, :], Q[:, 1:, :]
+    return np.concatenate([Q] + [a + (b - a) * f for f in (0.25, 0.5, 0.75)], axis=1).reshape(-1, 3)
+
+
+def radial_bins(pts):
+    phi = np.mod(np.arctan2(pts[:, 0], -pts[:, 1]), 2 * np.pi)
+    b = (phi / (2 * np.pi) * NB).astype(int) % NB
+    rb = np.round((pts[:, 2] - RB0) / 2).astype(int)
+    return b, rb, (rb >= 0) & (rb < RBN)
+
+
+def baseline_radius(path):
+    """Innermost cloth radius per (row bin, azimuth bin) of an earlier skirt
+    module (e.g. the round-3 skirt.py, which the petticoat is fitted inside)."""
+    import importlib.util
+    spec_ = importlib.util.spec_from_file_location('levi.parts._skirt_baseline', path)
+    mod = importlib.util.module_from_spec(spec_)
+    spec_.loader.exec_module(mod)
+    P = mod.profiles(mod.fold_table())
+    a, b = P[:, :-1, :], P[:, 1:, :]
+    pts = np.concatenate([P] + [a + (b - a) * f for f in np.linspace(0.1, 0.9, 9)], axis=1)
+    nxt = np.roll(pts, -1, axis=0)
+    pts = np.concatenate([pts + (nxt - pts) * f for f in (0.0, 0.25, 0.5, 0.75)], axis=1).reshape(-1, 3)
+    bb, rb, ok = radial_bins(pts)
+    rad = np.full((RBN, NB), np.inf)
+    np.minimum.at(rad, (rb[ok], bb[ok]), np.hypot(pts[ok, 0], pts[ok, 1]))
+    return rad
+
+
+def inside_baseline(P):
+    """Per sample: px the cloth sits inside the baseline skirt (0 where no baseline)."""
+    pts = cloth_samples(P)
+    b, rb, ok = radial_bins(pts)
+    rr = np.full(len(pts), np.inf)
+    rr[ok] = BASE_RAD[rb[ok], b[ok]]
+    r = np.hypot(pts[:, 0], pts[:, 1])
+    return np.where(np.isfinite(rr), np.maximum(0.0, rr - r), 0.0)
+
+
 def prior_error(folds):
     """Keep the folds deep and the smooth offset / hem rows coherent between folds."""
     f = np.array(folds, dtype=np.float64)
@@ -293,6 +342,14 @@ def prior_error(folds):
     # a trough sits above both neighbouring crests
     e += ORDER_W * (np.maximum(0, f[:, 2] + LOBE_MIN - f[:, 1]) +
                     np.maximum(0, f[:, 2] + LOBE_MIN - nxt[:, 1])).sum()
+    # ... but not far above: deep arches read as a cut, scalloped shell
+    e += DEPTH_W * (np.maximum(0, f[:, 1] - f[:, 2] - DEPTH_MAX) ** 2 +
+                    np.maximum(0, nxt[:, 1] - f[:, 2] - DEPTH_MAX) ** 2).sum()
+    # neighbouring crest curls change gradually (no lobe tucked under alone)
+    e += CURL_SMOOTH * ((f[:, 5] - nxt[:, 5]) ** 2).sum()
+    # only the long centre-front / centre-back lobes may tuck under deeply
+    cap = CURL_SIDE + (CURL_RANGE[1] - CURL_SIDE) * np.cos(np.radians(f[:, 0])) ** 4
+    e += CURL_W * (np.maximum(0.0, f[:, 5] - cap) ** 2).sum()
     return e
 
 
@@ -302,6 +359,8 @@ def total_error(folds, detail=False):
     ev = {v: view_error(v, pts)[0] for v in VIEWS}
     ee = edge_error(P)
     ce = PET_W * clearance_error(P)
+    if BASE_RAD is not None:
+        ce += INSIDE_W * np.maximum(0.0, inside_baseline(P) - INSIDE_TOL).sum()
     pe = prior_error(folds)
     tot = sum(ev.values()) + ee + ce + pe
     if detail:
@@ -317,12 +376,11 @@ PARAMS = {
     2: ((8, 4, 2, -2, -4, -8), ROW_RANGE),      # trough hem row
     3: ((4, 2, -2, -4), AMP_RANGE),             # half-depth
     4: ((4, 2, -2, -4), OFF_RANGE),             # smooth offset
-    5: ((10, 5, -5, -10), (15, 35)),            # flat lobe bottom (%): >= 15 keeps the lobes round
-    6: ((10, 5, -5, -10), (20, 40)),            # flat trough arch (%): >= 20 keeps the arches round
-    7: ((6, 3, -3, -6), (-12, 60)),             # crest roll-under (px; < 0 flares out)
+    5: ((6, 3, -3, -6), CURL_RANGE),            # crest tuck (px; < 0 flares out)
+    6: ((2, 1, -1, -2), (10, 16)),              # hem lobe exponent x10 (wider lobe bottom)
 }
-DEFAULTS = (0, 0, 0, 18, 0, 20, 20, 6)     # for columns a stored table lacks
-CREST_GAP = 12        # min degrees between neighbouring crests
+DEFAULTS = (0, 0, 0, 18, 0, 6, 12)    # for columns a stored table lacks
+CREST_GAP = 16        # min degrees between neighbouring crests (no narrow pinched folds)
 CREST_SLACK = 8       # max degrees a crest may move from its initial azimuth
 
 
@@ -336,8 +394,9 @@ def valid_azimuth(folds, k, init):
     return a - prev >= CREST_GAP and nxt - a >= CREST_GAP and 0 <= a < 360
 
 
-def fit(passes=30, fresh=False):
-    """Coordinate descent from the stored table (or skirt.initial_folds())."""
+def fit(passes=30, fresh=False, freeze=()):
+    """Coordinate descent from the stored table (or skirt.initial_folds()),
+    keeping the FOLDS columns in `freeze` as they are."""
     start = skirt.initial_folds() if fresh or not skirt.FOLDS else skirt.FOLDS
     folds = [list(f) + list(DEFAULTS[len(f):]) for f in start]
     for f in folds:
@@ -352,6 +411,8 @@ def fit(passes=30, fresh=False):
         improved = 0
         for k in range(n):
             for col, (steps, rng) in PARAMS.items():
+                if col in freeze:
+                    continue
                 # single fold, this fold and the next together, and (once
                 # per pass) all folds at once
                 groups = [(k,), (k, (k + 1) % n)]
@@ -381,30 +442,6 @@ def fit(passes=30, fresh=False):
     return [tuple(int(round(v)) for v in f) for f in folds], best
 
 
-def old_profile_radius():
-    """Round-1 cloth radius per (azimuth bin, row bin) for the inward-move report."""
-    nt = 40
-    rad = np.full((RBN, NB), np.nan)
-    sec = skirt.section
-    for i in range(len(OLD_ROW)):
-        phi = 2 * math.pi * i / len(OLD_ROW)
-        for k in range(nt + 1):
-            t = k / nt
-            row = skirt.TOP_ROW + t * (OLD_ROW[i] - skirt.TOP_ROW)
-            X, Yf, Yb = (float(v) for v in sec(row))
-            c, s = math.cos(phi), math.sin(phi)
-            x, y = X * s, -c * (Yf if c > 0 else Yb)
-            r = math.hypot(x, y)
-            off = t ** 1.4 * (OLD_OFF[i] + 5.0 * math.cos(14 * phi))
-            if t > 0.88:
-                kk = 1 - (1 - t) / 0.12
-                off -= 8.0 * kk * kk
-            rb = int(round((row - RB0) / 2))
-            b = int(phi / (2 * math.pi) * NB) % NB
-            if 0 <= rb < RBN:
-                rad[rb, b] = r + off if np.isnan(rad[rb, b]) else min(rad[rb, b], r + off)
-    return rad
-
 
 def report(folds):
     tot, ev, ee, ce, pe = total_error(folds, detail=True)
@@ -420,20 +457,15 @@ def report(folds):
         print(f'{v}: score {e:.0f}  mean |dz| {np.abs(d[fin]).mean():.1f}px over {fin.sum()} cols, '
               f'{(~fin).sum()} cols hidden/missing; worst (col, dz) '
               f'{[(int(c), int(z)) for _, c, z in worst]}')
-    print(f'edges {ee:.0f}  petticoat clearance {ce:.1f}  prior {pe:.0f}  total {tot:.0f}')
-    # inward moves vs the round-1 cloth (the petticoat was fitted inside it)
-    old = old_profile_radius()
-    pts = P[:, 1:len(skirt.T_STEPS), :].reshape(-1, 3)
-    phi = np.mod(np.arctan2(pts[:, 0], -pts[:, 1]), 2 * np.pi)
-    b = (phi / (2 * np.pi) * NB).astype(int) % NB
-    rb = np.round((pts[:, 2] - RB0) / 2).astype(int)
-    ok = (rb >= 0) & (rb < RBN)
-    ro = np.full(len(pts), np.nan)
-    ro[ok] = old[rb[ok], b[ok]]
-    dr = np.hypot(pts[:, 0], pts[:, 1]) - ro
-    bad = np.nan_to_num(dr, nan=0.0) < -5
-    print(f'cloth points > 5 px inside the round-1 surface: {int(bad.sum())}/{len(pts)}; '
-          f'deepest {np.nanmin(dr):.1f} px')
+    print(f'edges {ee:.0f}  clearance {ce:.1f}  prior {pe:.0f}  total {tot:.0f}')
+    f = np.array(folds, dtype=np.float64)
+    depth = np.maximum(f[:, 1], np.roll(f[:, 1], -1)) - f[:, 2]
+    print(f'arch depth (px) max {depth.max():.0f} mean {depth.mean():.0f}; crest curl max {f[:, 5].max():.0f}')
+    # inward moves vs the baseline skirt (the petticoat is fitted inside it)
+    if BASE_RAD is not None:
+        d = inside_baseline(P)
+        print(f'cloth samples > {INSIDE_TOL} px inside the baseline skirt: '
+              f'{int((d > INSIDE_TOL).sum())}/{len(d)}; deepest {d.max():.1f} px')
 
 
 def write(folds):
@@ -449,43 +481,22 @@ def write(folds):
 
 
 def main():
-    global ZB, RAD
+    global ZB, RAD, BASE_RAD
     args = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
     ZB, RAD = build_occluders(petticoat_samples())
+    if '--baseline' in args:
+        BASE_RAD = baseline_radius(args[args.index('--baseline') + 1])
     if '--report' in args:
         folds = skirt.fold_table()
     else:
-        folds, _ = fit(fresh='--fresh' in args)
+        freeze = ()
+        if '--freeze' in args:      # e.g. --freeze 1,6: keep the crest rows and lobe widths
+            freeze = tuple(int(c) for c in args[args.index('--freeze') + 1].split(','))
+        folds, _ = fit(fresh='--fresh' in args, freeze=freeze)
     report(folds)
     print('FOLDS =', folds)
     if '--write' in args:
         write(folds)
-
-
-
-
-# Round-1 hem (144 azimuths, old point model): the reference surface for the
-# inward-move report (the petticoat was fitted inside that surface).
-OLD_ROW = [
-    607, 596, 601, 604, 603, 600, 584, 550, 542, 541, 566, 592, 592, 591, 591, 591, 582, 563,
-    553, 556, 572, 583, 586, 585, 585, 581, 565, 556, 550, 550, 556, 562, 561, 559, 555, 547,
-    546, 554, 562, 569, 566, 558, 547, 543, 539, 536, 532, 529, 536, 551, 561, 573, 571, 557,
-    555, 562, 571, 585, 588, 590, 584, 570, 553, 546, 547, 557, 576, 601, 609, 615, 617, 619,
-    619, 610, 588, 577, 569, 562, 554, 548, 573, 591, 589, 587, 591, 579, 572, 568, 564, 558,
-    553, 563, 573, 567, 558, 552, 547, 542, 543, 550, 563, 559, 551, 548, 546, 547, 548, 546,
-    544, 543, 541, 541, 541, 542, 548, 554, 557, 550, 557, 563, 566, 566, 566, 565, 556, 548,
-    557, 568, 577, 583, 587, 590, 592, 584, 558, 540, 541, 546, 557, 587, 601, 605, 610, 612
-]
-OLD_OFF = [
-    6, 8, 10, 14, 16, 14, 4, -4, 0, 6, 8, 4, -2, -6, -10, -12, -12, -6, 4, 8, 10, 4, -2, -6,
-    -10, -14, -12, -6, -6, -8, -12, -12, -12, -10, -4, 4, 8, 2, -4, -8, -12, -18, -20, -18, -14,
-    -8, 0, 8, 14, 14, 8, 4, 2, 4, 4, -2, -10, -18, -26, -26, -24, -18, -10, 2, 8, 2, 0, 8, 10,
-    8, 6, 4, 2, 0, -6, -6, -4, -2, 0, 4, 4, 6, 10, 10, 8, 4, 0, -2, 0, 2, 2, 0, 0, 4, 8, 10, 10,
-    6, 2, 2, 4, 4, 4, 2, 2, 4, 6, 6, 6, 6, 4, 4, 4, 4, 4, 2, 2, 0, -4, -6, -8, -8, -6, -4, -2,
-    0, 0, 0, 0, 2, 2, 0, -2, 0, 4, 4, 2, 0, 2, 8, 10, 10, 8, 6
-]
-
-
 
 
 if __name__ == '__main__':
