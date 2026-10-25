@@ -181,6 +181,59 @@ def vote_pale(labels, rgb):
     return out
 
 
+# Enclosed islands. After voting, a small connected patch of one pale label
+# that is (almost) entirely surrounded by another region is a painted
+# highlight or tint of that region, not a separate zone: the palest mint hair
+# lobes over the back skirt read as dress, small skin highlights read as
+# dress. Line art (UNKNOWN) around the patch is ignored; a patch touching the
+# background is never relabelled.
+ISLAND_MAX_PX = 1500
+ISLAND_MIN_SHARE = 0.85
+
+
+def fill_islands(labels, max_px=ISLAND_MAX_PX, min_share=ISLAND_MIN_SHARE):
+    """Relabel small pale components enclosed by one other region."""
+    out = labels.copy()
+    n_lab = UNKNOWN + 1
+    # Near the background, through the outline stroke (which is UNKNOWN).
+    near_bg = dilate(labels == BG, 4)
+    for name in PALE:
+        k = LABEL[name]
+        # Each label sees the previous labels' relabelling, so nested islands
+        # resolve consistently. Look through the line art: a stroke pixel
+        # counts as the region its neighbourhood mostly belongs to.
+        near = np.where(out == UNKNOWN, _majority(out, 3), out)
+        comp = components(out == k)
+        ids = comp[comp >= 0]
+        if not ids.size:
+            continue
+        uniq, inv = np.unique(ids, return_inverse=True)
+        size = np.bincount(inv, minlength=len(uniq))
+        idx = np.full(comp.shape, -1, dtype=np.int64)
+        idx[comp >= 0] = inv
+        # border histogram: (component, neighbour label) over 4-neighbour edges
+        hist = np.zeros((len(uniq), n_lab), dtype=np.int64)
+        for a, b in ((idx[1:], near[:-1]), (idx[:-1], near[1:]),
+                     (idx[:, 1:], near[:, :-1]), (idx[:, :-1], near[:, 1:])):
+            m = (a >= 0) & (b != k)
+            np.add.at(hist, (a[m], b[m].astype(np.int64)), 1)
+        # components within a stroke's width of the background, or on the
+        # panel edge, count as touching the background
+        edge = np.unique(np.concatenate([idx[0], idx[-1], idx[:, 0], idx[:, -1], idx[near_bg]]))
+        hist[edge[edge >= 0], BG] += 1
+        known = hist.copy()
+        known[:, UNKNOWN] = 0
+        total = known.sum(1)
+        best = known.argmax(1)
+        share = known.max(1) / np.maximum(total, 1)
+        ok = ((size <= max_px) & (hist[:, BG] == 0) & (total > 0) & (share >= min_share)
+              & (best != BG) & (best != k))
+        if ok.any():
+            sel = (idx >= 0) & ok[np.maximum(idx, 0)]
+            out[sel] = best[idx[sel]]
+    return out
+
+
 def fold_feet(labels):
     """Everything green below the ankles (ankle leaves, laces) counts as shoe.
     Applied to the reference and to render labels alike, so laces score the
@@ -233,6 +286,7 @@ def classify_reference(rgb, mask, view):
     labels[~mask] = BG
     # Vote before the spatial priors below, so they have the last word.
     labels = vote_pale(labels, rgb)
+    labels = fill_islands(labels)
 
     rows = np.arange(h)[:, None].repeat(w, 1)
     cols = np.arange(w)[None, :].repeat(h, 0)

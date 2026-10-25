@@ -26,6 +26,8 @@ Blender: `C:/Program Files/Blender Foundation/Blender 5.2/blender.exe` (written 
 ```
 "$B" -b -P build.py -- --out out/levi.blend [--parts body,skirt] [--proxy]
 "$B" -b out/levi.blend -P render.py -- --out out/render [--hide _proxy] [--views front,side,back] [--no-shadows] [--freestyle] [--no-regions] [--sun AZ,EL] [--ramp T] [--ramp-key KEY=T,...]
+         [--views review|q34_front_left,q34_back_right,high,turn_<AZ>] [--clay] [--turntable N] [--pose NAME,...|all]
+python tools/review.py [--focus <part>] [--build] [--turntable 8]   # renders + contact sheets + Codex review (see Review)
 "$B" -b --factory-startup -P tools/compare.py -- --render out/render --out out/cmp [--box x0,y0,x1,y1] [--part-region dress,petticoat]
 "$B" -b -P tools/check.py -- [--parts body,skirt]      # exit code 1 on failure
 "$B" -b -P build.py -- --rig ...                         # + MMD armature, skinned (levi/rig.py)
@@ -72,7 +74,8 @@ The body part may store fitted limb joints for the rig as `obj["levi_joints"] = 
   - The pale regions (hair / dress / skin) are grouped into components bounded by the sheet's line art, and each component takes its majority label. This removes most speckle from highlights and painted shading.
   - The hair's white-to-mint gradient is sampled too (`regions.GRADIENTS`), so half-mint strands read as hair, not mint cloth.
   - Skin vs petticoat is decided by position. Green below the ankles counts as shoe in both the sheet and the render (`regions.fold_feet`).
-  - Remaining known errors: the back view's palest mint hair lobes over the skirt still read partly as dress, and small skin highlights between the halter straps read as dress. Use the region numbers for trends, not as an absolute score.
+  - Small enclosed patches (`regions.fill_islands`, up to 1500 px) take the region that surrounds at least 85% of them, looking through the line art. This cleans the hair/dress speckle around the back hair lobes and beside the bodice.
+  - Remaining known errors: the palest mint parts of the back hair lobes that touch the skirt over a long edge still read as dress, and the holes inside the curls are ambiguous. Use the region numbers for trends, not as an absolute score.
 - Rerun `tools/prep_ref.py -- --regions-only` after changing `spec.SHEET_PALETTE` or `levi/regions.py`.
 
 ## Look-dev (cel shading)
@@ -89,6 +92,29 @@ The body part may store fitted limb joints for the rig as `obj["levi_joints"] = 
   - Parts no longer need `obj.visible_shadow = False` or private no-shadow outline materials. Drop those workarounds; leaving `visible_shadow = False` is harmless, but it stops the object from casting shadows.
   - Open single-sided sheets work with normals facing either way: with backface culling, the hull never covers the fill.
   - A hull only draws silhouettes, so the open border of a sheet that faces the camera gets no line. If a border line matters, give the sheet a little thickness or use `render.py --freestyle` (1 px crease and open-border lines in each material's line colour).
+
+- Any angle: the key light follows the camera, so the review views (`q34_front_left`, `q34_back_right`, `high`, `turn_<AZ>`) get the same upper-left key as the sheet views. Round 3 checked them: they stay mostly lit with one shade tone, with shade shares close to the ortho views (`out/review/shade_stats.txt`). The remaining hard bands and triangular shade breaks come from the parts, not the light: coarse or flat normals at the terminator, and short `toon_grad` ramps on the hair tips. Fix them in the part.
+
+## Review
+One command renders everything a reviewer needs and asks two Codex models for a structured review:
+```
+python tools/review.py [--blend out/levi.blend] [--rig out/levi_rig.blend] [--build] [--focus hair_back]
+                       [--turntable 8] [--poses walk,arms_up,...] [--no-codex] [--timeout 900]
+```
+- It runs in any Python 3.9+ with only the stdlib, including Blender's bundled `python.exe`. It drives Blender for every image step; `LEVI_BLENDER` / `LEVI_CODEX` (or `--blender` / `--codex`) override the executables.
+- `--build` builds both .blends first. Without a rigged .blend, the pose sheet is skipped.
+- Output in `out/review/`:
+  - `01_ortho_sbs.png`: the sheet over the cel render, front / side / back.
+  - `02_angles_cel.png`: the 3/4 front-left, 3/4 back-right and high views.
+  - `03_clay.png`: all six views in clay.
+  - `04_poses.png`: `rig_pose` poses, front + 3/4.
+  - `turntable.png` (with `--turntable`).
+  - `metrics.txt`: `compare.py` IoU / REGION lines. `shade_stats.txt`: the per-region shade share at every angle.
+- Codex: `gpt-6.1-sol` and `gpt-6-astra` (`--models`) run concurrently as child processes, `codex exec -s read-only` in the repo, with every sheet attached and a JSON schema for the reply. The tool waits for both (`--timeout` seconds, default 900).
+  - The prompt ranks naturalness in 3D first, animation-readiness second and fidelity third, and asks for findings per part with priority, view, location, issue and a concrete fix. `--focus <part>` makes it review that part in most detail.
+  - Replies go to `out/review/<model>.md` (and `.json`, `.log`); `summary.md` merges them by part, with every priority-1 finding listed first. `prompt.md` keeps the exact prompt.
+- A single run takes about 25 s of rendering plus a few minutes per model. `--no-codex` stops after the sheets; `--no-render` reuses the renders already in `--out`.
+- `docs/pr/r3-review/` holds the round-3 baseline sheets and summary.
 
 ## Part rules
 - A part only adds objects to the `col` passed to `build(col)`. It must not read or modify other parts' objects; align to `spec.L` landmarks instead.
