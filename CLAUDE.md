@@ -125,6 +125,7 @@ python tools/review.py [--blend out/levi.blend] [--rig out/levi_rig.blend] [--bu
 
 ## Part rules
 - A part only adds objects to the `col` passed to `build(col)`. It must not read or modify other parts' objects; align to `spec.L` landmarks instead.
+  - Exception: a part may import another part's *measurement data or pure surface functions* (e.g. `shoes` reads `body`'s foot tables, `bodice` calls `skirt.front_surface_y()`) so fitted layers follow the layer underneath. Import data/functions only — never objects — and say so in the PR. The owning part must keep those names stable.
 - Materials always come from `toon_material`. Every visible mesh gets `add_outline` unless it sets `obj["no_outline"] = True` (e.g. eye decals).
 - Stay within `spec.BUDGET[part]`, which counts evaluated faces excluding the outline hull.
 - Builds must be deterministic and repeatable. No randomness without a fixed seed.
