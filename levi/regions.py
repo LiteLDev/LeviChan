@@ -13,11 +13,11 @@ from . import spec
 # Region -> palette keys. Every spec.PALETTE key belongs to exactly one region.
 REGIONS = {
     'skin':      ('skin', 'mouth'),
-    'hair':      ('hair', 'hair_tip', 'flower'),   # flowers are white hair ornaments
+    'hair':      ('hair', 'hair_tip', 'flower', 'flower_center'),   # flowers are hair ornaments
     'dress':     ('dress', 'dress_mint', 'sleeve', 'cuff'),
     'green':     ('green', 'leaf', 'sleeve_dark', 'eye'),
     'petticoat': ('petticoat',),
-    'shoe':      ('shoe',),
+    'shoe':      ('shoe', 'sole'),
 }
 REGION_NAMES = tuple(REGIONS)
 REGION_OF_KEY = {k: r for r, ks in REGIONS.items() for k in ks}
@@ -73,20 +73,122 @@ def delta_e(a_rgb, b_rgb):
     return np.linalg.norm(srgb_to_lab(a_rgb) - srgb_to_lab(b_rgb), axis=-1)
 
 
-# Tiny face decals whose colours collide with bigger zones (the iris green is
-# within a few dE of the mint hair tips); left out of reference classification.
-CLASSIFY_SKIP = ('eye', 'mouth')
+# Tiny decals whose colours collide with bigger zones (the iris green is
+# within a few dE of the mint hair tips; the tan soles are close to greyed
+# line art); left out of reference classification. Unclassified pixels at the
+# feet become shoe anyway.
+CLASSIFY_SKIP = ('eye', 'mouth', 'flower_center', 'sole')
+
+
+# Palette pairs painted as a continuous gradient on the sheet (the hair fades
+# from white to mint toward the tips). Their in-between tints are sampled too,
+# so a half-mint strand reads as hair rather than as pale mint cloth.
+GRADIENTS = (('hair', 'hair_tip'),)
+GRADIENT_STEPS = (0.15, 0.3, 0.45, 0.6, 0.75)
 
 
 def palette_samples():
-    """[(label, sRGB)] for every palette base/shade and their midpoint."""
+    """[(label, sRGB)] for every sheet palette base/shade and their midpoint,
+    plus the in-between tints of each GRADIENTS pair. Uses spec.SHEET_PALETTE
+    (the sheet's measured colours), not the tuned render palette, so the
+    reference regions do not move when look-dev retunes spec.PALETTE."""
+    pal = spec.SHEET_PALETTE
     out = []
-    for key, pal in spec.PALETTE.items():
+    for key, p in pal.items():
         if key in CLASSIFY_SKIP:
             continue
-        b, s = hex_rgb(pal['base']), hex_rgb(pal['shade'])
+        b, s = hex_rgb(p['base']), hex_rgb(p['shade'])
         for c in (b, s, (b + s) / 2):
             out.append((LABEL[REGION_OF_KEY[key]], c))
+    for ka, kb in GRADIENTS:
+        for tone in ('base', 'shade'):
+            a, b = hex_rgb(pal[ka][tone]), hex_rgb(pal[kb][tone])
+            for t in GRADIENT_STEPS:
+                region = REGION_OF_KEY[ka] if t < 0.5 else REGION_OF_KEY[kb]
+                out.append((LABEL[region], a + (b - a) * t))
+    return out
+
+
+# Line-bounded voting. The pale regions (white hair, cream cloth, skin) share
+# tints wherever the painting shades or highlights them, so per-pixel colour
+# alone speckles them. The sheet's line art encloses each painted area, so
+# the pale pixels are grouped into components bounded by strokes and each
+# component takes its majority pale label. Components bigger than
+# VOTE_MAX_PX (strokes with gaps that let zones leak together) or smaller
+# than VOTE_MIN_PX keep their per-pixel labels.
+PALE = ('skin', 'hair', 'dress')
+LINE_DROP = 10.0      # L* below the 5x5 local maximum that marks a stroke pixel
+VOTE_MIN_PX = 40
+VOTE_MAX_PX = 25000
+VOTE_MIN_SHARE = 0.55  # the winning label's share of the component
+
+
+def stroke_mask(rgb):
+    """Pixels on dark line art: noticeably darker than their 5x5 neighbourhood."""
+    lum = srgb_to_lab(rgb)[..., 0]
+    h, w = lum.shape
+    pad = np.pad(lum, 2, mode='edge')
+    mx = lum.copy()
+    for dy in range(5):
+        for dx in range(5):
+            np.maximum(mx, pad[dy:dy + h, dx:dx + w], out=mx)
+    return lum < mx - LINE_DROP
+
+
+def components(allowed):
+    """4-connected component ids (int32, -1 outside `allowed`), pure numpy:
+    min-label propagation with pointer jumping."""
+    h, w = allowed.shape
+    big = np.int32(h * w)
+    lab = np.where(allowed, np.arange(h * w, dtype=np.int32).reshape(h, w), big)
+    while True:
+        prev = lab
+        m = lab.copy()
+        m[1:] = np.minimum(m[1:], np.where(allowed[:-1], lab[:-1], big))
+        m[:-1] = np.minimum(m[:-1], np.where(allowed[1:], lab[1:], big))
+        m[:, 1:] = np.minimum(m[:, 1:], np.where(allowed[:, :-1], lab[:, :-1], big))
+        m[:, :-1] = np.minimum(m[:, :-1], np.where(allowed[:, 1:], lab[:, 1:], big))
+        m = np.where(allowed, m, big)
+        flat = np.append(m.ravel(), big)
+        for _ in range(8):   # pointer jumping: follow each label to its root
+            flat = np.minimum(flat, flat[np.minimum(flat, big)])
+        lab = flat[:-1].reshape(h, w)
+        if (lab == prev).all():
+            break
+    return np.where(allowed, lab, -1)
+
+
+def vote_pale(labels, rgb):
+    """Give each line-bounded pale component its majority pale label."""
+    pale_ids = np.array([LABEL[r] for r in PALE], dtype=np.uint8)
+    pale = np.isin(labels, pale_ids)
+    comp = components(pale & ~stroke_mask(rgb))
+    ids = comp[comp >= 0]
+    if not ids.size:
+        return labels
+    uniq, inv = np.unique(ids, return_inverse=True)
+    lbl = labels[comp >= 0]
+    counts = np.zeros((len(uniq), len(pale_ids)), dtype=np.int64)
+    for j, k in enumerate(pale_ids):
+        counts[:, j] = np.bincount(inv, weights=(lbl == k), minlength=len(uniq))
+    size = counts.sum(1)
+    win = counts.argmax(1)
+    share = counts.max(1) / np.maximum(size, 1)
+    ok = (size >= VOTE_MIN_PX) & (size <= VOTE_MAX_PX) & (share >= VOTE_MIN_SHARE)
+    new = np.where(ok[inv], pale_ids[win][inv], lbl)
+    out = labels.copy()
+    out[comp >= 0] = new
+    return out
+
+
+def fold_feet(labels):
+    """Everything green below the ankles (ankle leaves, laces) counts as shoe.
+    Applied to the reference and to render labels alike, so laces score the
+    same in both."""
+    rows = np.arange(labels.shape[0])[:, None]
+    feet = rows > spec.SHEET_GROUND_Y - spec.L['ankle_z'] * spec.PX_PER_M - 20
+    out = labels.copy()
+    out[(labels == LABEL['green']) & feet] = LABEL['shoe']
     return out
 
 
@@ -128,6 +230,9 @@ def classify_reference(rgb, mask, view):
         best_d[closer] = d[closer]
         labels[closer] = sl
     labels[best_d > MAX_DE] = UNKNOWN
+    labels[~mask] = BG
+    # Vote before the spatial priors below, so they have the last word.
+    labels = vote_pale(labels, rgb)
 
     rows = np.arange(h)[:, None].repeat(w, 1)
     cols = np.arange(w)[None, :].repeat(h, 0)
@@ -145,12 +250,10 @@ def classify_reference(rgb, mask, view):
         legs = (np.abs(cols - w / 2) < leg_x) & (rows > row_of(L['skirt_hem_z']))
     labels[pink & band & ~legs] = LABEL['petticoat']
     labels[pink & ~(band & ~legs)] = LABEL['skin']
-    # Everything green/dark below the ankles (shoe, ankle leaves and laces)
-    # belongs to the shoes; above that, a dark green is trim, not shoe.
     feet = rows > row_of(L['ankle_z']) - 20
-    greenish = (labels == LABEL['green']) | (labels == LABEL['shoe'])
-    labels[greenish & feet] = LABEL['shoe']
-    labels[greenish & ~feet] = LABEL['green']
+    labels = fold_feet(labels)
+    # Above the ankles a dark green is trim, not shoe.
+    labels[(labels == LABEL['shoe']) & ~feet] = LABEL['green']
     labels[(labels == UNKNOWN) & feet] = LABEL['shoe']
     # Pale pixels between the laces at the ankles are skin, not cloth or hair.
     pale = (labels == LABEL['dress']) | (labels == LABEL['hair'])
@@ -160,6 +263,50 @@ def classify_reference(rgb, mask, view):
     labels = _majority(labels, SMOOTH_RADIUS)
     labels[~mask] = BG
     return labels
+
+
+def dilate(m, radius):
+    """Binary dilation by a (2r+1)^2 square."""
+    out = m.copy()
+    h, w = m.shape
+    pad = np.pad(m, radius)
+    for dy in range(2 * radius + 1):
+        for dx in range(2 * radius + 1):
+            out |= pad[dy:dy + h, dx:dx + w]
+    return out
+
+
+TOL_PX = 2
+
+
+def tolerant_overlap(a, b, radius=TOL_PX):
+    """Overlap of two masks that forgives misplacement up to `radius` px:
+    the share of a's and b's pixels lying within `radius` of the other mask.
+    For thin zones (ribbons, laces) a 1-2 px offset halves the plain IoU while
+    the shapes still line up; this separates misalignment from missing parts."""
+    na, nb = int(a.sum()), int(b.sum())
+    if na + nb == 0:
+        return 1.0
+    return float(((a & dilate(b, radius)).sum() + (b & dilate(a, radius)).sum()) / (na + nb))
+
+
+def shade_share(rgb, labels, region, palette=None, max_de=15.0):
+    """Share of a region's pixels painted in a shade tone: each pixel is
+    matched to the nearest base/shade colour of the region's palette keys
+    (pixels further than max_de from all, e.g. line art, are skipped).
+    palette: spec.PALETTE (default, for renders) or spec.SHEET_PALETTE (for
+    the reference). Returns (share, n_matched) or (nan, 0)."""
+    palette = spec.PALETTE if palette is None else palette
+    m = labels == LABEL[region]
+    if not m.any():
+        return float('nan'), 0
+    cols = np.array([hex_rgb(palette[k][t]) for k in REGIONS[region] for t in ('base', 'shade')])
+    d = np.linalg.norm(srgb_to_lab(rgb[m])[:, None] - srgb_to_lab(cols)[None], axis=-1)
+    ok = d.min(1) < max_de
+    if not ok.any():
+        return float('nan'), 0
+    shade = (d.argmin(1) % 2 == 1) & ok
+    return float(shade.sum() / ok.sum()), int(ok.sum())
 
 
 def encode(labels):

@@ -25,7 +25,7 @@ Blender: `C:/Program Files/Blender Foundation/Blender 5.2/blender.exe` (written 
 ## Pipeline
 ```
 "$B" -b -P build.py -- --out out/levi.blend [--parts body,skirt] [--proxy]
-"$B" -b out/levi.blend -P render.py -- --out out/render [--hide _proxy] [--views front,side,back] [--shadows] [--freestyle] [--no-regions]
+"$B" -b out/levi.blend -P render.py -- --out out/render [--hide _proxy] [--views front,side,back] [--no-shadows] [--freestyle] [--no-regions] [--sun AZ,EL] [--ramp T] [--ramp-key KEY=T,...]
 "$B" -b --factory-startup -P tools/compare.py -- --render out/render --out out/cmp [--box x0,y0,x1,y1] [--part-region dress,petticoat]
 "$B" -b -P tools/check.py -- [--parts body,skirt]      # exit code 1 on failure
 "$B" -b -P build.py -- --rig ...                         # + MMD armature, skinned (levi/rig.py)
@@ -39,19 +39,29 @@ The body part may store fitted limb joints for the rig as `obj["levi_joints"] = 
 `out/cmp/<view>_{overlay,diff,sbs}.png`:
 - In the diff, red = render sticks out and blue = reference not covered.
 - The tool also prints IoU against the reference silhouette.
-- It also prints one `REGION <view> <region> iou .. dE ..` line per region. IoU compares `ref/<view>_regions.png` with the render's `<view>_regions.png`, which `render.py` writes from the materials' palette keys. dE is the mean CIE76 colour error over pixels both images give that region.
+- It also prints one `REGION <view> <region> iou .. tol .. dE .. shade ref .. ren ..` line per region. IoU compares `ref/<view>_regions.png` with the render's `<view>_regions.png`, which `render.py` writes from the materials' palette keys. dE is the mean CIE76 colour error over pixels both images give that region.
+  - `tol` forgives up to 2 px of misplacement. For thin zones (ribbons, laces) a low `iou` with a high `tol` means aligned but offset; a low `tol` means missing or misplaced parts.
+  - `shade` is the share of the region painted in a shade tone (nearest palette base vs shade) in the sheet and in the render: the lit/shade balance look-dev tunes.
 - `--part-region skin,hair` reports only those regions and writes `<view>_region_<name>.png` diffs.
-- The reference regions come from colour plus spatial priors, so they are noisy where colours coincide. Mint hair tips read as mint cloth, and skin vs petticoat is decided by position. Use the region IoU for trends, not as an absolute score.
+- The reference regions come from colour plus spatial priors (`levi/regions.py`):
+  - The pale regions (hair / dress / skin) are grouped into components bounded by the sheet's line art, and each component takes its majority label. This removes most speckle from highlights and painted shading.
+  - The hair's white-to-mint gradient is sampled too (`regions.GRADIENTS`), so half-mint strands read as hair, not mint cloth.
+  - Skin vs petticoat is decided by position. Green below the ankles counts as shoe in both the sheet and the render (`regions.fold_feet`).
+  - Remaining known errors: the back view's palest mint hair lobes over the skirt still read partly as dress, and small skin highlights between the halter straps read as dress. Use the region numbers for trends, not as an absolute score.
+- Rerun `tools/prep_ref.py -- --regions-only` after changing `spec.SHEET_PALETTE` or `levi/regions.py`.
 
 ## Look-dev (cel shading)
-- Light: one sun per view, placed relative to that view's camera. It comes from the viewer's upper left, nearly frontal (`render.SUN_AZIMUTH_DEG` / `SUN_ELEVATION_DEG`), so front, side and back are all mostly lit like the sheet.
-- The world is black and the sun strength is π, so the toon ramp sees pure N·L in 0..1. Below `toon.RAMP_THRESHOLD` a surface takes the single shade tone: turned-away sides and undersides of hems, chin and strands.
-- Cast shadows are off by default. Shadow maps give blocky self-shadow patches on medium-poly and custom-normal meshes, and the sheet has none. `render.py --shadows` turns them on for experiments.
+- Light: one sun per view, placed relative to that view's camera. It comes from the viewer's upper left, nearly frontal and low (`render.SUN_AZIMUTH_DEG` 20 / `SUN_ELEVATION_DEG` 12), so front, side and back are all mostly lit like the sheet.
+- The world is black and the sun strength is π, so the toon ramp sees pure N·L × shadow in 0..1. Below the ramp threshold a surface takes the single shade tone: turned-away sides, undersides of hems, chin and strands, and cast shadows.
+  - The threshold is `toon.RAMP_THRESHOLD` (0.30), overridden per palette key by `toon.RAMP_BY_KEY`. The sheet shades cloth and hair much more than skin, so dress/sleeve keys use 0.48, hair 0.42, green/leaf 0.50.
+- Cast shadows are on (`render.CAST_SHADOWS`). On the full model they give the sheet's contact shadows: skirt onto petticoat and thighs, chin onto neck, sleeves onto the hair behind them. `render.py --no-shadows` turns them off.
+- `render.py` re-applies the current ramp and palette to the materials in the `.blend` (`toon.sync_materials()`), so look-dev changes need no rebuild. `--sun AZ,EL`, `--ramp T` and `--ramp-key KEY=T,...` override the light and thresholds for experiments.
+- No highlight tone: the sheet's lit hair and cloth are flat base colour with no distinct highlight band, so the ramp stays two-tone.
 - Colour: Standard view transform, no look, no dither. A flat lit surface renders exactly its `spec.PALETTE` `base` hex, and a shaded one exactly its `shade` hex (0/255 error). Renders are pixel- and byte-identical across runs.
-- The palette was sampled from the sheet. If you need a different colour, ask for a palette change rather than adding a new material.
+- `spec.SHEET_PALETTE` holds the colours measured on the sheet; `spec.PALETTE` (what renders) is that plus the round-2 look-dev retune `spec.PALETTE_TUNING`. The reference classifier and the sheet's shade share use `SHEET_PALETTE`, so retuning the render palette does not move the reference regions. If you need a different colour, ask for a palette change rather than adding a new material.
 - Outlines: an inverted hull `spec.OUTLINE_WIDTH` thick (`OUTLINE_PX` = 1.25 panel px, which renders as about 1.25 px lines) in the key's `line` colour.
   - The hull material never casts shadows: it is transparent to shadow rays and back-face culled for shadows.
-  - Parts no longer need `obj.visible_shadow = False` or private no-shadow outline materials. Drop those workarounds; leaving `visible_shadow = False` is harmless, but it would stop the object from casting shadows under `--shadows`.
+  - Parts no longer need `obj.visible_shadow = False` or private no-shadow outline materials. Drop those workarounds; leaving `visible_shadow = False` is harmless, but it stops the object from casting shadows.
   - Open single-sided sheets work with normals facing either way: with backface culling, the hull never covers the fill.
   - A hull only draws silhouettes, so the open border of a sheet that faces the camera gets no line. If a border line matters, give the sheet a little thickness or use `render.py --freestyle` (1 px crease and open-border lines in each material's line colour).
 

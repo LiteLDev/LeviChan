@@ -114,11 +114,14 @@ _landmarks()
 
 # ---------------------------------------------------------------- palette
 # base = lit colour, shade = toon shadow colour, line = outline colour (sRGB).
-# Sampled from ref/levi_threeview.png: base/shade are the lit and shadow
-# k-means clusters of line-free boxes inside each zone; line is the median of
-# the darkest ~3% of pixels across that zone's outline (the stroke core).
-# toon.py renders these hex values exactly (Standard view transform).
-PALETTE = {
+#
+# SHEET_PALETTE is what the sheet measures: base/shade are the lit and shadow
+# k-means clusters of line-free boxes inside each zone of
+# ref/levi_threeview.png; line is the median of the darkest ~3% of pixels
+# across that zone's outline (the stroke core). levi/regions.py classifies the
+# reference with these fixed colours, so retuning the render palette does not
+# move the reference regions. PALETTE (below) is what toon.py renders.
+SHEET_PALETTE = {
     'skin':        {'base': '#FEEAE1', 'shade': '#F3CDC2', 'line': '#9E7262'},
     'hair':        {'base': '#F1F0EF', 'shade': '#C1C7C1', 'line': '#6E7676'},
     'hair_tip':    {'base': '#76B48E', 'shade': '#619379', 'line': '#446E5A'},
@@ -130,11 +133,37 @@ PALETTE = {
     'sleeve':      {'base': '#F4F9EC', 'shade': '#DAEBD7', 'line': '#46625C'},
     'sleeve_dark': {'base': '#558A62', 'shade': '#325F3E', 'line': '#13401F'},
     'petticoat':   {'base': '#FDE3DD', 'shade': '#F0C4BE', 'line': '#9F8780'},
-    'cuff':        {'base': '#FCF8F0', 'shade': '#F2DED5', 'line': '#5E625C'},
+    # Wrist frills: re-sampled in round 2 (front view, both wrists, 2-means on
+    # pale low-chroma pixels): the painted shade is a warm grey, not pink.
+    'cuff':        {'base': '#FCF8F0', 'shade': '#D4CCC5', 'line': '#5E625C'},
     'flower':      {'base': '#F6F6F4', 'shade': '#D2D3CD', 'line': '#22372D'},
+    # Yellow flower centres: only ~12 px each on the sheet (front, rows 55-92
+    # near cols 270 / 368): base/shade are the upper/lower lightness halves of
+    # those pixels, line their darkest tenth.
+    'flower_center': {'base': '#DFCC9D', 'shade': '#BEA978', 'line': '#7A6E45'},
     'shoe':        {'base': '#28663D', 'shade': '#1E5634', 'line': '#10391E'},
+    # Tan shoe underside / inner lining (back view rows ~910-940 under the
+    # arches, side view inside the heel): ~100 px, upper/lower lightness halves.
+    'sole':        {'base': '#A69B82', 'shade': '#93866E', 'line': '#6B624C'},
     'mouth':       {'base': '#D88A86', 'shade': '#B86A66', 'line': '#7A3C3A'},
 }
+
+# Round-2 look-dev retune on the full model (toon.py renders PALETTE exactly):
+#   hair_tip     lighter, less saturated: the average painted tip, not its
+#                darkest end, so the rendered white-to-mint fade is not too strong
+#   green, leaf  darker, less saturated: the sheet's ribbons and leaves
+#   hair, dress  shade lighter: cast shadows and the per-key ramps
+#                (toon.RAMP_BY_KEY) put more area in shade, and the sheet's
+#                broad shade areas are paler than its darkest cluster
+#   hair, dress  line a little lighter: stroke medians matched to the sheet's
+PALETTE_TUNING = {
+    'hair':     {'shade': '#CBD3CD', 'line': '#77817F'},
+    'hair_tip': {'base': '#8CC0A2', 'shade': '#70A386'},
+    'green':    {'base': '#28753A', 'shade': '#1D5F2E'},
+    'leaf':     {'base': '#4AA460', 'shade': '#357F49'},
+    'dress':    {'shade': '#D5E2D4', 'line': '#63726A'},
+}
+PALETTE = {k: {**v, **PALETTE_TUNING.get(k, {})} for k, v in SHEET_PALETTE.items()}
 
 
 # ---------------------------------------------------------------- parts

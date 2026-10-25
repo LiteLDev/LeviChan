@@ -9,9 +9,9 @@ that spec.panel_px() maps world coordinates onto them.
 
 Then writes ref/{front,side,back}_regions.png: the character segmented into
 levi.regions regions (skin / hair / dress / green / petticoat / shoe) by
-nearest spec.PALETTE colour plus spatial priors, colour-coded with
+nearest spec.SHEET_PALETTE colour plus spatial priors, colour-coded with
 regions.LABEL_RGB. --regions-only rebuilds just these from the committed
-panels and masks (rerun it after retuning spec.PALETTE).
+panels and masks (rerun it after changing spec.SHEET_PALETTE or levi/regions.py).
 """
 import argparse
 import os
