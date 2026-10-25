@@ -53,10 +53,10 @@ CAP_PROFILE = [
     (86, 63, 228, 361),
     (100, 64, 242, 362),
     (116, 64, 262, 362),
-    (132, 62, 272, 360),
-    (148, 58, 276, 353),
-    (162, 50, 280, 343),
-    (172, 36, 284, 330),
+    (132, 62, 278, 360),     # round 3: rows 132-172 pulled back ~6-8 px so the
+    (148, 58, 284, 353),     # jaw and cheek show in the side view (the ear
+    (162, 50, 288, 343),     # stays covered)
+    (172, 36, 292, 330),
 ]
 CAP_BOTTOM = (178, 305)
 CAP_EXP = 2.3
@@ -199,11 +199,17 @@ def head_normal(p):
 
 
 def strand(bm, ctrl, width, thick, segs=10, n=6, base_taper=0.25, tip_pow=0.8,
-           normal=head_normal, tip_from=0.0):
+           normal=head_normal, tip_from=0.0, back=1.0, wrap=0.0, tip_thick=0.35):
     """Append a flattened, tapered tube along `ctrl` to bm.
 
     width/thick: full width and thickness (m) at the widest point.
     tip_from: fraction of the length kept at full width before the tip taper.
+    tip_thick: share of the thickness kept toward the tip (lower = the tip
+    thins out with the width instead of ending in a thick wall).
+    back: thickness of the inner (-normal) half relative to the outer half;
+    < 1 gives a rounded wedge: a domed outer face over a flatter underside.
+    wrap: how far the two edges curl back toward the head (x width), so a
+    broad clump is a curved shell across its width instead of a flat plate.
     Tip is closed by a single apex vertex; the root is capped flat."""
     tip_from = min(max(tip_from, 0.0), 0.9)
     pts = catmull(ctrl, segs + 1)
@@ -225,11 +231,13 @@ def strand(bm, ctrl, width, thick, segs=10, n=6, base_taper=0.25, tip_pow=0.8,
         sw = min(1.0, base_taper + (1 - base_taper) * min(1.0, t / 0.18))
         tip = (1 - max(0.0, t - tip_from) / (1 - tip_from)) ** tip_pow
         w = 0.5 * width * sw * tip
-        h = 0.5 * thick * sw * max(tip, 0.35)
+        h = 0.5 * thick * sw * max(tip, tip_thick)
         ring = []
         for k in range(n):
             a = 2 * math.pi * k / n
-            ring.append(bm.verts.new(p + b * (math.cos(a) * w) + nrm * (math.sin(a) * h)))
+            sa, ca = math.sin(a), math.cos(a)
+            off = sa * h * (1.0 if sa > 0 else back) - wrap * w * ca * ca
+            ring.append(bm.verts.new(p + b * (ca * w) + nrm * off))
         rings.append(ring)
     apex = bm.verts.new(pts[-1])
     for a, c in zip(rings, rings[1:]):
@@ -277,7 +285,7 @@ def crown_clumps(bm):
             t = k / 5
             row = 19 + (end_row - 19) * t
             ctrl.append(cap_point(az, row, grow=0.0025 * (1 - t) + 0.0015 * math.sin(math.pi * t)))
-        strand(bm, ctrl, w, 0.007, segs=7)
+        strand(bm, ctrl, w * 1.2, 0.007, segs=7, back=0.3, wrap=0.15)
 
 
 BANG_NORMAL = Vector((0, -1, 0.25)).normalized()
@@ -294,23 +302,57 @@ def on_cap(fx, row, lift=4):
     return P(fx, row, cap_front_sc(fx, row) - lift)
 
 
+# Front-most side-view column of the face skin vs |front offset|, rows ~80-120
+# (measured on the round-2 head mesh; unit `head` owns it, so it is a local
+# constant here). The bang tips keep a small air gap in front of it.
+FACE_FRONT = ((0, 240), (10, 241), (20, 245), (30, 254), (40, 268), (46, 290))
+BANG_TIP_GAP = 7        # px in front of the skin at the tips
+BANG_BULGE = 18         # px in front of the skin where the fringe arches out (row 84)
+
+
+def face_front_sc(fx):
+    t = FACE_FRONT
+    a = abs(fx)
+    for (x0, s0), (x1, s1) in zip(t, t[1:]):
+        if a <= x1:
+            return s0 + (s1 - s0) * (a - x0) / (x1 - x0)
+    return t[-1][1]
+
+
+# A few broad clumps of varied width and length (sheet: the longest falls
+# between the eyes, slightly to the image-left), roots overlapping on the
+# crown. (fx root, fx tip, tip row, width px, lift px). The lift layers the
+# clumps so overlapping ones never share a surface: higher lift = on top.
+BANG_CLUMPS = (
+    (-3, -9, 125, 31, 6.0),     # dominant central clump
+    (3, 4, 112, 16, 3.5),       # filler under the centre parting
+    (10, 18, 105, 27, 5.0),
+    (-17, -27, 100, 27, 5.0),
+    (24, 36, 95, 23, 6.5),
+    (-30, -41, 104, 21, 6.5),
+    (35, 45, 114, 13, 4.0),     # thin temple locks between eye and temple
+    (-36, -46, 110, 13, 4.0),
+)
+
+
 def bangs(bm):
-    # (fx root, fx tip, row tip, sc tip, width) - asymmetric like the sheet
-    for fx0, fx1, row1, sc1, w in (
-            (-4, -10, 121, 214, 0.040),   # dominant central bang
-            (6, 6, 111, 210, 0.036),
-            (16, 24, 104, 209, 0.034),
-            (-16, -28, 110, 210, 0.034),
-            (27, 40, 108, 214, 0.034),
-            (-27, -44, 104, 216, 0.032),
-            (36, 54, 98, 226, 0.030),
-            (-36, -56, 96, 228, 0.030)):
-        ctrl = [on_cap(fx0 * 0.25, 21, 3), on_cap(fx0 * 0.65, 38),
-                on_cap(fx0 * 0.95 + (fx1 - fx0) * 0.15, 60),
-                P(fx0 + (fx1 - fx0) * 0.55, 84, 208),
-                P(fx1, row1, sc1)]
-        strand(bm, ctrl, w, 0.012, segs=10, base_taper=0.6, tip_pow=0.7,
-               normal=bang_normal)
+    """The fringe: rounded-wedge clumps that leave the cap at the hairline,
+    arch out over the forehead and come back to rest just in front of it."""
+    for fx0, fx1, row1, wpx, lift in BANG_CLUMPS:
+        tip = face_front_sc(fx1) - BANG_TIP_GAP
+        fxm = fx0 + (fx1 - fx0) * 0.45
+        bulge = min(face_front_sc(fxm) - BANG_BULGE, cap_front_sc(fxm, 84) - lift - 2)
+        rowm = (84 + row1) / 2
+        fxq = fx0 + (fx1 - fx0) * 0.75
+        # roots lie flush on the cap (tangent to it) and only lift off it
+        # toward the hairline, so the crown reads as one continuous surface
+        ctrl = [on_cap(fx0 * 0.25, 21, 2.5), on_cap(fx0 * 0.6, 38, 2 + 0.3 * lift),
+                on_cap(fx0 * 0.9 + (fx1 - fx0) * 0.1, 60, 0.75 * lift),
+                P(fxm, 84, bulge),
+                P(fxq, rowm, (bulge + tip) / 2 - 1),
+                P(fx1, row1, tip)]
+        strand(bm, ctrl, wpx * PX, 0.013, segs=10, n=8, base_taper=0.7, tip_pow=0.9,
+               normal=bang_normal, tip_from=0.45, back=0.4, wrap=0.3, tip_thick=0.12)
 
 
 def ahoge(bm):
@@ -324,27 +366,36 @@ def ahoge(bm):
 
 # Side locks for the character's left (+X, image right); mirrored for the right.
 # ctrl points (fx, row, sc), full width (m). The side view of the sheet shows
-# the face clear from the bangs back to the ear (cols ~228-265, rows 90-155):
-# the cheek locks hang in front of it, everything else stays behind it.
+# the face clear from the nose back to col ~260 (rows 90-155), with only a
+# short cheek lock behind the eye: every lock stays behind that line.
 CHEEK_LOCKS = [
-    # in front of the cheek: broad overlapping clumps, green-tipped ~row 140
-    ([(34, 46, 238), (40, 74, 218), (42, 100, 209), (43, 122, 210), (42, 142, 217)], 0.040),
-    ([(44, 50, 248), (52, 80, 224), (54, 108, 214), (55, 132, 218), (53, 150, 226)], 0.038),
+    # Beside the cheek, behind the eye in the side view (the face shows from
+    # the nose back to col ~255). They leave the cap at the temple, come in
+    # toward the cheek, and turn their green tips outward at jaw level.
+    # Below the cheekbone they drift back toward the ear so the jaw stays
+    # clear in the side view while the front view still sees them beside it.
+    ([(38, 48, 252), (52, 72, 252), (50, 96, 258), (48, 118, 266), (50, 136, 276),
+      (54, 148, 284), (59, 154, 289)], 0.030),
+    ([(46, 52, 262), (60, 78, 262), (57, 104, 268), (55, 126, 278), (57, 140, 286),
+      (62, 148, 292)], 0.032),
 ]
 WISP_LOCKS = [
-    # outer wisps flaring out at rows 115-140 (front), behind the eye (side)
-    ([(52, 48, 270), (65, 82, 270), (78, 106, 274), (88, 124, 280), (88, 140, 284)], 0.032),
-    ([(58, 58, 288), (72, 94, 288), (84, 118, 290), (90, 136, 292)], 0.030),
+    # outer wisps flaring out at rows 115-140 (front), behind the eye (side),
+    # tips curling outward and up
+    ([(52, 48, 270), (63, 82, 272), (73, 106, 276), (81, 124, 280), (86, 134, 283),
+      (90, 139, 285), (93, 136, 286)], 0.032),
+    ([(58, 58, 288), (70, 94, 288), (80, 118, 290), (85, 130, 292), (89, 135, 293),
+      (92, 132, 294)], 0.030),
 ]
 FRONT_LONG = [
-    # A: emerges from behind the jaw and passes in front of the neck (the
-    # choker stays visible behind it, cols ~248-280)
-    ([(50, 60, 258), (60, 96, 266), (61, 130, 268), (62, 150, 258), (66, 168, 248),
-      (74, 190, 238), (76, 210, 233), (74, 230, 240)], 0.042),
+    # A: hangs behind the face frame (outside the ear) down past the chin,
+    # then swings forward into the lock in front of the shoulder
+    ([(52, 60, 276), (66, 96, 284), (63, 130, 290), (64, 148, 288), (67, 162, 278),
+      (70, 176, 263), (73, 192, 247), (74, 208, 238), (74, 224, 240)], 0.042),
     # B, C: stay behind the neck down to the choker, then swing forward to
     # fill out the lock in front of the shoulder
-    ([(56, 66, 266), (64, 104, 272), (63, 138, 290), (66, 160, 302), (70, 180, 302),
-      (76, 198, 262), (78, 214, 248), (78, 230, 250)], 0.046),
+    ([(56, 66, 272), (66, 104, 280), (63, 138, 292), (66, 160, 302), (71, 184, 302),
+      (77, 200, 266), (78, 214, 250), (78, 230, 250)], 0.046),
     ([(58, 70, 278), (66, 112, 280), (66, 150, 296), (70, 182, 304), (78, 204, 264),
       (80, 220, 260)], 0.042),
 ]
@@ -373,9 +424,9 @@ def lock_normal(p, forward=1.2, lateral=False):
 
 
 def side_set(bm, defs, segs, thick, mirror, forward=1.2, tip_pow=0.8, lateral=False,
-             tip_from=0.0):
+             tip_from=0.0, back=1.0, wrap=0.0):
     """forward: how much the ribbons turn to face the front (0 = face out
-    sideways, broad in the side view)."""
+    sideways, broad in the side view). back / wrap: see strand()."""
     def nfn(p):
         return lock_normal(p, forward, lateral)
     for ctrl, w in defs:
@@ -385,7 +436,7 @@ def side_set(bm, defs, segs, thick, mirror, forward=1.2, tip_pow=0.8, lateral=Fa
         if mirror:
             pts = mirror_pts(pts)
         strand(bm, pts, w, thick, segs=segs, base_taper=0.3, tip_pow=tip_pow, normal=nfn,
-               tip_from=tip_from)
+               tip_from=tip_from, back=back, wrap=wrap)
 
 
 def build(col):
@@ -404,13 +455,14 @@ def build(col):
 
     for side, mirror in (('L', False), ('R', True)):
         bm = bmesh.new()
-        side_set(bm, CHEEK_LOCKS, 9, 0.014, mirror, forward=0.7, tip_pow=0.6, lateral=True)
-        side_set(bm, WISP_LOCKS, 8, 0.012, mirror, forward=0.6, tip_pow=0.45)
-        finish(col, f'hair_cheek_{side}', bm, mat, zgrad(112, 150))
+        side_set(bm, CHEEK_LOCKS, 9, 0.014, mirror, forward=0.7, tip_pow=0.6, lateral=True,
+                 back=0.6, wrap=0.2)
+        side_set(bm, WISP_LOCKS, 8, 0.012, mirror, forward=0.6, tip_pow=0.45, wrap=0.15)
+        finish(col, f'hair_cheek_{side}', bm, mat, zgrad(108, 146))
 
         bm = bmesh.new()
-        side_set(bm, FRONT_LONG, 16, 0.022, mirror, forward=0.5, tip_pow=0.7, lateral=True,
-                 tip_from=0.55)
+        side_set(bm, FRONT_LONG, 16, 0.022, mirror, forward=0.9, tip_pow=0.7, lateral=True,
+                 tip_from=0.55, back=0.7, wrap=0.15)
         finish(col, f'hair_lock_{side}', bm, mat, zgrad(180, 222))
 
         bm = bmesh.new()

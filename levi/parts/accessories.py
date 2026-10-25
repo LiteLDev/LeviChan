@@ -4,8 +4,8 @@ halter strings crossing over the upper chest.
 Everything is positioned against the reference panels (re-measured green
 masks / crops of ref/{front,side,back}.png). Exceptions, as local constants
 (no other part's objects are read): the choker loop and the halter depths
-are set so the strings rest on the body's skin, and the flower depth clears
-the front hair locks (see FLOWER).
+are set so the strings rest on the body's skin, and the flower and leaf
+mount sit on the hair surface (see FLOWER).
 Coordinates below are given in reference pixels and converted with P():
     x  = front-view column offset from the panel centre (+ = character's left)
     y  = side-view column offset from the panel centre (- = forward)
@@ -39,24 +39,30 @@ def _mirror(v, sx):
 
 # ------------------------------------------------------------------ leaves
 # (base, tip, width-direction hint, full width px, facing hint)
-# Leaf A: the taller inner leaf; leaf B: the larger outer leaf that fans out
-# sideways and backwards (its tip is behind the ear line in the side view).
+# Both leaves grow from one mount on the hair just behind the flower (sheet:
+# side col ~290, row ~72). Leaf A: the taller inner leaf, close to the scalp,
+# tip at front x ~60 / side col ~309, row 34. Leaf B: the broader outer leaf
+# that fans out sideways and back (front x ~84, side col ~329, row 42).
+# fold: cupping (edges raised along the facing normal), bend: backward curve of
+# the tip, curl: sideways curve of the tip.
 LEAVES = (
-    dict(base=(47, -29, 73), tip=(66, -12, 34), wdir=(0.7, 0.7, 0.0), width=26.0,
-         face=(0.6, -0.7, 0.3), fold=0.6, bend=-0.10, curl=0.0),
-    dict(base=(57, -20, 82), tip=(87, 5, 45), wdir=(0.7, 0.7, 0.0), width=26.0,
-         face=(0.6, -0.7, 0.3), fold=0.6, bend=-0.10, curl=-0.06),
+    dict(base=(58, -36, 72), tip=(64, -11, 34), wdir=(0.8, 0.6, 0.0), width=25.0,
+         face=(0.55, -0.75, 0.35), fold=0.35, bend=-0.16, curl=0.05),
+    dict(base=(61, -32, 76), tip=(91, 8, 45), wdir=(0.5, 0.8, 0.3), width=28.0,
+         face=(0.7, -0.55, 0.45), fold=0.35, bend=-0.18, curl=-0.08),
 )
 LEAF_NU = 10          # rings along the leaf (incl. base/tip points)
 LEAF_NV = 7           # samples across the top surface (odd: midrib vertex)
 LEAF_THICK = 0.0011   # half thickness at the midrib (m)
+LEAF_RIDGE = 0.0009   # midrib ridge raised on the upper surface (m)
 
-# The sheet draws the flower face-on in both front and side views, which no
-# single 3D spot can satisfy: the bangs/cheek locks at x~50 px reach y~-95 px,
-# so a flower at the leaf-base depth (y~-40) is hidden in the front view. It is
-# placed just in front of those locks (front view priority), facing the
-# front/side diagonal so it also reads in the side view (on the temple).
-FLOWER = dict(center=(51, -98, 70), normal=(0.65, -0.7, 0.3), radius=12.5)
+# The sheet puts the flower at the base of its leaf pair: front x ~47-49 px,
+# side col ~280 (y -40), row ~68. Those two readings do not meet on the hair
+# surface (at row 70 a point that far in from the silhouette lies well inside
+# the head), so the flower sits on the hair surface between them, at the
+# front/side diagonal, facing outward and a little forward so it reads
+# face-on enough in both views.
+FLOWER = dict(center=(61, -49, 69), normal=(0.78, -0.5, 0.3), radius=13.5)
 FLOWER_SEG = 30
 FLOWER_PETALS = 5
 
@@ -140,8 +146,10 @@ def _leaf(bm, grads, base, tip, wdir, width, face, fold, bend, curl):
         th = LEAF_THICK * math.sin(math.pi * u) ** 0.5
         m = frame(u)
         top, bot = [], []
+        ridge = LEAF_RIDGE * math.sin(math.pi * u) ** 0.5
         for v in vs:
-            lift = n * (fold * hw * abs(v) ** 1.3)
+            # cupped (U-shaped) section with a raised midrib ridge
+            lift = n * (fold * hw * v * v + ridge * max(0.0, 1 - abs(v) * 3))
             p = m + s * (hw * v) + lift
             cap = th * (1 - v * v)
             top.append(p + n * cap)
@@ -149,7 +157,7 @@ def _leaf(bm, grads, base, tip, wdir, width, face, fold, bend, curl):
         ring = top + bot[-2:0:-1]
         rv = vs + vs[-2:0:-1]
         rings.append(([bm.verts.new(p) for p in ring], u, rv))
-        midrib.append(m + n * (th + 0.0004))
+        midrib.append(m + n * (th + ridge + 0.0002))
     midrib.append(frame(1.0))
     vb = bm.verts.new(frame(0.0))
     vt = bm.verts.new(frame(1.0))
@@ -292,18 +300,12 @@ def _build_side(col, sx):
     bm = bmesh.new()
     _flower(bm, c, nrm, FLOWER['radius'])
     npet = len(bm.faces)
-    _dome(bm, c + nrm * (0.06 * FLOWER['radius'] * PX), nrm, FLOWER['radius'] * PX * 0.26, 0.0016)
+    _dome(bm, c + nrm * (0.06 * FLOWER['radius'] * PX), nrm, FLOWER['radius'] * PX * 0.3, 0.002)
     for i, f in enumerate(bm.faces):
         f.material_index = 0 if i < npet else 1
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     flower = new_object(col, f'acc_flower_{tag}', bm,
-                        [toon_material('flower'), toon_material('flower', gradient='leaf')])
-    # centre: pale yellow-green (white blended toward leaf green)
-    centre_verts = set()
-    for p in flower.data.polygons:
-        if p.material_index == 1:
-            centre_verts.update(p.vertices)
-    _write_grad(flower, [0.5 if i in centre_verts else 0.0 for i in range(len(flower.data.vertices))])
+                        [toon_material('flower'), toon_material('flower_center')])
     shade_smooth(flower, 50)
     add_outline(flower)
 
