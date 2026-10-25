@@ -135,9 +135,9 @@ def stroke_mask(rgb):
     return lum < mx - LINE_DROP
 
 
-def components(allowed):
-    """4-connected component ids (int32, -1 outside `allowed`), pure numpy:
-    min-label propagation with pointer jumping."""
+def components(allowed, diagonal=False):
+    """4-connected (8 with diagonal=True) component ids (int32, -1 outside
+    `allowed`), pure numpy: min-label propagation with pointer jumping."""
     h, w = allowed.shape
     big = np.int32(h * w)
     lab = np.where(allowed, np.arange(h * w, dtype=np.int32).reshape(h, w), big)
@@ -148,6 +148,11 @@ def components(allowed):
         m[:-1] = np.minimum(m[:-1], np.where(allowed[1:], lab[1:], big))
         m[:, 1:] = np.minimum(m[:, 1:], np.where(allowed[:, :-1], lab[:, :-1], big))
         m[:, :-1] = np.minimum(m[:, :-1], np.where(allowed[:, 1:], lab[:, 1:], big))
+        if diagonal:
+            m[1:, 1:] = np.minimum(m[1:, 1:], np.where(allowed[:-1, :-1], lab[:-1, :-1], big))
+            m[:-1, :-1] = np.minimum(m[:-1, :-1], np.where(allowed[1:, 1:], lab[1:, 1:], big))
+            m[1:, :-1] = np.minimum(m[1:, :-1], np.where(allowed[:-1, 1:], lab[:-1, 1:], big))
+            m[:-1, 1:] = np.minimum(m[:-1, 1:], np.where(allowed[1:, :-1], lab[1:, :-1], big))
         m = np.where(allowed, m, big)
         flat = np.append(m.ravel(), big)
         for _ in range(8):   # pointer jumping: follow each label to its root
@@ -350,17 +355,67 @@ def shade_share(rgb, labels, region, palette=None, max_de=15.0):
     (pixels further than max_de from all, e.g. line art, are skipped).
     palette: spec.PALETTE (default, for renders) or spec.SHEET_PALETTE (for
     the reference). Returns (share, n_matched) or (nan, 0)."""
-    palette = spec.PALETTE if palette is None else palette
-    m = labels == LABEL[region]
-    if not m.any():
-        return float('nan'), 0
-    cols = np.array([hex_rgb(palette[k][t]) for k in REGIONS[region] for t in ('base', 'shade')])
-    d = np.linalg.norm(srgb_to_lab(rgb[m])[:, None] - srgb_to_lab(cols)[None], axis=-1)
-    ok = d.min(1) < max_de
+    shade, ok = shade_mask(rgb, labels, region, palette, max_de)
     if not ok.any():
         return float('nan'), 0
-    shade = (d.argmin(1) % 2 == 1) & ok
     return float(shade.sum() / ok.sum()), int(ok.sum())
+
+
+def shade_mask(rgb, labels, region, palette=None, max_de=15.0):
+    """(shade, matched) pixel masks of a region: matched = within max_de of a
+    base/shade colour of the region's keys, shade = nearest one is a shade."""
+    palette = spec.PALETTE if palette is None else palette
+    m = labels == LABEL[region]
+    shade = np.zeros(labels.shape, dtype=bool)
+    ok = np.zeros(labels.shape, dtype=bool)
+    if not m.any():
+        return shade, ok
+    cols = np.array([hex_rgb(palette[k][t]) for k in REGIONS[region] for t in ('base', 'shade')])
+    d = np.linalg.norm(srgb_to_lab(rgb[m])[:, None] - srgb_to_lab(cols)[None], axis=-1)
+    hit = d.min(1) < max_de
+    ok[m] = hit
+    shade[m] = (d.argmin(1) % 2 == 1) & hit
+    return shade, ok
+
+
+# Small shade islands (look-dev metric, tools/review.py): connected shade
+# patches of SHADE_ISLAND_MIN_PX..SHADE_ISLAND_SMALL_PX pixels inside one
+# region of a render. The sheet paints shade as broad, smooth shapes, so
+# isolated slivers and specks (cast-shadow acne, thin ribbons' contact
+# shadows, faceted terminators, outline-hull pokes) make pale surfaces look
+# chipped. Specks under 4 px and fringes that hug line art (anti-aliasing,
+# within ISLAND_LINE_PX) are not counted. Only meaningful on renders (exact
+# palette colours), not on the painted sheet.
+SHADE_ISLAND_MIN_PX = 4
+SHADE_ISLAND_SMALL_PX = 80   # ~9x9 px = 1.4 cm square at the sheet scale
+ISLAND_LINE_PX = 2           # fringe width ignored next to line art
+
+
+def shade_islands(rgb, labels, region, palette=None,
+                  min_px=SHADE_ISLAND_MIN_PX, max_px=SHADE_ISLAND_SMALL_PX):
+    """Small shade islands of a region: (count, area_px, mask of their pixels).
+
+    Shade pixels are those nearest a shade tone (shade_mask, max_de 15);
+    8-connected through each other, ignoring line art, so an island is a
+    patch of shade cut off from the region's broad shade areas."""
+    shade, ok = shade_mask(rgb, labels, region, palette)
+    if not shade.any():
+        return 0, 0, shade
+    # 8-connected: a thin diagonal shade edge is one patch, not many specks.
+    ids = components(shade, diagonal=True)[shade]
+    uniq, inv, size = np.unique(ids, return_inverse=True, return_counts=True)
+    # A patch counts only if it has a core pixel: one more than
+    # ISLAND_LINE_PX px from any pixel that matches none of the region's
+    # tones (line art, other regions, background). The anti-aliased fringe
+    # where a pale fill meets its dark line art blends toward the shade tone
+    # but hugs the line, so it never has a core; a 1 px terminator sliver out
+    # in a lit area does.
+    core = shade & ~dilate(~ok, ISLAND_LINE_PX)
+    has_core = np.bincount(inv, weights=core[shade], minlength=len(uniq)) > 0
+    small = (size >= min_px) & (size <= max_px) & has_core
+    mask = np.zeros(shade.shape, dtype=bool)
+    mask[shade] = small[inv]
+    return int(small.sum()), int(size[small].sum()), mask
 
 
 def encode(labels):

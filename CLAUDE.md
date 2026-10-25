@@ -74,6 +74,7 @@ The body part may store fitted limb joints for the rig as `obj["levi_joints"] = 
 - In the diff, red = render sticks out and blue = reference not covered.
 - The tool also prints IoU against the reference silhouette.
 - It also prints one `REGION <view> <region> iou .. tol .. dE .. shade ref .. ren ..` line per region. IoU compares `ref/<view>_regions.png` with the render's `<view>_regions.png`, which `render.py` writes from the materials' palette keys. dE is the mean CIE76 colour error over pixels both images give that region.
+  - `dEi` is the interior colour error: dE over pixels at least 2 px inside the region in both images. Line art, anti-aliasing and thin-zone offsets don't count, so use it for palette and ramp tuning.
   - `tol` forgives up to 2 px of misplacement. For thin zones (ribbons, laces) a low `iou` with a high `tol` means aligned but offset; a low `tol` means missing or misplaced parts.
   - `shade` is the share of the region painted in a shade tone (nearest palette base vs shade) in the sheet and in the render: the lit/shade balance look-dev tunes.
 - `--part-region skin,hair` reports only those regions and writes `<view>_region_<name>.png` diffs.
@@ -88,13 +89,26 @@ The body part may store fitted limb joints for the rig as `obj["levi_joints"] = 
 ## Look-dev (cel shading)
 - Light: one sun per view, placed relative to that view's camera. It comes from the viewer's upper left, nearly frontal and low (`render.SUN_AZIMUTH_DEG` 20 / `SUN_ELEVATION_DEG` 12), so front, side and back are all mostly lit like the sheet.
 - The world is black and the sun strength is π, so the toon ramp sees pure N·L × shadow in 0..1. Below the ramp threshold a surface takes the single shade tone: turned-away sides, undersides of hems, chin and strands, and cast shadows.
-  - The threshold is `toon.RAMP_THRESHOLD` (0.30), overridden per palette key by `toon.RAMP_BY_KEY`. The sheet shades cloth and hair much more than skin, so dress/sleeve keys use 0.48, hair 0.42, green/leaf 0.50.
+  - The threshold is `toon.RAMP_THRESHOLD` (0.30), overridden per palette key by `toon.RAMP_BY_KEY`. The sheet shades cloth and hair much more than skin, so dress/sleeve keys use 0.48, hair 0.42, green/leaf 0.50. Shoes use 0.10: the sheet paints them almost flat base.
 - Cast shadows are on (`render.CAST_SHADOWS`). On the full model they give the sheet's contact shadows: skirt onto petticoat and thighs, chin onto neck, sleeves onto the hair behind them. `render.py --no-shadows` turns them off.
-- `render.py` re-applies the current ramp and palette to the materials in the `.blend` (`toon.sync_materials()`), so look-dev changes need no rebuild. `--sun AZ,EL`, `--ramp T` and `--ramp-key KEY=T,...` override the light and thresholds for experiments.
+  - Thin strips don't cast: the objects named in `render.NO_CAST_OBJECTS` (ribbon tails, lacing, sleeve and shoe ribbons, halter, choker, leaf veins, seam strips, facings). They still receive shadows. If they cast, they print hard, narrow copies of themselves onto the pale cloth a few mm away, which the sheet never paints.
+  - Bulky ornaments (bows, leaves) still cast. Turning them off also drops their self-shadowing, and their N·L shading then breaks into more islands.
+  - A part decides for its own objects with `obj["levi_cast_shadow"] = True/False`, which wins over the list. Prefer that, and drop the name from the list. `render.py` warns when a listed name is missing.
+  - `--thin-casters` restores the old behaviour for comparison.
+  - Round 4 tested the shadow map itself (`--shadow FILTER,ANGLE,MAXRES`): filter 0.5–10 texels, sun angle 0–8°, max resolution 1 or 0.5 mm. None of them cleaned the cel shading. A wide filter (6) rounds the cast-shadow contours on the thighs, but thresholding the filtered edge leaves more specks on the dress (front islands 29 → 42), so the filter stays 0.5. The resolution and the angle change nothing measurable. There is no shadow acne.
+  - Most remaining small shade islands come from N·L, not from cast shadows: with `--no-shadows` round 4 still counts most of them. They are coarse or noisy normals at the terminator, so fix them in the part (`05_islands.png` shows where they are).
+  - The scalloped skirt and petticoat shadow on the thighs comes from the ruffle geometry. Stopping the petticoat from casting brings skin shade near the sheet's (back 0.31 → 0.26, sheet 0.18), but the petticoat then loses the tier-on-tier shade the sheet has (side 0.47 → 0.31, sheet 0.44). So a fix belongs in the petticoat: for example, ruffles with `levi_cast_shadow = False` plus a smooth caster.
+- `render.py` re-applies the current ramp and palette to the materials in the `.blend` (`toon.sync_materials()`), so look-dev changes need no rebuild. These flags override settings for experiments:
+  - `--sun AZ,EL`: the key light.
+  - `--ramp T` and `--ramp-key KEY=T,...`: the ramp thresholds.
+  - `--palette KEY.TONE=#RRGGBB,...`: palette colours.
+  - `--shadow FILTER,ANGLE,MAXRES`: the shadow map.
 - No highlight tone: the sheet's lit hair and cloth are flat base colour with no distinct highlight band, so the ramp stays two-tone.
 - Colour: Standard view transform, no look, no dither. A flat lit surface renders exactly its `spec.PALETTE` `base` hex, and a shaded one exactly its `shade` hex (0/255 error). Renders are pixel- and byte-identical across runs.
 - `spec.SHEET_PALETTE` holds the colours measured on the sheet; `spec.PALETTE` (what renders) is that plus the round-2 look-dev retune `spec.PALETTE_TUNING`. The reference classifier and the sheet's shade share use `SHEET_PALETTE`, so retuning the render palette does not move the reference regions. If you need a different colour, ask for a palette change rather than adding a new material.
 - Outlines: an inverted hull `spec.OUTLINE_WIDTH` thick (`OUTLINE_PX` = 1.25 panel px, which renders as about 1.25 px lines) in the key's `line` colour.
+  - For the gradients in `toon.GRADIENT_LINES` (hair → hair_tip) the line colour follows `toon_grad` too, so a mint tip gets the mint line. Other gradients keep the first key's line.
+  - `add_outline(obj, width, vertex_group=..., min_factor=...)` scales the hull thickness per vertex: weight 1 = full width, 0 = `width * min_factor`. Use it for internal overlaps or a rolled hem lip, so that minor edges read lighter than the silhouette.
   - The hull material never casts shadows: it is transparent to shadow rays and back-face culled for shadows.
   - Parts no longer need `obj.visible_shadow = False` or private no-shadow outline materials. Drop those workarounds; leaving `visible_shadow = False` is harmless, but it stops the object from casting shadows.
   - Open single-sided sheets work with normals facing either way: with backface culling, the hull never covers the fill.
@@ -117,11 +131,13 @@ python tools/review.py [--blend out/levi.blend] [--rig out/levi_rig.blend] [--bu
   - `04_poses.png`: `rig_pose` poses, front + 3/4.
   - `turntable.png` (with `--turntable`).
   - `metrics.txt`: `compare.py` IoU / REGION lines. `shade_stats.txt`: the per-region shade share at every angle.
+  - `shade_islands.txt` and `05_islands.png`: small shade islands per view and region (`regions.shade_islands`), drawn in red on the render. An island is an 8-connected shade patch of 4–80 px with at least one interior pixel, so 1 px anti-aliased fringes along line art are ignored. This metric makes the chipped look of specks and slivers measurable. Fewer is better.
+  - `--baseline <earlier review dir>` writes `metrics_delta.md`, which gives every metric as new (delta). It is also appended to `summary.md`, so rounds compare numerically. Keep a run on `main` (e.g. `--out out/review_main`) as the baseline.
 - Codex: `gpt-6.1-sol` and `gpt-6-astra` (`--models`) run concurrently as child processes, `codex exec -s read-only` in the repo, with every sheet attached and a JSON schema for the reply. The tool waits for both (`--timeout` seconds, default 900).
   - The prompt ranks naturalness in 3D first, animation-readiness second and fidelity third, and asks for findings per part with priority, view, location, issue and a concrete fix. `--focus <part>` makes it review that part in most detail.
   - Replies go to `out/review/<model>.md` (and `.json`, `.log`); `summary.md` merges them by part, with every priority-1 finding listed first. `prompt.md` keeps the exact prompt.
 - A single run takes about 25 s of rendering plus a few minutes per model. `--no-codex` stops after the sheets; `--no-render` reuses the renders already in `--out`.
-- `docs/pr/r3-review/` holds the round-3 baseline sheets and summary.
+- `docs/pr/r3-review/` holds the round-3 baseline sheets and summary. `docs/pr/r4-lookdev/` holds the round-4 look-dev baseline and final, with the islands sheets and `metrics_delta.md`.
 
 ## Part rules
 - A part only adds objects to the `col` passed to `build(col)`. It must not read or modify other parts' objects; align to `spec.L` landmarks instead.

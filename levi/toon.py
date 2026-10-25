@@ -34,12 +34,22 @@ RAMP_THRESHOLD = 0.30
 RAMP_BY_KEY = {
     'dress': 0.48, 'dress_mint': 0.48, 'sleeve': 0.48, 'sleeve_dark': 0.48,
     'hair': 0.42, 'green': 0.50, 'leaf': 0.50,
+    # Round 4: the sheet paints the shoes almost flat base (shade share
+    # 0.18-0.32, and the sheet pixels under the render's shoe shade are base
+    # coloured); at 0.30 the low sun put the upward-facing vamp and toe box in
+    # shade (front 0.45). Only surfaces really turned away now go dark.
+    'shoe': 0.10,
 }
 # Half-width of the lit/shade transition. 0 = hard cel edge (CONSTANT ramp):
 # every pixel is exactly base or shade, and only TAA anti-aliases the
 # terminator. >0 blends linearly over that N.L range.
 RAMP_SOFTNESS = 0.0
 GRAD_ATTR = 'toon_grad'  # per-vertex float 0..1 blending palette A -> B
+# Gradient materials whose outline colour follows toon_grad too (round 4):
+# the hair's mint tips get the mint line, as on the sheet. Other gradients
+# keep the first key's line: the sleeves' pale-mint fade would otherwise get
+# sleeve_dark's near-black green line.
+GRADIENT_LINES = {('hair', 'hair_tip')}
 
 
 def srgb(hex_str):
@@ -174,11 +184,7 @@ def sync_materials():
         if key not in spec.PALETTE or not mat.node_tree:
             continue
         if mat.get('is_outline'):
-            emit = mat.node_tree.nodes.get('ToonEmission')
-            if emit:
-                emit.inputs['Color'].default_value = srgb(spec.PALETTE[key]['line'])
-                mat.diffuse_color = srgb(spec.PALETTE[key]['line'])
-                n += 1
+            n += _set_outline_colour(mat)
         elif (mat.get('toon_std')
               or mat.name.split('.')[0] == _default_name(key, mat.get('toon_gradient'))) \
                 and mat.get('toon_gradient', key) in spec.PALETTE:
@@ -192,19 +198,42 @@ def sync_materials():
     return n
 
 
-def outline_material(key):
+def _set_outline_colour(mat):
+    """Palette line colour(s) of an outline material (gradient: by toon_grad)."""
+    key, grad = mat['toon_key'], mat.get('toon_gradient')
+    nodes = mat.node_tree.nodes
+    mix = nodes.get('LineGrad')
+    if grad and mix and grad in spec.PALETTE:
+        mix.inputs[6].default_value = srgb(spec.PALETTE[key]['line'])
+        mix.inputs[7].default_value = srgb(spec.PALETTE[grad]['line'])
+    else:
+        emit = nodes.get('ToonEmission')
+        if not emit:
+            return False
+        emit.inputs['Color'].default_value = srgb(spec.PALETTE[key]['line'])
+    mat.diffuse_color = srgb(spec.PALETTE[key]['line'])
+    return True
+
+
+def outline_material(key, gradient=None):
     """Flat line-colour emission for the inverted hull.
+
+    gradient: second palette key of a gradient toon material; the line colour
+    then follows the mesh's toon_grad like the fill (a white-to-mint hair
+    lock gets the mint line along its mint tip, not the white hair's grey).
 
     The hull wraps its mesh, so it must never cast shadows (otherwise every
     outlined object sits in its own hull's shadow and renders in the shade
     tone): it is transparent to shadow rays and back-face culled for shadows.
     """
-    name = f'outline_{key}'
+    name = f'outline_{key}' if not gradient else f'outline_{key}__{gradient}'
     mat = bpy.data.materials.get(name)
     if mat:
         return mat
     mat = bpy.data.materials.new(name)
     mat['toon_key'] = key
+    if gradient:
+        mat['toon_gradient'] = gradient
     mat['is_outline'] = True
     mat.use_nodes = True
     mat.use_backface_culling = True
@@ -217,6 +246,16 @@ def outline_material(key):
     emit.name = 'ToonEmission'
     emit.inputs['Color'].default_value = srgb(spec.PALETTE[key]['line'])
     emit.inputs['Strength'].default_value = 1.0
+    if gradient:
+        attr = nt.nodes.new('ShaderNodeAttribute')
+        attr.attribute_type = 'GEOMETRY'
+        attr.attribute_name = GRAD_ATTR
+        mix = nt.nodes.new('ShaderNodeMix')
+        mix.name = 'LineGrad'
+        mix.data_type = 'RGBA'
+        nt.links.new(attr.outputs['Fac'], mix.inputs['Factor'])
+        nt.links.new(mix.outputs[2], emit.inputs['Color'])
+    _set_outline_colour(mat)
     path = nt.nodes.new('ShaderNodeLightPath')
     clear = nt.nodes.new('ShaderNodeBsdfTransparent')
     mix = nt.nodes.new('ShaderNodeMixShader')
@@ -224,23 +263,29 @@ def outline_material(key):
     nt.links.new(emit.outputs['Emission'], mix.inputs[1])
     nt.links.new(clear.outputs['BSDF'], mix.inputs[2])
     nt.links.new(mix.outputs['Shader'], out.inputs['Surface'])
-    mat.diffuse_color = srgb(spec.PALETTE[key]['line'])
     return mat
 
 
-def add_outline(obj, width=None):
+def add_outline(obj, width=None, vertex_group=None, min_factor=0.0):
     """Inverted-hull outline: Solidify (flipped) using per-slot line colours.
 
     width: hull thickness in metres (default spec.OUTLINE_WIDTH, ~1.25 panel
     px). On screen the line is about width * spec.PX_PER_M pixels wide.
+    vertex_group: optional group scaling the thickness per vertex (weight 1 =
+    width, 0 = width * min_factor), e.g. a thinner line on an internal hair
+    overlap or a rolled hem lip while the outer silhouette keeps full weight.
+    Gradient materials listed in GRADIENT_LINES get a line colour that
+    follows toon_grad too.
     """
     width = spec.OUTLINE_WIDTH if width is None else width
     n = len(obj.data.materials)
     if n == 0:
         raise ValueError(f'{obj.name}: assign toon materials before add_outline')
     for i in range(n):
-        key = obj.data.materials[i].get('toon_key', 'hair')
-        obj.data.materials.append(outline_material(key))
+        m = obj.data.materials[i]
+        key = m.get('toon_key', 'hair')
+        grad = m.get('toon_gradient')
+        obj.data.materials.append(outline_material(key, grad if (key, grad) in GRADIENT_LINES else None))
     mod = obj.modifiers.new('Outline', 'SOLIDIFY')
     mod.thickness = width
     mod.offset = 1.0
@@ -249,4 +294,9 @@ def add_outline(obj, width=None):
     mod.use_quality_normals = True
     mod.material_offset = n
     mod.material_offset_rim = n
+    if vertex_group:
+        if vertex_group not in obj.vertex_groups:
+            raise ValueError(f'{obj.name}: no vertex group {vertex_group!r} for the outline width')
+        mod.vertex_group = vertex_group
+        mod.thickness_vertex_group = min_factor
     return mod
