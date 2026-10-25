@@ -117,6 +117,41 @@ def build_cap(col, mat):
     return finish(col, 'hair_cap', bm, mat, angle=80)
 
 
+# ---------------------------------------------------------------- normals
+# The sheet shades the hair as one soft mass: almost all of it lit, with thin
+# shade accents along clump edges, not a shade block on every strand that
+# turns away from the key light. The custom normals are therefore mostly the
+# normal of a smooth volume around the head (an ellipsoid above its centre, a
+# vertical elliptic cylinder below it, for the hanging locks), tilted forward
+# on the sides, plus VOL_KEEP of each strand's own normal for the accents.
+VOL_CENTER = P(0, 100, 296)
+VOL_AXES = (66 * PX, 70 * PX, 86 * PX)
+VOL_FORWARD = 0.55      # forward (-Y) tilt of the side-facing volume normals
+VOL_KEEP = 0.3
+
+
+def volume_normal(p):
+    d = p - VOL_CENTER
+    ax, ay, az = VOL_AXES
+    n = Vector((d.x / ax ** 2, d.y / ay ** 2, max(d.z, 0.0) / az ** 2))
+    if n.length < 1e-9:
+        return Vector((0, -1, 0))
+    n.normalize()
+    # tilt the sides toward the front (scaled by how sideways they face, so
+    # the back of the head keeps facing back)
+    side = abs(n.x) * (1 - max(0.0, n.y))
+    n = n + Vector((0, -VOL_FORWARD * side, 0))
+    return n.normalized()
+
+
+def set_volume_normals(me, keep):
+    normals = []
+    for v in me.vertices:
+        n = volume_normal(v.co) * (1 - keep) + v.normal * keep
+        normals.append(n.normalized() if n.length > 1e-9 else Vector(v.normal))
+    me.normals_split_custom_set_from_vertices(normals)
+
+
 # ---------------------------------------------------------------- strands
 def catmull(pts, samples):
     """Centripetal Catmull-Rom through pts, resampled evenly by arc length."""
@@ -164,11 +199,13 @@ def head_normal(p):
 
 
 def strand(bm, ctrl, width, thick, segs=10, n=6, base_taper=0.25, tip_pow=0.8,
-           normal=head_normal):
+           normal=head_normal, tip_from=0.0):
     """Append a flattened, tapered tube along `ctrl` to bm.
 
     width/thick: full width and thickness (m) at the widest point.
+    tip_from: fraction of the length kept at full width before the tip taper.
     Tip is closed by a single apex vertex; the root is capped flat."""
+    tip_from = min(max(tip_from, 0.0), 0.9)
     pts = catmull(ctrl, segs + 1)
     rings = []
     prev_b = None
@@ -186,7 +223,7 @@ def strand(bm, ctrl, width, thick, segs=10, n=6, base_taper=0.25, tip_pow=0.8,
         prev_b = b
         # width profile: quick swell from the root, long taper to the tip
         sw = min(1.0, base_taper + (1 - base_taper) * min(1.0, t / 0.18))
-        tip = (1 - t) ** tip_pow
+        tip = (1 - max(0.0, t - tip_from) / (1 - tip_from)) ** tip_pow
         w = 0.5 * width * sw * tip
         h = 0.5 * thick * sw * max(tip, 0.35)
         ring = []
@@ -204,15 +241,18 @@ def strand(bm, ctrl, width, thick, segs=10, n=6, base_taper=0.25, tip_pow=0.8,
     bm.faces.new(list(reversed(rings[0])))
 
 
-def finish(col, name, bm, mat, grad_fn=None, angle=70):
-    """Mesh object from bm; grad_fn=None leaves it all white (toon_grad 0)."""
+def finish(col, name, bm, mat, grad_fn=None, angle=70, keep=VOL_KEEP):
+    """Mesh object from bm; grad_fn=None leaves it all white (toon_grad 0).
+
+    keep: share of the strands' own normals in the custom normals (the rest is
+    the smooth hair-volume normal, see volume_normal)."""
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     obj = common.new_object(col, name, bm, [mat])
     if grad_fn is not None:
         common.set_gradient(obj, grad_fn)
     common.shade_smooth(obj, angle)
+    set_volume_normals(obj.data, keep)
     common.add_outline(obj)
-    obj.visible_shadow = False
     return obj
 
 
@@ -227,21 +267,26 @@ def mirror_pts(pts):
 
 # ---------------------------------------------------------------- layout
 def crown_clumps(bm):
-    """Clumps radiating from the crown over the cap (white)."""
+    """A few broad, flat clumps radiating from the crown over the cap (white):
+    the sheet's crown is a soft mass with only a few clump lines."""
     for az, end_row, w in (
-            (-62, 70, 0.034), (-38, 96, 0.036), (-12, 112, 0.040), (12, 125, 0.040),
-            (38, 140, 0.042), (64, 152, 0.044), (90, 160, 0.046),
-            (-118, 70, 0.034), (-142, 96, 0.036), (-168, 112, 0.040), (168, 125, 0.040),
-            (142, 140, 0.042), (116, 152, 0.044)):
+            (-50, 96, 0.056), (-10, 120, 0.060), (30, 140, 0.062), (70, 156, 0.064),
+            (-130, 96, 0.056), (-170, 120, 0.060), (150, 140, 0.062), (110, 156, 0.064)):
         ctrl = []
         for k in range(6):
             t = k / 5
             row = 19 + (end_row - 19) * t
-            ctrl.append(cap_point(az, row, grow=0.0035 * (1 - t) + 0.002 * math.sin(math.pi * t)))
-        strand(bm, ctrl, w, 0.008, segs=7)
+            ctrl.append(cap_point(az, row, grow=0.0025 * (1 - t) + 0.0015 * math.sin(math.pi * t)))
+        strand(bm, ctrl, w, 0.007, segs=7)
 
 
 BANG_NORMAL = Vector((0, -1, 0.25)).normalized()
+
+
+def bang_normal(p):
+    """Bangs face the front; the outer ones turn toward their side so they
+    read as a mass, not edge-on slivers, in the side view."""
+    return (BANG_NORMAL + Vector((0.6 * p.x / (40 * PX), 0, 0))).normalized()
 
 
 def on_cap(fx, row, lift=4):
@@ -252,8 +297,8 @@ def on_cap(fx, row, lift=4):
 def bangs(bm):
     # (fx root, fx tip, row tip, sc tip, width) - asymmetric like the sheet
     for fx0, fx1, row1, sc1, w in (
-            (-4, -12, 121, 214, 0.028),
-            (6, 6, 111, 210, 0.032),
+            (-4, -10, 121, 214, 0.040),   # dominant central bang
+            (6, 6, 111, 210, 0.036),
             (16, 24, 104, 209, 0.034),
             (-16, -28, 110, 210, 0.034),
             (27, 40, 108, 214, 0.034),
@@ -264,8 +309,8 @@ def bangs(bm):
                 on_cap(fx0 * 0.95 + (fx1 - fx0) * 0.15, 60),
                 P(fx0 + (fx1 - fx0) * 0.55, 84, 208),
                 P(fx1, row1, sc1)]
-        strand(bm, ctrl, w, 0.008, segs=10, base_taper=0.6, tip_pow=0.9,
-               normal=lambda p: BANG_NORMAL)
+        strand(bm, ctrl, w, 0.012, segs=10, base_taper=0.6, tip_pow=0.7,
+               normal=bang_normal)
 
 
 def ahoge(bm):
@@ -278,22 +323,30 @@ def ahoge(bm):
 
 
 # Side locks for the character's left (+X, image right); mirrored for the right.
-# ctrl points (fx, row, sc), full width (m)
+# ctrl points (fx, row, sc), full width (m). The side view of the sheet shows
+# the face clear from the bangs back to the ear (cols ~228-265, rows 90-155):
+# the cheek locks hang in front of it, everything else stays behind it.
 CHEEK_LOCKS = [
-    ([(42, 48, 244), (54, 78, 224), (58, 108, 214), (58, 130, 216), (54, 148, 226)], 0.030),
-    ([(50, 52, 254), (62, 86, 234), (66, 116, 224), (66, 142, 232)], 0.028),
+    # in front of the cheek: broad overlapping clumps, green-tipped ~row 140
+    ([(34, 46, 238), (40, 74, 218), (42, 100, 209), (43, 122, 210), (42, 142, 217)], 0.040),
+    ([(44, 50, 248), (52, 80, 224), (54, 108, 214), (55, 132, 218), (53, 150, 226)], 0.038),
 ]
 WISP_LOCKS = [
-    ([(52, 48, 272), (66, 82, 266), (78, 106, 262), (88, 124, 258), (84, 137, 256)], 0.022),
-    ([(58, 58, 290), (72, 94, 284), (84, 118, 278), (85, 134, 274)], 0.020),
+    # outer wisps flaring out at rows 115-140 (front), behind the eye (side)
+    ([(52, 48, 270), (65, 82, 270), (78, 106, 274), (88, 124, 280), (88, 140, 284)], 0.032),
+    ([(58, 58, 288), (72, 94, 288), (84, 118, 290), (90, 136, 292)], 0.030),
 ]
 FRONT_LONG = [
-    ([(50, 60, 254), (60, 100, 250), (62, 140, 250), (66, 165, 248), (70, 190, 238),
-      (74, 208, 232), (72, 226, 238)], 0.034),
-    ([(56, 66, 262), (64, 110, 256), (66, 150, 250), (70, 180, 244), (76, 204, 238),
-      (76, 218, 246)], 0.032),
-    ([(58, 70, 274), (66, 112, 268), (70, 150, 262), (74, 182, 256), (80, 202, 252),
-      (82, 214, 258)], 0.030),
+    # A: emerges from behind the jaw and passes in front of the neck (the
+    # choker stays visible behind it, cols ~248-280)
+    ([(50, 60, 258), (60, 96, 266), (61, 130, 268), (62, 150, 258), (66, 168, 248),
+      (74, 190, 238), (76, 210, 233), (74, 230, 240)], 0.042),
+    # B, C: stay behind the neck down to the choker, then swing forward to
+    # fill out the lock in front of the shoulder
+    ([(56, 66, 266), (64, 104, 272), (63, 138, 290), (66, 160, 302), (70, 180, 302),
+      (76, 198, 262), (78, 214, 248), (78, 230, 250)], 0.046),
+    ([(58, 70, 278), (66, 112, 280), (66, 150, 296), (70, 182, 304), (78, 204, 264),
+      (80, 220, 260)], 0.042),
 ]
 CURL_LOCK = ([(60, 70, 282), (66, 100, 284), (64, 130, 286), (62, 150, 288), (70, 174, 288),
               (76, 188, 288), (86, 201, 290), (93, 207, 290), (103, 213, 290), (118, 219, 292),
@@ -305,25 +358,34 @@ SIDE_CURTAIN = [
 ]
 
 
-def lock_normal(p, forward=1.2):
-    """Side locks face half forward, so they read broad in front and side."""
-    n = head_normal(p)
-    n = Vector((n.x, n.y, 0.0)) if abs(n.x) + abs(n.y) > 1e-6 else Vector((1, 0, 0))
+def lock_normal(p, forward=1.2, lateral=False):
+    """Side locks face half forward, so they read broad in front and side.
+
+    lateral: start from the pure sideways direction (+-X) instead of the
+    head-radial one. Locks hanging in front of the head axis (beside the face,
+    in front of the shoulder) would otherwise turn edge-on to the side view."""
+    if lateral:
+        n = Vector((math.copysign(1.0, p.x), 0.0, 0.0))
+    else:
+        n = head_normal(p)
+        n = Vector((n.x, n.y, 0.0)) if abs(n.x) + abs(n.y) > 1e-6 else Vector((1, 0, 0))
     return (n.normalized() + Vector((0, -forward, 0))).normalized()
 
 
-def side_set(bm, defs, segs, thick, mirror, forward=1.2, tip_pow=0.8):
+def side_set(bm, defs, segs, thick, mirror, forward=1.2, tip_pow=0.8, lateral=False,
+             tip_from=0.0):
     """forward: how much the ribbons turn to face the front (0 = face out
     sideways, broad in the side view)."""
     def nfn(p):
-        return lock_normal(p, forward)
+        return lock_normal(p, forward, lateral)
     for ctrl, w in defs:
         pts = [P(*c) for c in ctrl]
         # sink the root into the cap so no flat root cap shows
         pts[0] = pts[0].lerp(Vector((0.0, HEAD_AXIS.y, pts[0].z)), 0.3)
         if mirror:
             pts = mirror_pts(pts)
-        strand(bm, pts, w, thick, segs=segs, base_taper=0.3, tip_pow=tip_pow, normal=nfn)
+        strand(bm, pts, w, thick, segs=segs, base_taper=0.3, tip_pow=tip_pow, normal=nfn,
+               tip_from=tip_from)
 
 
 def build(col):
@@ -342,13 +404,14 @@ def build(col):
 
     for side, mirror in (('L', False), ('R', True)):
         bm = bmesh.new()
-        side_set(bm, CHEEK_LOCKS, 9, 0.010, mirror)
-        side_set(bm, WISP_LOCKS, 8, 0.008, mirror)
+        side_set(bm, CHEEK_LOCKS, 9, 0.014, mirror, forward=0.7, tip_pow=0.6, lateral=True)
+        side_set(bm, WISP_LOCKS, 8, 0.012, mirror, forward=0.6, tip_pow=0.45)
         finish(col, f'hair_cheek_{side}', bm, mat, zgrad(112, 150))
 
         bm = bmesh.new()
-        side_set(bm, FRONT_LONG, 14, 0.012, mirror, forward=0.3)
-        finish(col, f'hair_lock_{side}', bm, mat, zgrad(165, 215))
+        side_set(bm, FRONT_LONG, 16, 0.022, mirror, forward=0.5, tip_pow=0.7, lateral=True,
+                 tip_from=0.55)
+        finish(col, f'hair_lock_{side}', bm, mat, zgrad(180, 222))
 
         bm = bmesh.new()
         side_set(bm, [CURL_LOCK], 26, 0.012, mirror, tip_pow=0.35)
