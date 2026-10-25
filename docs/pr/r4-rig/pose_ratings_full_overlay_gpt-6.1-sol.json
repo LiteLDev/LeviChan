@@ -1,0 +1,91 @@
+{
+  "poses": [
+    {
+      "pose": "test",
+      "rating": "minor",
+      "note": "The pink underskirt has a few sharply stretched, pointed folds along the left side of the hem in the three-quarter view."
+    },
+    {
+      "pose": "arms_up",
+      "rating": "minor",
+      "note": "The exposed shoulders and armpits form slightly angular, pinched transitions into the raised upper arms, most apparent in the shoulder close-ups."
+    },
+    {
+      "pose": "arms_forward",
+      "rating": "clean"
+   	   
+    ,
+    "note": ""
+    },
+    {
+      "pose": "wrist_twist_pos",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "wrist_twist_neg",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "squat",
+      "rating": "minor",
+      "note": "The bent knees show localized notching and faceting in the clay close-ups, while the pink underskirt develops a few pointed folds in the three-quarter view."
+    },
+    {
+      "pose": "walk",
+      "rating": "minor",
+      "note": "The pink underskirt has narrow, stretched points along its left edge and an uneven folded hem in the three-quarter view."
+    },
+    {
+      "pose": "head_left",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "head_right",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "torso_left",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "torso_right",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "swing",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "fist",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "raise_bend",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "reach_forward",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "forward_bend",
+      "rating": "minor",
+      "note": "The bodice compresses into a small stack of sharp horizontal creases immediately above the waist bow, most visible in the front view."
+    },
+    {
+      "pose": "side_bend",
+      "rating": "clean",
+      "note": ""
+    }
+  ]
+}
