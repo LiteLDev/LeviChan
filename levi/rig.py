@@ -36,6 +36,12 @@ SHARPNESS = 2.0          # Gaussian exponent on the normalized envelope distance
 
 L = spec.L
 SIDES = (('L', 1.0, '左'), ('R', -1.0, '右'))
+# PMX names of the standard bones MMD motions bind to (VMD keys match by name)
+STANDARD_PMX_BONES = ('全ての親', 'センター', 'グルーブ', '腰', '上半身', '上半身2', '首', '頭', '両目', '下半身') + tuple(
+    side + n for side in '左右' for n in
+    ('目', '肩', '腕', '腕捩', 'ひじ', '手捩', '手首', '親指０', '親指１', '親指２') +
+    tuple(f + i for f in ('人指', '中指', '薬指', '小指') for i in '１２３') +
+    ('足', 'ひざ', '足首', 'つま先', '足ＩＫ', 'つま先ＩＫ'))
 
 
 # ---------------------------------------------------------------- bone table
@@ -58,7 +64,6 @@ def _mx(p, s):
     return Vector((p[0] * s, p[1], p[2]))
 
 
-KNEE_ROW = 700
 JOINT_KEYS = ('shoulder_joint', 'elbow', 'wrist', 'fingertip', 'hip', 'knee', 'ankle', 'toe')
 
 
@@ -68,10 +73,9 @@ def landmark_joints():
         'shoulder_joint': Vector(L['shoulder_joint']), 'elbow': Vector(L['elbow']),
         'wrist': Vector(L['wrist']), 'fingertip': Vector(L['fingertip']),
         'hip': Vector((L['leg_center_x'], 0.0, L['crotch_z'] + 0.065)),
-        # the knee sits slightly forward so IK bends it the right way. Local correction:
-        # spec says row 740, but the knee kink on the sheet (and the body part's leg
-        # loops) is at row ~700; 740 left a 14 cm shin under a 50 cm thigh.
-        'knee': Vector((L['leg_center_x'], -0.012, spec.px_to_z(KNEE_ROW))),
+        # the knee sits slightly forward so IK bends it the right way (sheet row 700,
+        # where the leg kinks and the body's leg loops are widest)
+        'knee': Vector((L['leg_center_x'], -0.012, L['knee_z'])),
         'ankle': Vector((L['ankle_center_x'], 0.0, L['ankle_z'])),
         'toe': Vector((L['toe_tip_x'], L['toe_tip_y'], 0.012)),
     }
@@ -277,6 +281,19 @@ JOINT_AUX_BLEND = 0.06  # half-width (m) along the limb of the band the helper c
 # 8 cm above to 15 cm below the joint.
 JOINT_BAND = {'sleeves': (0.06, 0.06, True)}
 JOINT_AUX_FOLLOW = 0.5  # share of the lower bone's rotation the helper takes
+# 腕補助 shoulder helper (off): on the round-3 body with its closed shoulder socket it
+# raised arms_up's worst stretch from x1.76 to x2.0-3.0 for every band / share / reach
+# tried, and cut a notch into the rear armpit; the plain envelope blend is smoother there
+SHOULDER_AUX = False
+# per helper name: (blend start before the joint, blend end after it) overriding the part's band
+JOINT_BAND_BY_AUX = {'腕補助': (0.04, 0.06)}
+# per helper: share of the lower bone's rotation. The knee helper takes a little more
+# than half so the kneecap stays round at a deep bend; the shoulder helper less, since
+# the shoulder skin also hangs on 上半身2.
+JOINT_AUX_FOLLOW_BY_AUX = {'腕補助': 0.35, 'ひざ補助': 0.6}
+# per helper: (full, none) lateral distance (m) from the lower bone's axis within which the
+# split applies. The shoulder's upper bone 肩 also weights torso skin, which stays put.
+JOINT_REACH_BY_AUX = {'腕補助': (0.05, 0.08)}
 
 
 def _joint_aux(add, jp, en, joint, nxt, parent, lower, upper, s, sfx, jp_side, en_sfx, group):
@@ -285,8 +302,9 @@ def _joint_aux(add, jp, en, joint, nxt, parent, lower, upper, s, sfx, jp_side, e
     around the joint follows it, so a deep bend is shared between two half-turns instead
     of being stretched (or collapsed) across one blend."""
     tail = joint + (nxt - joint).normalized() * JOINT_AUX_LEN
+    follow = JOINT_AUX_FOLLOW_BY_AUX.get(jp, JOINT_AUX_FOLLOW)
     add(Bone(jp + sfx, jp_side + jp, en + en_sfx, _mx(joint, s), _mx(tail, s), parent, group=group,
-             meta={'follow': (lower, JOINT_AUX_FOLLOW), 'joint_aux': (list(upper), lower)}))
+             meta={'follow': (lower, follow), 'joint_aux': (list(upper), lower)}))
 
 
 def _core_bones(J=None, H=None, F=None):
@@ -352,6 +370,12 @@ def _core_bones(J=None, H=None, F=None):
                  _mx(sj, s), '上半身2', r=0.045, r_end=0.03, group='Arms'))
         add(Bone('腕' + sfx, jp_side + '腕', 'Arm' + en_sfx, _mx(sj, s), _mx(el, s), '肩' + sfx, connect=True,
                  r=0.04, r_end=0.03, group='Arms'))
+        if SHOULDER_AUX:
+            # shoulder helper: the skin band around the shoulder joint (armpit, deltoid)
+            # takes part of the arm's swing (JOINT_AUX_FOLLOW_BY_AUX), so a raised arm
+            # doesn't pinch the armpit
+            _joint_aux(add, '腕補助', 'ArmAux', sj, el, '肩' + sfx, '腕' + sfx, ('肩' + sfx,),
+                       s, sfx, jp_side, en_sfx, 'Arms')
         # semi-standard twist bones: 腕 -> 腕捩 -> ひじ -> 手捩 -> 手首. They turn only about
         # their own axis and take a share of their limb segment's weight that grows from
         # 0 at its top to 1 at its bottom (_split_twist), so a twist spreads along the limb.
@@ -400,6 +424,7 @@ def _core_bones(J=None, H=None, F=None):
 
 # IK: (constraint owner, IK control bone, chain length, iterations). The toe IK
 # gets 40 iterations too: Blender's damped solver needs them for large rotations.
+KNEE_IK_MIN = math.radians(0.5)   # least knee bend the leg IK may solve to (positive X = forward bend)
 IK_SETUP = [(f'ひざ.{t}', f'足ＩＫ.{t}', 2, 40) for t in 'LR'] + \
            [(f'足首.{t}', f'つま先ＩＫ.{t}', 1, 40) for t in 'LR']
 
@@ -475,9 +500,17 @@ def _chain_bones(prefix, jp, en, joints, parent, r, group, sfx='', jp_side='', e
 
 
 HAIR_ROOT = '髪追従'
-HAIR_FOLLOW = 0.6     # share of the head's rotation the hair chains take (the scalp takes all of it)
+HAIR_FOLLOW = 0.15    # share of the head's rotation the back-hair chains take (the scalp takes all of it)
+# back hair is weighted to 頭 fully above the eyes, fading to the chains by just under
+# the choker: below that it hangs at the shoulders, which a head turn must not sweep it
+# into (at 0.6 follow a 45 deg turn pushed the curtain 2.5 cm into a closed shoulder)
+HAIR_HEAD_FADE = (L['choker_z'] - 0.05, L['eye_z'] + 0.03)
+SIDE_LOCKS_ON_HEAD = True   # face-framing side locks hang from 頭 itself instead of 髪追従
 FOLLOW_FRONT = 1.0    # total share of the thighs' rotation a skirt chain takes at centre front
 FOLLOW_BACK = 0.5     # ... and at centre back (a leg swung back still pushes the back skirt)
+# how a chain's thigh share is spread over its joints (root, joint 1, joint 2...); the
+# chain's total turn at the hem is the sum
+SKIRT_SEG_FOLLOW = (0.9, 0.2)
 
 
 def skirt_follow(angle, s):
@@ -500,11 +533,13 @@ def _secondary_bones(parts, core):
 
     def hair_parent():
         # long hair hangs from a bone on the neck that takes HAIR_FOLLOW of the head's
-        # rotation, so a turned head doesn't swing the whole curtain through the body
+        # rotation (_hair_head_fade turns the hair near the scalp with the head fully),
+        # so a turned head doesn't swing the whole curtain through the body
         if not any(b.name == HAIR_ROOT for b in bones):
             h = byname['頭'].head
+            meta = {'follow': ('頭', HAIR_FOLLOW)} if HAIR_FOLLOW > 1e-4 else {}
             bones.append(Bone(HAIR_ROOT, HAIR_ROOT, 'HairRoot', h, h + Vector((0, 0, 0.03)), '首',
-                              deform=False, group='HairFollow', meta={'follow': ('頭', HAIR_FOLLOW)}))
+                              deform=False, group='HairFollow', meta=meta))
         return HAIR_ROOT
 
     # back hair: sectors around the skull axis, hanging from eye level
@@ -524,7 +559,8 @@ def _secondary_bones(parts, core):
                 continue
             joints = _band_chain(sel, float(sel[:, 2].max()), float(sel[:, 2].min()), 3)
             if joints:
-                bones += _chain_bones('横髪', '横髪', 'SideHair', joints, hair_parent(), 0.025, 'Hair',
+                parent = '頭' if SIDE_LOCKS_ON_HEAD else hair_parent()
+                bones += _chain_bones('横髪', '横髪', 'SideHair', joints, parent, 0.025, 'Hair',
                                       sfx='.' + tag, jp_side=jp_side, en_sfx='_' + tag)
 
     # skirt (+ petticoat): sectors around the body axis, hanging from the hip
@@ -537,16 +573,25 @@ def _secondary_bones(parts, core):
             # the chain hangs from two follow bones that add a share of each thigh's
             # rotation (PMX 回転付与), so the skirt moves with the legs as a whole
             # instead of being torn by per-vertex leg weights
+            # The share is spread down the chain (SKIRT_SEG_FOLLOW): the root takes part of
+            # it at the hip and the joints below add the rest, so a raised thigh lifts the
+            # skirt in a soft curve instead of swinging the whole panel about the hip line.
+            chain = _chain_bones(f'スカート{k}', f'スカート{k}', f'Skirt{k}', joints, '下半身', hem_r, 'Skirt',
+                                 meta={'chain': k, 'angle': ang, 'cy': cy})
             parent = '下半身'
-            head = joints[0]
-            for tag, s, jp_side in SIDES[::-1]:
-                name = f'スカート{k}追従{jp_side}'
-                bones.append(Bone(name, name, f'Skirt{k}Follow{tag}', head, head + Vector((0, 0, 0.03)), parent,
-                                  deform=False, group='SkirtFollow',
-                                  meta={'follow': (f'足.{tag}', skirt_follow(ang, s))}))
-                parent = name
-            bones += _chain_bones(f'スカート{k}', f'スカート{k}', f'Skirt{k}', joints, parent, hem_r, 'Skirt',
-                                  meta={'chain': k, 'angle': ang, 'cy': cy})
+            for i, seg in enumerate(chain):
+                frac = SKIRT_SEG_FOLLOW[i] if i < len(SKIRT_SEG_FOLLOW) else 0.0
+                if frac > 1e-4:
+                    head = seg.head
+                    for tag, s, jp_side in SIDES[::-1]:
+                        name = f'スカート{k}追従{jp_side}' + (f'{i}' if i else '')
+                        bones.append(Bone(name, name, f'Skirt{k}Follow{tag}' + (f'{i}' if i else ''), head,
+                                          head + Vector((0, 0, 0.03)), parent, deform=False, group='SkirtFollow',
+                                          meta={'follow': (f'足.{tag}', skirt_follow(ang, s) * frac)}))
+                        parent = name
+                seg.parent = parent
+                bones.append(seg)
+                parent = seg.name
 
     # sleeve drapes: sleeve vertices well away from the arm bones hang from the forearm
     pts = verts('sleeves')
@@ -600,7 +645,7 @@ def _candidates(part, obj, bones):
     if part in ('skirt', 'petticoat'):
         return ['上半身', '下半身'] + grp('Skirt')
     if part == 'sleeves':      # detached sleeves: arm only, never the torso
-        return _names(bones, lambda b: base(b) in ('肩', '腕', '腕捩', 'ひじ補助', 'ひじ', '手捩', '手首')) + grp('Sleeve')
+        return _names(bones, lambda b: base(b) in ('肩', '腕補助', '腕', '腕捩', 'ひじ補助', 'ひじ', '手捩', '手首')) + grp('Sleeve')
     if part == 'bodice':       # a strapless corset: torso only; anything hanging below the hip rides the skirt
         return ['上半身', '上半身2', '首', '下半身'] + grp('Skirt')
     if part == 'shoes':
@@ -694,7 +739,7 @@ def _skirt_weights(co, bones):
 # ---- per-object helpers: topology, sides, smoothing, pruning
 SMOOTH_RADIUS = {     # metres of weight smoothing along the surface, per part
     'body': 0.008, 'head': 0.01, 'shoes': 0.012, 'accessories': 0.012, 'bodice': 0.02,
-    'hair_front': 0.025, 'hair_back': 0.03, 'sleeves': 0.065, 'skirt': 0.02, 'petticoat': 0.02,
+    'hair_front': 0.025, 'hair_back': 0.03, 'sleeves': 0.065, 'skirt': 0.03, 'petticoat': 0.04,
 }
 DEFAULT_SMOOTH = 0.012
 MAX_SMOOTH_ITERS = 300
@@ -796,7 +841,10 @@ def _prune(w):
     return idx, ww / np.maximum(ww.sum(1, keepdims=True), 1e-12)
 
 
-SKIRT_BAND = 0.03     # bodice pieces hand over to the skirt weights within this of hip_z
+# bodice pieces hand over to the skirt weights between these heights relative to hip_z.
+# Above the hip the skirt field is itself the 上半身/下半身 blend, so a long hand-over
+# costs nothing and lets hanging ribbons leave the waist without a kink.
+SKIRT_BAND = (0.06, -0.02)
 ANKLE_BLEND = 0.03    # foot / shin blend half-width around the ankle joint height
 DRAPE_NEAR, DRAPE_FAR = 0.04, 0.13   # sleeve drape weight fades in between these from the arm axis
 
@@ -807,7 +855,6 @@ def _split_joint_aux(w, co, bones, band):
     Along the lower bone, within `width` of the joint, the limb's total weight is
     re-split by a smooth partition of unity (upper -> helper -> lower); inside each group
     the bones keep their envelope proportions."""
-    before, after, helper = band
     col = {b.name: i for i, b in enumerate(bones)}
     kids = {}
     for b in bones:
@@ -826,6 +873,8 @@ def _split_joint_aux(w, co, bones, band):
         upper, lower = b.meta['joint_aux']
         if lower not in col:
             continue
+        before, after, helper = band
+        before, after = JOINT_BAND_BY_AUX.get(b.name.split('.')[0], (before, after))
         up = [col[n] for n in upper if n in col]
         # the limb and what it carries rigidly; secondary chains (sleeve drapes) keep their own weights
         lo = [col[n] for n in below(lower) if n in col and bones[col[n]].group not in ('Sleeve', 'Hair', 'Skirt')]
@@ -841,6 +890,8 @@ def _split_joint_aux(w, co, bones, band):
             f_lo = _smoothstep(-before, after, t)
             f_up = 1.0 - f_lo
         f_aux = 1.0 - f_lo - f_up
+        cols = up + lo + [j]
+        old = w[:, cols].copy()
         su, sl = w[:, up].sum(1), w[:, lo].sum(1)
         tot = su + sl
         live = tot > 1e-9
@@ -851,6 +902,13 @@ def _split_joint_aux(w, co, bones, band):
         w[:, up] = pu * (tot * f_up)[:, None]
         w[:, lo] = pl * (tot * f_lo)[:, None]
         w[:, j] += tot * f_aux
+        reach = JOINT_REACH_BY_AUX.get(b.name.split('.')[0])
+        if reach is not None:
+            # only skin around the limb: torso skin with a little of the upper bone's
+            # weight (the ribs under the armpit) must not be handed to the arm
+            lat = np.linalg.norm((co - np.array(b.head)) - t[:, None] * d, axis=1)
+            g = (1.0 - _smoothstep(reach[0], reach[1], lat))[:, None]
+            w[:, cols] = old * (1.0 - g) + w[:, cols] * g
 
 
 def _split_twist(w, co, bones):
@@ -903,6 +961,45 @@ def _drape_only_away_from_arm(w, co, bones):
                                      env) * moved[:, None]
 
 
+def _hair_head_fade(w, co, bones):
+    """Long back hair turns with the head only near the scalp: 頭 takes exactly
+    smoothstep(HAIR_HEAD_FADE) of the height, the rest is shared by the hair chains in
+    their own proportions; the chains take only HAIR_FOLLOW of a head turn. So the
+    crown follows the head fully, hair at and below the shoulders (where a turned head
+    would sweep it into them) follows the neck, and the turn is spread over the nape.
+    Applied after smoothing, as a pure function of height: vertices a hair's thickness
+    apart get the same share, so the twist through the band doesn't tear thin locks."""
+    col = {b.name: i for i, b in enumerate(bones)}
+    h = col.get('頭')
+    if h is None:
+        return w
+    z0, z1 = HAIR_HEAD_FADE
+    f = _smoothstep(z0, z1, co[:, 2])
+    others = [j for j in range(len(bones)) if j != h]
+    rest = w[:, others].sum(1)
+    w = w.copy()
+    w[:, others] *= np.where(rest > 1e-12, (1.0 - f) / np.maximum(rest, 1e-12), 0.0)[:, None]
+    w[:, h] = np.where(rest > 1e-12, f, 1.0)
+    return w
+
+
+CROTCH_SMOOTH = 0.03          # weight smoothing radius (m) at the crotch
+CROTCH_PARTS = ('body', '_proxy')   # skin only: garments there follow the skirt chains
+CROTCH_ZONE = (0.07, 0.22, 0.04)   # half width, depth below the hip joints, vertical fade
+
+
+def _crotch_mask(co, bones):
+    """0..1: vertices at the crotch, between the thighs below the hip joints."""
+    col = {b.name: i for i, b in enumerate(bones)}
+    if '足.L' not in col or '足.R' not in col:
+        return None
+    hip_z = bones[col['足.L']].head.z
+    hw, depth, fade = CROTCH_ZONE
+    return (1.0 - _smoothstep(hw * 0.6, hw, np.abs(co[:, 0]))) * \
+        _smoothstep(hip_z - depth, hip_z - depth + fade, co[:, 2]) * \
+        (1.0 - _smoothstep(hip_z - fade, hip_z, co[:, 2]))
+
+
 def _base_weights(part, co, bones):
     """(V, B) weights before side masking / smoothing / pruning."""
     plain = [j for j, b in enumerate(bones) if 'twist_of' not in b.meta and 'joint_aux' not in b.meta]
@@ -914,7 +1011,7 @@ def _base_weights(part, co, bones):
         w0 = np.zeros((len(co), len(sub)))
         w0[:, main] = _envelope(co, [sub[i] for i in main])
         if len(main) < len(sub):        # bodice ribbons hanging over the skirt ride the skirt
-            t = _smoothstep(L['hip_z'] + SKIRT_BAND, L['hip_z'] - SKIRT_BAND, co[:, 2])[:, None]
+            t = _smoothstep(L['hip_z'] + SKIRT_BAND[0], L['hip_z'] + SKIRT_BAND[1], co[:, 2])[:, None]
             w0 = (1.0 - t) * w0 + t * _skirt_weights(co, sub)
     w = np.zeros((len(co), len(bones)))
     w[:, plain] = w0
@@ -927,6 +1024,7 @@ def _base_weights(part, co, bones):
 
 
 RIGID_ISLAND = 0.05   # loose pieces (not skin) within this radius move rigidly: island-average weights
+WAIST_STRADDLE = 0.15  # ... unless both 上半身 and 下半身 hold at least this share of it
 
 
 def _island_rules(w, co, labels, bones, part):
@@ -934,6 +1032,7 @@ def _island_rules(w, co, labels, bones, part):
     finger envelopes overlap at ~1 cm), and small ornaments (bows, leaves, beads) take
     their island's average weights so they move as one piece."""
     chains = {}
+    col = {b.name: j for j, b in enumerate(bones)}
     for j, b in enumerate(bones):
         if 'finger' in b.meta:
             chains.setdefault(b.meta['finger'], []).append(j)
@@ -949,8 +1048,13 @@ def _island_rules(w, co, labels, bones, part):
                         w[np.ix_(m, cols)] = 0.0
         if part != 'body':
             p = co[m]
-            if np.linalg.norm(p - p.mean(0), axis=1).max() < RIGID_ISLAND:
-                w[m] = w[m].mean(0)
+            mean = w[m].mean(0)
+            # an ornament across the 上半身/下半身 split (the waist bow) rides the waist
+            # like the cloth under it instead of turning rigidly with one half
+            waist = [col[n] for n in ('上半身', '下半身') if n in col]
+            straddles = len(waist) == 2 and min(mean[waist]) > WAIST_STRADDLE
+            if np.linalg.norm(p - p.mean(0), axis=1).max() < RIGID_ISLAND and not straddles:
+                w[m] = mean
     s = w.sum(1, keepdims=True)
     return np.where(s > 1e-12, w / np.maximum(s, 1e-12), w)
 
@@ -965,6 +1069,13 @@ def _weights(obj, part, co, bones):
     w = np.where(ok[:, None], masked, w)
     w = w / w.sum(1, keepdims=True)
     w = _smooth(w, co, edges, SMOOTH_RADIUS.get(part, DEFAULT_SMOOTH))
+    m = _crotch_mask(co, bones) if part in CROTCH_PARTS and CROTCH_SMOOTH > 0 else None
+    if m is not None and m.max() > 0:
+        # the crotch is pulled between both thighs in a stride: spread its L/R weight
+        # change over a wider band than the rest of the skin
+        w = w * (1.0 - m[:, None]) + _smooth(w, co, edges, CROTCH_SMOOTH) * m[:, None]
+    if part == 'hair_back':
+        w = _hair_head_fade(w, co, bones)
     w = _island_rules(w, co, labels, bones, part)
     return _prune(w)
 
@@ -1118,8 +1229,17 @@ def _create_armature(bones):
     for t in 'LR':
         knee = arm.pose.bones[f'ひざ.{t}']
         knee.lock_ik_y = knee.lock_ik_z = True      # hinge about its local X
+        # ... bending forward only (never hyperextended): exported as the PMX IK link
+        # limit, like the standard model's (-180..-0.5 deg about X in MMD's axes)
+        knee.use_ik_limit_x = True
+        knee.ik_min_x, knee.ik_max_x = KNEE_IK_MIN, math.pi
         knee.ik_stretch = 0.0
-        arm.pose.bones[f'足.{t}'].ik_stretch = 0.0
+        thigh = arm.pose.bones[f'足.{t}']
+        thigh.ik_stretch = 0.0
+        # Blender's solver, given the knee limit, may twist the thigh about its length to
+        # reach a target and cross the legs; MMD's CCD solver does not. Blender only:
+        # export_pmx keeps the PMX 足 link unlimited (mmd_ik_limit_custom1).
+        thigh.lock_ik_y = True
     return arm
 
 

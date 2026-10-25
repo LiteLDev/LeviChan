@@ -9,8 +9,10 @@ Checks: MMD core bones exist with the right parents under a single root; every
 vertex of every part mesh is weighted to deform bones only, weights sum to 1,
 at most 4 influences; Armature modifier targets the rig and sits before the
 Outline hull; leg/toe IK constraints exist and actually reach their targets;
-the test pose (tools/rig_pose.py) produces finite geometry without torn or
-exploded edges; rigging twice gives identical bones and weights.
+the standard PMX bone names (センター ... 足ＩＫ, 捩, 親指０) are all there; every pose in
+tools/rig_pose.py produces finite geometry without torn or exploded edges, clothes
+and hair stay out of the body, and the leg IK never bends a knee backward;
+rigging twice gives identical bones and weights.
 """
 import argparse
 import hashlib
@@ -31,7 +33,7 @@ import rig_pose  # noqa: E402
 from rig_pose import build_scene  # noqa: E402
 
 MAX_STRETCH = 2.0     # posed / rest edge length, any edge of any mesh, any pose
-MIN_EDGE = 5e-4       # edges shorter than this (degenerate) are not measured
+MIN_EDGE = 1e-3       # edges shorter than 1 mm (near-degenerate slivers) are not measured
 MAX_PEN = 0.02        # deepest new penetration of clothes / hair into the body (m)
 PEN_DEPTH = 0.005     # vertices deeper than this are counted in the report
 PEN_SEARCH = 0.2      # find_nearest radius; farther points are treated as outside
@@ -214,9 +216,38 @@ def _body_bvh(body_objs):
     return BVHTree.FromPolygons(verts, polys), tris
 
 
+MIN_KNEE_BEND = -0.5   # deg: a knee may be straight, never bent backward
+
+
+def knee_bends(arm):
+    """{side: forward bend of ひざ about its hinge (local X) in degrees}; negative is a
+    hyperextended (reverse-bent) knee."""
+    out = {}
+    for t in 'LR':
+        pb = arm.pose.bones.get(f'ひざ.{t}')
+        if pb is None or pb.parent is None:
+            continue
+        rel = pb.parent.bone.matrix_local.inverted() @ pb.bone.matrix_local
+        local = (pb.parent.matrix @ rel).inverted() @ pb.matrix
+        out[t] = math.degrees(local.to_euler('XYZ').x)
+    return out
+
+
+
+
+def check_mmd_names(arm, errors):
+    """The PMX names motions bind to (VMD keys are matched by Japanese bone name)."""
+    jp = {pb.get('mmd_name_j') for pb in arm.pose.bones}
+    missing = [n for n in rig.STANDARD_PMX_BONES if n not in jp]
+    print(f'standard PMX bone names: {len(rig.STANDARD_PMX_BONES) - len(missing)}/{len(rig.STANDARD_PMX_BONES)}')
+    if missing:
+        errors.append(f'standard PMX bone names missing: {missing}')
+
+
 def pose_metrics(arm, objs, pose, rest, rest_depth):
-    """{'stretch': (ratio, obj), 'pen': (depth, obj, count)} for one pose."""
+    """{'stretch': (ratio, obj), 'pen': (depth, obj, count), 'knee': {side: deg}} for one pose."""
     rig_pose.apply_pose(arm, pose)
+    knees = knee_bends(arm)
     posed = _eval_edges(objs)
     stretch, bad = (0.0, ''), []
     for name, (co, ln) in posed.items():
@@ -240,7 +271,7 @@ def pose_metrics(arm, objs, pose, rest, rest_depth):
             n = int((d > PEN_DEPTH).sum())
             if len(d) and d.max() > pen[0]:
                 pen = (float(d.max()), o.name, n)
-    return {'stretch': stretch, 'pen': pen, 'nonfinite': bad}
+    return {'stretch': stretch, 'pen': pen, 'nonfinite': bad, 'knee': knees}
 
 
 def _eval_verts(o):
@@ -265,13 +296,16 @@ def check_poses(arm, errors, poses):
     bvh = _body_bvh(body)
     rest_depth = {o.name: _inside_depth(bvh, _eval_verts(o)) for o in objs
                   if bvh and o not in body and o.users_collection[0].name not in PEN_SKIP}
-    print(f'{"pose":16s} {"stretch":>7s}  {"worst object":24s} {"pen cm":>6s} {"verts":>5s}  object')
+    print(f'{"pose":16s} {"stretch":>7s}  {"worst object":24s} {"pen cm":>6s} {"verts":>5s}  {"object":24s} {"knee":>6s}')
     for pose in poses:
         m = pose_metrics(arm, objs, pose, rest, rest_depth)
         s, so = m['stretch']
         p, po, pn = m['pen']
-        flag = 'FAIL' if s > MAX_STRETCH or p > MAX_PEN or m['nonfinite'] else 'ok'
-        print(f'{pose:16s} {s:7.2f}  {so:24s} {p * 100:6.2f} {pn:5d}  {po:24s} {flag}')
+        knee = min(m['knee'].values()) if m['knee'] else 0.0
+        flag = 'FAIL' if s > MAX_STRETCH or p > MAX_PEN or m['nonfinite'] or knee < MIN_KNEE_BEND else 'ok'
+        print(f'{pose:16s} {s:7.2f}  {so:24s} {p * 100:6.2f} {pn:5d}  {po:24s} {knee:6.1f} {flag}')
+        if knee < MIN_KNEE_BEND:
+            errors.append(f'pose {pose}: knee bent backward ({knee:.1f} deg)')
         for name in m['nonfinite']:
             errors.append(f'{pose}: {name} has non-finite vertices')
         if s > MAX_STRETCH:
@@ -324,6 +358,7 @@ def main():
     n_def = sum(1 for b in arm.data.bones if b.use_deform)
     print(f'bones={len(arm.data.bones)} deform={n_def} meshes={len(skinned_meshes(arm))}')
     check_bones(arm, errors)
+    check_mmd_names(arm, errors)
     check_ik(arm, errors)
     check_weights(arm, errors)
     # the throwaway fixtures (tubes, no hands) only make sense for the round-1 test pose

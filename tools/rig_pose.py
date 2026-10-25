@@ -7,7 +7,7 @@ POSES (rig_check deforms the model with every one of them):
   test             round-1 pose: elbows 60 deg, head 30 deg, left leg raised through
                    足ＩＫ.L, right knee 60 deg by FK, hair / sleeve / skirt chains swung a little
   arms_up          both arms overhead, shoulders shrugged 15 deg (model lowered 17 cm to stay in frame)
-  arms_forward     arms straight forward, elbows bent 120 deg
+  arms_forward     upper arms forward, hands shoulder-width apart, elbows bent 120 deg upward
   wrist_twist_pos  forearms twisted +60 deg (手捩 when the rig has it, else 手首)
   wrist_twist_neg  ... -60 deg
   squat            hips dropped 27 cm with the feet held by IK (knees ~120 deg)
@@ -17,7 +17,9 @@ POSES (rig_check deforms the model with every one of them):
   swing            back hair, side locks, sleeve drapes and skirt chains swung hard
   fist             both hands closed into fists (fingers curled 75/90/60 deg), elbows 30 deg
   raise_bend       arms raised 45 deg sideways, elbows 60 deg
-  forward_bend     arms swung 45 deg forward, elbows 90 deg
+  reach_forward    arms swung 45 deg forward, elbows 90 deg
+  forward_bend     torso bent 40 deg forward over the spine, pelvis tipped 10 deg, arms hanging
+  side_bend        upper body bent 30 deg to her left, right arm raised
 --rest saves the rigged model unposed instead.
 --fixtures adds throwaway test meshes (tools/rig_fixtures.py) for whichever of
 body/hair/skirt/sleeves are missing; it is on automatically when no parts exist.
@@ -74,6 +76,25 @@ def aim(arm, name, world_dir, frac=1.0):
     ang = math.degrees(d0.angle(d1))
     if ang > 1e-3:
         turn(arm, name, d0.cross(d1), ang * frac)
+
+
+def turn_posed(arm, name, world_axis, deg):
+    """Rotate pose bone `name` by `deg` about `world_axis` taken in the current pose
+    (after its parents have moved), unlike turn(), which uses the rest frame."""
+    bpy.context.view_layer.update()
+    pb = arm.pose.bones[name]
+    local = (pb.matrix.to_3x3().normalized().inverted() @ Vector(world_axis)).normalized()
+    pb.rotation_mode = 'QUATERNION'
+    pb.rotation_quaternion = pb.rotation_quaternion @ Quaternion(local, math.radians(deg))
+    bpy.context.view_layer.update()
+
+
+def bend_posed(arm, name, world_dir, deg):
+    """Bend pose bone `name` by `deg` toward world_dir, in the current pose."""
+    bpy.context.view_layer.update()
+    pb = arm.pose.bones[name]
+    d = (pb.tail - pb.head).normalized()
+    turn_posed(arm, name, d.cross(Vector(world_dir)), deg)
 
 
 def twist(arm, name, deg):
@@ -139,9 +160,11 @@ def pose_arms_up(arm):
 
 
 def pose_arms_forward(arm):
+    """Upper arms forward, hands about shoulder-width apart, elbows bent 120 deg upward
+    (forearms rising back toward the face)."""
     for tag, s in (('L', 1), ('R', -1)):
-        aim(arm, f'腕.{tag}', (0.15 * s, -1.0, -0.05))
-        bend(arm, f'ひじ.{tag}', (0, -1, 0), 120)
+        aim(arm, f'腕.{tag}', (0.35 * s, -1.0, -0.8))
+        bend_posed(arm, f'ひじ.{tag}', (0, 0, 1), 120)
 
 
 def _wrist_twist(arm, deg):
@@ -211,9 +234,13 @@ def pose_swing(arm):
         turn(arm, n, (1, 0, 0), 20)
     for n in _chains(arm, '袖'):
         bend(arm, n, (0, -1, 0), 35)
-    _skirt_flare(arm, 10, 8)
+    # the skirt is blown back (about X): swung sideways it would swallow the hands at
+    # her sides, which only MMD physics (hand rigid bodies) can push it off
+    _skirt_flare(arm, 10, 0)
+    for n in _chains(arm, 'スカート'):
+        turn(arm, n, (1, 0, 0), 8)
     for n in _chains(arm, 'スカート', '_1'):
-        turn(arm, n, (0, 1, 0), 8)
+        turn(arm, n, (1, 0, 0), 8)
 
 
 def pose_raise_bend(arm):
@@ -223,11 +250,33 @@ def pose_raise_bend(arm):
         bend(arm, f'ひじ.{t}', (0, -1, 0), 60)
 
 
-def pose_forward_bend(arm):
-    """Arms swung 45 deg forward with the elbows bent 90 deg."""
+def pose_reach_forward(arm):
+    """Arms swung 45 deg forward with the elbows bent 90 deg (the round-2 'forward_bend')."""
     for t in 'LR':
         bend(arm, f'腕.{t}', (0, -1, 0), 45)
         bend(arm, f'ひじ.{t}', (0, -1, 0), 90)
+
+
+def pose_forward_bend(arm):
+    """Torso bent 40 deg forward over the spine (上半身 25 + 上半身2 15), the pelvis
+    tipped 10 deg with it, head lifted back 10 deg, arms hanging forward."""
+    move(arm, 'センター', (0.0, 0.03, -0.02))
+    turn(arm, '下半身', (1, 0, 0), 10)
+    turn(arm, '上半身', (1, 0, 0), 25)
+    turn(arm, '上半身2', (1, 0, 0), 15)
+    turn(arm, '首', (1, 0, 0), -10)
+    for t in 'LR':
+        bend_posed(arm, f'腕.{t}', (0, -1, 0), 30)
+        bend_posed(arm, f'ひじ.{t}', (0, -1, 0), 30)
+
+
+def pose_side_bend(arm):
+    """Upper body bent 30 deg to the character's left (上半身 20 + 上半身2 10), head
+    following, right arm raised 40 deg."""
+    turn(arm, '上半身', (0, 1, 0), 20)      # about +Y: the top swings toward +X (her left)
+    turn(arm, '上半身2', (0, 1, 0), 10)
+    bend_posed(arm, '腕.R', (0, 0, 1), 40)
+    bend_posed(arm, 'ひじ.R', (0, 0, 1), 30)
 
 
 FIST = {'親指０': 15, '親指１': 35, '親指２': 45, '１': 75, '２': 90, '３': 60}
@@ -250,7 +299,8 @@ POSES = {
     'wrist_twist_pos': pose_wrist_twist_pos, 'wrist_twist_neg': pose_wrist_twist_neg,
     'squat': pose_squat, 'walk': pose_walk, 'head_left': pose_head_left, 'head_right': pose_head_right,
     'torso_left': pose_torso_left, 'torso_right': pose_torso_right, 'swing': pose_swing, 'fist': pose_fist,
-    'raise_bend': pose_raise_bend, 'forward_bend': pose_forward_bend,
+    'raise_bend': pose_raise_bend, 'reach_forward': pose_reach_forward, 'forward_bend': pose_forward_bend,
+    'side_bend': pose_side_bend,
 }
 
 
