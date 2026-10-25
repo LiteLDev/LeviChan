@@ -94,10 +94,35 @@ def strip_outlines_and_join(arm):
                                    selected_editable_objects=meshes):
         bpy.ops.object.join()
     active.name = active.data.name = 'Levi_mesh'
+    merge_shape_keys(active)
     mw = active.matrix_world.copy()
     active.parent = arm
     active.matrix_world = mw
     return active, no_edge
+
+
+def merge_shape_keys(obj):
+    """Joining objects that carry the same shape key (both eyelids' まばたき) leaves one
+    copy per object (まばたき, まばたき.001): fold the numbered copies into the first, so
+    each morph is one PMX vertex morph."""
+    keys = obj.data.shape_keys
+    if keys is None:
+        return
+    import re
+    blocks = keys.key_blocks
+    n = len(obj.data.vertices)
+    basis = np.empty(n * 3)
+    blocks[0].data.foreach_get('co', basis)
+    for kb in list(blocks[1:]):
+        m = re.fullmatch(r'(.+)\.\d{3}', kb.name)
+        if not m or m.group(1) not in blocks:
+            continue
+        dst = blocks[m.group(1)]
+        a, b = np.empty(n * 3), np.empty(n * 3)
+        dst.data.foreach_get('co', a)
+        kb.data.foreach_get('co', b)
+        dst.data.foreach_set('co', a + (b - basis))
+        obj.shape_key_remove(kb)
 
 
 def _save_png(name, px, path):
@@ -248,7 +273,31 @@ def convert(arm, mesh, no_edge, out_dir):
             c.mute = True
     write_materials(mesh, no_edge, out_dir)
     setup_display_frames(root, arm)
+    add_vertex_morphs(root, mesh)
     return root
+
+
+# shape key -> (PMX morph panel, English name); others go to the 'other' panel
+MORPH_INFO = {'まばたき': ('EYE', 'Blink')}
+
+
+def add_vertex_morphs(root, mesh):
+    """Every shape key of the joined mesh (parts' MMD morphs, e.g. the head's まばたき) as a
+    PMX vertex morph in its panel, listed in the 表情 display frame."""
+    keys = mesh.data.shape_keys
+    if keys is None:
+        return []
+    names = [kb.name for kb in keys.key_blocks[1:] if not kb.name.startswith('_')]
+    frame = next((f for f in root.mmd_root.display_item_frames if f.name == '表情'), None)
+    for n in names:
+        cat, en = MORPH_INFO.get(n, ('OTHER', n))
+        vm = next((m for m in root.mmd_root.vertex_morphs if m.name == n), None)   # convert may list it already
+        vm = vm or root.mmd_root.vertex_morphs.add()
+        vm.name, vm.name_e, vm.category = n, en, cat
+        if frame is not None and not any(it.type == 'MORPH' and it.name == n for it in frame.data):
+            it = frame.data.add()
+            it.type, it.name, it.morph_type = 'MORPH', n, 'vertex_morphs'
+    return names
 
 
 def write_materials(mesh, no_edge, out_dir):
@@ -332,9 +381,10 @@ def frame_bones(arm):
 
 
 def is_helper(pb):
-    """Bones that only follow others (回転付与 helpers, the hair / skirt follow roots)."""
+    """Bones that only follow others (回転付与 helpers, the hair / skirt / sleeve follow roots,
+    the deforming arm 腕D under the shoulder shrug)."""
     groups = {c.name for c in pb.bone.collections}
-    return ((bool(pb.get('mmd_append')) and not pb.bone.use_deform) or '補助' in pb.name
+    return ((bool(pb.get('mmd_append')) and not pb.bone.use_deform) or '補助' in pb.name or bool(pb.get('mmd_helper'))
             or bool(groups & {'HairFollow', 'SkirtFollow'}))
 
 
@@ -367,6 +417,38 @@ CHAIN_GROUP = {'Hair': 1, 'Skirt': 2, 'Sleeve': 3}
 CHAIN_LIMIT = {'Hair': (20, 8, 20), 'Skirt': (30, 8, 15), 'Sleeve': (25, 8, 25)}   # degrees x, y, z
 
 
+def _seg_seg_dist(p1, q1, p2, q2):
+    """Closest distance between segments p1-q1 and p2-q2 (sampled; capsules are short)."""
+    t = np.linspace(0.0, 1.0, 9)
+    a = p1[None] + t[:, None] * (q1 - p1)[None]
+    b = p2[None] + t[:, None] * (q2 - p2)[None]
+    return float(np.linalg.norm(a[:, None] - b[None], axis=2).min())
+
+
+CHAIN_RADIUS = {'Hair': 0.018, 'Skirt': 0.025, 'Sleeve': 0.025}
+CHAIN_CLEARANCE = 0.005     # rest gap (m) two chain groups need before they may collide
+
+
+def chain_groups_overlapping(bones):
+    """{(group a, group b)} pairs of chain collision groups whose bodies overlap (or nearly)
+    somewhere at rest: those keep ignoring each other."""
+    segs = {}
+    for b in bones:
+        grp = b.collections[0].name if len(b.collections) else ''
+        if grp in CHAIN_GROUP:
+            segs.setdefault(grp, []).append((np.array(b.head_local), np.array(b.tail_local)))
+    out = set()
+    names = sorted(segs)
+    for i, ga in enumerate(names):
+        for gb in names[i + 1:]:
+            lim = CHAIN_RADIUS[ga] + CHAIN_RADIUS[gb] + CHAIN_CLEARANCE
+            hit = any(_seg_seg_dist(p1, q1, p2, q2) < lim for p1, q1 in segs[ga] for p2, q2 in segs[gb])
+            if hit:
+                out |= {(CHAIN_GROUP[ga], CHAIN_GROUP[gb]), (CHAIN_GROUP[gb], CHAIN_GROUP[ga])}
+            print(f'physics: {ga} / {gb} ' + ('overlap at rest: no collision' if hit else 'collide'))
+    return out
+
+
 def add_physics(root, arm):
     m = mmd_tools()
     from importlib import import_module
@@ -396,6 +478,9 @@ def add_physics(root, arm):
         return obj
 
     for bname in STATIC_BODIES:
+        # with the shoulder shrug 腕 is only the keyed input; the arm body follows 腕D
+        if bname.startswith('腕.'):
+            bname = rig.deform_arm(bones.keys(), bname[2:])
         if bname not in bones:
             continue
         b = bones[bname]
@@ -416,18 +501,23 @@ def add_physics(root, arm):
         body(rig.HAIR_ROOT, 'SPHERE', (0.01, 0, 0), 0, 0, set(range(16)), location=bones[rig.HAIR_ROOT].head_local)
 
     chain_groups = set(CHAIN_GROUP.values())
+    overlapping = chain_groups_overlapping(bones)
     n_joints = 0
     for b in bones:          # parents come before children in armature order
         grp = b.collections[0].name if len(b.collections) else ''
         if grp not in CHAIN_GROUP:
             continue
-        rad = 0.018 if grp == 'Hair' else 0.025
+        rad = CHAIN_RADIUS[grp]
         # the nearest chain bone above, skipping the skirt follow bones between segments
         up = b.parent
         while up is not None and up.collections and up.collections[0].name == 'SkirtFollow':
             up = up.parent
         root_of_chain = up is None or not up.collections or up.collections[0].name != grp
-        mask = chain_groups | ({0, HAND_GROUP} if root_of_chain else set())   # chain roots sit on the body: no collision
+        # a chain ignores its own group and any chain group its bodies already overlap at
+        # rest (they would explode apart on the first frame); hair, skirt and sleeves that
+        # are clear of each other collide. Chain roots sit on the body: no collision there.
+        mine = CHAIN_GROUP[grp]
+        mask = {mine} | {g for g in chain_groups if (mine, g) in overlapping} | ({0, HAND_GROUP} if root_of_chain else set())
         if grp == 'Sleeve':
             mask |= {HAND_GROUP}
         # skirt chain roots follow the bone (their follow parents add the thighs' rotation);
@@ -488,6 +578,7 @@ def main():
     summary = {
         'bones': sum(1 for pb in arm.pose.bones if not pb.is_mmd_shadow_bone),   # mmd_tools adds shadow bones for 付与
         'materials': len(mesh.data.materials),
+        'vertex_morphs': [m.name for m in root.mmd_root.vertex_morphs],
         'mesh_vertices': len(mesh.data.vertices),
         'mesh_faces': len(mesh.data.polygons),
         'rigid_bodies': n_rb,

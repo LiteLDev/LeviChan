@@ -1,0 +1,89 @@
+{
+  "poses": [
+    {
+      "pose": "test",
+      "rating": "minor",
+      "note": "The pink underskirt has a few narrow, pointed folds along the front-left hem in the three-quarter view."
+    },
+    {
+      "pose": "arms_up",
+      "rating": "minor",
+      "note": "The raised shoulder-to-armpit transitions look slightly angular and pinched, most clearly in the exposed-shoulder close-ups."
+    },
+    {
+      "pose": "arms_forward",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "wrist_twist_pos",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "wrist_twist_neg",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "squat",
+      "rating": "minor",
+      "note": "The knees show localized pinching and angular inner folds in the clay close-ups, while the three-quarter underskirt has several pointed hem folds."
+    },
+    {
+      "pose": "walk",
+      "rating": "minor",
+      "note": "The pink underskirt forms a few thin, sharp downward points along the forward hem in the three-quarter view."
+    },
+    {
+      "pose": "head_left",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "head_right",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "torso_left",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "torso_right",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "swing",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "fist",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "raise_bend",
+      "rating": "minor",
+      "note": "The exposed upper arms have slightly abrupt, angular transitions into the shoulders and sleeve bands."
+    },
+    {
+      "pose": "reach_forward",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "forward_bend",
+      "rating": "minor",
+      "note": "The front waist and corset lacing compress into a small, visibly crowded crease beneath the bust."
+    },
+    {
+      "pose": "side_bend",
+      "rating": "minor",
+      "note": "The corset and lacing bunch slightly at the compressed side of the waist."
+    }
+  ]
+}

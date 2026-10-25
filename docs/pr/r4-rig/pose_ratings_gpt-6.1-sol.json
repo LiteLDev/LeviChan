@@ -1,0 +1,89 @@
+{
+  "poses": [
+    {
+      "pose": "test",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "arms_up",
+      "rating": "minor",
+      "note": "The exposed shoulder-to-upper-arm transitions show slight angular pinching at the armpits in the current close-ups, but the shoulder silhouettes remain intact."
+    },
+    {
+      "pose": "arms_forward",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "wrist_twist_pos",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "wrist_twist_neg",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "squat",
+      "rating": "minor",
+      "note": "The deeply bent knees show localized angular flattening and a tight inner crease in the current clay close-ups, without visible tearing or severe volume collapse."
+    },
+    {
+      "pose": "walk",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "head_left",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "head_right",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "torso_left",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "torso_right",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "swing",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "fist",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "raise_bend",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "reach_forward",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "forward_bend",
+      "rating": "clean",
+      "note": ""
+    },
+    {
+      "pose": "side_bend",
+      "rating": "clean",
+      "note": ""
+    }
+  ]
+}
