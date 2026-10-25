@@ -60,43 +60,63 @@ STATIONS = [
     ((486, 325), (394, 366), 299, 42),
     ((509, 347), (414, 392), 301, 46),
     ((535, 370), (437, 421), 302, 51),
-    ((556, 385), (461, 451), 302, 52),   # widest, just above the cuff
-    ((553, 395), (480, 457), 301, 46),
-    ((546, 401), (493, 455), 299, 34),
+    # The bell rolls over into the wrist gather: its girth eases off over the
+    # last ~26 px along the cuff axis (a rounded dome that steepens into the
+    # gather) instead of contracting across a flat annulus right above the
+    # cuff, which read as a boxy shelf. The widest ring sits ~4 px inside
+    # the sheet's outer corner so the shoulder of the dome stays round.
+    ((545, 380), (456, 441), 302, 48),   # widest
+    ((547, 387), (469, 447), 301, 43),
+    ((545, 395), (483, 449), 300, 35),
+    ((540, 401), (495, 449), 299, 26),
     ((537, 405), (506, 447), 297, 19),   # gathered into the cuff
 ]
-RING_N = 32
-SUPER = 0.85          # superellipse exponent (<1 = fuller, boxier balloon)
-SUBDIV = 2            # interpolated rings per station gap
+SUPER = 1.0           # round (elliptical) sections; < 1 squares them off into panels
 
-# Folds. The radius is modulated by fold profiles whose crests sit on the
-# fitted surface (so the silhouette stays where the sheet draws it) and whose
-# valleys pull in: fine pleats where the drawstring and the wrist gather the
-# cloth, a few broad folds of real depth in the bell. The broad folds drift a
-# little around the arm on the way down so they do not run dead straight.
-GATHER_K = 8                  # pleats at the gathers (4 ring vertices each)
-GATHER_TOP, GATHER_CUFF = 0.22, 0.12
-BROAD_AMP = 0.19              # depth of the broad folds (fraction of the radius)
-BROAD_DRIFT = 1.1             # radians of drift from the band to the wrist
+# Rings: the same vertex count all the way down, so the fold lanes run as
+# continuous quad strips, at these station parameters u (0..len(STATIONS)-1):
+# ~0.8 apart down the bell, closer where it rolls into the cuff (u 6..10).
+# (The rig's positional drape weights are sensitive to where these fall:
+# rings at u 4.1/4.8 instead of 4.2/5.0 push arms_forward from x1.76 to x1.88.)
+RING_N = 36
+RING_U = (0.0, 0.9, 1.8, 2.6, 3.4, 4.2, 5.0, 5.7, 6.3, 6.9, 7.4, 7.9, 8.4, 8.9, 9.45, 10.0)
+
+# Folds. The radius is modulated by: fine pleats where the drawstring and the
+# wrist gather the cloth; a soft five-fold swell falling from the band; and a
+# few stable, unevenly spaced valleys that run down the bell, drifting a
+# little around the arm and deepening toward the wrist, where the fullness is
+# compressed into the cuff. They break up the broad outer face and lead the
+# cloth into the wrist gather.
+GATHER_K = 9                  # pleats at the gathers (4 ring vertices each)
+GATHER_TOP, GATHER_CUFF = 0.18, 0.10
+SWELL_AMP = 0.08              # depth of the swell under the band (fraction of the radius)
+# (ring angle rad: 0 = outer edge, pi/2 = back, -pi/2 = front; relative depth)
+VALLEYS = ((-1.20, 0.9), (-0.30, 0.7), (0.70, 1.0), (2.35, 0.7), (-2.50, 0.8))
+VALLEY_W = 0.34               # angular half-width (rad): ~4 ring vertices, a rounded trough
+VALLEY_AMP = (0.08, 0.14)     # depth at the top of the bell / near the wrist
+VALLEY_DRIFT = 0.25           # rad of sideways wander along the sleeve
 
 
 def _fold(th, s):
     """Radial factor at ring angle th and sleeve parameter s (0 band .. 1 wrist).
 
-    Valleys pull in; the bell is inflated by 0.3 of the broad-fold depth so
-    its mean radius (not its crests) stays on the fitted stations."""
-    fine = GATHER_TOP * (1.0 - _smooth(0.0, 0.3, s)) + GATHER_CUFF * _smooth(0.8, 1.0, s)
-    broad = BROAD_AMP * _smooth(0.06, 0.3, s) * (1.0 - 0.6 * _smooth(0.85, 1.0, s))
-    g_fine = math.cos(GATHER_K * th + 0.4)
-    d = BROAD_DRIFT * s
-    # two fold families: five folds fall from the band, seven open toward the
-    # wrist, so folds appear and fade down the sleeve instead of running as ridges
-    w5, w7 = 1.0 - 0.6 * s, 0.4 + 0.6 * s
-    g_broad = (w5 * math.cos(5 * th + 0.3 + d) + w7 * math.cos(7 * th + 1.1 - d)) / (w5 + w7)
-    # 0 on a crest, 1 in a valley; the exponent keeps crests broad and valleys narrower
-    v_fine = (1.0 - g_fine) / 2.0
-    v_broad = ((1.0 - g_broad) / 2.0) ** 1.25
-    return 1.0 - fine * v_fine - broad * v_broad + 0.3 * broad
+    Valleys pull in and the ring is inflated by a share of their depth, so the
+    ridges between them stand slightly proud of the fitted stations and the
+    mean radius stays close to them."""
+    fine = GATHER_TOP * (1.0 - _smooth(0.0, 0.3, s)) + GATHER_CUFF * _smooth(0.75, 1.0, s)
+    v_fine = (1.0 - math.cos(GATHER_K * th + 0.4)) / 2.0
+    swell = SWELL_AMP * _smooth(0.06, 0.25, s) * (1.0 - _smooth(0.3, 0.6, s))
+    v_swell = (1.0 - math.cos(5 * th + 0.3)) / 2.0
+    # valleys fade in below the band and hand over to the wrist pleats at the gather
+    depth = ((VALLEY_AMP[0] + (VALLEY_AMP[1] - VALLEY_AMP[0]) * _smooth(0.3, 0.85, s))
+             * _smooth(0.08, 0.25, s) * (1.0 - 0.7 * _smooth(0.9, 1.0, s)))
+    v_val = 0.0
+    for i, (phi, w) in enumerate(VALLEYS):
+        c = phi + VALLEY_DRIFT * math.sin(math.pi * s + 1.3 * i)
+        dth = (th - c + math.pi) % (2 * math.pi) - math.pi
+        v_val += w * math.exp(-(dth / VALLEY_W) ** 2)
+    return (1.0 - fine * v_fine - swell * v_swell + 0.4 * swell
+            - depth * v_val + 0.25 * depth)
 
 
 # Gradient sleeve_dark -> sleeve (0..1) by front-sheet row. Measured on the
@@ -132,15 +152,18 @@ def _catmull(p0, p1, p2, p3, t):
                   + (-p0 + 3 * p1 - 3 * p2 + p3) * t3)
 
 
+def _interp_at(rows, u):
+    """Catmull-Rom point of a list of float tuples at parameter u in 0..len-1."""
+    n = len(rows)
+    i = min(int(u), n - 2)
+    t = u - i
+    p0, p1, p2, p3 = (rows[max(i - 1, 0)], rows[i], rows[i + 1], rows[min(i + 2, n - 1)])
+    return tuple(_catmull(a, b, c, d, t) for a, b, c, d in zip(p0, p1, p2, p3))
+
+
 def _interp(rows, sub):
     """Catmull-Rom resample of a list of float tuples (sub points per gap)."""
-    out = []
-    n = len(rows)
-    for i in range(n - 1):
-        p0, p1, p2, p3 = (rows[max(i - 1, 0)], rows[i], rows[i + 1], rows[min(i + 2, n - 1)])
-        for k in range(sub):
-            t = k / sub
-            out.append(tuple(_catmull(a, b, c, d, t) for a, b, c, d in zip(p0, p1, p2, p3)))
+    out = [_interp_at(rows, i + k / sub) for i in range(len(rows) - 1) for k in range(sub)]
     out.append(rows[-1])
     return out
 
@@ -182,32 +205,33 @@ def _loft_out(rings):
     return _orient_outward(bm, [sum(r, Vector()) / len(r) for r in rings])
 
 
-def _station_mid(st):
-    (oc, orow), (ic, irow), sc, _ = st
+def _flat_mid(st):
+    """Centre of a flat station (oc, orow, ic, irow, side col, half-depth)."""
+    oc, orow, ic, irow, sc, _ = st
     return (W(oc, orow) + W(ic, irow)) / 2 + Y * px(sc - CX)
+
+
+def _station_mid(st):
+    (oc, orow), (ic, irow), sc, ry = st
+    return _flat_mid((oc, orow, ic, irow, sc, ry))
 
 
 def _balloon_bm():
     flat = [(o[0], o[1], i[0], i[1], sc, ry) for o, i, sc, ry in STATIONS]
-    sts = _interp(flat, SUBDIV)
-    last = len(sts) - 1
-    rings = [_ring(st, i / last) for i, st in enumerate(sts)]
-
-    def inward(st, toward, d):
-        """Shift of d px from station st's centre toward the point `toward` (up the arm)."""
-        oc, orow, ic, irow, sc, _ = st
-        c = (W(oc, orow) + W(ic, irow)) / 2 + Y * px(sc - CX)
-        return (toward - c).normalized() * px(d)
+    last = len(flat) - 1
+    rings = [_ring(_interp_at(flat, u), u / last) for u in RING_U]
+    st0, st1 = flat[0], flat[-1]
 
     # Top: the cloth tucks up under the drawstring band.
-    top_c = _station_mid(STATIONS[1])
-    rings.insert(0, _ring(sts[0], 0.0, scale=0.86, shift=inward(sts[0], top_c, 3)))
+    up = (_station_mid(STATIONS[1]) - _flat_mid(st0)).normalized()
+    rings.insert(0, _ring(st0, 0.0, scale=0.86, shift=up * px(3)))
     # Wrist: the hem turns inward over a short interior return (a thin lip,
-    # then a facing running back up inside), so the opening has depth.
-    bot_c = _station_mid(STATIONS[-2])
+    # then a facing running back up inside), so the opening has depth. Both
+    # step straight back up the cuff axis, so the return stays centred.
+    _, cuff_ax = _frame(STATIONS[-1][0], STATIONS[-1][1])
     # (The lip ring keeps ~2 px edges to the hem: shorter edges tear under skinning.)
-    rings.append(_ring(sts[-1], 1.0, scale=0.95, shift=inward(sts[-1], bot_c, 3.0)))
-    rings.append(_ring(sts[-1], 1.0, scale=0.89, shift=inward(sts[-1], bot_c, 8.5)))
+    rings.append(_ring(st1, 1.0, scale=0.95, shift=-cuff_ax * px(3.0)))
+    rings.append(_ring(st1, 1.0, scale=0.89, shift=-cuff_ax * px(8.5)))
     return _loft_out(rings)
 
 
@@ -283,17 +307,18 @@ TIE_R = 22.0                  # px, drawstring radius (covers the balloon's ~19 
 # Axis at the rim: tilted toward the body, flatter than the band (the sheet's
 # side lobes slope down toward the body).
 RIM_NORMAL = Vector((-0.2, 0.0, 0.98)).normalized()
-RUFFLE_SHIFT = Vector((px(8.0), 0.0, 0.0))   # rim centre offset (front: ~col 423)
+RUFFLE_SHIFT = Vector((px(3.0), 0.0, 0.0))   # rim centre offset (front: ~col 418)
 # (height along the axis px, radius front px, radius side px, lobe amp, lobe lift px)
 RUFFLE_PROFILE = (
     (0.0, TIE_R, TIE_R, 0.05, 0.0),       # cinched by the drawstring
-    (8.0, 23.0, 23.0, 0.07, 0.3),         # gathered band
-    (22.0, 29.0, 30.0, 0.12, 1.6),        # the frill opens
-    (30.5, 34.5, 35.5, 0.13, 2.4),        # rim, curling outward
-    (28.7, 35.0, 36.0, 0.13, 2.4),        # rolled out and under (gives the rim a fold line)
+    (8.0, 23.0, 23.0, 0.06, 0.3),         # gathered band
+    (17.0, 26.5, 27.0, 0.07, 0.8),        # the frill opens ...
+    (24.0, 30.5, 31.5, 0.08, 1.1),        # ... and curls outward
+    (27.0, 33.5, 34.5, 0.08, 1.3),        # rim
+    (24.8, 34.2, 35.2, 0.08, 1.3),        # rolled out and under over ~2.2 px (a soft fold line)
 )
-RUFFLE_N = 56
-RUFFLE_LOBES = 8              # 7 ring vertices per lobe: rounded, not pointed
+RUFFLE_N = 48
+RUFFLE_LOBES = 8              # 6 ring vertices per lobe, shallow: soft scallops, not a crown
 
 
 def _ruffle_bm():
@@ -302,7 +327,9 @@ def _ruffle_bm():
     rings = [_frill_ring(BAND_MID + BAND_AX * px(6), BAND_E, px(TIE_R - 1), px(TIE_R - 1), n)]
     last = len(RUFFLE_PROFILE) - 1
     for i, (h, ra, rb, amp, lift) in enumerate(RUFFLE_PROFILE):
-        s = min(1.0, i / (last - 1))      # the hem shares the rim's frame
+        # the frame turns from the band axis to the rim normal smoothly with
+        # height (no sharp kink between rings); the hem shares the rim's frame
+        s = 1.0 if i >= last - 1 else _smooth(0.0, 1.0, h / RUFFLE_PROFILE[last - 1][0])
         f = (-BAND_AX).lerp(RIM_NORMAL, s).normalized()
         c = TIE + f * px(h) + RUFFLE_SHIFT * s
         rings.append(_frill_ring(c, _perp_xz(f), px(ra), px(rb), n, k, amp, f, px(lift), 0.3))
@@ -315,8 +342,8 @@ def _ruffle_bm():
 # fold of cloth -- outer face, rolled rim, inner face back up to the
 # attachment -- so the edge has thickness and an outline without a
 # solidified plate edge.
-CUFF_N = 48
-CUFF_LOBES = 8
+CUFF_N = 36
+CUFF_LOBES = 6                # 6 ring vertices per lobe: soft, rounded scallops
 # A mild droop only: a strongly one-sided ruffle swings round with the
 # forearm twist and folds into the hem.
 CUFF_DROOP = 0.6              # downward tilt added to the arm axis at the rim
@@ -324,12 +351,14 @@ CUFF_FORWARD = 0.35           # forward (-Y) tilt: the front view sees into the 
 CUFF_ROOT = -4.0              # px along the arm: attachment, inside the turned-in hem
 #   (s along the ruffle 0..1, radius front px, radius side px, lobe amp, lobe lift px)
 CUFF_PROFILE = (
-    (0.00, 20.0, 14.5, 0.03, 0.0),        # sewn inside the hem facing
-    (0.45, 24.5, 21.5, 0.10, 1.0),
-    (1.00, 33.0, 34.0, 0.14, 2.0),        # free edge
-    (0.96, 33.3, 34.3, 0.14, 2.0),        # rolled rim
-    (0.45, 23.5, 20.5, 0.10, 1.0),        # inner face
-    (0.05, 19.3, 13.8, 0.03, 0.0),
+    (0.00, 20.0, 14.5, 0.02, 0.0),        # sewn inside the hem facing
+    (0.35, 23.0, 19.5, 0.04, 0.4),
+    (0.70, 26.3, 25.5, 0.05, 0.7),        # the flare rounds over ...
+    (0.92, 28.8, 29.0, 0.06, 0.9),
+    (1.00, 30.0, 30.4, 0.06, 0.9),        # ... to the free edge
+    (0.94, 30.7, 31.1, 0.06, 0.9),        # rolled rim, ~1 px of cloth thickness
+    (0.45, 23.2, 20.2, 0.04, 0.4),        # inner face
+    (0.05, 19.3, 13.8, 0.02, 0.0),
 )
 CUFF_LEN = 27.0               # px, attachment -> rim
 
