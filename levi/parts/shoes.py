@@ -1,6 +1,11 @@
 """Shoes: green pointed-toe stiletto pumps with criss-cross ankle ribbons,
 a small bow at the front of each ankle and a pair of leaves at the back/outer
-side of each ankle.
+side of each ankle. The outsole between the ball and the heel seat is the
+sheet's pale tan (seen in the back view either side of the stiletto); the heel
+cup tapers toward the topline so the back view reads as a slim pump.
+
+Every shell station keeps the body's foot (body.FOOT) inside it with >= ~0 px
+clearance below the opening, so no skin pokes through in the three views.
 
 Everything is laid out in reference-panel pixels (1 px = 1/643 m) as measured
 from ref/front.png, ref/side.png and ref/back.png, then mapped to world space.
@@ -51,31 +56,44 @@ def P(x, y, row, sx=1):
 # ---------------------------------------------------------------- shell
 # Stations along the shoe, toe -> heel, panel px:
 #   y, centre x, half width, sole row, top row, opening angle (fraction of pi),
-#   inward skew of the sole (px; the front view narrows to a V on the inner side)
+#   inward skew of the sole (px; the front view narrows to a V on the inner side),
+#   pinch (0..1: the upper half narrows toward the opening -> tapered heel cup
+#   in the back view), keel (px the sole corners are lifted -> pointed V bottom
+#   in the front view), inner-wall raise (px: the inner side of the opening
+#   sits higher than the outer one, hidden in the side view)
 # Closed toe box: frac = 1 (ring ends meet on the top centre line, top row =
 # toe-box top).  Open stations: ring ends sit on the topline at `top row`.
 STATIONS = [
-    (-90.0, 16.0, 2.6, 943.8, 938.8, 1.0, 0.0),
-    (-85.0, 18.0, 6.0, 944.5, 935.0, 1.0, 2.0),
-    (-78.0, 20.5, 9.5, 944.5, 930.5, 1.0, 4.0),
-    (-70.0, 22.5, 12.8, 944.5, 926.5, 1.0, 6.0),
-    (-62.0, 24.0, 15.0, 944.5, 922.0, 1.0, 7.0),
-    (-57.0, 24.6, 15.9, 944.5, 921.0, 0.90, 8.0),
-    (-50.0, 25.5, 17.0, 944.5, 918.0, 0.75, 8.0),
-    (-40.0, 26.5, 18.0, 944.5, 916.5, 0.67, 8.0),
-    (-30.0, 27.0, 18.0, 944.5, 916.5, 0.67, 7.0),
-    (-23.0, 28.5, 17.0, 942.0, 915.0, 0.67, 5.0),
-    (-18.0, 29.5, 15.5, 932.0, 903.0, 0.67, 3.0),
-    (-13.0, 30.0, 14.5, 920.0, 893.0, 0.67, 1.0),
-    (-8.0, 30.0, 14.0, 910.0, 884.0, 0.67, 0.0),
-    (-3.0, 30.0, 13.5, 903.0, 876.0, 0.67, 0.0),
-    (2.0, 30.0, 13.0, 899.5, 869.0, 0.67, 0.0),
-    (7.0, 30.0, 12.5, 899.0, 865.0, 0.67, 0.0),
-    (12.0, 30.0, 11.5, 899.0, 860.0, 0.67, 0.0),
-    (16.0, 30.0, 10.0, 899.5, 858.0, 0.67, 0.0),
-    (19.0, 30.0, 7.5, 896.0, 857.5, 0.67, 0.0),
-    (21.5, 30.0, 4.5, 888.0, 859.0, 0.67, 0.0),
+    (-90.0, 16.0, 2.6, 943.8, 938.8, 1.0, 0.0, 0.0, 0.0, 0.0),
+    (-85.0, 18.0, 6.0, 944.5, 935.0, 1.0, 2.0, 0.0, 1.5, 0.0),
+    (-78.0, 20.5, 10.0, 944.5, 930.5, 1.0, 4.0, 0.0, 2.0, 0.0),
+    (-70.0, 22.5, 13.6, 944.5, 926.5, 1.0, 5.0, 0.0, 2.5, 0.0),
+    (-62.0, 24.0, 16.0, 944.5, 922.0, 1.0, 3.0, 0.0, 3.0, 0.0),
+    (-57.0, 24.6, 18.0, 944.5, 920.0, 0.88, 3.0, 0.0, 3.0, 3.0),
+    (-50.0, 25.5, 18.0, 944.5, 918.0, 0.75, 3.0, 0.0, 4.0, 6.0),
+    (-40.0, 26.5, 18.6, 944.5, 916.5, 0.67, 3.0, 0.0, 4.5, 8.0),
+    (-30.0, 27.0, 18.0, 944.5, 916.5, 0.67, 3.0, 0.0, 4.5, 8.0),
+    (-23.0, 28.5, 17.0, 942.0, 915.0, 0.67, 2.5, 0.0, 3.0, 6.0),
+    (-18.0, 29.5, 15.5, 932.0, 903.0, 0.67, 1.5, 0.0, 0.0, 3.0),
+    (-13.0, 30.0, 14.5, 920.0, 893.0, 0.67, 1.0, 0.0, 0.0, 0.0),
+    (-8.0, 30.0, 14.0, 910.0, 884.0, 0.67, 0.0, 0.1, 0.0, 0.0),
+    (-3.0, 30.0, 13.5, 903.0, 876.0, 0.67, 0.0, 0.15, 0.0, 0.0),
+    (2.0, 30.0, 13.0, 899.5, 869.0, 0.67, 0.0, 0.12, 0.0, 0.0),
+    (7.0, 30.0, 12.5, 899.0, 865.0, 0.67, 0.0, 0.3, 0.0, 0.0),
+    (12.0, 30.0, 11.5, 899.0, 860.0, 0.67, 0.0, 0.65, 0.0, 0.0),
+    (16.0, 30.0, 10.0, 899.5, 858.0, 0.67, 0.0, 0.6, 0.0, 0.0),
+    (19.0, 30.0, 7.5, 896.0, 857.5, 0.67, 0.0, 0.6, 0.0, 0.0),
+    (21.5, 30.0, 4.5, 888.0, 859.0, 0.67, 0.0, 0.5, 0.0, 0.0),
 ]
+# Sole underside (back view: the pale tan outsole between the forefoot walls
+# and the stiletto): ring segments SOLE_SEGS of the stations from the ball to
+# the heel seat get the sole material.
+SOLE_Y = (-23.0, -8.0)
+SOLE_SEGS = range(3, 7)
+# There is no tan palette key; the sole uses the shoe key blended toward
+# 'skin' (toon_material gradient) by SOLE_MIX, which lands on the sheet's
+# sole tan (#938B70 shade) within a few dE.
+SOLE_MIX = 0.31
 TOE_TIP = (15.0, -93.0, 941.5)
 BACK_Y = 22.5
 RING = 11          # verts per cross-section (10 segments)
@@ -87,17 +105,26 @@ def _spow(v, p):
 
 
 def _ring(st, sx):
-    y, cx, hw, zb, zt, frac, skew = st
+    y, cx, hw, zb, zt, frac, skew, pinch, keel, rin = st
     assert 0.5 <= frac <= 1.0, 'ring ends must be on the upper half of the section'
     phim = math.pi * frac
     zb_m, zt_m = zrow(zb), zrow(zt)
     hh = (zt_m - zb_m) / (1.0 + abs(math.cos(phim)) ** SQUARE)
     zmid = zb_m + hh
     pts = []
+    cend = max(1e-6, -math.cos(phim))
     for k in range(RING):
         phi = phim * (2.0 * k / (RING - 1) - 1.0)
-        x = cx + hw * _spow(math.sin(phi), SQUARE) - skew * ((1 + math.cos(phi)) / 2) ** 1.5
-        z = zmid - hh * _spow(math.cos(phi), SQUARE)
+        s, c = math.sin(phi), math.cos(phi)
+        xo = hw * _spow(s, SQUARE)
+        if c < 0.0:     # upper half: pinch toward the centre line
+            xo *= 1.0 - pinch * (-c / cend) ** 0.8
+        x = cx + xo - skew * ((1 + c) / 2) ** 1.5
+        z = zmid - hh * _spow(c, SQUARE)
+        if c > 0.0:     # lower half: keel (sole corners lifted -> V bottom)
+            z += keel * PX * (abs(xo) / hw) ** 1.5 * min(1.0, c / 0.45)
+        elif s < 0.0:   # inner upper quarter: raised inner side wall
+            z += rin * PX * min(1.0, -c / cend)
         pts.append(Vector((sx * x * PX, y * PX, z)))
     return pts
 
@@ -106,18 +133,20 @@ def _shell(bm, sx):
     """Open shell of one shoe. All faces share one winding; with k running
     toward +x (sx=1) that winding faces inward, so it is reversed there.
     Returns the closed topline loop (for the piping)."""
-    def face(vs):
-        bm.faces.new(vs if sx < 0 else list(reversed(vs)))
+    def face(vs, mat=0):
+        f = bm.faces.new(vs if sx < 0 else list(reversed(vs)))
+        f.material_index = mat
 
     rings = [[bm.verts.new(p) for p in _ring(st, sx)] for st in STATIONS]
-    for a, b in zip(rings, rings[1:]):
+    for i, (a, b) in enumerate(zip(rings, rings[1:])):
+        sole = SOLE_Y[0] <= STATIONS[i][0] and STATIONS[i + 1][0] <= SOLE_Y[1]
         for j in range(RING - 1):
-            face((a[j], a[j + 1], b[j + 1], b[j]))
+            face((a[j], a[j + 1], b[j + 1], b[j]), 1 if sole and j in SOLE_SEGS else 0)
     tip = bm.verts.new(P(*TOE_TIP, sx))
     r0 = rings[0]
     for j in range(RING - 1):
         face((tip, r0[j + 1], r0[j]))
-    y, cx, hw, zb, zt, frac, skew = STATIONS[-1]
+    y, cx, hw, zb, zt = STATIONS[-1][:5]
     back = bm.verts.new(P(cx, BACK_Y, zt - 2.0, sx))
     rl = rings[-1]
     for j in range(RING - 1):
@@ -241,6 +270,7 @@ def _lerp_path(a, b, n):
 
 
 KNOT = (-16.0, 831.0)  # bow knot (theta, row)
+CROSS_TH = -10.0       # instep lace crossing (theta)
 
 
 def _band_row(theta):
@@ -252,11 +282,12 @@ def _ribbons(bm, sx):
     # ankle wrap
     band = [ank(th, _band_row(th), sx=sx) for th in range(-180, 180, 20)]
     _tube(bm, band, RIB_R, closed=True)
-    # instep criss-cross: vamp corner -> front crossing -> opposite ankle side -> wrap
+    # instep criss-cross: vamp corner -> front crossing (a little to the inner
+    # side, as on the sheet) -> diagonally up to the back of the ankle -> wrap
     for s in (1, -1):
-        path = _lerp_path((-80 * s, 906.0), (0.0, 880.0), 3)[:-1]
-        path += _lerp_path((0.0, 880.0), (80 * s, 858.0), 3)
-        path += [(100 * s, _band_row(100 * s))]
+        path = _lerp_path((-80 * s, 906.0), (CROSS_TH, 882.0), 3)[:-1]
+        path += _lerp_path((CROSS_TH, 882.0), (145 * s, 856.0), 4)
+        path += [(160 * s, _band_row(160 * s))]
         _tube(bm, [ank(th, r, sx=sx) for th, r in path], RIB_R)
     # back V: wrap sides -> top of the heel counter
     for s in (1, -1):
@@ -280,18 +311,21 @@ def _ribbons(bm, sx):
     knot = [ank(kth - 3, krow, off=RIB_OFF + 0.8, sx=sx), ank(kth + 3, krow, off=RIB_OFF + 0.8, sx=sx)]
     _tube(bm, knot, RIB_R * 2.0, n=4)
     # long tail hanging at the back/outer side below the leaves
-    tail = [(46.5, 8.0, 849.0), (50.5, 17.0, 860.0), (53.0, 24.5, 872.0),
-            (54.0, 28.0, 883.0), (53.5, 29.0, 892.0), (52.0, 28.5, 900.0)]
+    # (kept close to the heel: further back it crosses the ankle's
+    # knee/ankle weight blend and stretches when the foot points)
+    tail = [(46.5, 8.0, 849.0), (50.5, 12.0, 858.0), (52.5, 15.5, 869.0),
+            (53.0, 17.5, 880.0), (52.5, 18.5, 891.0), (51.5, 19.0, 899.0)]
     _tube(bm, [P(*p, sx) for p in tail], RIB_R, ref=Vector((sx, 0, 0)))
 
 
 # ---------------------------------------------------------------- leaves
 LEAF_BASE = (46.0, 9.0, 848.0)
 LEAVES = [  # tip (x, y, row), half width px
-    ((68.5, 30.5, 804.0), 9.5),
-    ((77.0, 44.0, 826.0), 10.5),
+    ((65.0, 30.5, 804.0), 11.5),
+    ((73.0, 44.0, 824.0), 12.5),
 ]
 LEAF_RINGS = 5
+LEAF_FOLD = 0.6   # blade halves fold up along the midrib (reads broad from all views)
 
 
 def _leaf(bm, base, tip, half_w, sx):
@@ -315,7 +349,8 @@ def _leaf(bm, base, tip, half_w, sx):
         w = half_w * PX * math.sin(math.pi * t ** 0.8)
         c = base + axis * t + nrm * (math.sin(math.pi * t) * 0.06 * length)
         c -= wdir * (0.05 * length * t * t)                 # slight sideways curl
-        rings.append([V(c - wdir * w), V(c + nrm * th), V(c + wdir * w), V(c - nrm * th)])
+        f = nrm * (LEAF_FOLD * w)   # edges fold toward the face: V-section
+        rings.append([V(c - wdir * w + f), V(c + nrm * th), V(c + wdir * w + f), V(c - nrm * th)])
     for r0, r1 in zip(rings, rings[1:]):
         for j in range(4):
             k = (j + 1) % 4
@@ -355,11 +390,16 @@ def build(col):
     _finish(rib_bm)
     _finish(leaf_bm)
 
-    shell = common.new_object(col, 'shoes_shell', shell_bm, [common.toon_material('shoe')])
+    shell = common.new_object(col, 'shoes_shell', shell_bm,
+                              [common.toon_material('shoe'),
+                               common.toon_material('shoe', gradient='skin')])
     common.shade_smooth(shell, 50.0)
+    common.set_gradient(shell, lambda co: SOLE_MIX)   # read by the sole slot only
     pipe = common.new_object(col, 'shoes_topline', pipe_bm, [common.toon_material('shoe')])
     common.shade_smooth(pipe, 80.0)
-    rib = common.new_object(col, 'shoes_ribbons', rib_bm, [common.toon_material('green')])
+    # the sheet's laces are the shoe's dark green (#2C6C40 lit), not the
+    # brighter trim green
+    rib = common.new_object(col, 'shoes_ribbons', rib_bm, [common.toon_material('shoe')])
     common.shade_smooth(rib, 80.0)
     leaf = common.new_object(col, 'shoes_leaves', leaf_bm, [common.toon_material('leaf')])
     common.shade_smooth(leaf, 60.0)
