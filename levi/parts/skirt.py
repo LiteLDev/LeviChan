@@ -11,7 +11,8 @@ to the hem and, at the fold troughs, a short turned-out edge.
 - The cloth hangs in godet folds, one per row of FOLDS: a crest at the
   centre of each hem lobe of the sheet's outlines and a trough midway to the
   next crest. Per fold the table gives the hem height at the crest and at
-  the following trough, the fold's half-depth and a smooth radial offset.
+  the following trough, the fold's half-depth, a smooth radial offset, the
+  crest's tuck at the hem and the lobe width exponent.
   At the hem a crest bulges out and hangs low in a rounded lobe; a trough
   is drawn in and lifted in a rounded arch. The hem height is one cosine
   wave between them (level at both ends: no flat runs, no corners). The
@@ -20,18 +21,20 @@ to the hem and, at the fold troughs, a short turned-out edge.
   least STEEP_MIN of the half-fold wide) face into the next trough that
   looks toward +phi, away from the key light in every view. Both halves
   level out at crest and trough, so the cloth turns round everywhere.
-- Rings: T_STEPS gives 13 evenly spread stations down the length, so the
-  skirt chains bend the cloth in a curve, not in long straight panels.
+- Rings: T_STEPS gives 13 stations down the length, 0.1 apart through the
+  upper and middle skirt and a little closer toward the hem, so the skirt
+  chains bend the cloth in a curve, not in long straight panels. Azimuth
+  samples are spaced by arc length and packed where the hem curve bends.
 - Shading: the near-frontal key light only shades faces turned ~72-90 deg
   away, a few px wide on these folds, so the sheet's tapered fold shadows are
-  added as soft mint streaks on each steep face (the dress -> dress_mint
-  gradient attribute), feathered across the fold and faded in with height.
-  White -> mint with height on top, and the turned-out edge mint.
-- Hem edge: around a trough the hem turns outward and up in a small, thin
-  roll (radius ROLL_R, a little past horizontal), easing in over most of
-  the fold's half-width, so the inside of the fabric just shows in the mint
-  tone (the sheet's hem curls at every turn). At a crest the hem tucks
-  under a little instead, easing in from mid-skirt (CREST_CURL_T).
+  added as faint mint streaks on each steep face (the dress -> dress_mint
+  gradient attribute), feathered on both sides and faded in with height.
+  White -> mint with height on top, and the turned-out edge mint inside.
+- Hem edge: a single thin sheet (THICK) with no rolled lip. Around a trough
+  the last part of the sheet flares out a little (HEM_FLARE), tangent-
+  continuous, so the inside of the fabric just shows in the mint tone (the
+  sheet's hem turns at every trough). At a crest the hem tucks under a
+  little instead, easing in from mid-skirt (CREST_CURL_T).
 - Normals are smooth over the whole cloth; only the thin rim at the hem and
   waist is split.
 - FOLDS was fitted by levi/parts/_skirt_fit.py so that the visible lower
@@ -142,7 +145,7 @@ HEM_FLARE_T = 0.7
 STEEP_FACE_DEG = 70.0    # orientation of the steep fold face at the hem, from the view axis
 Z_MINT = 0.6             # white -> mint height gradient reaches this at the hem
 STREAK = 0.08            # extra mint on the fold streaks (soft shading, not a painted wedge)
-STREAK_W = 1.3           # streak width at the hem, in units of the steep face width
+STREAK_W = 0.7           # streak width at the hem, as a share of the steep face width
 STREAK_T0 = 0.3          # streaks start at this t
 STREAK_SOFT = 0.6        # streak edge feather (in u)
 DRIFT_DEG = 4.0          # sideways wander of the folds up the skirt (deg at the waist)
@@ -321,9 +324,10 @@ def hem_terms(folds, phi):
     curl_t = 0.5 * (f[kt, 5] + f[kn, 5])
     curl = f[k, 5] + (curl_t - f[k, 5]) * _smoothstep(a)
     lip = _smoothstep((a - LIP_U0) / (1 - LIP_U0))
-    # painted fold shade: the steep face (u in [1 - steep, 1]), widest at the
-    # hem; returned as the u where the streak starts at the hem
-    streak_u0 = np.where(u > 0, np.maximum(1.0 - steep * STREAK_W, 0.35), 2.0)
+    # painted fold shade: the outer STREAK_W share of the steep face (u in
+    # [1 - steep, 1]), widest at the hem; returned as the u where the streak
+    # starts at the hem
+    streak_u0 = np.where(u > 0, 1.0 - steep * STREAK_W, 2.0)
     return row, fold, base, lip, curl, u, streak_u0
 
 
@@ -340,9 +344,10 @@ def streaks(folds):
     *_, u, u0 = ring_terms(folds)                             # follow the drifting folds
     h = np.clip((np.array(T_STEPS)[None, :] - STREAK_T0) / (1 - STREAK_T0), 0, 1)  # 0 top, 1 hem
     start = 1.0 - (1.0 - u0) * _smoothstep(h)                 # narrows upward, eased
-    # feathered across the fold and faded in with height, so the streak
-    # reads as soft shading rather than a cut-out triangle
-    across = _smoothstep((u - start) / STREAK_SOFT + 0.5)
+    # feathered on the leading side, faded out again into the trough (where
+    # the next fold's u = -1 carries no streak) and faded in with height, so
+    # the streak reads as soft shading rather than a cut-out triangle
+    across = _smoothstep((u - start) / STREAK_SOFT + 0.5) * (1.0 - _smoothstep((u - 0.8) / 0.2))
     return np.where(h > 0, _smoothstep(h) * across, 0.0)
 
 
@@ -356,10 +361,11 @@ def fold_growth(t):
     return s * e / (1.0 - math.exp(-1.0 / FOLD_EASE)) * (1.0 + MID_RELIEF * np.sin(np.pi * s) ** 2)
 
 
-def ring_terms(folds):
+def ring_terms(folds, phi=None):
     """hem_terms per (azimuth sample, main-sheet ring), with the fold pattern
-    shifted by drift() at each ring's height (each term shaped (N_PHI, rings))."""
-    phi = azimuths(folds)[:, None]
+    shifted by drift() at each ring's height (each term shaped (N_PHI, rings)).
+    phi: the sample azimuths if already computed (azimuths(folds))."""
+    phi = (azimuths(folds) if phi is None else np.asarray(phi))[:, None]
     return hem_terms(folds, phi + drift(phi, np.array(T_STEPS)[None, :]))
 
 
@@ -380,7 +386,7 @@ def profiles(folds):
     r = np.hypot(x, y)
     ux, uy = x / r, y / r
     # fold, smooth offset and crest curl follow the drifting folds (exact at the hem)
-    _, fold_t, offs_t, w_t, curl_t, _, _ = ring_terms(folds)
+    _, fold_t, offs_t, w_t, curl_t, _, _ = ring_terms(folds, phi)
     # folds open gently below the hips and deepen down to the hem; the crest
     # curl eases in (level start) from mid-skirt toward the hem
     off = t ** BASE_POW * offs_t + fold_growth(t) * fold_t
@@ -498,7 +504,7 @@ def build(col):
     # solidify keeps the loft's vertices first, then their offset copies
     assert len(me.vertices) == 2 * nverts, 'skirt: unexpected solidify vertex layout'
     st = streaks(folds)
-    edge = hem_terms(folds, azimuths(folds))[3][:, None] * flare_k(T_STEPS)[None, :]
+    edge = ring_terms(folds)[3] * flare_k(T_STEPS)[None, :]     # the drifted flare weight
     attr = me.attributes[common.GRAD_ATTR]
     for v in me.vertices:
         ring, i = divmod(v.index % nverts, N_PHI)

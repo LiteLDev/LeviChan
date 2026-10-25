@@ -17,6 +17,12 @@ radial offset. The fit compares, per view, against the measured outline tables i
   every trough sits above its two crests.
 Coordinate descent over the fold parameters, deterministic. With --write the
 FOLDS table in skirt.py is replaced in place; --report only scores it.
+--freeze 1,5 keeps those FOLDS columns as they are. --baseline OLD.py adds a
+penalty for cloth more than INSIDE_TOL px inside an earlier skirt (the layer
+the petticoat was fitted inside), e.g. after
+    git show main:levi/parts/skirt.py > out/skirt_base.py
+The petticoat follows the skirt's folds, so re-run the fit once per skirt
+change rather than iterating the two to convergence.
 """
 import os
 import re
@@ -184,12 +190,14 @@ def build_occluders(px):
 
 
 ZB, RAD, BASE_RAD = None, None, None
+HEM_T0 = 0.75      # rings from here down count for the visible lower outline
+LOW_T0 = 0.2       # rings from here down count for the clearance / baseline terms
 
 
 # ---------------------------------------------------------------- error terms
 def hem_curves(P):
-    """Hem-zone points (the last rings), upsampled along azimuth."""
-    k0 = len(skirt.T_STEPS) - 5
+    """Hem-zone points (the rings from t = HEM_T0 down), upsampled along azimuth."""
+    k0 = int(np.searchsorted(skirt.T_STEPS, HEM_T0 - 1e-9))
     H = P[:, k0:, :]
     nxt = np.roll(H, -1, axis=0)
     parts = [H + (nxt - H) * (j / UPS) for j in range(UPS)]
@@ -277,14 +285,9 @@ def edge_error(P):
 
 def clearance_error(P):
     """Cloth points inside the petticoat (px summed), sampled along the faces
-    between rings too (the hem rings are ~25 rows apart)."""
-    Q = P[:, 2:, :]
-    a, b = Q[:, :-1, :], Q[:, 1:, :]
-    pts = np.concatenate([Q] + [a + (b - a) * f for f in (0.25, 0.5, 0.75)], axis=1).reshape(-1, 3)
-    phi = np.mod(np.arctan2(pts[:, 0], -pts[:, 1]), 2 * np.pi)
-    b = (phi / (2 * np.pi) * NB).astype(int) % NB
-    rb = np.round((pts[:, 2] - RB0) / 2).astype(int)
-    ok = (rb >= 0) & (rb < RBN)
+    between rings too."""
+    pts = cloth_samples(P)
+    b, rb, ok = radial_bins(pts)
     rp = np.full(len(pts), -np.inf)
     rp[ok] = RAD[rb[ok], b[ok]]
     r = np.hypot(pts[:, 0], pts[:, 1])
@@ -292,8 +295,10 @@ def clearance_error(P):
 
 
 def cloth_samples(P):
-    """Main-sheet points below the hips plus points along the faces between rings."""
-    Q = P[:, 2:len(skirt.T_STEPS), :]
+    """Cloth points from t = LOW_T0 down (below the waist band) plus points
+    along the faces between rings."""
+    k0 = int(np.searchsorted(skirt.T_STEPS, LOW_T0 - 1e-9))
+    Q = P[:, k0:, :]
     a, b = Q[:, :-1, :], Q[:, 1:, :]
     return np.concatenate([Q] + [a + (b - a) * f for f in (0.25, 0.5, 0.75)], axis=1).reshape(-1, 3)
 
@@ -457,7 +462,9 @@ def report(folds):
         print(f'{v}: score {e:.0f}  mean |dz| {np.abs(d[fin]).mean():.1f}px over {fin.sum()} cols, '
               f'{(~fin).sum()} cols hidden/missing; worst (col, dz) '
               f'{[(int(c), int(z)) for _, c, z in worst]}')
-    print(f'edges {ee:.0f}  clearance {ce:.1f}  prior {pe:.0f}  total {tot:.0f}')
+    pet = PET_W * clearance_error(P)
+    print(f'edges {ee:.0f}  petticoat clearance {pet:.1f}  baseline {ce - pet:.1f}  '
+          f'prior {pe:.0f}  total {tot:.0f}')
     f = np.array(folds, dtype=np.float64)
     depth = np.maximum(f[:, 1], np.roll(f[:, 1], -1)) - f[:, 2]
     print(f'arch depth (px) max {depth.max():.0f} mean {depth.mean():.0f}; crest curl max {f[:, 5].max():.0f}')
@@ -466,6 +473,8 @@ def report(folds):
         d = inside_baseline(P)
         print(f'cloth samples > {INSIDE_TOL} px inside the baseline skirt: '
               f'{int((d > INSIDE_TOL).sum())}/{len(d)}; deepest {d.max():.1f} px')
+    else:
+        print('no --baseline given: inward moves vs an earlier skirt are not checked')
 
 
 def write(folds):
