@@ -109,17 +109,18 @@ TORSO = [
     (148, 12.5, -42, -17, 2.0),   # tucked inside the head (tilted, see below)
     (161, 13.5, -44, -17, 2.0),   # chin_z: seam under the jaw
     (170, 13.5, -44, -17, 2.0),
-    (176, 14.0, -45, -16, 2.0),
-    (180, 14.6, -45, -15, 2.0),
-    (183, 17.0, -45, -14, 2.0),   # neck base
-    (185.5, 23.0, -45, -12.5, 2.1),
-    (188, 34.0, -45, -11, 2.2),
-    (191, 47.0, -45, -9, 2.4),
-    (194, 58.0, -45, -7, 2.5),
-    (197, 66.0, -45, -5.5, 2.6),
-    (201, 72.0, -46, -4, 2.7),
-    (205, 74.5, -48, -2, 2.7),    # shoulder line
-    (210, 75.0, -51, -1, 2.6),
+    (175, 14.0, -45, -16, 2.0),
+    (178, 15.2, -45, -15, 2.0),
+    (180, 19.0, -45, -14, 2.0),   # neck base (the sheet flares from row ~180)
+    (182, 26.0, -45, -12.5, 2.1),
+    (184, 33.0, -45, -11.5, 2.15),
+    (186.5, 42.0, -45, -10, 2.3),
+    (189, 51.0, -45, -8.5, 2.4),
+    (192, 59.0, -45, -7, 2.5),
+    (195, 66.0, -45, -5.5, 2.6),
+    (199, 72.0, -46, -4, 2.7),
+    (203, 74.5, -48, -2, 2.7),    # shoulder line
+    (209, 75.0, -51, -1, 2.6),
     (216, 73.5, -54, -1, 2.5),
     (222, 72.0, -57, -1, 2.4),
     (230, 65.0, -61, 0, 2.3),
@@ -135,7 +136,9 @@ TORSO = [
     (370, 48.0, -70, 6, 2.2),
     (395, 55.0, -66, 14, 2.3),
     (420, 60.0, -60, 19, 2.3),
+    (432, 61.3, -56.5, 19.5, 2.3),  # extra hip loops for leg bends
     (445, 62.0, -52, 19, 2.3),    # hips
+    (455, 60.5, -47.5, 16.5, 2.25),
     (465, 57.0, -42, 13, 2.2),
     (480, 42.0, -32, 4, 2.0),
     (489, 22.0, -24, -4, 2.0),
@@ -170,7 +173,7 @@ def build_torso(bm):
 SHOULDER = (66, -27, 214)
 ELBOW = (118, -18, 352)
 WRIST = (220, -24, 438)
-HAND_DIR = (60, 4, 42)       # wrist -> middle fingertip (x, y, rows down)
+HAND_DIR = (70, 4, 40)       # wrist -> middle fingertip (x, y, rows down)
 HAND_W_FRONT = 0.675         # share of the palm width seen in the front view
 
 
@@ -178,7 +181,10 @@ def hand_frame():
     """Unit vectors (d: along the hand, w: toward the thumb, n: palm normal)."""
     d = Vector((HAND_DIR[0], HAND_DIR[1], -HAND_DIR[2])).normalized()
     perp_up = Vector((-d.z, 0, d.x)).normalized()      # in the front plane, upward
-    w = (perp_up * HAND_W_FRONT + Vector((0, -1, 0)) * math.sqrt(1 - HAND_W_FRONT ** 2))
+    # The sheet shows the back of the hand with the thumb on the lower, inner
+    # edge (palm turned back toward the thigh): the thumb side points forward
+    # and down.
+    w = (-perp_up * HAND_W_FRONT + Vector((0, -1, 0)) * math.sqrt(1 - HAND_W_FRONT ** 2))
     w = (w - d * w.dot(d)).normalized()
     n = d.cross(w)   # palm side for the left hand
     return d, w, n
@@ -197,10 +203,10 @@ def build_arm(bm):
     secs = [  # (centre, side hint or hand-twist weight 0..1, (side+, side-, front, back) px)
         (S - u * 13 * k, front_side(u), (6, 7, 8, 8)),
         (S - u * 9 * k, front_side(u), (10, 11.5, 13.5, 13.5)),
-        (S - u * 4 * k, front_side(u), (12.5, 14.5, 17, 17)),
-        (S, front_side(u), (13.5, 15.5, 18.5, 18)),
-        (S + u * 15 * k, front_side(u), (13.5, 15.0, 18, 17)),
-        (S + u * 35 * k, front_side(u), (13.5, 14.5, 16, 15.5)),
+        (S - u * 4 * k, front_side(u), (14.0, 14.5, 17, 17)),
+        (S, front_side(u), (15.5, 15.5, 18.5, 18)),
+        (S + u * 15 * k, front_side(u), (15.5, 15.0, 18, 17)),
+        (S + u * 35 * k, front_side(u), (14.5, 14.5, 16, 15.5)),
         (S + u * 62 * k, front_side(u), (13.5, 13.5, 14.5, 14)),
         (S + u * 92 * k, front_side(u), (13.0, 12.5, 13, 13)),
         (E - u * 14 * k, front_side(u), (12.5, 12.0, 12.5, 12.5)),
@@ -211,10 +217,10 @@ def build_arm(bm):
         (E + f * 108 * k, 0.8, (9.5, 9.0, 7.5, 7.0)),
         (W, 1.0, (10.5, 10.5, 6.5, 6.5)),
         (W + d * 8 * k, 1.0, (13, 13, 7, 7)),
-        (W + d * 19 * k, 1.0, (16, 16, 7, 7)),
-        (W + d * 29 * k, 1.0, (17, 17, 6.5, 6.5)),
-        (W + d * 36 * k, 1.0, (16, 16, 5.5, 5.5)),
-        (W + d * 40 * k, 1.0, (10.5, 10.5, 3.5, 3.5)),
+        (W + d * 19 * k, 1.0, (17, 16, 7, 7)),
+        (W + d * 29 * k, 1.0, (17.5, 17, 6.5, 6.5)),
+        (W + d * 36 * k, 1.0, (16.5, 16, 5.5, 5.5)),
+        (W + d * 40 * k, 1.0, (11, 10.5, 3.5, 3.5)),
     ]
     # Twist the frame from the forearm into the hand: blend side hints toward w.
     fs = front_side(f)
@@ -232,12 +238,13 @@ def build_arm(bm):
 
 # finger: (offset along w px, knuckle distance px, splay deg, segment lengths px, base radius px)
 FINGERS = [
-    (11.5, 36.0, 3.0, (15, 10.5, 9), 4.2),     # index
-    (3.8, 38.5, -1.5, (16.5, 11.5, 9.5), 4.4),  # middle
-    (-4.2, 37.0, -7.0, (14.5, 10, 8.5), 4.2),   # ring
-    (-11.5, 34.0, -16.0, (11, 8, 7), 3.7),      # pinky
+    (11.5, 37.0, 3.0, (17, 12, 10), 4.2),       # index
+    (3.8, 39.5, -1.5, (18.5, 13, 10.5), 4.4),   # middle
+    (-4.2, 38.0, -4.0, (16.5, 11.5, 9.5), 4.2),  # ring
+    (-11.0, 35.0, -8.0, (12.5, 9, 8), 3.7),     # pinky
 ]
 FINGER_CURL = 5.0  # degrees per joint, toward the palm
+JOINT_RINGS = (0.22, 0.78, 1.0)  # ring positions along each finger segment
 
 
 def _rot(v, axis, deg):
@@ -250,12 +257,14 @@ def finger(bm, base, direction, bend_axis, seg_len, r0, r1, curl, n=8):
     cur, dcur = base, direction
     pts.append(cur)
     dirs.append(dcur)
+    # rings just after / before each knuckle and on it, so every joint bends
+    # over three loops instead of one
     for L in seg_len:
         dcur = _rot(dcur, bend_axis, curl)
-        mid = cur + dcur * px(L * 0.5)
+        for t in JOINT_RINGS:
+            pts.append(cur + dcur * px(L * t))
+            dirs.append(dcur)
         cur = cur + dcur * px(L)
-        pts += [mid, cur]
-        dirs += [dcur, dcur]
     m = len(pts)
     radii = []
     for i in range(m):
@@ -278,10 +287,10 @@ def build_fingers(bm, W, d, w, n):
         axis = direction.cross(n).normalized()  # rotating about it bends toward +n (palm)
         finger(bm, base, direction, axis, segs, r0, r0 * 0.72, FINGER_CURL)
     # thumb: from the heel of the palm, angled toward the thumb side and palm
-    base = W + d * 9 * k + w * 9 * k + n * 2.5 * k
-    tdir = (d * 0.78 + w * 0.5 + n * 0.38).normalized()
+    base = W + d * 19 * k + w * 9 * k + n * 2.0 * k
+    tdir = (d * 0.9 + w * 0.4 + n * 0.15).normalized()
     axis = tdir.cross(n).normalized()
-    finger(bm, base, tdir, axis, (12, 10, 8), 5.0, 3.7, 10.0)
+    finger(bm, base, tdir, axis, (14, 12, 10), 4.4, 3.4, 8.0)
 
 
 # ---------------------------------------------------------------- legs + feet
@@ -289,7 +298,8 @@ def build_fingers(bm, W, d, w, n):
 # Side view: row -> (front y, back y). Measured every 10 rows on the reference
 # (rows <= 620 are under the petticoat and extrapolated toward the hip).
 LEG_FRONT = {
-    455: (60, 6), 490: (64.5, 7), 530: (65.5, 10), 570: (65, 12.5), 600: (64.5, 14.5),
+    455: (60, 6), 472: (62.3, 6.5), 490: (64.5, 7), 510: (65, 8.5), 530: (65.5, 10),
+    550: (65.3, 11.2), 570: (65, 12.5), 600: (64.5, 14.5),
     630: (63, 16.5), 640: (61.5, 15.8), 650: (61.5, 16.5), 660: (63.5, 17.5),
     670: (65.5, 19.5), 680: (67.5, 20), 690: (69.5, 20.5), 700: (70.5, 20),
     710: (70.5, 19.5), 720: (69.5, 20.5), 730: (67.5, 22), 740: (65.5, 22),
@@ -298,7 +308,8 @@ LEG_FRONT = {
     830: (45, 25), 842: (43, 27), 856: (41, 28),
 }
 LEG_SIDE = {
-    455: (-50, 22), 490: (-48, 20), 530: (-46, 16), 570: (-44, 13), 600: (-42, 11),
+    455: (-50, 22), 472: (-49, 21), 490: (-48, 20), 510: (-47, 18), 530: (-46, 16),
+    550: (-45, 14.5), 570: (-44, 13), 600: (-42, 11),
     630: (-41, 9), 640: (-38.5, 10), 650: (-35.5, 12), 660: (-32, 15.5),
     670: (-30.5, 19), 680: (-30, 22), 690: (-29, 24), 700: (-28, 25),
     710: (-27, 25), 720: (-27, 23), 730: (-26, 23), 740: (-25, 21),
@@ -379,8 +390,4 @@ def build(col):
     obj = common.new_object(col, 'body', bm, [common.toon_material('skin')])
     common.shade_smooth(obj, 75.0)
     common.add_outline(obj)
-    # The inverted-hull outline encloses the mesh, so if the object casts
-    # shadows the hull shadows the whole surface and it renders entirely in
-    # the shade tone. Skin needs no cast shadows in the cel look.
-    obj.visible_shadow = False
     return obj
