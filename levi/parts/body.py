@@ -5,6 +5,16 @@ rounded tips), so each limb carries clean edge loops at the shoulder, elbow,
 wrist, hip, knee and ankle. The head is a separate part; the neck stops in a
 tilted ring tucked just under the jaw (spec.L['chin_z']).
 
+The arms grow out of the torso: a four-by-four patch of quads on each side of
+the shoulder band is cut away and the arm loft starts from the hole's 16-vertex
+border (the shoulder socket). Between the socket and the first round arm ring
+the rings follow cubic Hermite paths that leave the torso along its own
+surface and arrive along the arm, so the trapezius slope rolls over a rounded
+deltoid into the upper arm, and the armpit is a soft fold between the side of
+the chest and the inner arm. The torso rings bunch their vertices around the
+socket's front and back edges (the armpit folds), and the shoulder joint sits
+inside the deltoid volume.
+
 All shape data below is in *panel pixels* measured on ref/{front,side}.png
 (see `P()`): x = offset from the panel centre column (+ = character's left),
 y = side-view offset (- = forward), row = image row (ground at
@@ -37,6 +47,11 @@ def P(x, y, row):
 px = spec.px_to_h  # panel pixels -> metres
 
 
+def smoothstep(e0, e1, x):
+    t = max(0.0, min(1.0, (x - e0) / (e1 - e0)))
+    return t * t * (3 - 2 * t)
+
+
 # ---------------------------------------------------------------- sweep
 def _frames(centers, side_hints, tangent=None):
     n = len(centers)
@@ -61,8 +76,69 @@ def _ring_dir(theta, p):
     return (math.copysign(abs(c) ** e, c), math.copysign(abs(s) ** e, s))
 
 
+def ring_points(centers, side_hints, radii, n, p=2.0, tangent=None, thetas=None, shape=None):
+    """Vertex positions of lofted rings (see `sweep`) without creating them.
+
+    thetas[i]: optional per-ring list of n superellipse angles (default
+    uniform). shape(i, dx, dy) -> (d_side, d_up, d_t) in metres: optional
+    per-vertex offset in the ring's frame. Returns (rings, frames)."""
+    frames = _frames(centers, side_hints, tangent)
+    rings = []
+    for i, (c, (t, side, up), r) in enumerate(zip(centers, frames, radii)):
+        pi = p[i] if isinstance(p, (list, tuple)) else p
+        ring = []
+        for k in range(n):
+            th = thetas[i][k] if thetas is not None else 2 * math.pi * k / n
+            dx, dy = _ring_dir(th, pi)
+            rs = r[0] if dx >= 0 else r[1]
+            ru = r[2] if dy >= 0 else r[3]
+            co = c + side * (dx * rs) + up * (dy * ru)
+            if shape is not None:
+                a, b, d = shape(i, dx, dy)
+                co = co + side * a + up * b + t * d
+            ring.append(co)
+        rings.append(ring)
+    return rings, frames
+
+
+def skin_rings(bm, rings, frames=None, cap0=None, cap1=None, cap0_len=0.0, cap1_len=0.0, mirror=False):
+    """Create verts (positions, or existing BMVerts kept as they are) and quads.
+
+    cap: 'pole' (triangle fan to a tip cap_len along the end frame's tangent),
+    'ngon' or None. mirror: x -> -x for created verts. Returns the vert rings."""
+    out = []
+    for ring in rings:
+        vr = []
+        for co in ring:
+            if isinstance(co, bmesh.types.BMVert):
+                vr.append(co)
+            else:
+                v = Vector(co)
+                if mirror:
+                    v.x = -v.x
+                vr.append(bm.verts.new(v))
+        out.append(vr)
+    n = len(out[0])
+    for a, b in zip(out, out[1:]):
+        for k in range(n):
+            j = (k + 1) % n
+            bm.faces.new((a[k], a[j], b[j], b[k]))
+    ends = ((out[0], cap0, -cap0_len, 0), (out[-1], cap1, cap1_len, -1))
+    for ring, cap, ln, fi in ends:
+        if cap == 'ngon':
+            bm.faces.new(ring)
+        elif cap == 'pole':
+            t = frames[fi][0].copy()
+            if mirror:
+                t.x = -t.x
+            tip = bm.verts.new(sum((v.co for v in ring), Vector()) / n + t * ln)
+            for k in range(n):
+                bm.faces.new((ring[k], ring[(k + 1) % n], tip))
+    return out
+
+
 def sweep(bm, centers, side_hints, radii, n, p=2.0, cap0='pole', cap1='pole',
-          cap0_len=0.0, cap1_len=0.0, ring_fn=None, tangent=None):
+          cap0_len=0.0, cap1_len=0.0, ring_fn=None, tangent=None, thetas=None):
     """Loft rings along `centers` into `bm`.
 
     radii[i] = (side+, side-, up+, up-) in metres; side = hint orthogonalised
@@ -73,99 +149,209 @@ def sweep(bm, centers, side_hints, radii, n, p=2.0, cap0='pole', cap1='pole',
     tables measured as horizontal / vertical slices); default follows the
     centre line. Returns the list of vertex rings.
     """
-    frames = _frames(centers, side_hints, tangent)
-    rings = []
-    for i, (c, (t, side, up), r) in enumerate(zip(centers, frames, radii)):
-        pi = p[i] if isinstance(p, (list, tuple)) else p
-        ring = []
-        for k in range(n):
-            dx, dy = _ring_dir(2 * math.pi * k / n, pi)
-            rs = r[0] if dx >= 0 else r[1]
-            ru = r[2] if dy >= 0 else r[3]
-            co = c + side * (dx * rs) + up * (dy * ru)
-            if ring_fn:
-                co = ring_fn(i, co)
-            ring.append(bm.verts.new(co))
-        rings.append(ring)
-    faces = []
-    for a, b in zip(rings, rings[1:]):
-        for k in range(n):
-            j = (k + 1) % n
-            faces.append(bm.faces.new((a[k], a[j], b[j], b[k])))
-    for ring, cap, ln, (t, _, _), c in ((rings[0], cap0, -cap0_len, frames[0], centers[0]),
-                                        (rings[-1], cap1, cap1_len, frames[-1], centers[-1])):
-        if cap == 'ngon':
-            faces.append(bm.faces.new(ring))
-        elif cap == 'pole':
-            tip = bm.verts.new(sum((v.co for v in ring), Vector()) / n + t * ln)
-            for k in range(n):
-                faces.append(bm.faces.new((ring[k], ring[(k + 1) % n], tip)))
-    return rings
+    rings, frames = ring_points(centers, side_hints, radii, n, p, tangent, thetas)
+    if ring_fn:
+        rings = [[ring_fn(i, co) for co in ring] for i, ring in enumerate(rings)]
+    return skin_rings(bm, rings, frames, cap0, cap1, cap0_len, cap1_len)
 
 
 # ---------------------------------------------------------------- torso + neck
-# row, half width, front y, back y, superellipse exponent  (panel px)
+# row, half width, front y, back y, superellipse exponent, side y (panel px).
+# The side y is where the ring's side (x extreme) sits: the ring has separate
+# front and back radii from it, so the bust grows forward without dragging the
+# shoulder socket and the armpits forward. None = halfway between front and back.
 TORSO = [
-    (148, 12.5, -42, -17, 2.0),   # tucked inside the head (tilted, see below)
-    (161, 13.5, -44, -17, 2.0),   # chin_z: seam under the jaw
-    (170, 13.5, -44, -17, 2.0),
-    (175, 14.0, -45, -16, 2.0),
-    (178, 15.2, -45, -15, 2.0),
-    (180, 19.0, -45, -14, 2.0),   # neck base (the sheet flares from row ~180)
-    (182, 26.0, -45, -12.5, 2.1),
-    (184, 33.0, -45, -11.5, 2.15),
-    (186.5, 42.0, -45, -10, 2.3),
-    (189, 51.0, -45, -8.5, 2.4),
-    (192, 59.0, -45, -7, 2.5),
-    (195, 66.0, -45, -5.5, 2.6),
-    (199, 72.0, -46, -4, 2.7),
-    (203, 74.5, -48, -2, 2.7),    # shoulder line
-    (209, 75.0, -51, -1, 2.6),
-    (216, 73.5, -54, -1, 2.5),
-    (222, 72.0, -57, -1, 2.4),
-    (230, 65.0, -61, 0, 2.3),
-    (240, 56.0, -66, 0, 2.2),     # bodice top / armpit
-    (250, 54.0, -76, 2, 2.2),
-    (262, 53.0, -85, 5, 2.2),     # bust (under the bodice)
-    (275, 51.0, -84, 6, 2.2),
-    (290, 46.0, -78, 5, 2.2),
-    (305, 42.0, -76, 2, 2.2),
-    (320, 39.0, -76, -1, 2.2),
-    (335, 39.0, -76, -2, 2.2),    # waist
-    (350, 42.0, -74, 0, 2.2),
-    (370, 48.0, -70, 6, 2.2),
-    (395, 55.0, -66, 14, 2.3),
-    (420, 60.0, -60, 19, 2.3),
-    (432, 61.3, -56.5, 19.5, 2.3),  # extra hip loops for leg bends
-    (445, 62.0, -52, 19, 2.3),    # hips
-    (455, 60.5, -47.5, 16.5, 2.25),
-    (465, 57.0, -42, 13, 2.2),
-    (480, 42.0, -32, 4, 2.0),
-    (489, 22.0, -24, -4, 2.0),
+    (148, 12.5, -42, -17, 2.0, None),   # tucked inside the head (tilted, see below)
+    (161, 13.5, -44, -17, 2.0, None),   # chin_z: seam under the jaw
+    (170, 13.5, -44, -17, 2.0, None),
+    (175, 14.0, -45, -16, 2.0, None),
+    (178, 15.2, -45, -15, 2.0, None),
+    (180, 19.0, -45, -14, 2.0, None),   # neck base (the sheet flares from row ~180)
+    (182, 26.5, -45, -12.5, 2.1, None),
+    (184, 33.5, -45.5, -11, 2.2, None),
+    (186.5, 44.0, -46.5, -9.5, 2.3, -27.5),
+    (189, 56.0, -48, -8, 2.4, -27.0),   # SOCKET_ROWS[0]: shoulder top
+    (199, 68.0, -51.5, -4, 2.6, -27.0),
+    (209, 68.0, -56, -1.5, 2.5, -27.5),
+    (219, 65.0, -60.5, -0.5, 2.45, -28.0),
+    (230, 60.5, -65.5, 0.2, 2.35, -29.0),  # SOCKET_ROWS[-1]: armpit apex
+    (235, 58.3, -70.8, 0.6, 2.3, -29.5),
+    (240, 56.0, -76, 1, 2.2, -30.0),    # bodice top at the side
+    (247, 55.0, -85, 2, 2.2, -31.5),    # bust, ~2-3 px inside the bodice shell
+    (256, 54.0, -89.5, 3.5, 2.2, -33.0),
+    (266, 53.0, -90.5, 5, 2.2, -35.0),
+    (278, 50.5, -88, 6, 2.2, -37.0),
+    (290, 46.5, -83, 5, 2.2, None),
+    (305, 42.0, -78, 2, 2.2, None),
+    (320, 39.0, -76, -1, 2.2, None),
+    (335, 39.0, -76, -2, 2.2, None),    # waist
+    (350, 42.0, -74, 0, 2.2, None),
+    (370, 48.0, -70, 6, 2.2, None),
+    (395, 55.0, -66, 14, 2.3, None),
+    (420, 60.0, -60, 19, 2.3, None),
+    (432, 61.3, -56.5, 19.5, 2.3, None),  # extra hip loops for leg bends
+    (445, 62.0, -52, 19, 2.3, None),    # hips
+    (455, 60.5, -47.5, 16.5, 2.25, None),
+    (465, 57.0, -42, 13, 2.2, None),
+    (480, 42.0, -32, 4, 2.0, None),
+    (489, 22.0, -24, -4, 2.0, None),
 ]
+# Bust fill under the bodice: rows -> (forward push px, push starts / is full
+# at these |x| px). The bodice shell (levi/parts/bodice.py) is fuller off the
+# centre line than a plain section, and its neckline rises toward the sides, so
+# off-centre the upper bust is pushed forward to sit ~2-3 px inside the shell
+# (no visible gap into the neckline from above); the centre, where the
+# neckline dips and skin shows, is left alone.
+BUST_PUSH = [(230, 0.0, 0, 20), (235, 14.0, 10, 26), (240, 10.5, 2, 20), (247, 6.0, 0, 20),
+             (256, 4.3, 0, 20), (266, 4.0, 0, 20), (278, 2.0, 0, 20), (290, 1.8, 0, 20),
+             (305, 0.0, 0, 20)]
+CLAVICLE = {199: 1.2, 209: -0.8}   # rows -> forward push px across the upper chest
 NECK_TILT = 0.6  # the neck-top rings rise toward the back to hide behind the jaw
 NECK_SEAM_ROW = 161  # rings at/above this row (spec chin_z) get the tilt
+TORSO_N = 28
+# Shoulder socket: the torso quads between these rows and between ring
+# vertices -2..+2 around the side (x extreme, k = 0) are replaced by the arm.
+SOCKET_ROWS = (189, 199, 209, 219, 230)
+ARM_Y = -27.0     # side y of the arm / socket centre
+# socket half depth (px from ARM_Y to its front / back edge) per socket row:
+# narrow on top of the shoulder, as deep as the arm at the armpit folds
+SOCKET_W = (9.0, 14.0, 16.0, 15.0, 13.0)
+
+
+def _torso_thetas():
+    """Per-ring vertex angles. Rings in the shoulder band put vertices +-1, +-2
+    (each side) at the socket's mid and edge depths; above and below the band
+    they ease back to uniform spacing."""
+    n = TORSO_N
+    out = []
+    r_top, r_bot = SOCKET_ROWS[0], SOCKET_ROWS[-1]
+    for row, hw, yf, yb, p, ys in TORSO:
+        uni = [2 * math.pi * k / n for k in range(n)]
+        if row < r_top:
+            w = smoothstep(r_top - 9, r_top, row)
+        else:
+            w = 1.0 - smoothstep(r_bot, r_bot + 26, row)
+        if w <= 0:
+            out.append(uni)
+            continue
+        sw = _interp(list(zip(SOCKET_ROWS, SOCKET_W)), row)
+        ysd = ys if ys is not None else (yf + yb) / 2
+        rf, rb = ysd - yf, yb - ysd
+
+        def ang(depth, r):
+            v = max(0.05, min(0.92, (depth / r))) ** (p / 2)
+            return math.asin(v)
+        # depth from the ring's side point to the socket's mid / edge lines,
+        # forward (front radius) and backward (back radius)
+        a1, a2 = ang(ysd - ARM_Y + sw / 2, rf), ang(ysd - ARM_Y + sw, rf)
+        b1, b2 = ang(ARM_Y + sw / 2 - ysd, rb), ang(ARM_Y + sw - ysd, rb)
+        # left side: k=0 (+X), k=1,2 front, k=27,26 back; right side mirrored
+        sock = [0.0] * n
+        sock[0], sock[1], sock[2] = 0.0, a1, a2
+        sock[n - 1], sock[n - 2] = 2 * math.pi - b1, 2 * math.pi - b2
+        h = n // 2
+        sock[h] = math.pi
+        sock[h - 1], sock[h - 2] = math.pi - a1, math.pi - a2
+        sock[h + 1], sock[h + 2] = math.pi + b1, math.pi + b2
+        # front arc k=2..h-2 and back arc h+2..n-2: uniform between the edges
+        for k in range(3, h - 2):
+            sock[k] = a2 + (math.pi - 2 * a2) * (k - 2) / (h - 4)
+        for k in range(h + 3, n - 2):
+            sock[k] = math.pi + b2 + (math.pi - 2 * b2) * (k - h - 2) / (h - 4)
+        out.append([u + (s - u) * w for u, s in zip(uni, sock)])
+    return out
+
+
+def _interp(table, t):
+    if t <= table[0][0]:
+        return table[0][1]
+    for (t0, v0), (t1, v1) in zip(table, table[1:]):
+        if t <= t1:
+            return v0 + (v1 - v0) * (t - t0) / (t1 - t0)
+    return table[-1][1]
 
 
 def build_torso(bm):
     centers, hints, radii, ps = [], [], [], []
-    for row, hw, yf, yb, p in TORSO:
-        yc = (yf + yb) / 2
-        centers.append(P(0, yc, row))
+    for row, hw, yf, yb, p, ys in TORSO:
+        ys = ys if ys is not None else (yf + yb) / 2
+        centers.append(P(0, ys, row))
         hints.append(Vector((1, 0, 0)))
-        ry = (yb - yf) / 2
-        radii.append((px(hw), px(hw), px(ry), px(ry)))
+        radii.append((px(hw), px(hw), px(ys - yf), px(yb - ys)))
         ps.append(p)
     # Rings are horizontal slices (the table rows); t=-Z, side=+X -> up=-Y.
 
     def tilt(i, co):
-        if TORSO[i][0] <= NECK_SEAM_ROW:
+        row, hw = TORSO[i][0], TORSO[i][1]
+        if row <= NECK_SEAM_ROW:
             co = co.copy()
             co.z += max(0.0, co.y - px(TORSO[i][2])) * NECK_TILT
+        if row in CLAVICLE and co.y < px(TORSO[i][5]):
+            # soft collarbone ridge and the shallow hollow under it
+            ax = abs(co.x) / px(1)
+            f = smoothstep(6, 14, ax) * (1 - smoothstep(38, 52, ax))
+            co = co.copy()
+            co.y -= px(CLAVICLE[row] * f)
+        push = [b for b in BUST_PUSH if b[0] == row]
+        if push and co.y < px(TORSO[i][5] if TORSO[i][5] is not None else 0):
+            _, amp, x0, x1 = push[0]
+            ax = abs(co.x) / px(1)
+            # fade out toward the side; sooner along the rising neckline edge
+            s0 = 0.5 if row <= 235 else 0.64 if row <= 240 else 0.82
+            f = smoothstep(x0, x1, ax) * (1 - smoothstep(s0 * hw, 0.9 * hw + 0.08 * hw * (s0 > 0.8), ax))
+            co = co.copy()
+            co.y -= px(amp * f)
         return co
 
-    sweep(bm, centers, hints, radii, n=28, p=ps, cap0='ngon', cap1='pole',
-          cap1_len=px(4), ring_fn=tilt, tangent=(0, 0, -1))
+    return sweep(bm, centers, hints, radii, n=TORSO_N, p=ps, cap0='ngon', cap1='pole',
+                 cap1_len=px(4), ring_fn=tilt, tangent=(0, 0, -1), thetas=_torso_thetas())
+
+
+def cut_socket(bm, rings, side):
+    """Delete the socket patch on one side (+1 left, -1 right) and return
+    (border verts in arm-ring order, their tangents into the hole).
+
+    Arm ring order: 0 outer (top edge middle), 4 front, 8 inner (armpit), 12 back."""
+    n = TORSO_N
+    rows = [r[0] for r in TORSO]
+    ri = [rows.index(r) for r in SOCKET_ROWS]
+    i0, i4 = ri[0], ri[-1]
+
+    def K(k):  # left ring index -> this side's
+        return k % n if side > 0 else (n // 2 - k) % n
+    faces = []
+    for i in range(i0, i4):
+        for k in range(-2, 2):
+            a, b = rings[i], rings[i + 1]
+            vs = (a[K(k)], a[K(k + 1)], b[K(k + 1)], b[K(k)])
+            f = bm.faces.get(vs)
+            if f is not None:
+                faces.append(f)
+    # (row index, k) around the border in arm-ring order
+    order = [(i0, 0), (i0, 1), (i0, 2)]
+    order += [(ri[1], 2), (ri[2], 2), (ri[3], 2)]
+    order += [(i4, 2), (i4, 1), (i4, 0), (i4, -1), (i4, -2)]
+    order += [(ri[3], -2), (ri[2], -2), (ri[1], -2)]
+    order += [(i0, -2), (i0, -1)]
+    loop, tans = [], []
+    for i, k in order:
+        v = rings[i][K(k)]
+        t = Vector()
+        if i == i0:
+            t += (v.co - rings[i - 1][K(k)].co).normalized()
+        if i == i4:
+            # the armpit: mostly straight out of the chest wall (a soft, open
+            # fold rather than a hairpin turn) with a little of the upward run
+            out = Vector((v.co.x, v.co.y - px(ARM_Y), 0.0)).normalized()
+            t += (out + 0.5 * (v.co - rings[i + 1][K(k)].co).normalized()).normalized()
+        if k == 2:
+            t += (v.co - rings[i][K(3)].co).normalized()
+        if k == -2:
+            t += (v.co - rings[i][K(-3)].co).normalized()
+        loop.append(v)
+        tans.append(t.normalized())
+    bmesh.ops.delete(bm, geom=faces, context='FACES_ONLY')
+    return loop, tans
 
 
 # ---------------------------------------------------------------- arms + hands
@@ -175,6 +361,14 @@ ELBOW = (118, -18, 352)
 WRIST = (220, -24, 438)
 HAND_DIR = (70, 4, 40)       # wrist -> middle fingertip (x, y, rows down)
 HAND_W_FRONT = 0.675         # share of the palm width seen in the front view
+ARM_N = 16
+# Rig shoulder joint (left, panel px): the centre of the deltoid ball, between
+# the shoulder top (row ~189) and the armpit apex (row 230), so the rounded cap
+# turns with the arm. Without it the rig's cross-section fit lands ~8 rows lower.
+SHOULDER_JOINT = None
+# Hermite transition rings between the socket border and the first round arm ring
+SOCKET_STEPS = (0.33, 0.57, 0.79)
+SOCKET_TAN = (0.95, 0.75)    # tangent lengths (x chord) leaving the torso / entering the arm
 
 
 def hand_frame():
@@ -190,7 +384,43 @@ def hand_frame():
     return d, w, n
 
 
-def build_arm(bm):
+# Palm stations (distance along the hand from the wrist, px) whose rings get
+# the palm shaping below.
+PALM_FROM = 14
+
+
+def _palm_shape(t_px):
+    """Ring-local offsets (side=toward thumb, up=palm side) for the hand rings
+    at `t_px` along the hand: a shallow palm arch, the thenar (thumb ball)
+    and hypothenar pads, a domed back, and knuckles staggered along the palm
+    end (index/middle longest, the little finger side shortest)."""
+    k = px(1)
+    thenar = smoothstep(2, 10, t_px) * (1 - smoothstep(18, 30, t_px))
+    hypo = smoothstep(4, 14, t_px) * (1 - smoothstep(24, 34, t_px))
+    arch = smoothstep(8, 18, t_px) * (1 - smoothstep(32, 40, t_px))
+    stagger = smoothstep(24, 36, t_px)
+
+    def f(dx, dy):
+        a = b = d = 0.0
+        if dy > 0:     # palm side
+            b -= 1.3 * arch * dy * max(0.0, 1 - (dx / 0.7) ** 2)          # hollow of the palm
+            pad = thenar * 6.0 * max(0.0, dx) ** 1.5 * dy ** 0.7          # thumb ball
+            pad += hypo * 1.1 * max(0.0, -dx) ** 1.5 * dy ** 0.7          # little finger pad
+            a += pad * 0.55 * (1 if dx > 0 else -1)
+            b += pad
+        else:          # back of the hand: a low dome
+            b += 0.2 * arch * dy * (1 - dx * dx)
+        d += stagger * (2.2 * dx - 1.6 * dx * dx)                          # knuckle arc
+        return a * k, b * k, d * k
+    return f
+
+
+def arm_rings(loop, tans):
+    """Positions (left side) of the arm rings from the socket border to the
+    palm end, and the frames of the round part.
+
+    loop: socket border positions (left side, arm-ring order); tans: their unit
+    tangents leaving the torso into the hole."""
     S, E, W = P(*SHOULDER), P(*ELBOW), P(*WRIST)
     u = (E - S).normalized()
     f = (W - E).normalized()
@@ -200,97 +430,131 @@ def build_arm(bm):
         return Vector((-t.z, 0, t.x)).normalized()  # outward/up in front plane
 
     k = px(1)
-    secs = [  # (centre, side hint or hand-twist weight 0..1, (side+, side-, front, back) px)
-        (S - u * 13 * k, front_side(u), (6, 7, 8, 8)),
-        (S - u * 9 * k, front_side(u), (10, 11.5, 13.5, 13.5)),
-        (S - u * 4 * k, front_side(u), (14.0, 14.5, 17, 17)),
-        (S, front_side(u), (15.5, 15.5, 18.5, 18)),
-        (S + u * 15 * k, front_side(u), (15.5, 15.0, 18, 17)),
-        (S + u * 35 * k, front_side(u), (14.5, 14.5, 16, 15.5)),
-        (S + u * 62 * k, front_side(u), (13.5, 13.5, 14.5, 14)),
-        (S + u * 92 * k, front_side(u), (13.0, 12.5, 13, 13)),
-        (E - u * 14 * k, front_side(u), (12.5, 12.0, 12.5, 12.5)),
-        (E, front_side((u + f).normalized()), (12.0, 12.0, 12.5, 12.5)),
-        (E + f * 14 * k, front_side(f), (12.0, 11.5, 12, 12)),
-        (E + f * 45 * k, front_side(f), (11.5, 11.0, 11, 10.5)),
-        (E + f * 80 * k, 0.45, (10.0, 9.5, 9, 8.5)),
-        (E + f * 108 * k, 0.8, (9.5, 9.0, 7.5, 7.0)),
-        (W, 1.0, (10.5, 10.5, 6.5, 6.5)),
-        (W + d * 8 * k, 1.0, (13, 13, 7, 7)),
-        (W + d * 19 * k, 1.0, (17, 16, 7, 7)),
-        (W + d * 29 * k, 1.0, (17.5, 17, 6.5, 6.5)),
-        (W + d * 36 * k, 1.0, (16.5, 16, 5.5, 5.5)),
-        (W + d * 40 * k, 1.0, (11, 10.5, 3.5, 3.5)),
+    secs = [  # (centre, side hint or hand-twist weight 0..1, (side+, side-, front, back) px, hand t px)
+        (S + u * 38 * k, front_side(u), (18.0, 15.0, 17.0, 16.0), None),
+        (S + u * 56 * k, front_side(u), (15.5, 14.0, 15.5, 15.0), None),
+        (S + u * 75 * k, front_side(u), (13.6, 13.2, 14.3, 13.8), None),
+        (S + u * 95 * k, front_side(u), (13.0, 12.5, 13.2, 13.0), None),
+        (E - u * 14 * k, front_side(u), (12.5, 12.0, 12.5, 12.5), None),
+        (E, front_side((u + f).normalized()), (12.0, 12.0, 12.5, 12.5), None),
+        (E + f * 14 * k, front_side(f), (12.0, 11.5, 12, 12), None),
+        (E + f * 45 * k, front_side(f), (11.5, 11.0, 11, 10.5), None),
+        (E + f * 80 * k, 0.45, (10.0, 9.5, 9, 8.5), None),
+        (E + f * 108 * k, 0.8, (9.5, 9.0, 7.5, 7.0), None),
+        (W, 1.0, (10.5, 10.5, 7.0, 7.0), 0),
+        (W + d * 8 * k, 1.0, (13, 12.5, 7.2, 7.2), 8),
+        (W + d * 19 * k, 1.0, (16.5, 16, 7.2, 7.0), 19),
+        (W + d * 28 * k, 1.0, (17.5, 17, 6.7, 6.5), 28),
+        (W + d * 34 * k, 1.0, (17.0, 16.5, 6.0, 5.8), 34),
+        (W + d * 39 * k, 1.0, (14.5, 14.0, 5.6, 5.3), 39),
+        (W + d * 42 * k, 1.0, (9.5, 9.0, 4.2, 3.9), 42),
     ]
-    # Twist the frame from the forearm into the hand: blend side hints toward w.
     fs = front_side(f)
-    centers, hints, radii = [], [], []
-    for c, h, r in secs:
+    centers, hints, radii, hand_t = [], [], [], []
+    for c, h, r, ht in secs:
         if isinstance(h, float):
             h = (fs * (1 - h) + w * h).normalized()
         centers.append(c)
         hints.append(h)
         radii.append(tuple(px(x) for x in r))
-    sweep(bm, centers, hints, radii, n=12, cap0='pole', cap1='pole',
-          cap0_len=px(2), cap1_len=px(2))
-    build_fingers(bm, W, d, w, n)
+        hand_t.append(ht)
+
+    shapes = [None if ht is None else _palm_shape(ht) for ht in hand_t]
+
+    def shape(i, dx, dy):
+        return shapes[i](dx, dy) if shapes[i] else (0.0, 0.0, 0.0)
+    rings, frames = ring_points(centers, hints, radii, ARM_N, shape=shape)
+    # transition: cubic Hermite from each socket vertex (leaving along the
+    # torso surface) to its vertex on the first round ring (arriving along the arm)
+    t1 = frames[0][0]
+    first = rings[0]
+    trans = []
+    for s in SOCKET_STEPS:
+        h00, h10 = 2 * s ** 3 - 3 * s ** 2 + 1, s ** 3 - 2 * s ** 2 + s
+        h01, h11 = -2 * s ** 3 + 3 * s ** 2, s ** 3 - s ** 2
+        ring = []
+        for p0, t0, p1 in zip(loop, tans, first):
+            L = (p1 - p0).length
+            ring.append(h00 * p0 + h10 * t0 * (L * SOCKET_TAN[0]) + h01 * p1 + h11 * t1 * (L * SOCKET_TAN[1]))
+        trans.append(ring)
+    return trans + rings, frames
 
 
-# finger: (offset along w px, knuckle distance px, splay deg, segment lengths px, base radius px)
+def build_arm(bm, loop, tans, side):
+    """Arm + hand + fingers for one side (+1 left, -1 right) from its socket."""
+    mirror = side < 0
+    # socket data are in world space; design the left arm, mirror for the right
+    if mirror:
+        tans = [Vector((-t.x, t.y, t.z)) for t in tans]
+        lp = [Vector((-v.co.x, v.co.y, v.co.z)) for v in loop]
+    else:
+        lp = [v.co.copy() for v in loop]
+    rings, frames = arm_rings(lp, tans)
+    skin_rings(bm, [loop] + rings, frames, cap1='pole', cap1_len=px(2), mirror=mirror)
+    W = P(*WRIST)
+    d, w, n = hand_frame()
+    build_fingers(bm, W, d, w, n, mirror)
+
+
+# finger: (offset along w px, knuckle distance px, splay deg, segment lengths px,
+#          base radius px, curl deg per joint, lift toward the back of the hand px)
 FINGERS = [
-    (11.5, 37.0, 3.0, (17, 12, 10), 4.2),       # index
-    (3.8, 39.5, -1.5, (18.5, 13, 10.5), 4.4),   # middle
-    (-4.2, 38.0, -4.0, (16.5, 11.5, 9.5), 4.2),  # ring
-    (-11.0, 35.0, -8.0, (12.5, 9, 8), 3.7),     # pinky
+    (11.0, 38.0, 5.0, (17, 12, 10), 4.3, 5.0, -0.2),       # index
+    (3.6, 40.0, -0.5, (18.5, 13, 10.5), 4.5, 6.5, -0.6),  # middle
+    (-4.0, 38.5, -4.5, (16.5, 11.5, 9.5), 4.2, 8.5, -0.3),  # ring
+    (-11.0, 35.0, -11.0, (12.5, 9, 8), 3.6, 11.0, 0.4),    # pinky
 ]
-FINGER_CURL = 5.0  # degrees per joint, toward the palm
 JOINT_RINGS = (0.22, 0.78, 1.0)  # ring positions along each finger segment
+FINGER_TAPER = (1.0, 0.86, 0.74, 0.62)   # radius at knuckle, two middle joints, tip
+KNUCKLE_SWELL = 1.07                     # joint rings a little fuller than the shafts
 
 
 def _rot(v, axis, deg):
     return Matrix.Rotation(math.radians(deg), 3, axis) @ v
 
 
-def finger(bm, base, direction, bend_axis, seg_len, r0, r1, curl, n=8):
+def finger(bm, base, direction, bend_axis, seg_len, r0, curl, mirror, n=8, taper=FINGER_TAPER):
     pts = [base - direction * px(r0 * 0.6)]
     dirs = [direction]
+    rs = [r0 * 0.82]
     cur, dcur = base, direction
     pts.append(cur)
     dirs.append(dcur)
+    rs.append(r0)
     # rings just after / before each knuckle and on it, so every joint bends
     # over three loops instead of one
-    for L in seg_len:
-        dcur = _rot(dcur, bend_axis, curl)
+    for j, L in enumerate(seg_len):
+        dcur = _rot(dcur, bend_axis, curl * (0.6 if j == 0 else 1.0))
+        ra, rb = taper[j], taper[j + 1]
         for t in JOINT_RINGS:
             pts.append(cur + dcur * px(L * t))
             dirs.append(dcur)
+            r = ra + (rb - ra) * t
+            if t == 1.0 and j < len(seg_len) - 1:
+                r *= KNUCKLE_SWELL
+            rs.append(r0 * r)
         cur = cur + dcur * px(L)
-    m = len(pts)
-    radii = []
-    for i in range(m):
-        t = i / (m - 1)
-        r = r0 + (r1 - r0) * t
-        ra = px(r)
-        radii.append((ra, ra, ra * 0.85, ra * 0.85))
-    radii[0] = tuple(x * 0.8 for x in radii[0])
+    radii = [(px(r), px(r), px(r) * 0.85, px(r) * 0.85) for r in rs]
     # side hint = across the finger (in the palm plane), up = palm normal
     hints = [bend_axis.copy() for _ in dirs]
-    sweep(bm, pts, hints, radii, n=n, cap0='pole', cap1='pole',
-          cap0_len=px(1.0), cap1_len=px(r1 * 0.9))
+    rings, frames = ring_points(pts, hints, radii, n)
+    skin_rings(bm, rings, frames, cap0='pole', cap1='pole',
+               cap0_len=px(1.0), cap1_len=px(r0 * taper[-1] * 0.9), mirror=mirror)
 
 
-def build_fingers(bm, W, d, w, n):
+def build_fingers(bm, W, d, w, n, mirror=False):
     k = px(1)
-    for off, kd, splay, segs, r0 in FINGERS:
-        base = W + d * kd * k + w * off * k + n * 0.5 * k
+    for off, kd, splay, segs, r0, curl, lift in FINGERS:
+        base = W + d * kd * k + w * off * k + n * (0.5 + lift) * k
         direction = _rot(d, n, splay)       # splay within the palm plane
         axis = direction.cross(n).normalized()  # rotating about it bends toward +n (palm)
-        finger(bm, base, direction, axis, segs, r0, r0 * 0.72, FINGER_CURL)
-    # thumb: from the heel of the palm, angled toward the thumb side and palm
-    base = W + d * 19 * k + w * 9 * k + n * 2.0 * k
-    tdir = (d * 0.9 + w * 0.4 + n * 0.15).normalized()
+        finger(bm, base, direction, axis, segs, r0, curl, mirror)
+    # thumb: from the thumb ball at the heel of the palm, angled toward the
+    # thumb side and turned a little toward the palm
+    base = W + d * 14 * k + w * 8.5 * k + n * 2.2 * k
+    tdir = (d * 0.84 + w * 0.46 + n * 0.26).normalized()
     axis = tdir.cross(n).normalized()
-    finger(bm, base, tdir, axis, (14, 12, 10), 4.4, 3.4, 8.0)
+    finger(bm, base, tdir, axis, (16, 12, 10), 5.4, 10.0, mirror, taper=(1.0, 0.8, 0.72, 0.62))
 
 
 # ---------------------------------------------------------------- legs + feet
@@ -317,22 +581,66 @@ LEG_SIDE = {
     790: (-23, 11), 800: (-23, 8), 810: (-23, 6), 820: (-22, 5),
     830: (-21, 5), 842: (-18, 4), 856: (-15, 5),
 }
+# Loft rows: sparse under the petticoat, ~9 rows apart over the knee so the
+# back of the knee folds over several loops.
+LEG_ROWS = (455, 475, 500, 530, 565, 600, 625, 645, 660, 672, 682, 691, 700, 709,
+            718, 728, 740, 753, 766, 779, 792, 805, 818, 830, 842, 856)
+LEG_SIGMA = 5.0   # px: Gaussian smoothing of the measured profiles (no kinks)
+LEG_SIGMA_SIDE = 9.0   # the side profile has the sharper turns (thigh front into the knee)
+# Kneecap: forward push (px) of the front of the knee rings, and a slight
+# narrowing just below it; full at the front centre, fading out to the sides.
+KNEECAP = {691: 0.8, 700: 1.5, 709: 1.0, 718: -0.5}
+
+
+def _smoothed(table, row, sigma=LEG_SIGMA):
+    """Gaussian-smoothed piecewise-linear profile (per column) at `row`; the
+    window is renormalised at the table's ends so they stay put."""
+    rows = sorted(table)
+    lo, hi = rows[0], rows[-1]
+
+    def lin(r):
+        r = min(max(r, lo), hi)
+        for a, b in zip(rows, rows[1:]):
+            if r <= b:
+                t = (r - a) / (b - a)
+                return [x + (y - x) * t for x, y in zip(table[a], table[b])]
+        return list(table[hi])
+    if row <= lo or row >= hi:
+        return lin(row)
+    acc, wsum = [0.0, 0.0], 0.0
+    span = min(3 * sigma, row - lo, hi - row)
+    steps = max(1, int(span))
+    for j in range(-steps, steps + 1):
+        r = row + span * j / steps
+        g = math.exp(-0.5 * ((r - row) / sigma) ** 2)
+        v = lin(r)
+        acc = [a + g * x for a, x in zip(acc, v)]
+        wsum += g
+    return [a / wsum for a in acc]
 
 
 def build_leg(bm):
-    rows = sorted(LEG_FRONT)
     centers, hints, radii = [], [], []
-    for row in rows:
-        xo, xi = LEG_FRONT[row]
-        yf, yb = LEG_SIDE[row]
+    for row in LEG_ROWS:
+        xo, xi = _smoothed(LEG_FRONT, row)
+        yf, yb = _smoothed(LEG_SIDE, row, LEG_SIGMA_SIDE)
         centers.append(P((xo + xi) / 2, (yf + yb) / 2, row))
         hints.append(Vector((1, 0, 0)))
         hw = (xo - xi) / 2 - MARGIN
         hd = (yb - yf) / 2 - MARGIN
         # side+ = outer, side- = inner, up+ = front, up- = back
         radii.append((px(hw), px(hw), px(hd), px(hd)))
+
+    def kneecap(i, co):
+        amp = KNEECAP.get(LEG_ROWS[i])
+        front = (centers[i].y - co.y) / radii[i][2]   # 1 at the front centre
+        if not amp or front <= 0:
+            return co
+        co = co.copy()
+        co.y -= px(amp) * front ** 2
+        return co
     sweep(bm, centers, hints, radii, n=16, cap0='pole', cap1='pole',
-          cap0_len=px(6), cap1_len=px(5), tangent=(0, 0, -1))
+          cap0_len=px(6), cap1_len=px(5), tangent=(0, 0, -1), ring_fn=kneecap)
 
 
 # Foot as vertical slices across the foot (heel -> toe), fitted inside the
@@ -381,13 +689,17 @@ def _mirror_x(bm_src):
 
 def build(col):
     bm = bmesh.new()
-    build_arm(bm)
     build_leg(bm)
     build_foot(bm)
     _mirror_x(bm)
-    build_torso(bm)
+    rings = build_torso(bm)
+    sockets = [(cut_socket(bm, rings, s), s) for s in (1, -1)]
+    for (loop, tans), s in sockets:
+        build_arm(bm, loop, tans, s)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     obj = common.new_object(col, 'body', bm, [common.toon_material('skin')])
+    if SHOULDER_JOINT is not None:
+        obj['levi_joints'] = {'shoulder_joint': tuple(P(*SHOULDER_JOINT))}
     common.shade_smooth(obj, 75.0)
     common.add_outline(obj)
     return obj
