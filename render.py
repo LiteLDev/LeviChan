@@ -5,6 +5,8 @@
                                               [--no-regions] [--freestyle] [--[no-]shadows]
                                               [--sun AZ,EL] [--ramp T] [--ramp-key KEY=T,...]
                                               [--clay] [--turntable N] [--pose NAME,...|all]
+                                              [--thin-casters] [--shadow FILTER,ANGLE,MAXRES]
+                                              [--palette KEY.TONE=#RRGGBB,...]
 
 Review views (no reference; same ortho scale and frame centre, key light
 still camera-relative): --views q34_front_left,q34_back_right,high, or
@@ -31,6 +33,7 @@ Renders are deterministic (fixed TAA sequence, no shadow jitter, no GI).
 import argparse
 import math
 import os
+import re
 import sys
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -57,12 +60,31 @@ SUN_ELEVATION_DEG = 12.0  # round 2: lower sun keeps cast shadows short, so skin
 # goes from ~3% to ~20-37% (sheet ~40%). Sun-only shadow maps with no
 # jitter stay deterministic. --no-shadows turns them off for comparison.
 CAST_SHADOWS = True
+# Thin strips don't cast (round 4). Ribbons, ties, laces, the halter and
+# choker, leaf veins and seam strips would print narrow, hard shadow copies of
+# themselves onto the pale cloth and skin a few mm away, which the sheet never
+# paints and which read as dark slivers beside every ribbon. They still
+# receive shadows. Bulky ornaments (bows, leaves) keep casting: turning them
+# off also drops their self-shadowing, and their own N.L shading then breaks
+# into more small islands (tools/review.py shade_islands.txt: green +7..+12).
+# An object casts unless:
+#   obj['levi_cast_shadow'] is set: that value decides (parts opt in or out);
+#   otherwise its name is in NO_CAST_OBJECTS (parts should prefer setting
+#   obj['levi_cast_shadow'] = False themselves; then drop the name here).
+# `render.py --thin-casters` restores casting for comparison.
+NO_CAST_OBJECTS = (
+    'bodice_ribbon_tails', 'bodice_lacing', 'bodice_seams', 'bodice_facings',
+    'sleeve_ribbon', 'shoes_ribbons', 'acc_halter', 'acc_choker',
+    'acc_leaf_veins_L', 'acc_leaf_veins_R',
+)
 # EEVEE's diffuse response to a sun of strength E is E * N.L / pi, so E = pi
 # makes ShaderToRGB return exactly N.L x shadow (0..1) for the toon ramp.
 SUN_ENERGY = math.pi
 AMBIENT = 0.0        # world strength (kept 0: the toon ramp needs pure N.L)
 TAA_SAMPLES = 16     # edge anti-aliasing only; flat interiors are exact
 SHADOW_FILTER = 0.5  # sun shadow PCF radius: crisp cel shadow edges
+SUN_ANGLE_DEG = 0.0  # sun angular diameter (0 = hard shadow edges)
+SHADOW_MAX_RES = 0.001  # finest sun shadow-map texel, metres (Blender default)
 
 # Review views (not on the sheet, no reference): the same ortho camera and
 # camera-relative key light orbited around the model. (azimuth, elevation)
@@ -127,7 +149,8 @@ def setup_scene(scale, shadows=CAST_SHADOWS):
         sc.collection.objects.link(sun)
     sun.data.energy = SUN_ENERGY
     sun.data.color = (1, 1, 1)
-    sun.data.angle = 0.0
+    sun.data.angle = math.radians(SUN_ANGLE_DEG)
+    sun.data.shadow_maximum_resolution = SHADOW_MAX_RES
     sun.data.use_shadow = shadows
     sun.data.use_shadow_jitter = False
     sun.data.shadow_filter_radius = SHADOW_FILTER
@@ -143,6 +166,30 @@ def setup_scene(scale, shadows=CAST_SHADOWS):
     cam.data.sensor_fit = 'VERTICAL'
     sc.camera = cam
     return sc, cam, sun
+
+
+def casts_shadow(obj):
+    """Whether `obj` should cast sun shadows (see NO_CAST_OBJECTS)."""
+    if 'levi_cast_shadow' in obj:
+        return bool(obj['levi_cast_shadow'])
+    return obj.name.split('.')[0] not in NO_CAST_OBJECTS
+
+
+def set_shadow_casters(thin=False):
+    """Turn shadow casting off for thin accessories (unless `thin`).
+    Returns the names of the objects that no longer cast."""
+    names = {o.name.split('.')[0] for o in bpy.data.objects}
+    missing = [n for n in NO_CAST_OBJECTS if n not in names]
+    if missing:   # a part renamed one: it casts again; set obj['levi_cast_shadow'] there
+        print('WARNING render.NO_CAST_OBJECTS not found:', ','.join(missing))
+    off = []
+    for obj in bpy.data.objects:
+        if obj.type != 'MESH' or not obj.visible_shadow:
+            continue
+        if not thin and not casts_shadow(obj):
+            obj.visible_shadow = False
+            off.append(obj.name)
+    return sorted(off)
 
 
 def view_angles(view):
@@ -327,9 +374,17 @@ def main():
     ap.add_argument('--freestyle', action='store_true', help='add Freestyle crease/open-border lines')
     ap.add_argument('--shadows', action=argparse.BooleanOptionalAction, default=CAST_SHADOWS,
                     help=f'sun cast shadows (default: {"on" if CAST_SHADOWS else "off"})')
+    ap.add_argument('--thin-casters', action='store_true',
+                    help='let thin strips (NO_CAST_OBJECTS) cast shadows too')
     ap.add_argument('--sun', default='', help='AZ,EL degrees: override the key light (look-dev experiments)')
+    ap.add_argument('--shadow', default='',
+                    help='FILTER,ANGLE,MAXRES: override SHADOW_FILTER, SUN_ANGLE_DEG, SHADOW_MAX_RES '
+                         '(look-dev experiments; empty fields keep the default)')
     ap.add_argument('--ramp', type=float, default=None, help='override toon.RAMP_THRESHOLD (look-dev experiments)')
     ap.add_argument('--ramp-key', default='', help='KEY=T,...: override toon.RAMP_BY_KEY entries (look-dev experiments)')
+    ap.add_argument('--palette', default='',
+                    help='KEY.TONE=#RRGGBB,...: override spec.PALETTE entries, TONE base/shade/line '
+                         '(look-dev experiments)')
     ap.add_argument('--clay', action='store_true',
                     help='neutral grey diffuse, outlines off, no regions (form review)')
     ap.add_argument('--turntable', type=int, default=0, metavar='N',
@@ -349,6 +404,17 @@ def main():
     bad = [k for k in ramp_key if k not in spec.PALETTE]
     if bad:
         ap.error(f'--ramp-key: unknown palette key(s) {bad}')
+    for item in filter(None, args.palette.split(',')):
+        try:
+            kt, hx = item.split('=')
+            k, t = kt.split('.')
+            ok = (k in spec.PALETTE and t in ('base', 'shade', 'line')
+                  and re.fullmatch(r'#?[0-9A-Fa-f]{6}', hx) is not None)
+        except ValueError:
+            ok = False
+        if not ok:
+            ap.error(f'--palette: bad entry {item!r} (KEY.TONE=#RRGGBB)')
+        spec.PALETTE[k] = {**spec.PALETTE[k], t: '#' + hx.lstrip('#').upper()}
     views = []
     for v in filter(None, args.views.split(',')):
         for x in (list(spec.VIEWS) + list(REVIEW_CAMERAS) if v == 'review' else [v]):
@@ -384,6 +450,13 @@ def main():
         if col:
             col.hide_render = True
 
+    global SHADOW_FILTER, SUN_ANGLE_DEG, SHADOW_MAX_RES
+    try:
+        sh = (args.shadow.split(',') + ['', '', ''])[:3]
+        SHADOW_FILTER, SUN_ANGLE_DEG, SHADOW_MAX_RES = (
+            float(v) if v else d for v, d in zip(sh, (SHADOW_FILTER, SUN_ANGLE_DEG, SHADOW_MAX_RES)))
+    except ValueError:
+        ap.error('--shadow takes FILTER,ANGLE,MAXRES numbers')
     if args.ramp is not None:
         toon.RAMP_THRESHOLD = args.ramp
     toon.RAMP_BY_KEY.update(ramp_key)
@@ -391,6 +464,8 @@ def main():
     # look-dev changes take effect without rebuilding the model.
     print('SYNCED', toon.sync_materials(), 'materials')
     sc, cam, sun = setup_scene(args.scale, shadows=args.shadows)
+    if args.shadows:
+        print('NO_CAST', ','.join(set_shadow_casters(thin=args.thin_casters)) or '-')
     if args.freestyle:
         setup_freestyle(sc)
     if args.clay:

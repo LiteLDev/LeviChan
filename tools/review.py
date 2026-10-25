@@ -3,7 +3,7 @@
     python tools/review.py [--blend out/levi.blend] [--rig out/levi_rig.blend] [--build]
                            [--out out/review] [--focus hair_back] [--turntable 8]
                            [--poses walk,arms_up,...] [--models gpt-6.1-sol,gpt-6-astra]
-                           [--no-codex] [--timeout 900]
+                           [--no-codex] [--timeout 900] [--baseline out/review_main]
 
 Runs in any Python 3.9+ (stdlib only), including Blender's bundled one. Steps:
   1. (--build) build.py -> --blend, and build.py --rig -> --rig
@@ -17,8 +17,13 @@ Runs in any Python 3.9+ (stdlib only), including Blender's bundled one. Steps:
        03_clay.png        clay: front, side, back, q34_front_left, q34_back_right, high
        04_poses.png       rigged model posed (front + 3/4 per pose), if --rig exists
        turntable.png      --turntable N
+       05_islands.png     cel renders with the small shade islands painted red
      and shade_stats.txt: per-view, per-region share of the shade tone (the cel
-     look should stay mostly lit, with a similar balance, at every angle)
+     look should stay mostly lit, with a similar balance, at every angle), and
+     shade_islands.txt: per-view, per-region count / area of small shade
+     islands (regions.shade_islands: specks and slivers; fewer is cleaner)
+     (--baseline DIR) metrics_delta.md: metrics.txt / shade_islands.txt changes
+     against an earlier review dir, also appended to summary.md
   5. Codex: every --models model reviews the sheets concurrently (real child
      processes, waited on, --timeout s each), read-only, structured JSON output
      (--output-schema), prioritised naturalness > animation > fidelity, per part.
@@ -31,6 +36,7 @@ Environment: LEVI_BLENDER (default: Blender 5.2 under Program Files), LEVI_CODEX
 import argparse
 import glob
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -138,6 +144,50 @@ def stage_sheets(argv):
         f.write('\n'.join(lines) + '\n')
     print('\n'.join(lines))
 
+    lines, marked = shade_island_stats(cel, views)
+    with open(os.path.join(out, 'shade_islands.txt'), 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines) + '\n')
+    print('\n'.join(lines))
+    if marked:
+        img = contact.tile([m for _v, m in marked], 3, [f'islands {v}' for v, _m in marked], crop=True,
+                           title='small shade islands (red) in the cel render: specks and slivers')
+        contact.save(os.path.join(out, '05_islands.png'), img)
+        print('SHEET', os.path.join(out, '05_islands.png'), f'{img.shape[1]}x{img.shape[0]}')
+
+
+def shade_island_stats(cel, views):
+    """Small shade islands per view and region (regions.shade_islands) in the
+    cel renders under `cel`. Returns (report lines, [(view, RGBA image with
+    the islands painted red)])."""
+    import contact
+    import numpy as np
+    from levi import regions
+    lines = [f'# small shade islands per region: count / area px '
+             f'({regions.SHADE_ISLAND_MIN_PX}-{regions.SHADE_ISLAND_SMALL_PX} px shade patches '
+             f'cut off from the broad shade; fewer = cleaner cel shading)',
+             'view            ' + ' '.join(f'{r:>11s}' for r in regions.REGION_NAMES) + '       total']
+    marked = []
+    for v in views:
+        lp = os.path.join(cel, f'{v}_regions.png')
+        if not os.path.isfile(lp):
+            continue
+        r = contact.load(os.path.join(cel, f'{v}.png'))
+        rgb = contact.over_white(r)
+        lr = contact.load(lp)
+        lbl = regions.decode(lr[..., :3], lr[..., 3])
+        cells, tot_n, tot_a = [], 0, 0
+        allm = np.zeros(lbl.shape, dtype=bool)
+        for name in regions.REGION_NAMES:
+            n, area, m = regions.shade_islands(rgb, lbl, name)
+            tot_n, tot_a = tot_n + n, tot_a + area
+            allm |= m
+            cells.append(f'{f"{n}/{area}":>11s}')
+        lines.append(f'{v:15s} ' + ' '.join(cells) + f' {f"{tot_n}/{tot_a}":>11s}')
+        img = r.copy()
+        img[allm] = (1.0, 0.0, 0.0, 1.0)
+        marked.append((v, img))
+    return lines, marked
+
 
 # --------------------------------------------------------------- Codex
 SCHEMA = {
@@ -215,6 +265,9 @@ IMAGE_DESC = {
                          'high front (30 deg down), orthographic, key light from the viewer\'s upper left',
     '03_clay.png': 'clay render (grey diffuse, no outlines): all six angles, for form and faceting',
     '04_poses.png': 'rigged model in test poses (front + 3/4 each), cel',
+    '05_islands.png': 'the cel renders of the sheet and review views with every small shade island '
+                      '(4-80 px shade patch cut off from the broad shade) painted red: specks and '
+                      'slivers that make pale surfaces look chipped (counts in shade_islands below)',
     'turntable.png': 'turntable: evenly spaced angles around the model, cel',
 }
 
@@ -327,8 +380,9 @@ def write_model_md(m, data, raw, rc, out):
     return path
 
 
-def write_summary(replies, out, focus):
-    """Merge every model's findings by part (priority, then category order)."""
+def write_summary(replies, out, focus, delta=''):
+    """Merge every model's findings by part (priority, then category order);
+    `delta` (metrics_delta() markdown) is appended."""
     lines = ['# Review summary', '']
     if focus:
         lines += [f'Focus: {focus}', '']
@@ -364,10 +418,100 @@ def write_summary(replies, out, focus):
         lines += [f'### {part}', '']
         lines += [fmt_finding(f, f' ({m})') for m, f in sorted(merged[part], key=key)]
         lines.append('')
+    if delta:
+        lines += [delta]
     path = os.path.join(out, 'summary.md')
     with open(path, 'w', encoding='utf-8') as fh:
         fh.write('\n'.join(lines) + '\n')
     return path
+
+
+# ------------------------------------------------------- baseline deltas
+def parse_metrics(out):
+    """metrics.txt + shade_islands.txt of a review dir ->
+    {(view, region or '*'): {field: value}} (missing files give {})."""
+    res = {}
+    try:
+        with open(os.path.join(out, 'metrics.txt'), encoding='utf-8') as f:
+            for line in f:
+                t = line.split()
+                if t[:1] == ['IOU'] and len(t) >= 3:
+                    res.setdefault((t[1], '*'), {})['iou'] = float(t[2])
+                elif t[:1] == ['REGION'] and len(t) >= 3:
+                    d = res.setdefault((t[1], t[2]), {})
+                    # ... shade ref <s> ren <s> ...: the render's share is 4 tokens on
+                    pairs = [(w, t[i + 1]) for i, w in enumerate(t[3:-1], 3)
+                             if w in ('iou', 'tol', 'dE', 'dEi')]
+                    if 'shade' in t and t.index('shade') + 4 < len(t):
+                        pairs.append(('shade', t[t.index('shade') + 4]))
+                    for w, v in pairs:
+                        try:
+                            d[w] = float(v)
+                        except ValueError:
+                            pass
+    except OSError:
+        pass
+    try:
+        with open(os.path.join(out, 'shade_islands.txt'), encoding='utf-8') as f:
+            rows = [l.split() for l in f if l.strip() and not l.startswith('#')]
+    except OSError:
+        rows = []
+    head = rows[0][1:] if rows else []
+    for r in rows[1:]:
+        for name, cell in zip(head, r[1:]):
+            try:
+                n, area = map(float, cell.split('/'))
+            except ValueError:
+                continue
+            key = (r[0], '*' if name == 'total' else name)
+            res.setdefault(key, {}).update({'islands': n, 'island_px': area})
+    return res
+
+
+DELTA_FIELDS = ('iou', 'tol', 'dE', 'dEi', 'shade', 'islands', 'island_px')
+
+
+def metrics_delta(base_dir, out):
+    """Markdown table: current metrics vs a baseline review dir, rows with any change."""
+    old, new = parse_metrics(base_dir), parse_metrics(out)
+    if not old or not new:
+        return ''
+    try:
+        shown = os.path.relpath(base_dir, ROOT)
+    except ValueError:   # another drive (Windows)
+        shown = base_dir
+    lines = [f'## Metrics vs baseline `{shown}`', '',
+             'Per view and region, `new (delta)`; `*` = whole view (silhouette IoU, island total). '
+             'iou/tol up is better; dE/dEi (interior colour error), islands and island_px down is better; '
+             'shade is the render\'s shade share (compare with the sheet in shade_stats.txt).', '',
+             '| view | region | ' + ' | '.join(DELTA_FIELDS) + ' |',
+             '|---|---|' + '---|' * len(DELTA_FIELDS)]
+    for key in sorted(set(old) | set(new), key=lambda k: (k[0], k[1] != '*', k[1])):
+        o, n = old.get(key, {}), new.get(key, {})
+        cells, changed = [], False
+        for fld in DELTA_FIELDS:
+            fmt = '%.0f' if fld.startswith('island') else ('%.1f' if fld.startswith('dE') else '%.3f')
+            if fld not in n:
+                if fld in o:
+                    changed = True
+                    cells.append(f'gone (was {fmt % o[fld]})')
+                else:
+                    cells.append('')
+                continue
+            if fld in o:
+                d = n[fld] - o[fld]
+                if math.isnan(d):
+                    changed |= math.isnan(n[fld]) != math.isnan(o[fld])
+                    cells.append(f'{fmt % n[fld]} (was {fmt % o[fld]})')
+                else:
+                    changed |= abs(d) > 1e-9
+                    cells.append(f'{fmt % n[fld]} ({"+" if d >= 0 else ""}{fmt % d})')
+            else:
+                changed = True
+                cells.append(fmt % n[fld])
+        if changed:
+            lines.append(f'| {key[0]} | {key[1]} | ' + ' | '.join(cells) + ' |')
+    return '\n'.join(lines) + '\n'
 
 
 # ------------------------------------------------------------ orchestration
@@ -403,6 +547,9 @@ def main():
     ap.add_argument('--poses', default=DEFAULT_POSES)
     ap.add_argument('--models', default=DEFAULT_MODELS)
     ap.add_argument('--no-codex', action='store_true', help='renders and sheets only')
+    ap.add_argument('--baseline', default='',
+                    help='an earlier review dir: write metrics_delta.md (and a section in summary.md) '
+                         'with the metrics.txt / shade_islands.txt changes against it')
     ap.add_argument('--no-render', action='store_true', help='reuse the renders already in --out')
     ap.add_argument('--timeout', type=float, default=900, help='seconds per Codex run (they run concurrently)')
     ap.add_argument('--max-findings', type=int, default=25)
@@ -453,8 +600,10 @@ def main():
         with open(os.path.join(out, 'metrics.txt'), 'w', encoding='utf-8') as f:
             f.write(''.join(l + '\n' for l in txt.splitlines() if l.startswith(('IOU', 'REGION'))))
     print('SHEETS', flush=True)
-    names = ['01_ortho_sbs.png', '02_angles_cel.png', '03_clay.png', '04_poses.png', 'turntable.png']
-    for n in names + ['shade_stats.txt']:   # never send a stale sheet from an earlier run
+    names = ['01_ortho_sbs.png', '02_angles_cel.png', '03_clay.png', '04_poses.png', '05_islands.png',
+             'turntable.png']
+    for n in names + ['shade_stats.txt', 'shade_islands.txt', 'metrics_delta.md']:
+        # never send a stale sheet from an earlier run
         if os.path.isfile(os.path.join(out, n)):
             os.remove(os.path.join(out, n))
     txt = blender(['--factory-startup', '-P', os.path.join('tools', 'review.py'), '--',
@@ -465,11 +614,20 @@ def main():
     if not a.turntable:
         sheets = [s for s in sheets if not s.endswith('turntable.png')]
     metrics = ''
-    for n in ('metrics.txt', 'shade_stats.txt'):
+    for n in ('metrics.txt', 'shade_stats.txt', 'shade_islands.txt'):
         p = os.path.join(out, n)
         if os.path.isfile(p):
             with open(p, encoding='utf-8') as f:
                 metrics += f.read() + '\n'
+    delta = ''
+    if a.baseline:
+        delta = metrics_delta(abspath(a.baseline), out)
+        if delta:
+            with open(os.path.join(out, 'metrics_delta.md'), 'w', encoding='utf-8') as f:
+                f.write(delta)
+            print('DELTA', os.path.join(out, 'metrics_delta.md'))
+        else:
+            print('DELTA skipped: no metrics in', a.baseline)
     prompt = build_prompt(sheets, metrics, a.focus, a.max_findings)
     prompt_path = os.path.join(out, 'prompt.md')
     with open(prompt_path, 'w', encoding='utf-8') as f:
@@ -486,7 +644,7 @@ def main():
         data, raw = load_reply(os.path.join(out, f'{m}.json'))
         replies[m] = (data, raw, rcs[m])
         print('REVIEW', write_model_md(m, data, raw, rcs[m], out))
-    print('SUMMARY', write_summary(replies, out, a.focus))
+    print('SUMMARY', write_summary(replies, out, a.focus, delta))
     if not any(d for d, _, _ in replies.values()):
         raise SystemExit('no model returned a review; see the <model>.log files')
 

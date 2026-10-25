@@ -1,0 +1,8 @@
+# share of each region painted in its shade tone (cel render; sheet in brackets)
+view                       skin            hair           dress           green       petticoat            shoe
+front               0.20 [0.17]     0.54 [0.53]     0.18 [0.23]     0.69 [0.57]     0.30 [0.39]     0.46 [0.26]
+side                0.22 [0.19]     0.51 [0.37]     0.26 [0.25]     0.69 [0.70]     0.47 [0.44]     0.28 [0.18]
+back                0.31 [0.18]     0.24 [0.37]     0.23 [0.30]     0.82 [0.59]     0.41 [0.38]     0.43 [0.32]
+q34_front_left             0.19            0.53            0.19            0.71            0.51            0.44
+q34_back_right             0.25            0.28            0.26            0.76            0.50            0.30
+high                       0.30            0.58            0.22            0.78            0.28            0.41

@@ -23,6 +23,9 @@ Per-region report (one REGION line per view and region):
   shade share of the region's pixels in a shade tone (nearest palette
         base vs shade), reference vs render: the lit/shade balance
   ref / ren   mean sRGB colour of the region in each image
+  dEi   interior dE: like dE, but only over pixels at least CORE_PX px inside
+        the region in both images (no line art, anti-aliasing or thin-zone
+        misplacement), with that pixel count: the palette / ramp comparison
 Render labels come from <render>/<view>_regions.png (written by render.py);
 renders without it are classified by colour like the reference (approximate).
 Green below the ankles is folded into shoe on both sides (regions.fold_feet).
@@ -82,6 +85,9 @@ def hexs(c):
     return '#%02X%02X%02X' % tuple(int(round(v * 255)) for v in np.clip(c, 0, 1))
 
 
+CORE_PX = 2
+
+
 def region_report(view, ref, rgb, ref_lbl, ren_lbl, names, box, out):
     """Print per-region IoU / colour error; returns {name: (iou, dE)}."""
     valid = (ref_lbl != regions.UNKNOWN) & (ren_lbl != regions.UNKNOWN)
@@ -99,6 +105,11 @@ def region_report(view, ref, rgb, ref_lbl, ren_lbl, names, box, out):
         if not (a.any() or b.any()):
             continue
         de = float(regions.delta_e(ref[both], rgb[both]).mean()) if both.any() else float('nan')
+        # Interior colour error: only pixels >= CORE_PX inside the region in
+        # both images, so line art, anti-aliasing and a 1-2 px misplacement
+        # of thin zones (ribbons) do not swamp the palette comparison.
+        core = both & ~regions.dilate(~a, CORE_PX) & ~regions.dilate(~b, CORE_PX)
+        dei = float(regions.delta_e(ref[core], rgb[core]).mean()) if core.any() else float('nan')
         ref_c = hexs(ref[a].mean(0)) if a.any() else '-------'
         ren_c = hexs(rgb[b].mean(0)) if b.any() else '-------'
         sh_ref = regions.shade_share(ref, np.where(a, k, 0), name, spec.SHEET_PALETTE)[0]
@@ -106,7 +117,8 @@ def region_report(view, ref, rgb, ref_lbl, ren_lbl, names, box, out):
         res[name] = (iou(a, b), de)
         print(f'REGION {view:5s} {name:9s} iou {res[name][0]:.4f}  tol {regions.tolerant_overlap(a, b):.4f}  '
               f'dE {de:5.1f}  shade ref {sh_ref:.2f} ren {sh_ren:.2f}  '
-              f'ref {ref_c} ren {ren_c}  px ref {int(a.sum())} ren {int(b.sum())}')
+              f'ref {ref_c} ren {ren_c}  px ref {int(a.sum())} ren {int(b.sum())}  '
+              f'dEi {dei:5.1f} px {int(core.sum())}')
         if out:
             save(os.path.join(out, f'{view}_region_{name}.png'), diff_image(a, b))
     return res

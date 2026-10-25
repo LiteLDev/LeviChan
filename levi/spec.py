@@ -151,7 +151,12 @@ SHEET_PALETTE = {
 # Round-2 look-dev retune on the full model (toon.py renders PALETTE exactly):
 #   hair_tip     lighter, less saturated: the average painted tip, not its
 #                darkest end, so the rendered white-to-mint fade is not too strong
-#   green, leaf  darker, less saturated: the sheet's ribbons and leaves
+#   green, leaf  round 4: back most of the way to the sheet. The round-2
+#                darkening made ribbons and leaves read dull and heavy next to
+#                the painted ones; green keeps a little less chroma than the
+#                sheet's lit cluster (thin ribbons), its shade is the sheet's;
+#                leaf stays clearly lighter than green (#56B36C vs the
+#                sheet's #63C177) so the leaves read as separate, lit forms
 #   hair, dress  shade lighter: cast shadows and the per-key ramps
 #                (toon.RAMP_BY_KEY) put more area in shade, and the sheet's
 #                broad shade areas are paler than its darkest cluster
@@ -159,8 +164,8 @@ SHEET_PALETTE = {
 PALETTE_TUNING = {
     'hair':     {'shade': '#CBD3CD', 'line': '#77817F'},
     'hair_tip': {'base': '#8CC0A2', 'shade': '#70A386'},
-    'green':    {'base': '#28753A', 'shade': '#1D5F2E'},
-    'leaf':     {'base': '#4AA460', 'shade': '#357F49'},
+    'green':    {'base': '#2B803C', 'shade': '#1F6630'},
+    'leaf':     {'base': '#56B36C', 'shade': '#3E8C52'},
     'dress':    {'shade': '#D5E2D4', 'line': '#63726A'},
 }
 PALETTE = {k: {**v, **PALETTE_TUNING.get(k, {})} for k, v in SHEET_PALETTE.items()}
