@@ -581,15 +581,22 @@ LEG_SIDE = {
     790: (-23, 11), 800: (-23, 8), 810: (-23, 6), 820: (-22, 5),
     830: (-21, 5), 842: (-18, 4), 856: (-15, 5),
 }
-# Loft rows: sparse under the petticoat, ~9 rows apart over the knee so the
-# back of the knee folds over several loops.
-LEG_ROWS = (455, 475, 500, 530, 565, 600, 625, 645, 660, 672, 682, 691, 700, 709,
+# Loft rows: sparse under the petticoat, 12-15 rows apart down the lower thigh
+# and ~9 rows apart over the knee (680-718) so the back of the knee folds
+# over several loops.
+LEG_ROWS = (455, 490, 530, 565, 600, 622, 640, 655, 668, 680, 691, 700, 709,
             718, 728, 740, 753, 766, 779, 792, 805, 818, 830, 842, 856)
+LEG_N = 20        # vertices per leg ring: a round terminator on the cel shade
 LEG_SIGMA = 5.0   # px: Gaussian smoothing of the measured profiles (no kinks)
+# Wider smoothing where the thigh narrows above the knee and the calf swells
+# below it (rows ~620-700), so the knee-to-calf contour is one soft curve in
+# every view instead of a corner at the top of the knee.
+LEG_SIGMA_KNEE = (600, 640, 700, 730, 10.0)   # ramp in, full, full, ramp out rows; sigma px
 LEG_SIGMA_SIDE = 9.0   # the side profile has the sharper turns (thigh front into the knee)
-# Kneecap: forward push (px) of the front of the knee rings, and a slight
-# narrowing just below it; full at the front centre, fading out to the sides.
-KNEECAP = {691: 0.8, 700: 1.5, 709: 1.0, 718: -0.5}
+# Kneecap: forward push (px) of the front of the knee rings; full at the
+# front centre, fading out to the sides. A low, broad dome: a narrow push or a
+# dip below it reads as an angular shade edge at the knee.
+KNEECAP = {680: 0.3, 691: 0.8, 700: 1.1, 709: 0.8, 718: 0.3}
 
 
 def _smoothed(table, row, sigma=LEG_SIGMA):
@@ -621,8 +628,10 @@ def _smoothed(table, row, sigma=LEG_SIGMA):
 
 def build_leg(bm):
     centers, hints, radii = [], [], []
+    r0, r1, r2, r3, sk = LEG_SIGMA_KNEE
     for row in LEG_ROWS:
-        xo, xi = _smoothed(LEG_FRONT, row)
+        knee = smoothstep(r0, r1, row) * (1 - smoothstep(r2, r3, row))
+        xo, xi = _smoothed(LEG_FRONT, row, LEG_SIGMA + (sk - LEG_SIGMA) * knee)
         yf, yb = _smoothed(LEG_SIDE, row, LEG_SIGMA_SIDE)
         centers.append(P((xo + xi) / 2, (yf + yb) / 2, row))
         hints.append(Vector((1, 0, 0)))
@@ -639,7 +648,7 @@ def build_leg(bm):
         co = co.copy()
         co.y -= px(amp) * front ** 2
         return co
-    sweep(bm, centers, hints, radii, n=16, cap0='pole', cap1='pole',
+    sweep(bm, centers, hints, radii, n=LEG_N, cap0='pole', cap1='pole',
           cap0_len=px(6), cap1_len=px(5), tangent=(0, 0, -1), ring_fn=kneecap)
 
 
