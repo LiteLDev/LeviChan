@@ -115,12 +115,12 @@ _SECTION = [
 ]
 TOP_ROW = 326            # tucked under the bodice bottom edge
 
-N_PHI = 142
+N_PHI = 153
 CURV_DENSITY = 1.5       # extra azimuth samples where the hem curve bends (see azimuths())
 # rings down the length (waist -> hem): evenly spaced so the skirt chains bend
 # the cloth in a curve, a little denser toward the hem where the folds, the
 # hem wave, the crest tuck and the edge flare are all strongest
-T_STEPS = (0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.68, 0.76, 0.83, 0.89, 0.94, 0.975, 1.0)
+T_STEPS = (0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.68, 0.76, 0.83, 0.89, 0.945, 1.0)
 N_RINGS = len(T_STEPS)
 THICK = 0.0018
 
@@ -141,7 +141,7 @@ HEM_FLARE = 3.5
 HEM_FLARE_T = 0.7
 STEEP_FACE_DEG = 70.0    # orientation of the steep fold face at the hem, from the view axis
 Z_MINT = 0.6             # white -> mint height gradient reaches this at the hem
-STREAK = 0.12            # extra mint on the fold streaks (soft shading, not a painted wedge)
+STREAK = 0.08            # extra mint on the fold streaks (soft shading, not a painted wedge)
 STREAK_W = 1.3           # streak width at the hem, in units of the steep face width
 STREAK_T0 = 0.3          # streaks start at this t
 STREAK_SOFT = 0.6        # streak edge feather (in u)
