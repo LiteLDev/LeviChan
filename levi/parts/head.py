@@ -18,6 +18,9 @@ custom normals come from the same head without nose and relief, blended with
 a little of the real normal: clean two-tone shading that still turns at the
 cheeks.
 
+A thin upper-lid sheet over each painted eye (head_lid) carries the MMD blink
+morph as the shape key 'まばたき' (see the eyelids section).
+
 Local landmark corrections (spec.L is a +-3 px first pass):
 * the face, eyes and neck on ref/front.png are centred on panel column ~321.5,
   not 320, so the whole head is shifted by HEAD_DX (+1.5 px, character's left);
@@ -30,6 +33,7 @@ import bmesh
 import bpy
 import numpy as np
 from mathutils import Matrix, Vector
+from mathutils.bvhtree import BVHTree
 
 from .. import common, spec, toon
 
@@ -72,38 +76,49 @@ TABLE = [
     (116.0, 44.0, 240.5, 293.0, 334.0),
     (120.0, 41.8, 239.0, 292.5, 329.0),
     (124.0, 39.3, 237.0, 292.0, 323.0),
+    # jaw: the widest point (mid) moves forward steadily from the ear to the
+    # chin and stays well in front of the back line, so the side of the face
+    # rolls under the jaw over a broad band (not a 3 px sliver that reads as a
+    # bevel). The back line above row 153 is hidden behind the neck on the side
+    # view and only eases the jaw corner under the ear. Below it the underside
+    # runs back nearly level from the chin, like the sheet's under-jaw line
+    # (which rises only ~5 rows over ~25 columns), not as a steep wedge.
     (128.0, 36.8, 235.5, 291.5, 317.0),
-    (132.0, 35.1, 234.4, 291.0, 309.0),
-    (136.0, 34.0, 234.0, 290.0, 299.0),
-    (140.0, 32.3, 235.5, 288.0, 295.5),
-    (142.0, 31.4, 237.5, 287.0, 294.5),
-    (144.0, 30.3, 238.7, 285.5, 293.0),
-    (146.0, 28.8, 240.0, 284.0, 290.5),
-    (148.0, 26.5, 241.3, 282.0, 286.0),
-    (150.0, 23.8, 242.0, 277.0, 280.0),
-    (152.0, 20.3, 243.0, 271.0, 275.0),
-    (153.5, 17.6, 243.5, 267.0, 272.0),
-    (155.5, 13.9, 244.3, 262.0, 269.0),
-    (157.0, 10.6, 245.2, 257.5, 265.0),
-    (158.3, 7.9, 246.2, 253.0, 259.0),
-    (159.5, 5.0, 247.3, 250.0, 253.0),
-    (160.5, 2.6, 248.3, 249.3, 250.5),
-    (161.3, 0.8, 249.0, 249.3, 249.8),
+    (132.0, 35.1, 234.4, 290.5, 309.0),
+    (136.0, 34.0, 234.0, 287.9, 300.0),
+    (140.0, 32.3, 235.5, 284.8, 296.0),
+    (142.0, 31.4, 237.5, 283.0, 294.5),
+    (144.0, 30.3, 238.7, 281.0, 293.0),
+    (146.0, 28.8, 240.0, 278.8, 291.0),
+    (148.0, 26.5, 241.3, 276.4, 288.2),
+    (150.0, 23.8, 242.0, 273.6, 284.2),
+    (152.0, 20.3, 243.0, 270.5, 278.6),
+    (153.5, 17.6, 243.5, 268.0, 274.6),
+    (155.5, 13.9, 244.3, 263.6, 271.5),
+    (157.0, 10.6, 245.2, 259.8, 267.6),
+    (158.3, 7.9, 246.2, 256.0, 262.0),
+    (159.5, 5.0, 247.3, 251.8, 255.5),
+    # chin tip: a little fuller just above the end ring, so it rounds off
+    # instead of running into a cone point (front V kept)
+    (160.5, 2.8, 248.4, 250.0, 252.0),
+    (161.3, 0.9, 249.2, 249.7, 250.2),
 ]
 # Nose: forward protrusion of the profile at the midline [px] per row. The
 # bridge rises out of the forehead from row ~106, so forehead, bridge and tip
 # read as one continuous line in profile (no spike on a flat plane).
 NOSE = [(106.0, 0.0), (108.5, 0.4), (111.0, 1.1), (113.5, 2.0), (116.0, 3.1),
-        (118.0, 4.4), (120.0, 5.6), (122.0, 7.0), (123.5, 8.2), (125.0, 8.6),
-        (126.5, 8.2), (128.0, 6.5), (129.5, 4.3), (131.0, 2.5), (132.5, 1.1),
+        (118.0, 4.4), (120.0, 5.5), (122.0, 6.7), (123.5, 7.6), (125.0, 7.9),
+        (126.5, 7.6), (128.0, 6.3), (129.5, 4.3), (131.0, 2.5), (132.5, 1.1),
         (134.0, 0.3), (135.5, 0.0)]
 # base front surface of the face under the muzzle [col]: from the forehead it
 # recedes smoothly to the chin; TABLE's front column is the midline profile
-BASE_FRONT = ((112.0, 240.5), (118.0, 240.3), (124.0, 240.0), (132.0, 239.7), (138.0, 239.9),
-              (144.0, 240.7), (150.0, 242.0))
+# Below the nose it recedes steadily (not a vertical plate that bends back
+# only at the jaw), meeting the profile again at the chin.
+BASE_FRONT = ((112.0, 240.5), (118.0, 240.3), (124.0, 240.1), (130.0, 240.3), (136.0, 241.1),
+              (142.0, 242.5), (148.0, 244.2), (153.0, 245.5), (157.0, 246.4), (160.5, 248.3))
 MUZZLE_SIGMA = 11.0              # lateral falloff of the muzzle [px]
 # lateral falloff [px] by row: a broad bridge narrowing to a small tip
-NOSE_SIGMA = ((106.0, 6.5), (116.0, 5.2), (122.0, 4.5), (126.0, 4.3), (135.5, 4.0))
+NOSE_SIGMA = ((106.0, 6.5), (116.0, 5.4), (122.0, 5.0), (126.0, 4.9), (135.5, 4.6))
 # front half cross-section exponent by row: fuller than an ellipse at eye
 # level (with the widest point brought forward, see TABLE) so the face plate
 # is broad enough that the front-projected eyes stay compact on the side view,
@@ -175,7 +190,7 @@ def ring_angles(n):
 
 def front_exp(row):
     rows, vals = zip(*FRONT_EXP)
-    return float(np.interp(row, rows, vals))
+    return float(pchip(rows, vals, row))   # C1: no shading kinks at the table rows
 
 
 def nose_sigma(row):
@@ -183,29 +198,64 @@ def nose_sigma(row):
     return float(np.interp(row, rows, vals))
 
 
-def ring(row, angles, detail=True):
-    """One horizontal ring. detail=False leaves out the nose and the facial
-    relief: that smooth surface gives the shading normals."""
+LOWER_CHEEK = (2.0, 0.62, 145.0, 8.0)   # amplitude px, centre as share of hw, row, row sigma
+
+
+def lower_cheek(X, row, hw):
+    """Forward fullness [px] of the lower cheek between the mouth corners and
+    the jaw line, so the cheek rolls round into the chin instead of running
+    down to it as a flat plane. Zero at the midline (the profile) and at the
+    side (hw: the front-view silhouette); part of the base form, so the
+    shading normals see it too."""
+    amp, share, r0, sig = LOWER_CHEEK
+    u = X / max(hw, 1e-6)
+    across = np.clip(np.sin(np.pi * np.clip(u, 0.0, 1.0)) ** 1.5, 0.0, 1.0) * np.exp(-((u - share) / 0.45) ** 2)
+    return amp * across * np.exp(-((row - r0) / sig) ** 2)
+
+
+def _ring_params(row, detail):
     hw, front, mid, back = table_at(row)
     muzzle = muzzle_at(row)
     front += muzzle
-    bf, bb = max(mid - front, 0.3), max(back - mid, 0.3)
-    nose = nose_at(row) if detail else 0.0
-    sig = nose_sigma(row)
-    ef, eb = 2.0 / front_exp(row), 1.0
+    return dict(hw=hw, mid=mid, muzzle=muzzle, bf=max(mid - front, 0.3), bb=max(back - mid, 0.3),
+                nose=nose_at(row) if detail else 0.0, sig=nose_sigma(row), ef=2.0 / front_exp(row))
+
+
+def _front_y(q, row, xp, c, detail):
+    """Side-view column of the face (front half of a ring) at offset xp from
+    the midline; c = cos of the ring angle."""
+    yp = q['mid'] - q['bf'] * abs(c) ** q['ef'] - q['muzzle'] * math.exp(-(xp / MUZZLE_SIGMA) ** 2)
+    yp -= float(lower_cheek(abs(xp), row, q['hw']))
+    if detail:
+        yp -= q['nose'] * math.exp(-(xp / q['sig']) ** 2)
+        # facial relief, faded out where the surface turns to the side
+        yp -= float(relief(abs(xp), row)) * _smooth(0.05, 0.3, c)
+    return yp
+
+
+def face_y(X, row, detail=True):
+    """Side-view column of the face surface at distance X [px] from the
+    midline on ring row `row` (the analytic surface the head mesh samples)."""
+    q = _ring_params(row, detail)
+    u = min(abs(X) / q['hw'], 1.0)
+    s = u ** (1.0 / q['ef'])
+    return _front_y(q, row, X, math.sqrt(max(0.0, 1.0 - s * s)), detail)
+
+
+def ring(row, angles, detail=True):
+    """One horizontal ring. detail=False leaves out the nose and the facial
+    relief: that smooth surface gives the shading normals."""
+    q = _ring_params(row, detail)
+    hw, ef = q['hw'], q['ef']
     pts = []
     for a in angles:
         s, c = math.sin(a), math.cos(a)
         if c >= 0:   # front half
             xp = hw * math.copysign(abs(s) ** ef, s)
-            yp = mid - bf * abs(c) ** ef - muzzle * math.exp(-(xp / MUZZLE_SIGMA) ** 2)
-            if detail:
-                yp -= nose * math.exp(-(xp / sig) ** 2)
-                # facial relief, faded out where the surface turns to the side
-                yp -= float(relief(abs(xp), row)) * _smooth(0.05, 0.3, c)
-        else:
-            xp = hw * math.copysign(abs(s) ** eb, s)
-            yp = mid + bb * abs(c) ** eb
+            yp = _front_y(q, row, xp, c, detail)
+        else:        # back half: a plain ellipse
+            xp = hw * s
+            yp = q['mid'] + q['bb'] * abs(c)
         pts.append(Vector((HEAD_DX + xp / PPM, yc(yp), zr(row))))
     return pts
 
@@ -277,10 +327,11 @@ def relief(X, R):
     lower = 0.2 * np.exp(-((R - (y_lo + 1.0)) / 2.0) ** 2) * along
     cheek = 0.9 * np.exp(-((X - 25.0) / 10.0) ** 2 - ((R - 130.0) / 7.0) ** 2)
     # lips and chin: restrained upper lip, mouth line, lower lip and fold
-    lips = (0.3 * np.exp(-((R - 143.6) / 1.8) ** 2) * np.exp(-(X / 6.0) ** 2)
-            - 0.25 * np.exp(-((R - 146.3) / 1.0) ** 2) * np.exp(-(X / 5.0) ** 2)
-            + 0.2 * np.exp(-((R - 148.3) / 1.4) ** 2) * np.exp(-(X / 5.0) ** 2)
-            - 0.3 * np.exp(-((R - 151.0) / 1.6) ** 2) * np.exp(-(X / 7.0) ** 2))
+    # (kept faint and narrow: wide bands read as shelves across the lower face)
+    lips = (0.25 * np.exp(-((R - 143.6) / 1.8) ** 2) * np.exp(-(X / 5.0) ** 2)
+            - 0.2 * np.exp(-((R - 146.3) / 1.0) ** 2) * np.exp(-(X / 4.5) ** 2)
+            + 0.15 * np.exp(-((R - 148.3) / 1.4) ** 2) * np.exp(-(X / 4.5) ** 2)
+            - 0.12 * np.exp(-((R - 151.0) / 2.0) ** 2) * np.exp(-(X / 6.0) ** 2))
     return socket + lid + lower + cheek + lips
 
 
@@ -498,6 +549,7 @@ def set_shading_normals(me, smooth, keep=SHADE_KEEP):
     so the sockets, lids and cheeks still turn the light a little."""
     normals = [(n * (1 - keep) + v.normal * keep).normalized() for v, n in zip(me.vertices, smooth)]
     me.normals_split_custom_set_from_vertices(normals)
+    return normals
 
 
 def ear_mesh(side):
@@ -506,7 +558,7 @@ def ear_mesh(side):
     back edge flares out a little, with a shallow bowl (concha) on its outer
     face, so it reads as an ear and not a button."""
     bm = bmesh.new()
-    bmesh.ops.create_uvsphere(bm, u_segments=12, v_segments=8, radius=1.0)
+    bmesh.ops.create_uvsphere(bm, u_segments=10, v_segments=7, radius=1.0)
     for v in bm.verts:
         x, y, z = v.co
         if x > 0.2:   # outer face: dish the middle in
@@ -526,7 +578,23 @@ def ear_mesh(side):
     return bm
 
 
-NECK_SHADE_ROW = 166.0    # neck rings above this row are drawn in the shade tone
+NECK_SHADE_ROW = 166.0    # the neck's shading normals turn under the jaw above this row
+NECK_SHADE_BAND = 5.0     # ... over this many rows either side (no hard edge)
+NECK_TILT = Vector((0.0, 0.6, -0.8)) * 0.7   # added to the real normal: down and back
+
+
+def set_neck_normals(me):
+    """The sheet draws a band of shade under the chin. Tilt the upper neck's
+    real normals down and back (away from the camera-relative key light) and
+    fade the tilt out over NECK_SHADE_BAND rows around NECK_SHADE_ROW, so the
+    shade edge sits a few px below the jaw, still turns around the neck, and
+    the neck meets the body's neck lit. The jaw's cast shadow lands on top."""
+    lo, hi = zr(NECK_SHADE_ROW + NECK_SHADE_BAND), zr(NECK_SHADE_ROW - NECK_SHADE_BAND)
+    out = []
+    for v in me.vertices:
+        w = float(_smooth(lo, hi, v.co.z))
+        out.append((v.normal + NECK_TILT * w).normalized())
+    me.normals_split_custom_set_from_vertices(out)
 
 
 def neck_mesh():
@@ -537,8 +605,165 @@ def neck_mesh():
     rows = [(138.0, 288.5, 16.0, 16.0), (148.0, 286.0, 15.4, 16.0), (154.0, 285.6, 15.1, 15.0),
             (158.0, 286.2, 14.9, 13.6), (162.0, 286.8, 14.8, 12.7), (168.0, 287.8, 14.8, 12.6),
             (174.0, 289.5, 14.8, 12.6)]
-    rings = [common.ellipse_ring((HEAD_DX, yc(cy), zr(r)), w / PPM, d / PPM, 24) for r, cy, w, d in rows]
+    rings = [common.ellipse_ring((HEAD_DX, yc(cy), zr(r)), w / PPM, d / PPM, 20) for r, cy, w, d in rows]
     return common.loft(rings, closed=True, cap_start=True, cap_end=False)
+
+
+# ---------------------------------------------------------------- eyelids
+# A thin upper-lid sheet per eye for the MMD blink morph, in the face
+# material.
+# * Rest (the basis shape): folded into the band just above and on the
+#   painted upper lash, a hair in front of the face. Its UVs are the front
+#   projection of these rest positions, so at rest it is an exact copy of the
+#   painted face under it (skin under the brow, the lash) and the open eye is
+#   the painted one.
+# * BLINK_KEY: the same sheet comes forward and down over the painted eye to
+#   ~2 px below the lower lid line (so the painted eye stays covered when the
+#   head is seen from below). Stretched, its upper rows show plain skin
+#   and its two edge rows the lash band, so the closed eye is skin with a lash
+#   line along the closing edge. The sheet stays in front of the face along
+#   the whole (linear) morph.
+BLINK_KEY = 'まばたき'
+LID_X = (EYE_IN - 0.8, EYE_IN + 2.5, EYE_IN + 6.5, 22.0, 26.5, 31.0, 35.5, EYE_OUT, EYE_OUT + 2.4)
+LID_REST = (-2.3, -1.9, -1.5, -1.1, 0.3, 1.6)   # rest rows relative to the upper lid line
+LID_CLEAR = 0.3          # px in front of the face when closed
+LID_OVER = 0.1           # px in front of the face at rest
+LID_PATH = 0.15          # px in front of the face along the blink
+
+
+def _lid_rows(X):
+    """(rest rows, closed rows) of the six lid vertex rows at X."""
+    xc = min(max(X, EYE_IN), EYE_OUT)
+    up = float(upper_lid(xc))
+    top = up + LID_REST[0]
+    edge = max(float(lower_lid(xc)) + 1.8, up + 4.0)   # covers the painted eye from below too
+    r3, r4 = edge - 1.9, edge - 1.3
+    r1 = min(up + 1.0, (top + r3) / 2)
+    return tuple(up + d for d in LID_REST), (top, r1, (r1 + r3) / 2, r3, r4, edge)
+
+
+def mesh_face_y(tree):
+    """face_y measured on the head mesh itself (ray cast along +Y into the
+    head_face BVH `tree`): the polygons sit up to ~2 px behind the analytic
+    surface where the face turns to the side, which matters for a sheet
+    floating 0.1-0.3 px off it."""
+    def f(X, row):
+        o = Vector((HEAD_DX + X / PPM, -1.0, zr(row)))
+        hit = tree.ray_cast(o, Vector((0.0, 1.0, 0.0)), 2.0)[0]
+        return hit.y * PPM + spec.PANEL_W / 2 if hit is not None else face_y(X, row)
+    return f
+
+
+def lid_shapes(tree):
+    """Rest and closed vertex grids of the left lid: lists over LID_X of six
+    [X, col, row] (col = side-view column).
+
+    1. Each vertex sits LID_OVER (rest) / LID_CLEAR (closed) in front of the
+       face mesh over the rows its neighbouring lid faces span: the lid rim and
+       the socket bend the face down the rows.
+    2. Across X the face turns away steeply toward the temple, so a pair of
+       columns only moves forward where the chord between them would cut into
+       the face.
+    3. The morph is linear: a closed vertex comes further forward until the
+       straight paths from rest (its own and the chords to its neighbours)
+       stay in front of the face; the socket bulges toward the iris between
+       the lid line and the closing line."""
+    surf = mesh_face_y(tree)
+    rows = [_lid_rows(X) for X in LID_X]
+    n, m = len(LID_X), len(LID_REST)
+    out = []
+    for k, margin in ((0, LID_OVER), (1, LID_CLEAR)):
+        grid = []
+        for i, X in enumerate(LID_X):
+            rs = rows[i][k]
+            col = []
+            for j, r in enumerate(rs):
+                span = np.linspace(rs[max(j - 1, 0)], rs[min(j + 1, m - 1)], 7)
+                col.append([X, min(surf(X, s) for s in span) - margin, r])
+            grid.append(col)
+        for _ in range(3):
+            for i in range(n - 1):
+                for j in range(m):
+                    a, b = grid[i][j], grid[i + 1][j]
+                    need = max(0.0, max(a[1] + (b[1] - a[1]) * t - (surf(a[0] + (b[0] - a[0]) * t, a[2] + (b[2] - a[2]) * t) - margin)
+                                        for t in (0.25, 0.5, 0.75)))
+                    a[1] -= need
+                    b[1] -= need
+        out.append(grid)
+    rest, closed = out
+
+    def lerp(p, q, t):
+        return [p[c] + (q[c] - p[c]) * t for c in range(3)]
+    for _ in range(2):
+        for i in range(n):
+            for j in range(m):
+                push = 0.0
+                for t in np.linspace(0.1, 0.9, 9):
+                    for i2 in (i - 1, i, i + 1):
+                        if not 0 <= i2 < n:
+                            continue
+                        # point on the chord to the neighbour column (or the vertex itself)
+                        p = lerp(lerp(rest[i][j], closed[i][j], t), lerp(rest[i2][j], closed[i2][j], t), 0.5 if i2 != i else 0.0)
+                        push = max(push, 2 * (p[1] - (surf(p[0], p[2]) - LID_PATH)) / t / (2 if i2 == i else 1))
+                closed[i][j][1] -= push
+    return rest, closed
+
+
+def lid_object(col, mat, head, head_normals, pixels):
+    """Both upper lids in one object, with the BLINK_KEY shape key.
+
+    head: the head_face object; head_normals: its per-vertex shading normals.
+    At rest the lid copies the face under it exactly: UV (front projection),
+    shading normal (interpolated from the face polygon under each vertex) and
+    the eye-decal mask (toon_grad, as set_eye_region)."""
+    me = head.data
+    tree = BVHTree.FromPolygons([v.co for v in me.vertices], [tuple(p.vertices) for p in me.polygons])
+    rest, closed = lid_shapes(tree)
+    bm = bmesh.new()
+    uv_layer = bm.loops.layers.uv.new('UVMap')
+    key_pos, uvs = [], {}
+    for side in (1, -1):
+        verts = []
+        for i, X in enumerate(LID_X):
+            vc = []
+            for j in range(len(rest[i])):
+                _, y0, r0 = rest[i][j]
+                _, y1, r1 = closed[i][j]
+                v = bm.verts.new((HEAD_DX + side * X / PPM, yc(y0), zr(r0)))
+                key_pos.append(Vector((HEAD_DX + side * X / PPM, yc(y1), zr(r1))))
+                uvs[v] = front_uv(v.co)   # the painted face under the rest position
+                vc.append(v)
+            verts.append(vc)
+        for i in range(len(LID_X) - 1):
+            for j in range(len(rest[0]) - 1):
+                quad = (verts[i][j], verts[i + 1][j], verts[i + 1][j + 1], verts[i][j + 1])
+                f = bm.faces.new(quad if side > 0 else quad[::-1])
+                for loop in f.loops:
+                    loop[uv_layer].uv = uvs[loop.vert]
+    bm.normal_update()
+    if sum(f.normal.y for f in bm.faces) > 0:   # face the viewer (-Y)
+        bmesh.ops.reverse_faces(bm, faces=bm.faces)
+    obj = common.new_object(col, 'head_lid', bm, [mat])
+    lid = obj.data
+    lid.shade_smooth()
+    obj['no_outline'] = True
+    normals = []
+    for v in lid.vertices:
+        hit, _, idx, _ = tree.ray_cast(v.co + Vector((0.0, -0.05, 0.0)), Vector((0.0, 1.0, 0.0)), 0.1)
+        if hit is None:
+            normals.append(v.normal.copy())
+            continue
+        vs = me.polygons[idx].vertices
+        w = [1.0 / ((me.vertices[k].co - hit).length + 1e-6) for k in vs]
+        normals.append(sum((head_normals[k] * wk for k, wk in zip(vs, w)), Vector()).normalized())
+    lid.normals_split_custom_set_from_vertices(normals)
+    set_eye_region(lid, pixels)
+    obj.shape_key_add(name='Basis', from_mix=False)
+    kb = obj.shape_key_add(name=BLINK_KEY, from_mix=False)
+    for d, p in zip(kb.data, key_pos):
+        d.co = p
+    kb.value = 0.0   # open eyes: a new key is not guaranteed to start at 0
+    return obj
 
 
 def build(col):
@@ -550,7 +775,8 @@ def build(col):
     head.data.shade_smooth()
     set_face_uv(head.data)
     set_eye_region(head.data, pixels)
-    set_shading_normals(head.data, smooth_normals())
+    head_normals = set_shading_normals(head.data, smooth_normals())
+    lid_object(col, face, head, head_normals, pixels)
     common.add_outline(head)
 
     for side, nm in ((1, 'head_ear_L'), (-1, 'head_ear_R')):
@@ -560,13 +786,6 @@ def build(col):
 
     neck = common.new_object(col, 'head_neck', neck_mesh(), [skin])
     neck.data.shade_smooth()
-    # the sheet draws only a band under the chin in the shade colour (cast
-    # shadows are off): point the upper neck's normals away from the key light
-    # and keep the real normals near the choker, so the lit/shade edge sits
-    # a few px below the jaw and the neck meets the body's neck lit.
-    away = Vector((0.35, 0.8, -0.5)).normalized()
-    z_edge = zr(NECK_SHADE_ROW)
-    neck.data.normals_split_custom_set_from_vertices(
-        [away if v.co.z > z_edge else v.normal.copy() for v in neck.data.vertices])
+    set_neck_normals(neck.data)
     common.add_outline(neck)
     return col
