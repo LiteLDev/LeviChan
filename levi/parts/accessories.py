@@ -2,7 +2,10 @@
 halter strings crossing over the upper chest.
 
 Everything is positioned against the reference panels (re-measured green
-masks / crops of ref/{front,side,back}.png), not against other parts.
+masks / crops of ref/{front,side,back}.png). Exceptions, as local constants
+(no other part's objects are read): the choker loop and the halter depths
+are set so the strings rest on the body's skin, and the flower depth clears
+the front hair locks (see FLOWER).
 Coordinates below are given in reference pixels and converted with P():
     x  = front-view column offset from the panel centre (+ = character's left)
     y  = side-view column offset from the panel centre (- = forward)
@@ -39,35 +42,46 @@ def _mirror(v, sx):
 # Leaf A: the taller inner leaf; leaf B: the larger outer leaf that fans out
 # sideways and backwards (its tip is behind the ear line in the side view).
 LEAVES = (
-    dict(base=(46, -25, 72), tip=(66, -8, 32), wdir=(0.7, 0.7, 0.0), width=23.0,
+    dict(base=(47, -29, 73), tip=(66, -12, 34), wdir=(0.7, 0.7, 0.0), width=26.0,
          face=(0.6, -0.7, 0.3), fold=0.6, bend=-0.10, curl=0.0),
-    dict(base=(60, -16, 81), tip=(90, 9, 43), wdir=(0.7, 0.7, 0.0), width=22.0,
+    dict(base=(57, -20, 82), tip=(87, 5, 45), wdir=(0.7, 0.7, 0.0), width=26.0,
          face=(0.6, -0.7, 0.3), fold=0.6, bend=-0.10, curl=-0.06),
 )
 LEAF_NU = 10          # rings along the leaf (incl. base/tip points)
 LEAF_NV = 7           # samples across the top surface (odd: midrib vertex)
 LEAF_THICK = 0.0011   # half thickness at the midrib (m)
 
-FLOWER = dict(center=(47, -39, 70), normal=(0.7, -0.7, 0.18), radius=12.5)
+# The sheet draws the flower face-on in both front and side views, which no
+# single 3D spot can satisfy: the bangs/cheek locks at x~50 px reach y~-95 px,
+# so a flower at the leaf-base depth (y~-40) is hidden in the front view. It is
+# placed just in front of those locks (front view priority), facing the
+# front/side diagonal so it also reads in the side view (on the temple).
+FLOWER = dict(center=(51, -98, 70), normal=(0.65, -0.7, 0.3), radius=12.5)
 FLOWER_SEG = 30
 FLOWER_PETALS = 5
 
-# Choker: tilted elliptical loop (front lower than back), beaded tube.
-CHOKER = dict(center=(0, -33.5, 172.0), rx=16.5, ry=12.5, tilt=6.0,
-              r=1.7, bead=0.8, seg=48, period=3, sides=6)
+# Choker: tilted elliptical loop (front lower than back), beaded tube. The loop
+# follows the neck section (centre y -31, half-axes ~14.6 x 15.2 px at rows
+# 166-178) offset by ~2 px so the tube sits on the skin all round.
+CHOKER = dict(center=(0, -31.0, 172.0), rx=16.6, ry=17.2, tilt=6.0,
+              r=1.4, bead=1.3, seg=60, period=3, sides=6)
 
 # Halter strap (character-left): it leaves the choker tube on its side-back
-# (STRAP_THETA on the choker loop) and runs over the shoulder slope down to the
-# bodice top; px values follow the front/side reference strings.
+# (STRAP_THETA on the choker loop), runs over the shoulder slope (STRAP[1:4])
+# and down the chest to the bodice top. x/row follow the front reference strings; the depth (y) rests
+# the string on the body's skin (measured on the round-2 body; ~1.2 px of
+# clearance from skin to string axis, i.e. the string touches without sinking).
 STRAP_THETA = 0.45
-STRAP = ((18.5, -26, 179), (21, -31, 186), (26.3, -45, 197), (31.3, -57, 210),
-         (36.3, -62, 222), (41, -65, 233), (45, -67, 243))
-# X strand: branches off the left strap at the upper chest (on STRAP[2]) and
+STRAP = ((16.8, -26, 180), (20.5, -33, 183), (22.6, -42.5, 187), (24, -48, 191.5),
+         (26.3, -48.3, 197), (31.3, -52.4, 210), (36.3, -57.1, 222), (41, -58.9, 233),
+         (45, -59.2, 243))
+# X strand: branches off the left strap at the upper chest (between STRAP[3]
+# and STRAP[4]) and
 # runs straight (in the front view) to the right strap near the bodice top.
-CROSS = tuple((x, y, 197 + (26.3 - x) * 36.0 / 67.8) for x, y in (
-    (26.3, -45), (12, -56.5), (0, -61), (-14, -63), (-28, -64.5), (-41.5, -65.5)))
-CROSS_LIFT = 0.0026   # forward offset of one strand at the crossing (m)
-STRING_R = 0.0011
+CROSS = tuple((x, y, 193 + (24.9 - x) * 40.0 / 66.4) for x, y in (
+    (24.9, -48.1), (12, -48.3), (0, -52.5), (-14, -56.5), (-28, -59.4), (-41.5, -58.8)))
+CROSS_LIFT = 0.003    # forward offset of one strand at the crossing (m)
+STRING_R = 0.0014
 STRING_LINE = 0.0006
 VEIN_R = 0.00055
 
@@ -308,7 +322,7 @@ def _choker(col):
     pts, radii = [], []
     for i in range(ch['seg']):
         pts.append(P(*_choker_ring(2 * math.pi * i / ch['seg'])))
-        bead = 1.0 if i % ch['period'] == 0 else (0.35 if i % ch['period'] == 1 else 0.0)
+        bead = 1.0 if i % ch['period'] == 0 else 0.0
         radii.append((ch['r'] + ch['bead'] * bead) * PX)
     bm = bmesh.new()
     _tube(bm, pts, radii, ch['sides'], loop_center=P(*ch['center']))
@@ -346,8 +360,3 @@ def build(col):
         _build_side(col, sx)
     _choker(col)
     _strings(col)
-    for o in col.objects:
-        # Thin blades/strings self-shadow in EEVEE's shadow maps (acne turns
-        # the whole leaf to the shade tone); the sheet has no cast shadows on
-        # these pieces, so they only receive light, never cast.
-        o.visible_shadow = False
