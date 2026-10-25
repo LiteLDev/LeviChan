@@ -328,8 +328,8 @@ BANG_CLUMPS = (
     (3, 4, 112, 16, 3.5),       # filler under the centre parting
     (10, 18, 105, 27, 5.0),
     (-17, -27, 100, 27, 5.0),
-    (24, 36, 101, 23, 6.5),
-    (-30, -41, 97, 21, 6.5),
+    (24, 36, 95, 23, 6.5),
+    (-30, -41, 104, 21, 6.5),
     (35, 45, 114, 13, 4.0),     # thin temple locks between eye and temple
     (-36, -46, 110, 13, 4.0),
 )
@@ -390,8 +390,8 @@ WISP_LOCKS = [
 FRONT_LONG = [
     # A: hangs behind the face frame (outside the ear) down past the chin,
     # then swings forward into the lock in front of the shoulder
-    ([(52, 60, 276), (66, 96, 284), (63, 130, 290), (64, 148, 286), (67, 162, 268),
-      (70, 176, 251), (73, 192, 240), (74, 208, 236), (74, 224, 240)], 0.042),
+    ([(52, 60, 276), (66, 96, 284), (63, 130, 290), (64, 148, 288), (67, 162, 278),
+      (70, 176, 263), (73, 192, 247), (74, 208, 238), (74, 224, 240)], 0.042),
     # B, C: stay behind the neck down to the choker, then swing forward to
     # fill out the lock in front of the shoulder
     ([(56, 66, 272), (66, 104, 280), (63, 138, 292), (66, 160, 302), (71, 184, 302),
