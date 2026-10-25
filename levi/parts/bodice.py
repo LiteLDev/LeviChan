@@ -18,6 +18,7 @@ import bpy
 from mathutils import Vector
 
 from levi import common, spec
+from levi.parts import skirt
 
 PX = spec.px_to_h(1.0)    # one panel pixel in metres
 FRONT_CX = 321.0          # drawn centre line of the bodice in ref/front.png
@@ -134,11 +135,11 @@ TAILS = {
     'R_thin': ([(323, 344), (328, 362), (335, 420), (348, 470), (358, 500), (354, 532),
                 (349, 557)], 1.7),
 }
-# Front surface of the (future) skirt: side-view front edge (px from centre,
-# side_mask) and front-view half width. Tails sit TAIL_PROUD px in front of it.
-# Between rows ~360-460 the drawn tails themselves form the side silhouette,
-# so the skirt surface is taken ~5 px inside the mask edge there; below that
-# the mask edge is the skirt line (minus its outline).
+# Tails sit TAIL_PROUD px in front of the skirt's cloth surface, taken from
+# levi.parts.skirt.front_surface_y() (its godet folds included; tail x is
+# world x, the same frame the skirt uses). Fallback only where the skirt does
+# not reach a tail point: the measured envelope below - side-view front edge
+# (px from centre, side_mask) and front-view half width.
 SKIRT_FRONT = [(340, -92), (360, -98), (380, -106), (400, -110), (420, -111), (440, -115),
                (460, -122), (480, -131), (500, -140.5), (520, -151.5), (540, -161.5),
                (560, -170.5), (580, -176)]
@@ -411,6 +412,11 @@ def build_bow(col, mat):
 
 
 def skirt_surface_y(dx_px, row):
+    # the skirt's own cloth surface (with its godet folds) where it exists;
+    # the measured envelope above its waist ring
+    y = skirt.front_surface_y(dx_px, row)
+    if y is not None:
+        return y
     front = interp(SKIRT_FRONT, row)
     hw = interp(SKIRT_HW, row)
     t = min(abs(dx_px) / hw, 0.95)
@@ -425,7 +431,10 @@ def build_tails(col, mat):
         pts = []
         for p in path:
             dx, row = p.x, p.z
-            y = skirt_surface_y(dx, row) - TAIL_PROUD
+            # most forward skirt point under the ribbon's width, so a ribbon
+            # crossing a godet fold bridges it instead of sinking into it
+            half = 0.5 * width_px + 1.0
+            y = min(skirt_surface_y(dx + o, row) for o in (-half, 0.0, half)) - TAIL_PROUD
             # near the knot the tails leave the bow, in front of the skirt top
             k = max(0.0, min(1.0, (372 - row) / 30))
             y = y * (1 - k) + min(y, BOW_Y_KNOT + 1.0) * k
