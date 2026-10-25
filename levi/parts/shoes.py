@@ -144,7 +144,7 @@ SQ_UP = 0.8        # upper half: rounded toe box / quarters
 SOLE_Y = (-24.0, 6.0)  # the arch underside between these y is tan
 SOLE_HALF = 0.15   # ... within this fraction of pi of the bottom centre
 FOOT_P = 2.3       # body foot section exponent (body.build_foot)
-FOOT_CLEAR = 1.0   # px the shell keeps outside the foot
+FOOT_CLEAR = 1.5   # px the shell keeps outside the foot
 RIM_T = 1.3        # px: upper thickness at the rolled topline
 LINING_D = 2.5     # px the tan lining runs down inside the opening
 
