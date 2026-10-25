@@ -20,10 +20,14 @@ to the hem and, at the fold troughs, round a rolled lip.
   added as mint streaks on each steep face (the dress -> dress_mint gradient
   attribute), widening from mid-skirt to the hem. White -> mint with height
   on top, and the rolled lip fully mint.
-- Hem roll: at a trough the hem turns outward and up round a small U and
-  ends in a short lip, so the inside of the fabric faces the viewer there and
-  shows in the mint tone (the sheet's hem curls at every turn). At a crest
-  the hem rolls under instead.
+- Hem roll: around a trough the hem curls outward and up in a round roll
+  (radius ROLL_R, a little past upright), easing in over the outer 80% of
+  the fold's half-width, so the inside of the fabric faces the viewer there
+  and shows in the mint tone (the sheet's hem curls at every turn). At a
+  crest the hem rolls under instead, easing in from mid-skirt (CREST_CURL_T),
+  so the long centre lobes tuck in under the hem rather than hooking.
+- The trough arches keep a rounded top (>= 20% of the fold half-width flat,
+  see _skirt_fit.PARAMS).
 - FOLDS was fitted by levi/parts/_skirt_fit.py so that the visible lower
   outline and the flare outlines match the front, side and back views at once
   (the petticoat hides what lies behind it) while the cloth stays outside the
@@ -106,29 +110,29 @@ _SECTION = [
 TOP_ROW = 326            # tucked under the bodice bottom edge
 
 N_PHI = 156
-TROUGH_DENSITY = 2.0     # azimuth samples are (1 + this) times denser at the fold troughs
+TROUGH_DENSITY = 0.7     # azimuth samples are (1 + this) times denser at the fold troughs
 # main sheet rings: sparse near the waist (under the bodice), denser at the hem
-T_STEPS = (0.0, 0.18, 0.36, 0.52, 0.66, 0.79, 0.9, 1.0)
+T_STEPS = (0.0, 0.2, 0.4, 0.57, 0.73, 0.87, 1.0)
 THICK = 0.0025
 
-FOLD_SHARP = 0.45        # radial fold shape: < 1 rounds the crests and pinches the troughs
+FOLD_SHARP = 1.0         # radial fold shape: < 1 rounds the crests and pinches the troughs
 FOLD_POW = 1.0           # fold offset grows as t**FOLD_POW from the waist
 FOLD_T0 = 0.12           # ... starting at this t (folds open below the hips)
 BASE_POW = 1.4           # smooth offset grows as t**BASE_POW
 # Hem roll: lip weight w rises from 0 to 1 over the last part of each fold's
 # half-width toward its trough (|u| from LIP_U0 to 1); w = 1 is a full roll.
-LIP_U0 = 0.55
-ROLL_R = 7.0             # radius of the U turn (px)
-LIP_LEN = 4.0            # straight lip above the U (px)
-LIP_LEAN = 0.3           # outward lean of the lip per px of length
+LIP_U0 = 0.2
+ROLL_R = 10.0            # radius of the hem roll (px)
 STEEP_FACE_DEG = 70.0    # orientation of the steep fold face at the hem, from the view axis
 Z_MINT = 0.6             # white -> mint height gradient reaches this at the hem
 STREAK = 1.0             # extra mint on the fold streaks
 STREAK_W = 1.6           # streak width at the hem, in units of the steep face width
 STREAK_T0 = 0.3          # streaks start at this t
-CREST_CURL_T = 0.86      # main-sheet t where the per-fold crest curl (roll under) starts
+DRIFT_DEG = 4.0          # sideways wander of the folds up the skirt (deg at the waist)
+CREST_CURL_T = 0.55      # main-sheet t where the per-fold crest curl (roll under) starts
 STRAIGHT = 0.6           # spacing (px) of the lip rings where there is no lip
-LIP_A = (0.5, 1.0)       # U-turn angles (x pi) of the lip rings, then the lip top
+LIP_A = (0.3, 0.55, 0.8)  # roll angles (x pi) of the lip rings; the last ring ends the roll at LIP_END
+LIP_END = 1.08           # the roll curls a little past upright (x pi), round, with no flat lip
 N_RINGS = len(T_STEPS) + len(LIP_A) + 1
 
 # One row per fold, sorted by azimuth; fitted by _skirt_fit.py, regenerate with
@@ -140,21 +144,21 @@ N_RINGS = len(T_STEPS) + len(LIP_A) + 1
 #  of the trough arch after it, in % of the fold half-width, inward roll of
 #  the crest at the hem px - negative flares it out over the petticoat)
 FOLDS = [
-    (8, 606, 540, 10, -4, 20, 10, 3),
-    (33, 595, 559, 18, 0, 20, 0, 15),
-    (56, 585, 549, 22, -2, 20, 5, 27),
-    (80, 562, 546, 18, -8, 0, 0, 24),
-    (99, 559, 531, 16, -8, 0, 10, 18),
-    (133, 573, 553, 18, -2, 20, 0, 3),
-    (156, 563, 553, 18, 4, 5, 0, -11),
-    (175, 605, 557, 14, -2, 20, 0, -10),
-    (209, 587, 560, 14, 0, 10, 0, 12),
-    (232, 571, 525, 18, 0, 0, 10, 6),
-    (251, 561, 541, 20, -8, 5, 0, 15),
-    (284, 552, 541, 20, -8, 20, 0, 18),
-    (306, 565, 554, 18, -8, 0, 0, 9),
-    (327, 594, 529, 12, -6, 0, 10, 18),
-    (352, 605, 582, 16, -8, 10, 0, 12),
+    (4, 602, 545, 14, 10, 35, 20, 27),
+    (34, 591, 555, 24, 4, 35, 25, 30),
+    (56, 573, 549, 28, 4, 30, 20, 30),
+    (84, 572, 536, 20, 4, 35, 20, 39),
+    (96, 561, 533, 16, 2, 15, 20, 27),
+    (135, 565, 555, 12, 4, 35, 40, -9),
+    (153, 579, 553, 20, 6, 15, 35, 1),
+    (180, 611, 557, 22, 0, 20, 30, 51),
+    (207, 589, 558, 28, 2, 20, 35, 9),
+    (231, 569, 527, 18, 2, 15, 25, 14),
+    (258, 537, 527, 18, 0, 35, 40, 12),
+    (287, 552, 541, 18, -2, 35, 20, 18),
+    (300, 561, 550, 20, 0, 30, 20, 30),
+    (325, 586, 543, 20, 0, 20, 35, 30),
+    (352, 587, 568, 20, 4, 25, 25, 33),
 ]
 
 
@@ -242,7 +246,8 @@ def hem_terms(folds, phi):
     # looks toward +phi, which is away from the key light in every view
     # (the light rotates with the camera), so it reads as the sheet's shade
     # wedge running up from each turn of the hem.
-    # The drop is planar and as wide as puts it at STEEP_FACE_DEG to the
+    # The drop eases in and out (smoothstep, so the trough is rounded, not a
+    # V) and is as wide as puts its mean slope at STEEP_FACE_DEG to the
     # front / back view axis at the hem (the cone's flare tilts its normal
     # up, so only ~72-90 deg reads as shade; past 90 it would hide).
     phi_f = np.minimum(np.abs(np.mod(phi + np.pi, 2 * np.pi) - np.pi),
@@ -253,7 +258,7 @@ def hem_terms(folds, phi):
     radius = np.hypot(X * np.sin(phi), np.cos(phi) * np.where(np.cos(phi) > 0, Yf, Yb))
     steep = np.clip((amp + amp_t) / np.tan(tilt) / (half[k] * radius), 0.15, 1.0)
     g = np.where(u < 0, np.cos(0.5 * np.pi * a) ** FOLD_SHARP,
-                 1.0 - np.clip((u - (1.0 - steep)) / steep, 0.0, 1.0))
+                 1.0 - _smoothstep((u - (1.0 - steep)) / steep))
     fold = -amp_t + (amp + amp_t) * g
     base_t = 0.5 * (f[kt, 4] + f[kn, 4])
     base = f[k, 4] + (base_t - f[k, 4]) * _smoothstep(a)
@@ -266,15 +271,27 @@ def hem_terms(folds, phi):
     return row, fold, base, lip, curl, u, streak_u0
 
 
+def drift(phi, t):
+    """Azimuth (radians) the fold pattern is shifted by at main-sheet height t:
+    the folds wander a little sideways on their way up from the hem, so they
+    are not straight radial channels. 0 at the hem."""
+    return np.radians(DRIFT_DEG) * np.sin(3.0 * phi + 0.7) * (1.0 - t) ** 1.5
+
+
 def streaks(folds):
     """Mint streak weight (0..1) per (azimuth sample, main-sheet ring): a wedge
     on every fold's turned-away face, from STREAK_T0 down to the hem."""
-    phi = azimuths(folds)
-    *_, u, u0 = hem_terms(folds, phi)
-    t = np.array(T_STEPS)[None, :]
-    h = np.clip((t - STREAK_T0) / (1 - STREAK_T0), 0, 1)    # 0 at the top, 1 at the hem
-    start = 1.0 - (1.0 - u0[:, None]) * h                    # the wedge narrows upward
-    return np.where((u[:, None] >= start) & (h > 0), np.sqrt(h), 0.0)
+    *_, u, u0 = ring_terms(folds)                             # follow the drifting folds
+    h = np.clip((np.array(T_STEPS)[None, :] - STREAK_T0) / (1 - STREAK_T0), 0, 1)  # 0 top, 1 hem
+    start = 1.0 - (1.0 - u0) * h                              # the wedge narrows upward
+    return np.where((u >= start) & (h > 0), np.sqrt(h), 0.0)
+
+
+def ring_terms(folds):
+    """hem_terms per (azimuth sample, main-sheet ring), with the fold pattern
+    shifted by drift() at each ring's height (each term shaped (N_PHI, rings))."""
+    phi = azimuths(folds)[:, None]
+    return hem_terms(folds, phi + drift(phi, np.array(T_STEPS)[None, :]))
 
 
 def profiles(folds):
@@ -283,10 +300,10 @@ def profiles(folds):
     Rings: T_STEPS on the main sheet (waist -> hem end), then the roll/lip.
     """
     phi = azimuths(folds)
-    rows, fold, offs, w, curl, _, _ = hem_terms(folds, phi)
+    rows, _, _, w, _, _, _ = hem_terms(folds, phi)
     s, c = np.sin(phi), np.cos(phi)
     # without a lip the sheet continues straight down for the lip rings;
-    # with one, the U turn's bottom is ROLL_R below the main sheet's end
+    # with one, the roll's bottom is ROLL_R below the main sheet's end
     drop = w * ROLL_R + (1 - w) * len(LIP_A) * STRAIGHT
     row_end = rows - drop
     out = np.empty((N_PHI, N_RINGS, 3))
@@ -297,10 +314,12 @@ def profiles(folds):
     y = -c[:, None] * np.where(c[:, None] > 0, Yf, Yb)
     r = np.hypot(x, y)
     ux, uy = x / r, y / r
-    off = (t ** BASE_POW * offs[:, None]
-           + (np.clip(t - FOLD_T0, 0, None) / (1 - FOLD_T0)) ** FOLD_POW * fold[:, None])
+    # fold, smooth offset and crest curl follow the drifting folds (exact at the hem)
+    _, fold_t, offs_t, w_t, curl_t, _, _ = ring_terms(folds)
+    off = (t ** BASE_POW * offs_t
+           + (np.clip(t - FOLD_T0, 0, None) / (1 - FOLD_T0)) ** FOLD_POW * fold_t)
     kc = np.clip((t - CREST_CURL_T) / (1 - CREST_CURL_T), 0, 1)
-    off = off - (curl * (1 - w))[:, None] * kc * kc
+    off = off - curl_t * (1 - w_t) * kc * kc
     nt = len(T_STEPS)
     out[:, :nt, 0] = x + ux * off
     out[:, :nt, 1] = y + uy * off
@@ -314,10 +333,11 @@ def profiles(folds):
         out[:, nt + j, 0] = ex + ox * rad
         out[:, nt + j, 1] = ey + oy * rad
         out[:, nt + j, 2] = er + w * ROLL_R * math.sin(ang) + (1 - w) * STRAIGHT * (j + 1)
-    rad = w * (2 * ROLL_R + LIP_LEAN * LIP_LEN)
+    ang = math.pi * LIP_END
+    rad = w * ROLL_R * (1 - math.cos(ang))
     out[:, -1, 0] = ex + ox * rad
     out[:, -1, 1] = ey + oy * rad
-    out[:, -1, 2] = er - w * LIP_LEN + (1 - w) * STRAIGHT * (len(LIP_A) + 1)
+    out[:, -1, 2] = er + w * ROLL_R * math.sin(ang) + (1 - w) * STRAIGHT * (len(LIP_A) + 1)
     return out
 
 
@@ -341,7 +361,7 @@ def initial_folds(crests=(8, 31, 53, 72, 110, 130, 152, 175, 205, 230, 250, 288,
         # front / back centre lobes hang lowest and roll under onto the
         # petticoat, so they do not hang out of the side view's outline
         curl = round(6 + 34 * math.cos(math.radians(cdeg)) ** 8)
-        out.append((cdeg, round(row_at(cdeg)), round(row_at(0.5 * (cdeg + ndeg))), 18, -6, 10, 5, curl))
+        out.append((cdeg, round(row_at(cdeg)), round(row_at(0.5 * (cdeg + ndeg))), 18, -6, 20, 20, curl))
     return out
 
 
