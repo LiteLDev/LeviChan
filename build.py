@@ -1,6 +1,8 @@
 """Build Levi from scratch into a .blend.
 
-    blender -b -P build.py -- [--out out/levi.blend] [--parts body,skirt] [--proxy]
+    blender -b -P build.py -- [--out out/levi.blend] [--parts body,skirt] [--proxy] [--rig]
+
+--rig adds the MMD armature (levi/rig.py) and skins every part to it.
 """
 import argparse
 import os
@@ -19,6 +21,7 @@ def main():
     ap.add_argument('--out', default='out/levi.blend')
     ap.add_argument('--parts', default='', help='comma-separated part names (default: all)')
     ap.add_argument('--proxy', action='store_true', help='add the grey stand-in body for context')
+    ap.add_argument('--rig', action='store_true', help='build the MMD armature and skin the parts')
     args = ap.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
 
     names = [p for p in args.parts.split(',') if p]
@@ -29,6 +32,10 @@ def main():
         total += 0 if name.startswith('_') else n
         print(f'PART {name:12s} faces={n}')
     print(f'TOTAL faces={total}')
+    if args.rig:
+        from levi import rig
+        arm = rig.build_rig()
+        print(f'RIG bones={len(arm.data.bones)}')
 
     out = os.path.join(ROOT, args.out)
     os.makedirs(os.path.dirname(out), exist_ok=True)

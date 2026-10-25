@@ -28,7 +28,14 @@ Blender: `C:/Program Files/Blender Foundation/Blender 5.2/blender.exe` (written 
 "$B" -b out/levi.blend -P render.py -- --out out/render [--hide _proxy] [--views front,side,back] [--shadows] [--freestyle] [--no-regions]
 "$B" -b --factory-startup -P tools/compare.py -- --render out/render --out out/cmp [--box x0,y0,x1,y1] [--part-region dress,petticoat]
 "$B" -b -P tools/check.py -- [--parts body,skirt]      # exit code 1 on failure
+"$B" -b -P build.py -- --rig ...                         # + MMD armature, skinned (levi/rig.py)
+"$B" -b -P tools/rig_check.py                            # rig tests, exit code 1 on failure
+"$B" -b -P tools/rig_pose.py -- --out out/levi_pose.blend  # test pose for render.py
+"$B" -b -P export_pmx.py -- --out out/pmx/Levi.pmx       # needs mmd_tools: no --factory-startup
+"$B" -b -P tools/pmx_reimport.py                         # re-import + count check
 ```
+The body part may store fitted limb joints for the rig as `obj["levi_joints"] = {"elbow": (x, y, z), ...}`
+(left side, +X; keys in `rig.JOINT_KEYS`). Without it the rig fits joints to the body mesh.
 `out/cmp/<view>_{overlay,diff,sbs}.png`:
 - In the diff, red = render sticks out and blue = reference not covered.
 - The tool also prints IoU against the reference silhouette.
