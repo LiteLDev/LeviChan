@@ -130,7 +130,7 @@ THICK = 0.0018
 FOLD_T0 = 0.05           # folds open from this t (below the hips), full depth at the hem
 FOLD_EASE = 0.15         # ... eased in over about this share of the length
 MID_RELIEF = 0.25        # extra fold depth through mid-skirt (share, peaks halfway, 0 at the hem)
-LOBE_P_RANGE = (1.0, 1.6)  # per-fold hem lobe exponent (FOLDS column 6, x10): > 1 widens the lobe bottom
+LOBE_P_RANGE = (1.5, 2.0)  # per-fold hem lobe exponent (FOLDS column 6, x10): > 1 widens the lobe bottom
 BASE_POW = 1.4           # smooth offset grows as t**BASE_POW
 STEEP_MIN = 0.7          # the falling fold face spans at least this share of the half-fold
 # Hem edge: no separate rolled lip. Around each trough the last part of the
@@ -159,18 +159,18 @@ CREST_CURL_T = 0.55      # main-sheet t where the per-fold crest curl (tuck unde
 #  half-depth px, smooth radial offset px, inward tuck of the crest at the
 #  hem px - negative flares it out over the petticoat, hem lobe exponent x10)
 FOLDS = [
-    (6, 594, 547, 10, 30, 20, 13),
-    (29, 583, 543, 12, 26, 11, 10),
-    (51, 575, 543, 10, 20, 11, 10),
-    (93, 552, 530, 10, 15, 11, 14),
-    (134, 567, 547, 18, 20, 9, 11),
-    (150, 569, 559, 10, 20, -2, 11),
-    (181, 606, 551, 10, 8, 18, 14),
-    (204, 593, 554, 16, 16, 14, 10),
-    (231, 565, 529, 14, 14, 14, 11),
-    (256, 539, 529, 10, 14, 11, 11),
-    (295, 554, 544, 10, 16, 14, 10),
-    (327, 582, 543, 10, 28, 14, 10),
+    (6, 594, 547, 10, 30, 20, 18),
+    (29, 583, 543, 12, 26, 11, 16),
+    (51, 575, 543, 10, 20, 11, 16),
+    (93, 552, 530, 10, 15, 11, 16),
+    (134, 567, 547, 18, 20, 9, 16),
+    (150, 569, 559, 10, 20, -2, 16),
+    (181, 606, 551, 10, 8, 18, 18),
+    (204, 593, 554, 16, 16, 14, 16),
+    (231, 565, 529, 14, 14, 14, 16),
+    (256, 539, 529, 10, 14, 11, 16),
+    (295, 554, 544, 10, 16, 14, 16),
+    (327, 582, 543, 10, 28, 14, 16),
 ]
 
 
@@ -424,7 +424,7 @@ def initial_folds(crests=(0, 31, 53, 92, 132, 152, 180, 206, 231, 256, 295, 325)
         # front / back centre lobes hang lowest and roll under onto the
         # petticoat, so they do not hang out of the side view's outline
         curl = round(6 + 10 * math.cos(math.radians(cdeg)) ** 8)
-        out.append((cdeg, round(row_at(cdeg)), round(row_at(0.5 * (cdeg + ndeg))), 18, -6, curl, 12))
+        out.append((cdeg, round(row_at(cdeg)), round(row_at(0.5 * (cdeg + ndeg))), 18, -6, curl, 16))
     return out
 
 

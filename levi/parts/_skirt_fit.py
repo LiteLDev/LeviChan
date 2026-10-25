@@ -382,9 +382,9 @@ PARAMS = {
     3: ((4, 2, -2, -4), AMP_RANGE),             # half-depth
     4: ((4, 2, -2, -4), OFF_RANGE),             # smooth offset
     5: ((6, 3, -3, -6), CURL_RANGE),            # crest tuck (px; < 0 flares out)
-    6: ((2, 1, -1, -2), (10, 16)),              # hem lobe exponent x10 (wider lobe bottom)
+    6: ((2, 1, -1, -2), (15, 20)),              # hem lobe exponent x10 (wider lobe bottom)
 }
-DEFAULTS = (0, 0, 0, 18, 0, 6, 12)    # for columns a stored table lacks
+DEFAULTS = (0, 0, 0, 18, 0, 6, 16)    # for columns a stored table lacks
 CREST_GAP = 16        # min degrees between neighbouring crests (no narrow pinched folds)
 CREST_SLACK = 8       # max degrees a crest may move from its initial azimuth
 
