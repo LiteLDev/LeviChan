@@ -133,7 +133,9 @@ SHEET_PALETTE = {
     'sleeve':      {'base': '#F4F9EC', 'shade': '#DAEBD7', 'line': '#46625C'},
     'sleeve_dark': {'base': '#558A62', 'shade': '#325F3E', 'line': '#13401F'},
     'petticoat':   {'base': '#FDE3DD', 'shade': '#F0C4BE', 'line': '#9F8780'},
-    'cuff':        {'base': '#FCF8F0', 'shade': '#F2DED5', 'line': '#5E625C'},
+    # Wrist frills: re-sampled in round 2 (front view, both wrists, 2-means on
+    # pale low-chroma pixels): the painted shade is a warm grey, not pink.
+    'cuff':        {'base': '#FCF8F0', 'shade': '#D4CCC5', 'line': '#5E625C'},
     'flower':      {'base': '#F6F6F4', 'shade': '#D2D3CD', 'line': '#22372D'},
     # Yellow flower centres: only ~12 px each on the sheet (front, rows 55-92
     # near cols 270 / 368): base/shade are the upper/lower lightness halves of
