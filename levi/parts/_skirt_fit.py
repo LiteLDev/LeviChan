@@ -33,7 +33,7 @@ from levi.parts import skirt  # noqa: E402
 N = skirt.N_PHI
 MISS = 25.0        # per-column penalty where the reference has skirt and the model none
 STICK = 12.0       # per-column penalty where the model sticks out past the reference
-OFF_RANGE = (-40.0, 30.0)
+OFF_RANGE = (-50.0, 30.0)
 ROW_RANGE = (525.0, 625.0)
 AMP_RANGE = (6.0, 30.0)
 AMP_TARGET = 20.0  # fold half-depth the prior pulls toward (px)
@@ -44,9 +44,10 @@ LOBE_MIN = 10.0    # a trough is at least this many rows above its crests
 VIEW_W = {'front': 1.0, 'back': 1.0, 'side': 1.5}
 LOW_W = {'front': 0.5, 'back': 0.5, 'side': 4.0}   # extra per px hanging below the outline
 LOW_TOL = 6.0
+OUT_W = 6.0        # per px a strip past the outline's ends hangs below its end row
 EDGE_W = 5.0
 PET_W = 60.0       # per px of a cloth point inside the petticoat (+ CLEAR)
-CLEAR = 1.5
+CLEAR = 3.0
 VIS_TOL = 3.0      # px a cloth point may sit behind the petticoat depth and still count as visible
 UPS = 12           # azimuth upsampling of the hem curve (sub-pixel spacing for the envelope)
 
@@ -57,7 +58,13 @@ def COL_W(view, c):
     azimuth near row 550-565 and the petticoat's ruffles stand out past it; it
     cannot match all three, so the front/back views win there."""
     if view == 'side' and -36 <= c <= 30:
-        return 0.25
+        return 0.6
+    # The back view's centre lobes hang to rows ~590-619 over |x| < 110 px,
+    # which cloth outside the petticoat's inner tiers can only do at
+    # y ~ +95..+150, where the side view ends the skirt at rows ~550-589: the
+    # back view wins there too.
+    if view == 'side' and 85 <= c <= 150:
+        return 0.4
     return 1.0
 
 
@@ -193,7 +200,12 @@ def envelope(view, pts):
     m = np.full(HN, -np.inf)
     vis &= (hi - H0 >= 0) & (hi - H0 < HN)
     np.maximum.at(m, hi[vis] - H0, pts[vis, 2])
-    return m
+    # the upsampled hem points can still step over a column where the
+    # azimuth samples are sparse (the broad crests): fill empty columns
+    # between two filled ones (no wrap-around at the ends)
+    gap = np.full(HN, -np.inf)
+    gap[1:-1] = np.minimum(m[:-2], m[2:])
+    return np.where(np.isinf(m), gap, m)
 
 
 def view_error(view, pts):
@@ -206,9 +218,16 @@ def view_error(view, pts):
     err = e.sum()
     # cloth hanging below the outline reads as a tongue over the petticoat
     err += LOW_W[view] * np.maximum(0.0, dz - LOW_TOL).sum()
+    # cloth showing past the ends of the measured outline: a flat cost per
+    # column, plus the drop below the outline's end row (a strip hanging
+    # down beside the silhouette must not be cheap)
     out = np.isfinite(m)
     out[lo - H0: lo - H0 + len(ref)] = False
     err += STICK * out.sum()
+    cols = np.nonzero(out)[0]
+    if len(cols):
+        end = np.where(cols < lo - H0, ref[0], ref[-1])
+        err += OUT_W * np.maximum(0.0, m[cols] - end - LOW_TOL).sum()
     return err * VIEW_W[view], m
 
 
@@ -298,11 +317,11 @@ PARAMS = {
     2: ((8, 4, 2, -2, -4, -8), ROW_RANGE),      # trough hem row
     3: ((4, 2, -2, -4), AMP_RANGE),             # half-depth
     4: ((4, 2, -2, -4), OFF_RANGE),             # smooth offset
-    5: ((10, 5, -5, -10), (0, 20)),             # flat lobe bottom (%)
-    6: ((10, 5, -5, -10), (0, 10)),             # flat trough arch (%)
-    7: ((6, 3, -3, -6), (-16, 40)),             # crest roll-under (px; < 0 flares out)
+    5: ((10, 5, -5, -10), (15, 35)),            # flat lobe bottom (%): >= 15 keeps the lobes round
+    6: ((10, 5, -5, -10), (20, 40)),            # flat trough arch (%): >= 20 keeps the arches round
+    7: ((6, 3, -3, -6), (-12, 60)),             # crest roll-under (px; < 0 flares out)
 }
-DEFAULTS = (0, 0, 0, 18, 0, 10, 5, 6)     # for columns a stored table lacks
+DEFAULTS = (0, 0, 0, 18, 0, 20, 20, 6)     # for columns a stored table lacks
 CREST_GAP = 12        # min degrees between neighbouring crests
 CREST_SLACK = 8       # max degrees a crest may move from its initial azimuth
 
