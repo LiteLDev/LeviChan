@@ -1,14 +1,25 @@
-"""Petticoat: peach-pink multi-tier ruffles peeking out below the skirt hem.
+"""Petticoat: peach-pink tiers of puffy scalloped ruffles below the skirt hem.
 
 Objects:
   petticoat_core    low-res inner cone from the hips down; hidden by the skirt.
-  petticoat_tier0-3 concentric ruffle tiers, outermost first. The outer ones
-                    show where the skirt's sides are lifted; each tier further
-                    in hangs lower, down to the layer seen between the legs.
+  petticoat_tier0-2 ruffle tiers, outermost first. The two outer ones show
+                    where the skirt's sides are lifted; the innermost hangs
+                    lowest, beside the legs.
 
-Each tier is a fluted (gathered) sheet: the radius dips between folds and
-the dip deepens towards the hem, so the frill has volume and its outline
-waves. The hem is cut into rounded petal-like scallops.
+Each tier is a short frill of rounded puffs, one puff per hem scallop,
+gathered in threes into bell flounces. Around the tier the hem outline
+bulges out in a rounded arc per puff (notches between, deeper folds between
+bells), and the hem rises at the notches, so every scallop is a clean
+rounded petal. The puff swells to a belly just above the hem, the lip tucks
+back in under it and folds up inside, so the hem is a fold and the outline
+hull draws a line along every scallop. Shading normals are set per ring:
+the top of a tier (seen just below the hem of the tier outside it) and the
+tucked-in lip face down and take the shade tone, the belly is lit. In the
+cel ramp that gives each scallop a light petal with a darker band above and
+a shade crescent along its rounded edge, and the side of each puff away
+from the key light falls into shade too, like the frilly flower edge on the
+sheet. The scallops are about 28 panel px wide with 7 vertices each, so
+the hem outline is smooth instead of aliasing into a fuzzy fringe.
 
 The pink band's bottom outline is a bowl, lowest at the centre and rising
 towards the sides (and higher at the back than the front in the side view).
@@ -16,6 +27,7 @@ It was measured on ref/{front,side,back}.png (panel rows, HEM_FRONT /
 HEM_SIDE) instead of using the single spec.L['petticoat_hem_z'] landmark,
 which only gives one height.
 """
+import bisect
 import math
 
 import bmesh
@@ -42,29 +54,62 @@ FRONT_D = 163     # side view, -Y
 BACK_D = 165      # side view, +Y
 
 # ---------------------------------------------------------------- shape
-SCALLOP_DEPTH = 5 * PX
+SCALLOP_DEPTH = 6 * PX   # how far the hem rises at a notch between puffs
 # Scallop tips only touch the hem line at their centres; drop the line a
 # little so the averaged scalloped outline sits on the measured one.
-HEM_DROP = 3
-FLUTE_DEPTH = 0.14     # radial dip between flutes at the hem (fraction of radius)
-PETALS_PER_FLUTE = 3   # hem scallops per gathered fold
+HEM_DROP = 2
+SEG = 7                  # vertices per puff (one puff = one scallop)
+# Puffs are gathered in threes into hanging bells: between two bells the
+# fabric folds in (FLUTE_DIP x the puff depth) up the whole tier and the hem
+# rises FLUTE_RISE, so the frill reads as separate bell flounces with a
+# scalloped edge, and the fold's side away from the light takes a vertical
+# shade strip.
+FLUTE = 3
+FLUTE_DIP = 0.7
+FLUTE_RISE = 5 * PX
+TOP_SCALE = 0.80         # outer tiers' size at their top, relative to the hem outline
+PUFF_NORMAL = 0.35       # how far shading normals follow the puffs (0 = smooth outline)
+DENSE = 1440            # samples of the dense hem outline (arc-length resampling)
 
-# Concentric ruffle tiers, outermost first. The sheet's bottom outline is a
-# bowl: the outer ruffles (lifted with the skirt's sides) end highest and
-# every tier further in hangs lower, down to the layer seen between the legs.
-# (name, radius fraction rho of the hem outline, height px, flutes,
-#  vertices per scallop, rings, normal up-bias)
-# up-bias tilts a tier's shading normals (+ up, - down). The flared tiers
-# already read as lit pink with shade in the fold valleys, so they keep plain
-# normals; the innermost layer, which is in the skirt's shadow on the sheet,
-# is tilted down so it mostly takes the shade tone.
+# Ruffle tiers, outermost first. The sheet's bottom outline is a bowl: the
+# outer ruffles (lifted with the skirt's sides) end highest and the tiers
+# further in hang lower. (name, hem outline (half width, front depth, back
+# depth px, superellipse exponent), centre lift (x0, x1) px, height px,
+# puffs, puff depth px, belly elevation deg)
+# Belly elevation is the tilt of the lit band's shading normal (+ up).
+#
+# Under the middle of the skirt, front and back, the sheet shows the legs
+# from the skirt hem down. Every tier would hang in front of them there, so
+# within x0 px of the midline (front view) a tier's hem rises to LIFT_ROW,
+# behind the skirt's centre hem (spec skirt_hem_z, row 598), easing back to
+# the measured bowl by x1. The innermost tier is boxy (exponent 3) and
+# hangs straight (top as wide as the hem): its flat sides reach towards the
+# low middle of the side view's bottom outline and show beside the legs in
+# the front view.
+# Rigging: every tier stays well clear of the leg bones (leg_center_x 43 +
+# thigh_half_w 22; the inner tier's sides are >75 px from the leg axis), so
+# the skinning weights it to the skirt chains like the skirt itself. A layer
+# hugging or passing between the thighs gets split leg weights and tears
+# when one leg is raised (rig_check stretch x4-x9 in experiments), so the
+# sheet's shadowed layer between the legs is left out.
 TIERS = (
-    ('petticoat_tier0', 1.00, 50, 24, 4, 4, 0.00),
-    ('petticoat_tier1', 0.82, 46, 20, 3, 4, 0.00),
-    ('petticoat_tier2', 0.62, 44, 16, 3, 4, 0.00),
-    ('petticoat_tier3', 0.42, 42, 12, 3, 4, -0.50),
+    ('petticoat_tier0', (HALF_W, FRONT_D, BACK_D, 2.0), (60, 78), 50, TOP_SCALE, 45, 9.0, -20.0),
+    ('petticoat_tier1', (0.76 * HALF_W, 0.76 * FRONT_D, 0.76 * BACK_D, 2.0), (60, 78), 46, TOP_SCALE, 36, 8.0, -20.0),
+    ('petticoat_tier2', (148, 105, 105, 3.0), (60, 78), 44, 1.0, 27, 7.0, -20.0),
 )
-TOP_SCALE = 0.80       # tier radius at its top, relative to its hem radius
+LIFT_ROW = 585   # high enough that no lifted sliver peeks out under the skirt
+# Rings from top to hem: (height above the hem as a fraction of the tier
+# height, size scale (relative to the hem outline), puff amount, shading
+# elevation deg or None for the tier's belly elevation). Below -56 deg the
+# key light falls under toon.RAMP_THRESHOLD and the ring takes the shade.
+# The last ring folds the lip back up inside, so the hem is a fold rather
+# than an open border and the outline hull draws a line along each scallop.
+RINGS = (
+    (1.00, None, 0.25, -90.0),
+    (0.14, 1.00, 1.00, None),
+    (0.00, 0.95, 1.00, -70.0),
+    (0.10, 0.90, 1.00, -70.0),
+)
 
 
 def _interp(table, x):
@@ -77,87 +122,147 @@ def _interp(table, x):
     return table[-1][1]
 
 
-def _ellipse(phi, scale=1.0):
-    """Hem outline point (x, y) at angle phi (0 = +X, -pi/2 = front)."""
+def _smoothstep(e0, e1, x):
+    t = min(1.0, max(0.0, (x - e0) / (e1 - e0)))
+    return t * t * (3 - 2 * t)
+
+
+def _ellipse(phi, scale=1.0, dims=(HALF_W, FRONT_D, BACK_D)):
+    """Point (x, y) in metres on a hem ellipse at angle phi (0 = +X, -pi/2 = front).
+
+    dims: (half width, front depth, back depth) in panel px.
+    """
     s = math.sin(phi)
-    d = FRONT_D if s < 0 else BACK_D
-    return (scale * HALF_W * PX * math.cos(phi), scale * d * PX * s)
+    d = dims[1] if s < 0 else dims[2]
+    return (scale * dims[0] * PX * math.cos(phi), scale * d * PX * s)
 
 
-def hem_z(rho, phi):
-    """World z of the hem of the tier at radius fraction rho, angle phi.
+def _dense_outline(shape):
+    """Dense closed counter-clockwise hem outline (px) from the front centre.
+
+    shape: (half width, front depth, back depth, exponent), a superellipse
+    (exponent 2 = ellipse, larger = boxier).
+    """
+    w, fd, bd, ex = shape
+    e = 2.0 / ex
+    out = []
+    for i in range(DENSE):
+        phi = 2 * math.pi * i / DENSE - math.pi / 2
+        c, s = math.cos(phi), math.sin(phi)
+        out.append((w * math.copysign(abs(c) ** e, c), (fd if s < 0 else bd) * math.copysign(abs(s) ** e, s)))
+    return out
+
+
+def _outline(shape, n, phase):
+    """n points (px) evenly spaced by arc length on the hem outline, offset by
+    `phase` spacings from the front centre, with their outward unit normals."""
+    pts = _dense_outline(shape)
+    m = len(pts)
+    cum = [0.0]
+    for i in range(m):
+        a, b = pts[i], pts[(i + 1) % m]
+        cum.append(cum[-1] + math.hypot(b[0] - a[0], b[1] - a[1]))
+    total = cum[-1]
+    res = []
+    for i in range(n):
+        s = ((i + phase) / n * total) % total
+        j = min(bisect.bisect_right(cum, s) - 1, m - 1)
+        a, b = pts[j], pts[(j + 1) % m]
+        t = (s - cum[j]) / max(cum[j + 1] - cum[j], 1e-9)
+        tx, ty = b[0] - a[0], b[1] - a[1]
+        ln = math.hypot(tx, ty) or 1.0
+        res.append(((a[0] + tx * t, a[1] + ty * t), (ty / ln, -tx / ln)))
+    return res
+
+
+def hem_z(x, y, lift=None):
+    """World z of a tier's hem at the hem-outline point (x, y) (panel px).
 
     The hem point projects onto front-view column |x| and side-view column y.
     The measured bottom outline of each view is the lowest ruffle point over
     that column, so a hem point may hang no lower than either outline: take
-    the higher of the two. Inner tiers (smaller rho) reach the lower centre
-    of the bowl-shaped outline, outer tiers its lifted sides.
+    the higher of the two. Inner tiers reach the lower centre of the
+    bowl-shaped outline, outer tiers its lifted sides. lift = (x0, x1) raises
+    the hem near the midline to LIFT_ROW (see TIERS).
     """
-    x, y = _ellipse(phi, rho)
-    row = min(_interp(HEM_FRONT, abs(x) / PX), _interp(HEM_SIDE, y / PX))
+    ax = abs(x)
+    row = min(_interp(HEM_FRONT, ax), _interp(HEM_SIDE, y))
+    if lift and row > LIFT_ROW:
+        row += (LIFT_ROW - row) * (1.0 - _smoothstep(lift[0], lift[1], ax))
     return spec.px_to_z(row + HEM_DROP)
 
 
-def _scallop(t):
-    """Petal profile along one scallop, t in [0, 1): 0 at the notch, 1 at the tip."""
-    return math.sin(math.pi * t) ** 0.7
+def _puff(u):
+    """Rounded puff profile across one scallop, u in [0, 1): 0 at the notch, 1 at the crown."""
+    return math.sin(math.pi * u) ** 0.5
 
 
-def _tier(col, mat, idx, name, rho, height_px, flutes, seg, rings, up_bias):
-    petal_n = PETALS_PER_FLUTE * seg
-    n = flutes * petal_n
+def _tier(col, idx, name, shape, lift, height_px, top_scale, puffs, depth_px, belly_deg):
+    if puffs % FLUTE:
+        raise ValueError(f'{name}: puffs must be a multiple of FLUTE ({FLUTE})')
+    n = puffs * SEG
+    fn = FLUTE * SEG
     height = height_px * PX
-    # Alternate tiers by half a fold so their flutes interleave as on the sheet.
-    phase = (math.pi / flutes) * (idx % 2)
-    loops = []
-    for k in range(rings):
-        t = k / (rings - 1)            # 0 = top, 1 = hem
-        ease = t * t * (3 - 2 * t)
+    # Alternate tiers by half a flute so the bells interleave as on the sheet.
+    hem = _outline(shape, n, 0.5 * fn * (idx % 2))
+    hems = [hem_z(p[0], p[1], lift) for p, _ in hem]
+    loops, elev = [], []
+    for h, scale, amount, e in RINGS:
+        scale = top_scale if scale is None else scale
         loop = []
-        for i in range(n):
-            phi = 2 * math.pi * i / n + phase - math.pi / 2
-            flute = 0.5 - 0.5 * math.cos(2 * math.pi * i / petal_n)   # 0 at fold ridge, 1 between
-            scale = rho * (TOP_SCALE + (1.0 - TOP_SCALE) * ease) * (1.0 - FLUTE_DEPTH * t * flute)
-            x, y = _ellipse(phi, scale)
-            z = hem_z(rho, phi) + height * (1.0 - t)
-            if k == rings - 1:
-                # Scallop tips sit on the hem line, notches rise.
-                z += SCALLOP_DEPTH * (1.0 - _scallop((i % seg) / seg))
-                # Folds pull the hem up a little between flutes.
-                z += 3 * PX * flute
-            elif k == rings - 2:
-                # Slight outward curl just above the hem for ruffle volume.
-                x *= 1.015
-                y *= 1.015
+        for i, ((bx, by), (nx, ny)) in enumerate(hem):
+            p = _puff((i % SEG) / SEG)
+            f = 1.0 - _puff((i % fn) / fn)      # 1 in the fold between two bells
+            # The puff crown reaches the hem outline; notches dip in, and
+            # the folds between bells run up the whole tier.
+            dip = depth_px * amount * ((1.0 - p) + FLUTE_DIP * f)
+            x = (scale * bx - nx * dip) * PX
+            y = (scale * by - ny * dip) * PX
+            z = hems[i] + height * h + SCALLOP_DEPTH * (1.0 - p) + FLUTE_RISE * f
             loop.append(Vector((x, y, z)))
         loops.append(loop)
-    return _finish(col, mat, name, loops, up_bias)
+        elev.append(math.radians(belly_deg if e is None else e))
+    # Shading normals: the horizontal normal of each ring's puffed outline
+    # (so the steep side of a puff away from the light shades), partly
+    # relaxed towards the smooth hem outline's normal (PUFF_NORMAL) so the
+    # puffs seen edge-on at the sides don't streak, then tilted to the
+    # ring's elevation. The rings run counter-clockwise, so (t.y, -t.x)
+    # points outward.
+    normals = []
+    up = Vector((0.0, 0.0, 1.0))
+    for loop, e in zip(loops, elev):
+        for i in range(n):
+            t = loop[(i + 1) % n] - loop[i - 1]
+            pn = Vector((t.y, -t.x, 0.0)).normalized()
+            on = Vector((hem[i][1][0], hem[i][1][1], 0.0))
+            hn = (on.lerp(pn, PUFF_NORMAL)).normalized()
+            normals.append(hn * math.cos(e) + up * math.sin(e))
+    return _finish(col, common.toon_material('petticoat'), name, loops, normals)
 
 
-def _finish(col, mat, name, loops, up_bias=0.0):
+def _finish(col, mat, name, loops, normals=None):
     """Loft the rings into a sheet object with toon shading normals + outline.
 
     recalc_face_normals is ambiguous on an open tube, so orientation is set
-    explicitly: faces point INWARD (towards the body axis). add_outline's
-    Solidify flips all normals of its result, so an open sheet must start
-    out facing away from the viewer for the hull to land outside and the
-    sheet itself to stay visible; with outward faces the hull covers the
-    whole frill in a flat tone (verified in render). EEVEE shades the sheet
-    from its camera-facing side, so the lighting still reads as outward.
+    explicitly: faces point OUTWARD (away from the body axis). The loft's
+    winding is consistent, through the folded hem too, so the whole sheet is
+    flipped or kept by the faces' overall direction. Outward faces put the
+    outline hull on the outside of the hem fold, so it draws a line along
+    every scallop (with inward faces the hull sits inside the fold and the
+    hem gets no line); the hull's backface culling keeps it off the fill.
+
+    normals: optional outward shading normal per vertex (ring-major, the
+    order of `loops`).
     """
     bm = common.loft(loops, closed=True)
-    flip = [f for f in bm.faces
-            if f.normal.dot(Vector((f.calc_center_median().x, f.calc_center_median().y, 0.0))) > 0.0]
-    if flip:
-        bmesh.ops.reverse_faces(bm, faces=flip)
+    out = sum(f.normal.dot(Vector((c.x, c.y, 0.0))) * f.calc_area()
+              for f in bm.faces for c in (f.calc_center_median(),))
+    if out < 0.0:
+        bmesh.ops.reverse_faces(bm, faces=list(bm.faces))
     obj = common.new_object(col, name, bm, [mat])
     common.shade_smooth(obj, 60.0)
-    if up_bias:
-        # Vertex normals point inward (-n_out); the shading normal is the
-        # outward one tilted up: n = -(n_out + up) = vn - up.
-        me = obj.data
-        up = Vector((0.0, 0.0, up_bias))
-        me.normals_split_custom_set_from_vertices([(v.normal - up).normalized() for v in me.vertices])
+    if normals:
+        obj.data.normals_split_custom_set_from_vertices([v.normalized() for v in normals])
     common.add_outline(obj)
     return obj
 
@@ -165,21 +270,21 @@ def _finish(col, mat, name, loops, up_bias=0.0):
 def _core(col, mat):
     """Hidden inner cone from the hips down into the top of the outer tier."""
     n = 32
-    _, rho0, height0 = TIERS[0][:3]
+    dims0, lift0, height0, top0 = TIERS[0][1:5]
     top = common.ellipse_ring((0, L['waist_center_y'] * 0.6, L['hip_z']), L['waist_half_w'] * 1.40, 0.065, n)
     mid_z = (L['hip_z'] + spec.px_to_z(530)) / 2
     mid = common.ellipse_ring((0, 0, mid_z), HALF_W * PX * 0.50, FRONT_D * PX * 0.55, n)
     bot = []
     for i in range(n):
         phi = 2 * math.pi * i / n
-        x, y = _ellipse(phi, rho0 * TOP_SCALE * 0.985)
+        x, y = _ellipse(phi, top0 * 0.985, dims0[:3])
+        hx, hy = _ellipse(phi, 1.0, dims0[:3])
         # Tuck a few px below the outer tier's top edge so no gap shows.
-        bot.append(Vector((x, y, hem_z(rho0, phi) + (height0 - 6) * PX)))
+        bot.append(Vector((x, y, hem_z(hx / PX, hy / PX, lift0) + (height0 - 6) * PX)))
     return _finish(col, mat, 'petticoat_core', [top, mid, bot])
 
 
 def build(col):
-    mat = common.toon_material('petticoat')
-    _core(col, mat)
+    _core(col, common.toon_material('petticoat'))
     for idx, tier in enumerate(TIERS):
-        _tier(col, mat, idx, *tier)
+        _tier(col, idx, *tier)
