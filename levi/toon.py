@@ -7,18 +7,34 @@ here and in render.py so all parts change together.
 Shading model (matches the sheet's flat anime style):
   intensity = N.L x shadow   from one camera-relative sun of strength 1 and a
                              black world (render.py), so 0..1 and noise-free
-  colour    = shade if intensity < RAMP_THRESHOLD else base   (palette hexes,
-                             emitted, so they land in the PNG exactly)
+  colour    = shade if intensity < ramp_threshold(key) else base   (palette
+                             hexes, emitted, so they land in the PNG exactly)
 Outlines are coloured (palette 'line'), never black, and do not cast shadows.
 """
 import bpy
 
 from . import spec
 
-# N.L below which a surface takes the shade colour. With the light ~35 deg off
+# N.L below which a surface takes the shade colour. With the light ~23 deg off
 # the view axis this keeps surfaces mostly lit and puts the single shade tone
 # on turned-away sides plus cast shadows (under the chin, hair, skirt hem).
-RAMP_THRESHOLD = 0.22
+# Tuned on the full model (round 2) against the per-region shade share
+# (tools/compare.py 'shade ref .. ren ..'): 0.30 with cast shadows gives skin
+# ~17-20% shade like the sheet's ~18%; higher values over-shade skin.
+RAMP_THRESHOLD = 0.30
+# Per-palette-key thresholds (look-dev, not per part): the sheet paints cloth
+# and hair with much more shade than skin (anime convention), so with one
+# global threshold either skin is over-shaded or the dress/hair stay almost
+# flat. Keys not listed use RAMP_THRESHOLD; gradient materials use the
+# threshold of their first key.
+# Values from the round-2 full-model sweep, balancing the shade share against
+# dE and visual review: at 0.55/0.50 the hair and skirt shade read too broad
+# and grey next to the sheet, so cloth and hair sit a little lower, with
+# lighter shade tones (spec.PALETTE) so misplaced shade costs less.
+RAMP_BY_KEY = {
+    'dress': 0.48, 'dress_mint': 0.48, 'sleeve': 0.48, 'sleeve_dark': 0.48,
+    'hair': 0.42, 'green': 0.50, 'leaf': 0.50,
+}
 # Half-width of the lit/shade transition. 0 = hard cel edge (CONSTANT ramp):
 # every pixel is exactly base or shade, and only TAA anti-aliases the
 # terminator. >0 blends linearly over that N.L range.
@@ -40,20 +56,31 @@ def srgb(hex_str):
     return (*out, 1.0)
 
 
-def _ramp(nodes, links, intensity_socket):
-    ramp = nodes.new('ShaderNodeValToRGB')
-    ramp.name = 'ToonRamp'
+def ramp_threshold(key=None):
+    """N.L threshold for palette `key` (RAMP_BY_KEY, else RAMP_THRESHOLD)."""
+    return RAMP_BY_KEY.get(key, RAMP_THRESHOLD)
+
+
+def _tune_ramp(ramp, key=None):
+    """Set a 'ToonRamp' ColorRamp node to the current RAMP_* settings."""
+    t = ramp_threshold(key)
     e = ramp.color_ramp.elements
     if RAMP_SOFTNESS > 0:
         ramp.color_ramp.interpolation = 'LINEAR'
-        e[0].position = max(0.0, RAMP_THRESHOLD - RAMP_SOFTNESS)
-        e[1].position = min(1.0, RAMP_THRESHOLD + RAMP_SOFTNESS)
+        e[0].position = max(0.0, t - RAMP_SOFTNESS)
+        e[1].position = min(1.0, t + RAMP_SOFTNESS)
     else:
         ramp.color_ramp.interpolation = 'CONSTANT'
         e[0].position = 0.0
-        e[1].position = RAMP_THRESHOLD
+        e[1].position = t
     e[0].color = (0, 0, 0, 1)
     e[1].color = (1, 1, 1, 1)
+
+
+def _ramp(nodes, links, intensity_socket, key=None):
+    ramp = nodes.new('ShaderNodeValToRGB')
+    ramp.name = 'ToonRamp'
+    _tune_ramp(ramp, key)
     links.new(intensity_socket, ramp.inputs['Fac'])
     return ramp
 
@@ -73,6 +100,10 @@ def _mix(nodes, links, fac, a, b):
     return m.outputs[2]
 
 
+def _default_name(key, gradient=None):
+    return f'toon_{key}' if not gradient else f'toon_{key}__{gradient}'
+
+
 def toon_material(key, gradient=None, name=None):
     """Return (creating once) the toon material for palette `key`.
 
@@ -80,7 +111,7 @@ def toon_material(key, gradient=None, name=None):
     'toon_grad' (0 -> key, 1 -> gradient) blends between the two palettes,
     e.g. toon_material('hair', gradient='hair_tip').
     """
-    name = name or (f'toon_{key}' if not gradient else f'toon_{key}__{gradient}')
+    name = name or _default_name(key, gradient)
     mat = bpy.data.materials.get(name)
     if mat:
         return mat
@@ -88,6 +119,13 @@ def toon_material(key, gradient=None, name=None):
     mat['toon_key'] = key
     if gradient:
         mat['toon_gradient'] = gradient
+    mat['toon_std'] = True  # tree owned by _build_toon_tree; sync_materials() rebuilds it
+    _build_toon_tree(mat)
+    return mat
+
+
+def _build_toon_tree(mat):
+    key, gradient = mat['toon_key'], mat.get('toon_gradient')
     mat.use_nodes = True
     nt = mat.node_tree
     nodes, links = nt.nodes, nt.links
@@ -99,7 +137,7 @@ def toon_material(key, gradient=None, name=None):
     links.new(diff.outputs['BSDF'], s2r.inputs['Shader'])
     bw = nodes.new('ShaderNodeRGBToBW')
     links.new(s2r.outputs['Color'], bw.inputs['Color'])
-    ramp = _ramp(nodes, links, bw.outputs['Val'])
+    ramp = _ramp(nodes, links, bw.outputs['Val'], key)
 
     pa = spec.PALETTE[key]
     base, shade = srgb(pa['base']), srgb(pa['shade'])
@@ -119,7 +157,39 @@ def toon_material(key, gradient=None, name=None):
     links.new(emit.outputs['Emission'], out.inputs['Surface'])
     mat.diffuse_color = srgb(pa['base'])  # viewport / PMX fallback
     mat.line_color = srgb(pa['line'])     # Freestyle (render.py --freestyle)
-    return mat
+
+
+def sync_materials():
+    """Re-apply the current look-dev (RAMP_* and spec.PALETTE) to the toon and
+    outline materials already in the file, so a .blend built before a look-dev
+    change renders with current settings (render.py calls this).
+
+    toon_material() trees are rebuilt; custom part materials that reuse
+    _ramp() (e.g. the face) get their 'ToonRamp' node re-tuned; outline hulls
+    get their palette line colour. Returns the number of materials touched.
+    """
+    n = 0
+    for mat in bpy.data.materials:
+        key = mat.get('toon_key')
+        if key not in spec.PALETTE or not mat.node_tree:
+            continue
+        if mat.get('is_outline'):
+            emit = mat.node_tree.nodes.get('ToonEmission')
+            if emit:
+                emit.inputs['Color'].default_value = srgb(spec.PALETTE[key]['line'])
+                mat.diffuse_color = srgb(spec.PALETTE[key]['line'])
+                n += 1
+        elif (mat.get('toon_std')
+              or mat.name.split('.')[0] == _default_name(key, mat.get('toon_gradient'))) \
+                and mat.get('toon_gradient', key) in spec.PALETTE:
+            _build_toon_tree(mat)
+            n += 1
+        else:
+            ramp = mat.node_tree.nodes.get('ToonRamp')
+            if ramp:
+                _tune_ramp(ramp, key)
+                n += 1
+    return n
 
 
 def outline_material(key):

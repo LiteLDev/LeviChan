@@ -2,7 +2,8 @@
 
     blender -b out/levi.blend -P render.py -- [--out out/render] [--views front,side,back]
                                               [--hide _proxy] [--scale 1]
-                                              [--no-regions] [--freestyle] [--shadows]
+                                              [--no-regions] [--freestyle] [--[no-]shadows]
+                                              [--sun AZ,EL] [--ramp T] [--ramp-key KEY=T,...]
 
 Writes <out>/<view>.png (RGBA, transparent background) at PANEL_W x PANEL_H,
 and <out>/<view>_regions.png: the same frame with every toon material flat-
@@ -27,7 +28,7 @@ sys.path.insert(0, ROOT)
 import bpy  # noqa: E402
 from mathutils import Vector  # noqa: E402
 
-from levi import regions, spec  # noqa: E402
+from levi import regions, spec, toon  # noqa: E402
 from levi.toon import GRAD_ATTR, srgb  # noqa: E402
 
 # Key light, relative to the camera of each view, like the sheet's: every
@@ -36,12 +37,14 @@ from levi.toon import GRAD_ATTR, srgb  # noqa: E402
 # the view axis toward image-left, elevation upward. Surfaces turned away
 # (sides, undersides of hems, chin, hair strands) fall into the shade tone.
 SUN_AZIMUTH_DEG = 20.0
-SUN_ELEVATION_DEG = 20.0
-# Cast shadows are off by default: shadow maps on medium-poly / custom-normal
-# geometry give blocky self-shadow patches and stair-stepped terminators that
-# the sheet never has, while N.L alone already shades undersides and sides.
-# --shadows turns them on (short cast shadows under the skirt/chin/hair).
-CAST_SHADOWS = False
+SUN_ELEVATION_DEG = 12.0  # round 2: lower sun keeps cast shadows short, so skin
+# shade share matches the sheet's (~18%) with shadows on
+# Cast shadows are on: on the full model they give the sheet's contact
+# shadows (skirt onto petticoat and thighs, chin onto neck, sleeves onto the
+# hair behind them), which N.L alone cannot, and the petticoat's shade share
+# goes from ~3% to ~20-37% (sheet ~40%). Sun-only shadow maps with no
+# jitter stay deterministic. --no-shadows turns them off for comparison.
+CAST_SHADOWS = True
 # EEVEE's diffuse response to a sun of strength E is E * N.L / pi, so E = pi
 # makes ShaderToRGB return exactly N.L x shadow (0..1) for the toon ramp.
 SUN_ENERGY = math.pi
@@ -124,9 +127,10 @@ def place_camera(cam, view):
     cam.data.shift_y = 0.0
 
 
-def place_sun(sun, cam):
+def place_sun(sun, cam, azimuth=None, elevation=None):
     """Aim the sun from the camera's upper left (camera-relative key light)."""
-    az, el = math.radians(SUN_AZIMUTH_DEG), math.radians(SUN_ELEVATION_DEG)
+    az = math.radians(SUN_AZIMUTH_DEG if azimuth is None else azimuth)
+    el = math.radians(SUN_ELEVATION_DEG if elevation is None else elevation)
     # Camera space: +X image right, +Y image up, +Z toward the viewer.
     to_light_cam = Vector((-math.sin(az) * math.cos(el), math.sin(el), math.cos(az) * math.cos(el)))
     cam_rot = cam.rotation_euler.to_matrix()
@@ -210,15 +214,36 @@ def main():
     ap.add_argument('--scale', type=int, default=1)
     ap.add_argument('--no-regions', action='store_true', help='skip the <view>_regions.png pass')
     ap.add_argument('--freestyle', action='store_true', help='add Freestyle crease/open-border lines')
-    ap.add_argument('--shadows', action='store_true', help='enable sun cast shadows')
+    ap.add_argument('--shadows', action=argparse.BooleanOptionalAction, default=CAST_SHADOWS,
+                    help=f'sun cast shadows (default: {"on" if CAST_SHADOWS else "off"})')
+    ap.add_argument('--sun', default='', help='AZ,EL degrees: override the key light (look-dev experiments)')
+    ap.add_argument('--ramp', type=float, default=None, help='override toon.RAMP_THRESHOLD (look-dev experiments)')
+    ap.add_argument('--ramp-key', default='', help='KEY=T,...: override toon.RAMP_BY_KEY entries (look-dev experiments)')
     args = ap.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
+    try:
+        az, el = map(float, args.sun.split(',')) if args.sun else (None, None)
+        ramp_key = {}
+        for item in filter(None, args.ramp_key.split(',')):
+            k, t = item.split('=')
+            ramp_key[k] = float(t)
+    except ValueError:
+        ap.error('--sun takes AZ,EL and --ramp-key takes KEY=T,... (numbers in degrees / N.L)')
+    bad = [k for k in ramp_key if k not in spec.PALETTE]
+    if bad:
+        ap.error(f'--ramp-key: unknown palette key(s) {bad}')
 
     for name in filter(None, args.hide.split(',')):
         col = bpy.data.collections.get(name)
         if col:
             col.hide_render = True
 
-    sc, cam, sun = setup_scene(args.scale, shadows=args.shadows or CAST_SHADOWS)
+    if args.ramp is not None:
+        toon.RAMP_THRESHOLD = args.ramp
+    toon.RAMP_BY_KEY.update(ramp_key)
+    # Re-apply the current ramp / palette to materials saved in the .blend, so
+    # look-dev changes take effect without rebuilding the model.
+    print('SYNCED', toon.sync_materials(), 'materials')
+    sc, cam, sun = setup_scene(args.scale, shadows=args.shadows)
     if args.freestyle:
         setup_freestyle(sc)
     out = os.path.join(ROOT, args.out)
@@ -235,7 +260,7 @@ def main():
             sc.render.filter_size = 0.0
         for view in views:
             place_camera(cam, view)
-            place_sun(sun, cam)
+            place_sun(sun, cam, az, el)
             sc.render.filepath = os.path.join(out, f'{view}{suffix}.png')
             bpy.ops.render.render(write_still=True)
             print('RENDERED', sc.render.filepath)
