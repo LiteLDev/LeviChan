@@ -4,6 +4,17 @@
                                               [--hide _proxy] [--scale 1]
                                               [--no-regions] [--freestyle] [--[no-]shadows]
                                               [--sun AZ,EL] [--ramp T] [--ramp-key KEY=T,...]
+                                              [--clay] [--turntable N] [--pose NAME,...|all]
+
+Review views (no reference; same ortho scale and frame centre, key light
+still camera-relative): --views q34_front_left,q34_back_right,high, or
+--views review for the sheet views plus these three, or turn_<AZ> (degrees
+from the front toward the character's left). --turntable N adds N evenly
+spaced turn_<AZ> views and tiles them into <out>/turntable.png. --clay renders
+neutral grey diffuse with the outline hulls off (form review, no regions).
+--pose renders a rigged .blend in tools/rig_pose.py POSES into
+<out>/<pose>/<view>.png (no regions). The calibrated front/side/back output is
+unchanged by any of these.
 
 Writes <out>/<view>.png (RGBA, transparent background) at PANEL_W x PANEL_H,
 and <out>/<view>_regions.png: the same frame with every toon material flat-
@@ -24,6 +35,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
+sys.path.insert(1, os.path.join(ROOT, 'tools'))   # contact, rig_pose (imported on demand)
 
 import bpy  # noqa: E402
 from mathutils import Vector  # noqa: E402
@@ -51,6 +63,22 @@ SUN_ENERGY = math.pi
 AMBIENT = 0.0        # world strength (kept 0: the toon ramp needs pure N.L)
 TAA_SAMPLES = 16     # edge anti-aliasing only; flat interiors are exact
 SHADOW_FILTER = 0.5  # sun shadow PCF radius: crisp cel shadow edges
+
+# Review views (not on the sheet, no reference): the same ortho camera and
+# camera-relative key light orbited around the model. (azimuth, elevation)
+# in degrees; azimuth from the front camera toward the character's left (+X),
+# so 90 is the sheet's side view and 180 its back view.
+REVIEW_CAMERAS = {
+    'q34_front_left': (45.0, 0.0),    # between front and side (character's front-left)
+    'q34_back_right': (225.0, 0.0),   # the opposite diagonal: back and the unseen right side
+    'high': (0.0, 30.0),              # front, looking down 30 deg (tops of shoulders, hair, skirt)
+}
+TURNTABLE_ELEVATION_DEG = 0.0  # turn_<AZ> views (--turntable N)
+TURNTABLE_ANGLES = {}          # --turntable view name -> exact azimuth
+# --clay: neutral grey diffuse, outlines off, to judge form and flatness. The
+# key light sits higher and further round than the cel key so planes read.
+CLAY_SUN = (35.0, 35.0)
+CLAY_GREY = (0.16, 0.62, 0.18)  # display value = a + b * N.L x shadow + c * facing
 
 
 def setup_scene(scale, shadows=CAST_SHADOWS):
@@ -117,14 +145,42 @@ def setup_scene(scale, shadows=CAST_SHADOWS):
     return sc, cam, sun
 
 
+def view_angles(view):
+    """(azimuth, elevation) degrees of a review view, or None for the
+    calibrated sheet views (spec.CAMERAS). Azimuth is measured from the front
+    camera (-Y) toward the character's left (+X): 90 = side, 180 = back."""
+    if view in REVIEW_CAMERAS:
+        return REVIEW_CAMERAS[view]
+    if view in TURNTABLE_ANGLES:
+        return TURNTABLE_ANGLES[view], TURNTABLE_ELEVATION_DEG
+    if view.startswith('turn_'):
+        try:
+            return float(view[5:]), TURNTABLE_ELEVATION_DEG
+        except ValueError:
+            pass
+    return None
+
+
+def known_view(view):
+    return view in spec.CAMERAS or view_angles(view) is not None
+
+
 def place_camera(cam, view):
-    c = spec.CAMERAS[view]
     z_center = (spec.SHEET_GROUND_Y - spec.PANEL_H / 2) / spec.PX_PER_M
-    cam.location = (c['loc'][0], c['loc'][1], z_center)
-    cam.rotation_euler = (math.radians(90), 0.0, math.radians(c['rot_z_deg']))
-    # Panel centre column is PANEL_W/2 exactly, so no horizontal shift needed.
     cam.data.shift_x = 0.0
     cam.data.shift_y = 0.0
+    if view in spec.CAMERAS:
+        c = spec.CAMERAS[view]
+        cam.location = (c['loc'][0], c['loc'][1], z_center)
+        cam.rotation_euler = (math.radians(90), 0.0, math.radians(c['rot_z_deg']))
+        # Panel centre column is PANEL_W/2 exactly, so no horizontal shift needed.
+        return
+    # Review views: the same ortho scale and frame centre, orbiting the
+    # vertical axis through the origin (between the feet).
+    az, el = (math.radians(a) for a in view_angles(view))
+    d = Vector((math.sin(az) * math.cos(el), -math.cos(az) * math.cos(el), math.sin(el)))
+    cam.location = Vector((0.0, 0.0, z_center)) + 6.0 * d
+    cam.rotation_euler = (math.radians(90) - el, 0.0, az)
 
 
 def place_sun(sun, cam, azimuth=None, elevation=None):
@@ -180,6 +236,61 @@ def set_region_materials():
             nt.links.new(emit.outputs['Emission'], out.inputs['Surface'])
 
 
+def set_clay_materials():
+    """Swap every material to a neutral grey diffuse and turn the outline
+    hulls off, so form, flat spots and faceting read without the palette.
+
+    grey = a + b * (N.L x shadow) + c * facing (CLAY_GREY, display values),
+    smooth (no ramp), so shading follows the normals continuously.
+    """
+    a, b, c = CLAY_GREY
+    for mat in bpy.data.materials:
+        if not mat.use_nodes or not mat.node_tree:
+            continue
+        nt = mat.node_tree
+        diff = nt.nodes.new('ShaderNodeBsdfDiffuse')
+        diff.inputs['Color'].default_value = (1, 1, 1, 1)
+        s2r = nt.nodes.new('ShaderNodeShaderToRGB')
+        nt.links.new(diff.outputs['BSDF'], s2r.inputs['Shader'])
+        bw = nt.nodes.new('ShaderNodeRGBToBW')
+        nt.links.new(s2r.outputs['Color'], bw.inputs['Color'])
+        lw = nt.nodes.new('ShaderNodeLayerWeight')
+        lw.inputs['Blend'].default_value = 0.5
+        facing = nt.nodes.new('ShaderNodeMath')
+        facing.operation = 'SUBTRACT'
+        facing.inputs[0].default_value = 1.0
+        nt.links.new(lw.outputs['Facing'], facing.inputs[1])
+        lit = nt.nodes.new('ShaderNodeMath')
+        lit.operation = 'MULTIPLY_ADD'
+        lit.inputs[1].default_value = b
+        lit.inputs[2].default_value = a
+        nt.links.new(bw.outputs['Val'], lit.inputs[0])
+        val = nt.nodes.new('ShaderNodeMath')
+        val.operation = 'MULTIPLY_ADD'
+        val.inputs[1].default_value = c
+        val.use_clamp = True
+        nt.links.new(facing.outputs['Value'], val.inputs[0])
+        nt.links.new(lit.outputs['Value'], val.inputs[2])
+        # display value -> scene linear (Standard view transform)
+        lin = nt.nodes.new('ShaderNodeMath')
+        lin.operation = 'POWER'
+        lin.inputs[1].default_value = 2.2
+        nt.links.new(val.outputs['Value'], lin.inputs[0])
+        emit = nt.nodes.new('ShaderNodeEmission')
+        nt.links.new(lin.outputs['Value'], emit.inputs['Color'])
+        for out in [n for n in nt.nodes if n.type == 'OUTPUT_MATERIAL']:
+            nt.links.new(emit.outputs['Emission'], out.inputs['Surface'])
+    for obj in bpy.data.objects:
+        for mod in obj.modifiers:
+            if mod.name == 'Outline' and mod.type == 'SOLIDIFY':
+                mod.show_render = False
+
+
+def find_armature():
+    arms = [o for o in bpy.data.objects if o.type == 'ARMATURE']
+    return arms[0] if arms else None
+
+
 def setup_freestyle(sc):
     """1 px crease/border lines coloured by each material's line_color."""
     sc.render.use_freestyle = True
@@ -219,6 +330,13 @@ def main():
     ap.add_argument('--sun', default='', help='AZ,EL degrees: override the key light (look-dev experiments)')
     ap.add_argument('--ramp', type=float, default=None, help='override toon.RAMP_THRESHOLD (look-dev experiments)')
     ap.add_argument('--ramp-key', default='', help='KEY=T,...: override toon.RAMP_BY_KEY entries (look-dev experiments)')
+    ap.add_argument('--clay', action='store_true',
+                    help='neutral grey diffuse, outlines off, no regions (form review)')
+    ap.add_argument('--turntable', type=int, default=0, metavar='N',
+                    help='also render N evenly spaced turn_<AZ> views and <out>/turntable.png')
+    ap.add_argument('--pose', default='',
+                    help='NAME,... or all: pose a rigged .blend with tools/rig_pose.py POSES and '
+                         'render <out>/<pose>/<view>.png for each (no regions)')
     args = ap.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
     try:
         az, el = map(float, args.sun.split(',')) if args.sun else (None, None)
@@ -231,6 +349,35 @@ def main():
     bad = [k for k in ramp_key if k not in spec.PALETTE]
     if bad:
         ap.error(f'--ramp-key: unknown palette key(s) {bad}')
+    views = []
+    for v in filter(None, args.views.split(',')):
+        for x in (list(spec.VIEWS) + list(REVIEW_CAMERAS) if v == 'review' else [v]):
+            if x not in views:
+                views.append(x)
+    turntable = []
+    if args.turntable:
+        for i in range(args.turntable):
+            a = 360.0 * i / args.turntable
+            name = 'turn_%03d' % round(a) if abs(a - round(a)) < 1e-6 else 'turn_%07.3f' % a
+            TURNTABLE_ANGLES[name] = a   # exact angle, not re-parsed from the name
+            turntable.append(name)
+        views += [v for v in turntable if v not in views]
+    bad = [v for v in views if not known_view(v)]
+    if bad:
+        ap.error(f'--views: unknown view(s) {bad}; choose from '
+                 f'{list(spec.CAMERAS) + list(REVIEW_CAMERAS)}, turn_<AZ> or "review"')
+    poses, arm, rig_pose = [], None, None
+    if args.pose:
+        import rig_pose
+        poses = sorted(rig_pose.POSES) if args.pose == 'all' else args.pose.split(',')
+        bad = [p for p in poses if p not in rig_pose.POSES]
+        if bad:
+            ap.error(f'--pose: unknown pose(s) {bad}; choose from {sorted(rig_pose.POSES)}')
+        arm = find_armature()
+        if arm is None:
+            ap.error('--pose needs a rigged .blend (build.py -- --rig)')
+        if args.turntable:
+            ap.error('--pose and --turntable do not combine')
 
     for name in filter(None, args.hide.split(',')):
         col = bpy.data.collections.get(name)
@@ -246,24 +393,50 @@ def main():
     sc, cam, sun = setup_scene(args.scale, shadows=args.shadows)
     if args.freestyle:
         setup_freestyle(sc)
+    if args.clay:
+        set_clay_materials()
+        if az is None:
+            az, el = CLAY_SUN
     out = os.path.join(ROOT, args.out)
     os.makedirs(out, exist_ok=True)
-    views = args.views.split(',')
-    passes = [''] if args.no_regions else ['', '_regions']
-    for suffix in passes:
-        if suffix == '_regions':
-            set_region_materials()
-            sc.render.use_freestyle = False
-            # Exact labels: no sub-pixel jitter or filter blending two label
-            # colours into a third at region boundaries.
-            sc.eevee.taa_render_samples = 1
-            sc.render.filter_size = 0.0
+
+    def render_views(folder, views, suffix=''):
+        os.makedirs(folder, exist_ok=True)
         for view in views:
             place_camera(cam, view)
             place_sun(sun, cam, az, el)
-            sc.render.filepath = os.path.join(out, f'{view}{suffix}.png')
+            sc.render.filepath = os.path.join(folder, f'{view}{suffix}.png')
             bpy.ops.render.render(write_still=True)
             print('RENDERED', sc.render.filepath)
 
+    if poses:
+        # Pose sheet input: <out>/<pose>/<view>.png per pose (rigged .blend).
+        for name in poses:
+            rig_pose.apply_pose(arm, name)
+            render_views(os.path.join(out, name), views)
+        rig_pose.reset_pose(arm)
+        return
+    render_views(out, views)
+    if turntable:
+        import contact
+        sheet = contact.tile([contact.load(os.path.join(out, f'{v}.png')) for v in turntable],
+                             cols=min(len(turntable), 8), labels=turntable, scale=0.5, crop=True)
+        contact.save(os.path.join(out, 'turntable.png'), sheet)
+        print('SHEET', os.path.join(out, 'turntable.png'))
+    # Region labels: the sheet views (compared with ref/) and the review views
+    # (per-region shade share at any angle, tools/review.py); not the
+    # turntable, and not in clay.
+    region_views = [v for v in views if v in spec.CAMERAS or v in REVIEW_CAMERAS]
+    if args.no_regions or args.clay or not region_views:
+        return
+    set_region_materials()
+    sc.render.use_freestyle = False
+    # Exact labels: no sub-pixel jitter or filter blending two label
+    # colours into a third at region boundaries.
+    sc.eevee.taa_render_samples = 1
+    sc.render.filter_size = 0.0
+    render_views(out, region_views, '_regions')
 
-main()
+
+if __name__ == '__main__':
+    main()
