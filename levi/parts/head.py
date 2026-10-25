@@ -70,13 +70,14 @@ TABLE = [
     (146.0, 28.8, 240.0, 284.0, 290.5),
     (148.0, 26.5, 241.3, 282.0, 286.0),
     (150.0, 23.8, 242.0, 277.0, 280.0),
-    (152.0, 20.5, 243.0, 270.0, 273.0),
-    (153.5, 18.0, 243.5, 265.0, 268.5),
-    (155.5, 14.8, 244.3, 258.0, 261.0),
-    (157.0, 11.8, 245.2, 253.5, 256.5),
-    (158.3, 8.8, 246.2, 250.0, 252.5),
-    (159.5, 5.3, 247.5, 248.8, 250.5),
-    (160.3, 2.2, 248.8, 249.2, 250.3),
+    (152.0, 20.3, 243.0, 271.0, 275.0),
+    (153.5, 17.6, 243.5, 267.0, 272.0),
+    (155.5, 13.9, 244.3, 262.0, 269.0),
+    (157.0, 10.6, 245.2, 257.5, 265.0),
+    (158.3, 7.9, 246.2, 253.0, 259.0),
+    (159.5, 5.0, 247.3, 250.0, 253.0),
+    (160.5, 2.6, 248.3, 249.3, 250.5),
+    (161.3, 0.8, 249.0, 249.3, 249.8),
 ]
 # Nose: forward protrusion of the profile at the midline [px] per row.
 NOSE = [(116.0, 0.0), (117.0, 2.0), (118.0, 4.3), (120.0, 5.5), (122.0, 7.0),
@@ -86,7 +87,7 @@ NOSE_SIGMA = 3.4                 # lateral falloff [px]
 
 RING_ROWS = [43.0, 44.5, 47, 50, 54, 59, 65, 72, 80, 88, 95, 100, 104, 108, 111, 114,
              116, 118, 120, 122, 124, 125.5, 127, 129, 131, 133, 135, 137.5, 140, 142.5,
-             145, 147.5, 150, 152, 154, 155.5, 157, 158.3, 159.5, 160.3]
+             145, 147.5, 150, 152, 154, 155.5, 157, 158.3, 159.5, 160.5, 161.3]
 
 
 def pchip(xs, ys, x):
@@ -158,6 +159,12 @@ TEX_ROW0 = 60.0
 SKIN_UV = (2.0 / TEX_RES, 2.0 / TEX_RES)   # plain-skin corner for the back of the head
 
 
+# Eye (front view, panel px: X = distance from the face midline, row)
+EYE_IN, EYE_OUT = 14.0, 41.0     # inner / outer corner X
+EYE_TOP_X, EYE_TOP_ROW = 24.0, 107.0   # flattest point of the upper lid
+IRIS = (24.5, 116.8, 8.4, 8.8)   # centre X, centre row, radius X, radius rows
+
+
 def hexrgb(h):
     h = h.lstrip('#')
     return np.array([int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4)])
@@ -192,70 +199,77 @@ def face_texture_pixels():
         if unshaded:
             shade[:] = shade * (1 - cov[..., 0])
 
-    # blush under the eyes
-    blush = np.exp(-(((X - 23.0) / 7.5) ** 2 + ((R - 127.0) / 2.6) ** 2))
-    paint(0.38 * blush, hexrgb('#F4B4AE'))
-    for k in range(4):   # small hatch strokes typical of the sheet's blush
-        xs = 18.5 + 3.0 * k
-        d = np.abs((X - xs) + 0.45 * (R - 127.0)) - 0.28
-        inside = (np.abs(R - 127.0) < 1.6)
-        paint(0.45 * _soft(d) * inside, hexrgb('#EE9C98'))
+    # blush: a faint, soft wash under the eyes (the sheet has no visible hatching)
+    blush = np.exp(-(((X - 24.5) / 9.0) ** 2 + ((R - 125.5) / 3.4) ** 2))
+    paint(0.34 * blush, hexrgb('#F6B6AE'))
+    for k in range(3):   # barely-there hatch strokes
+        xs = 21.0 + 3.0 * k
+        d = np.abs((X - xs) + 0.45 * (R - 125.5)) - 0.25
+        inside = (np.abs(R - 125.5) < 1.3)
+        paint(0.12 * _soft(d) * inside, hexrgb('#EE9C98'))
 
-    # eye opening: upper and lower lid curves in (X, row)
-    up = _quad((13.6, 109.6), (27.0, 106.6), (40.2, 110.6))
-    lo = _quad((13.6, 117.6), (24.0, 124.4), (39.4, 111.8))
-    y_up, y_lo = np.polyval(up, X), np.polyval(lo, X)
-    inner_d = 13.6 - X
-    eye_d = np.maximum.reduce([y_up - R, R - y_lo, inner_d, X - 40.2])
+    # eye opening: flat, heavy upper lid that drops to a low outer corner, and
+    # a lower lid curve, in (X, row)
+    u = (X - EYE_TOP_X) / np.where(X < EYE_TOP_X, EYE_TOP_X - EYE_IN, EYE_OUT - EYE_TOP_X)
+    y_up = EYE_TOP_ROW + np.where(X < EYE_TOP_X, 3.4, 5.4) * np.abs(u) ** 3
+    lo = _quad((EYE_IN, 117.2), (25.0, 125.0), (EYE_OUT - 0.4, 112.8))
+    y_lo = np.polyval(lo, X)
+    inner_d = EYE_IN - X
+    eye_d = np.maximum.reduce([y_up - R, R - y_lo, inner_d, X - EYE_OUT])
     eye = _soft(eye_d)
     paint(eye, hexrgb('#FFFFFF'), unshaded=True)
     # soft lid shadow on the white under the upper lid
-    paint(eye * 0.55 * _soft(R - (y_up + 2.2), 0.8), hexrgb('#DCE3EE'), unshaded=True)
+    paint(eye * 0.55 * _soft(R - (y_up + 2.4), 0.8), hexrgb('#DCE3EE'), unshaded=True)
 
-    # iris: dark top -> bright bottom, darker rim, pupil, highlights
-    ix, iy, irx, iry = 23.3, 115.6, 8.6, 9.6
+    # iris: muted dark green top -> light mint bottom, soft rim, slit pupil
+    ix, iy, irx, iry = IRIS
     q = np.sqrt(((X - ix) / irx) ** 2 + ((R - iy) / iry) ** 2)
     iris = _soft((q - 1.0) * irx) * eye
-    t = np.clip((R - (iy - iry)) / (2 * iry), 0, 1)[..., None]
-    grad = (1 - t) * hexrgb('#1C5434') + t * hexrgb('#62C27E')
-    rim = np.clip((q - 0.78) / 0.22, 0, 1)[..., None]
-    iris_col = grad * (1 - 0.55 * rim) + hexrgb('#123D24') * 0.55 * rim
+    t = np.clip((R - (iy - iry * 0.6)) / (1.5 * iry), 0, 1)[..., None]
+    grad = (1 - t) * hexrgb('#235E40') + t * hexrgb('#78CC94')
+    rim = np.clip((q - 0.8) / 0.2, 0, 1)[..., None]
+    iris_col = grad * (1 - 0.4 * rim) + hexrgb('#1A4A30') * 0.4 * rim
     paint(iris, iris_col, unshaded=True)
-    q = np.sqrt(((X - 23.0) / 2.6) ** 2 + ((R - 114.6) / 4.6) ** 2)
-    paint(_soft((q - 1.0) * 2.6) * eye * 0.9, hexrgb('#0D3320'), unshaded=True)
+    q = np.sqrt(((X - (ix - 0.4)) / 1.3) ** 2 + ((R - 114.2) / 4.0) ** 2)
+    paint(_soft((q - 1.0) * 1.3) * eye * 0.8, hexrgb('#123F28'), unshaded=True)
     # upper iris shadow band cast by the lashes
-    paint(iris * 0.5 * _soft(R - (y_up + 3.0), 1.0), hexrgb('#0E3A22'), unshaded=True)
-    hi = np.hypot(X - 21.6, R - 110.9) - 1.7
+    paint(iris * 0.55 * _soft(R - (y_up + 3.2), 1.2), hexrgb('#143F2A'), unshaded=True)
+    hi = np.hypot(X - (ix - 1.0), R - 110.8) - 1.5
     paint(_soft(hi) * eye, hexrgb('#FFFFFF'), unshaded=True)
-    hi2 = np.hypot(X - 26.6, R - 120.6) - 0.8
-    paint(_soft(hi2) * eye * 0.85, hexrgb('#E8FFF0'), unshaded=True)
+    hi2 = np.hypot(X - (ix + 3.2), R - 121.2) - 0.7
+    paint(_soft(hi2) * eye * 0.8, hexrgb('#E8FFF0'), unshaded=True)
 
-    # upper lash line: thick at the outer corner, with a small flick
-    thick = 1.0 + 1.9 * np.clip((X - 14.0) / 27.0, 0, 1) ** 1.5
-    lash_d = np.maximum.reduce([y_up - 0.7 - R, R - (y_up + thick), inner_d - 0.3, X - 41.6])
-    flick = np.maximum.reduce([np.abs(R - (110.2 - 0.9 * (X - 39.8))) - 0.75, 39.3 - X, X - 42.6])
+    # upper lash mass: ~2.5 px, thicker toward the outer corner, with a flick
+    thick = 2.5 + 1.1 * np.clip((X - EYE_IN) / (EYE_OUT - EYE_IN), 0, 1) ** 1.3
+    thick = thick * np.clip(0.35 + (X - EYE_IN) / 4.0, 0.35, 1.0)    # tapered inner end
+    thick = thick * np.clip(0.4 + (EYE_OUT + 1.2 - X) / 4.0, 0.4, 1.0)   # and outer end
+    lash_d = np.maximum.reduce([y_up - 0.7 - R, R - (y_up + thick), inner_d - 0.3, X - (EYE_OUT + 1.2)])
+    flick = np.maximum.reduce([np.abs(R - (112.0 - 0.8 * (X - EYE_OUT))) - 0.7, EYE_OUT - 0.8 - X,
+                               X - (EYE_OUT + 2.2)])
     lash = np.maximum(_soft(lash_d), _soft(flick))
     paint(lash, hexrgb('#262A40'), unshaded=True)
     # lower lid: fine line on the outer half
-    lo_d = np.maximum.reduce([np.abs(R - y_lo - 0.3) - 0.35, 27.0 - X, X - 39.5])
-    paint(0.75 * _soft(lo_d), hexrgb('#A9706A'))
+    lo_d = np.maximum.reduce([np.abs(R - y_lo - 0.3) - 0.35, 27.0 - X, X - (EYE_OUT - 1.0)])
+    paint(0.6 * _soft(lo_d), hexrgb('#B07A72'))
     # inner corner tick
-    ic_d = np.maximum(np.abs(X - 13.9) - 0.35, np.maximum(y_up + 1.0 - R, R - (y_up + 5.0)))
-    paint(0.6 * _soft(ic_d), hexrgb('#A9706A'))
+    ic_d = np.maximum(np.abs(X - (EYE_IN + 0.3)) - 0.35, np.maximum(y_up + 1.0 - R, R - (y_up + 5.0)))
+    paint(0.5 * _soft(ic_d), hexrgb('#A9706A'))
 
-    # brows (mostly under the bangs)
-    brow_c = 104.6 - 0.05 * (X - 20.0) - 0.004 * (X - 24.0) ** 2
-    brow_d = np.maximum(np.abs(R - brow_c) - 0.45 * (1.2 - np.clip((X - 12) / 22, 0, 1)), np.maximum(12.0 - X, X - 34.0))
-    paint(0.85 * _soft(brow_d), hexrgb('#8E7F7C'))
+    # lid crease / brow: a soft mauve line above the lash (mostly under the bangs)
+    brow_c = 103.9 - 0.04 * (X - 20.0) + 0.006 * (X - 26.0) ** 2
+    taper = 0.42 * (1.15 - np.clip((X - 14) / 24, 0, 1))
+    brow_d = np.maximum(np.abs(R - brow_c) - taper, np.maximum(15.0 - X, X - 37.0))
+    paint(0.7 * _soft(brow_d, 0.5), hexrgb('#C08A84'))
 
-    # nose tip and mouth
-    nose_d = np.hypot((X) / 1.3, (R - 133.0) / 0.6) - 1.0
-    paint(0.55 * _soft(nose_d * 0.6), hexrgb('#E2A49C'))
-    mouth_c = 146.0 + 0.04 * X ** 2
-    mouth_d = np.maximum(np.abs(R - mouth_c) - 0.42, X - 2.6)
-    paint(0.9 * _soft(mouth_d), hexrgb(spec.PALETTE['mouth']['line']))
-    lip_d = np.hypot(X / 1.8, (R - 147.4) / 0.6) - 1.0
-    paint(0.35 * _soft(lip_d * 0.6), hexrgb(spec.PALETTE['mouth']['base']))
+    # nose tip and mouth: faint, small marks
+    nose_d = np.hypot(X / 1.0, (R - 133.0) / 0.5) - 1.0
+    paint(0.35 * _soft(nose_d * 0.6), hexrgb('#E2A49C'))
+    mouth_c = 146.2 - 0.008 * X ** 2         # flat, corners not turned down
+    mouth_d = np.maximum(np.abs(R - mouth_c) - 0.32, X - 4.2)
+    gap = 0.65 + 0.35 * np.clip(X / 1.5, 0, 1)    # a lighter centre, as drawn
+    paint(0.6 * gap * _soft(mouth_d), hexrgb('#A65F5A'))
+    lip_d = np.hypot(X / 2.2, (R - 147.3) / 0.6) - 1.0
+    paint(0.12 * _soft(lip_d * 0.6), hexrgb(spec.PALETTE['mouth']['base']))
 
     out = np.empty(col.shape + (4,), np.float32)
     out[..., :3] = rgb
@@ -263,7 +277,7 @@ def face_texture_pixels():
     return out
 
 
-def face_image():
+def face_image(pixels):
     name = 'levi_face_tex'
     img = bpy.data.images.get(name)
     if img:
@@ -271,22 +285,27 @@ def face_image():
     img = bpy.data.images.new(name, TEX_RES, TEX_RES, alpha=True, float_buffer=False)
     img.colorspace_settings.name = 'sRGB'
     img.alpha_mode = 'CHANNEL_PACKED'
-    px = face_texture_pixels()[::-1]      # Blender images start at the bottom row
+    px = pixels[::-1]      # Blender images start at the bottom row
     img.pixels.foreach_set(px.ravel())
     img.pack()
     return img
 
 
-def face_material():
+def face_material(pixels):
     """Two-tone toon material like levi.toon, with the lit colour from the face
     texture and the shade colour = texture * (skin shade / skin base) where the
-    texture alpha marks skin (eyes stay unshaded)."""
+    texture alpha marks skin (eyes stay unshaded).
+
+    The eye decals are not skin: the material's toon_gradient is the 'eye' key,
+    and the per-vertex toon_grad attribute (set_eye_region) marks the vertices
+    inside the eye openings, so render.py's region pass labels them as eyes."""
     name = 'toon_face'
     old = bpy.data.materials.get(name)
     if old:
         bpy.data.materials.remove(old)
     mat = bpy.data.materials.new(name)
     mat['toon_key'] = 'skin'
+    mat['toon_gradient'] = 'eye'
     mat.use_nodes = True
     nodes, links = mat.node_tree.nodes, mat.node_tree.links
     nodes.clear()
@@ -299,7 +318,7 @@ def face_material():
     ramp = toon._ramp(nodes, links, bw.outputs['Val'])
 
     tex = nodes.new('ShaderNodeTexImage')
-    tex.image = face_image()
+    tex.image = face_image(pixels)
     tex.interpolation = 'Linear'
     tex.extension = 'EXTEND'
     pa = spec.PALETTE['skin']
@@ -319,39 +338,6 @@ def face_material():
     links.new(emit.outputs['Emission'], out.inputs['Surface'])
     mat.diffuse_color = base
     return mat
-
-
-def outline(obj):
-    """add_outline, but with outline materials that do not cast shadows.
-
-    The inverted hull from levi.toon casts sun shadows onto the mesh it wraps,
-    which puts the whole face into the toon shade colour. Until that is fixed
-    centrally, the head swaps its hull slots for local copies that are
-    transparent to shadow rays.
-    """
-    common.add_outline(obj)
-    mats = obj.data.materials
-    for i, m in enumerate(mats):
-        if m is None or not m.get('is_outline'):
-            continue
-        name = f'{m.name}_noshadow'
-        cp = bpy.data.materials.get(name)
-        if cp is None:
-            cp = m.copy()
-            cp.name = name
-            nodes, links = cp.node_tree.nodes, cp.node_tree.links
-            out = next(n for n in nodes if n.type == 'OUTPUT_MATERIAL')
-            emit = next(n for n in nodes if n.type == 'EMISSION')
-            lp = nodes.new('ShaderNodeLightPath')
-            tr = nodes.new('ShaderNodeBsdfTransparent')
-            mix = nodes.new('ShaderNodeMixShader')
-            links.new(lp.outputs['Is Shadow Ray'], mix.inputs['Fac'])
-            links.new(emit.outputs['Emission'], mix.inputs[1])
-            links.new(tr.outputs['BSDF'], mix.inputs[2])
-            links.new(mix.outputs['Shader'], out.inputs['Surface'])
-            if hasattr(cp, 'use_transparent_shadow'):
-                cp.use_transparent_shadow = True
-        mats[i] = cp
 
 
 # ---------------------------------------------------------------- geometry
@@ -376,6 +362,22 @@ def set_face_uv(me):
         for li in poly.loop_indices:
             co = me.vertices[me.loops[li].vertex_index].co
             uv.data[li].uv = SKIN_UV if behind else front_uv(co)
+
+
+def set_eye_region(me, pixels):
+    """toon_grad = 1 on vertices whose front-projected texel is an (unshaded)
+    eye decal, 0 elsewhere (back of the head included)."""
+    attr = me.attributes.get(common.GRAD_ATTR) or me.attributes.new(common.GRAD_ATTR, 'FLOAT', 'POINT')
+    back_y = yc(293.0)
+    for v in me.vertices:
+        val = 0.0
+        if v.co.y <= back_y:
+            u, w = front_uv(v.co)
+            i = int(round((1.0 - w) * TEX_RES - 0.5))
+            j = int(round(u * TEX_RES - 0.5))
+            if 0 <= i < TEX_RES and 0 <= j < TEX_RES:
+                val = 1.0 - float(pixels[i, j, 3])
+        attr.data[v.index].value = val
 
 
 def set_ellipsoid_normals(me, center, axes, keep=0.15):
@@ -403,6 +405,9 @@ def ear_mesh(side):
     return bm
 
 
+NECK_SHADE_ROW = 166.0    # neck rings above this row are drawn in the shade tone
+
+
 def neck_mesh():
     """Top of the neck, from inside the head down to just above the choker."""
     rows = [(138.0, 286.0), (150.0, 285.5), (158.0, 286.0), (164.0, 287.0), (170.0, 288.5), (174.0, 289.5)]
@@ -413,31 +418,31 @@ def neck_mesh():
 
 def build(col):
     skin = common.toon_material('skin')
-    face = face_material()
+    pixels = face_texture_pixels()
+    face = face_material(pixels)
 
     head = common.new_object(col, 'head_face', head_mesh(), [face])
     head.data.shade_smooth()
     set_face_uv(head.data)
+    set_eye_region(head.data, pixels)
     set_ellipsoid_normals(head.data, center=(HEAD_DX, yc(300.0), zr(135.0)),
                           axes=(120.0 / PPM, 52.0 / PPM, 85.0 / PPM))
-    outline(head)
+    common.add_outline(head)
 
     for side, nm in ((1, 'head_ear_L'), (-1, 'head_ear_R')):
         ear = common.new_object(col, nm, ear_mesh(side), [skin])
         common.shade_smooth(ear, 80)
-        outline(ear)
+        common.add_outline(ear)
 
     neck = common.new_object(col, 'head_neck', neck_mesh(), [skin])
     neck.data.shade_smooth()
-    # the sheet draws the neck under the chin in the shade colour: point its
-    # normals away from the key light instead of relying on a cast shadow
+    # the sheet draws only a band under the chin in the shade colour (cast
+    # shadows are off): point the upper neck's normals away from the key light
+    # and keep the real normals near the choker, so the lit/shade edge sits
+    # a few px below the jaw and the neck meets the body's neck lit.
+    away = Vector((0.35, 0.8, -0.5)).normalized()
+    z_edge = zr(NECK_SHADE_ROW)
     neck.data.normals_split_custom_set_from_vertices(
-        [Vector((0.35, 0.8, -0.5)).normalized()] * len(neck.data.vertices))
-    outline(neck)
-
-    # Shadow maps would put the geometric far side of the face in shadow even
-    # where the custom normals say "lit" (blocky self-shadow on the jaw), so
-    # the head does not cast shadows; hair still shades the face.
-    for o in col.objects:
-        o.visible_shadow = False
+        [away if v.co.z > z_edge else v.normal.copy() for v in neck.data.vertices])
+    common.add_outline(neck)
     return col
