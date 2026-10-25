@@ -30,12 +30,37 @@ Blender: `C:/Program Files/Blender Foundation/Blender 5.2/blender.exe` (written 
 "$B" -b -P tools/check.py -- [--parts body,skirt]      # exit code 1 on failure
 "$B" -b -P build.py -- --rig ...                         # + MMD armature, skinned (levi/rig.py)
 "$B" -b -P tools/rig_check.py                            # rig tests, exit code 1 on failure
-"$B" -b -P tools/rig_pose.py -- --out out/levi_pose.blend  # test pose for render.py
+"$B" -b -P tools/rig_pose.py -- --out out/levi_pose.blend [--pose squat]  # posed model for render.py
 "$B" -b -P export_pmx.py -- --out out/pmx/Levi.pmx       # needs mmd_tools: no --factory-startup
 "$B" -b -P tools/pmx_reimport.py                         # re-import + count check
 ```
 The body part may store fitted limb joints for the rig as `obj["levi_joints"] = {"elbow": (x, y, z), ...}`
 (left side, +X; keys in `rig.JOINT_KEYS`). Without it the rig fits joints to the body mesh.
+
+## Rig (levi/rig.py)
+- Fitted from the real meshes (the build log says `mesh` or `spec` per item):
+  - Limb joints come from body cross-sections. The knee sits at sheet row 700 (`rig.KNEE_ROW`), not spec's 740.
+  - 頭 depth and 目 come from the head mesh.
+  - Each of the five fingers gets its own chain, fitted to that finger's loose part in the body mesh. Finger bones are rolled so that +X curls toward the palm.
+  - Fingers must therefore stay separate loose parts per finger, or the rig falls back to a generic hand.
+- Semi-standard bones:
+  - Twist bones 腕捩 and 手捩 have a fixed axis.
+  - Skirt chains hang from `スカートN追従左/右`. Each of these appends (回転付与) a share of one thigh's rotation (`rig.skirt_follow`): 100% at centre front and 50% at the back, split between the two legs by angle.
+  - Back hair and side locks hang from `髪追従`, which takes 60% of the head's turn.
+  - Elbow and knee helpers `ひじ補助` / `ひざ補助` take half of the lower bone's bend. They carry the band of skin and cloth around the joint, which avoids collapse and outer-side stretch at deep bends.
+  - Blender evaluates these follows with Copy Rotation constraints. `export_pmx.py` writes them as PMX append, fixed-axis and local-axis bones.
+- Skinning, per part:
+  - Garments are positional, but skirt and petticoat weights are angle × height blends of the two nearest skirt chains plus 上半身/下半身. They are never weighted to the legs directly, because the chains follow the legs. This holds for any skirt-family layer, including one between the thighs.
+  - Sleeves use arm bones only. The drape chains fade in away from the arm.
+  - Shoes and feet are all 足首 below the ankle.
+  - Bodice ribbons hanging below the hip ride the skirt.
+  - .L/.R bones are masked off the other side.
+  - Small loose ornaments move rigidly.
+  - Weights are smoothed along the surface and pruned to 4 continuously (no jumps).
+- `tools/rig_check.py` deforms the model with every pose in `rig_pose.POSES`. Each pose must stay within these limits (`--poses a,b` and `--quick` for iteration):
+  - any edge at most ×2.0;
+  - clothes and hair no more than 2 cm newly inside the body, measured with a winding-number test.
+- Pose renders: save each pose with `rig_pose.py --pose NAME --out out/poses/NAME.blend`, then render it with `render.py -- --out out/poses/NAME --no-regions`. `tools/rig_sheet.py` tiles the results into front | side | back sheets.
 `out/cmp/<view>_{overlay,diff,sbs}.png`:
 - In the diff, red = render sticks out and blue = reference not covered.
 - The tool also prints IoU against the reference silhouette.

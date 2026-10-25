@@ -41,22 +41,24 @@ SIDES = (('L', 1.0, '左'), ('R', -1.0, '右'))
 # ---------------------------------------------------------------- bone table
 class Bone:
     __slots__ = ('name', 'jp', 'en', 'head', 'tail', 'parent', 'connect', 'deform',
-                 'r', 'r_end', 'group')
+                 'r', 'r_end', 'group', 'meta')
 
     def __init__(self, name, jp, en, head, tail, parent=None, connect=False,
-                 deform=True, r=0.05, r_end=None, group='Body'):
+                 deform=True, r=0.05, r_end=None, group='Body', meta=None):
         self.name, self.jp, self.en = name, jp, en
         self.head, self.tail = Vector(head), Vector(tail)
         self.parent, self.connect, self.deform = parent, connect, deform
         self.r = r
         self.r_end = r * 0.6 if r_end is None else r_end
         self.group = group
+        self.meta = meta or {}
 
 
 def _mx(p, s):
     return Vector((p[0] * s, p[1], p[2]))
 
 
+KNEE_ROW = 700
 JOINT_KEYS = ('shoulder_joint', 'elbow', 'wrist', 'fingertip', 'hip', 'knee', 'ankle', 'toe')
 
 
@@ -66,8 +68,10 @@ def landmark_joints():
         'shoulder_joint': Vector(L['shoulder_joint']), 'elbow': Vector(L['elbow']),
         'wrist': Vector(L['wrist']), 'fingertip': Vector(L['fingertip']),
         'hip': Vector((L['leg_center_x'], 0.0, L['crotch_z'] + 0.065)),
-        # the knee sits slightly forward so IK bends it the right way
-        'knee': Vector((L['leg_center_x'], -0.012, L['knee_z'])),
+        # the knee sits slightly forward so IK bends it the right way. Local correction:
+        # spec says row 740, but the knee kink on the sheet (and the body part's leg
+        # loops) is at row ~700; 740 left a 14 cm shin under a 50 cm thigh.
+        'knee': Vector((L['leg_center_x'], -0.012, spec.px_to_z(KNEE_ROW))),
         'ankle': Vector((L['ankle_center_x'], 0.0, L['ankle_z'])),
         'toe': Vector((L['toe_tip_x'], L['toe_tip_y'], 0.012)),
     }
@@ -162,13 +166,139 @@ def fit_joints(body_objs):
     return J, fitted
 
 
-def _core_bones(J=None):
-    """Core MMD skeleton. Spine/head from landmarks, limbs from joints J (left side,
-    built at +X and mirrored)."""
+EYE_DEPTH = 0.02
+TWIST_AT = 0.6        # twist bones start this far down their limb segment (semi-standard)
+TWIST_RAMP = (0.1, 0.95)   # ... and take over that segment's weight between these fractions
+
+
+def fit_head(head_objs):
+    """Head centre depth and the left eye position from the head part's mesh.
+
+    Returns {'head_y', 'eye'} for the keys the mesh answers. The eyes are painted
+    into the face texture, so the eye bone goes on the face surface at the landmark
+    eye (x, z), EYE_DEPTH behind it (about the eyeball centre).
+    """
+    out = {}
+    pts = _world_verts(head_objs)
+    skull = pts[pts[:, 2] > L['chin_z']] if len(pts) else pts
+    if len(skull) < 8:
+        return out
+    out['head_y'] = float(skull[:, 1].min() + skull[:, 1].max()) / 2
+    ex, ez = L['eye_x'], L['eye_z']
+    near = skull[(np.abs(np.abs(skull[:, 0]) - ex) < 0.01) & (np.abs(skull[:, 2] - ez) < 0.01)]
+    if len(near):
+        out['eye'] = Vector((ex, float(near[:, 1].min()) + EYE_DEPTH, ez))
+    return out
+
+
+FINGER_KNOTS = (0.0, 0.44, 0.75, 1.0)   # knuckle, middle joints, tip along a finger's base..tip
+FINGER_NAMES = (('親指', 'Thumb'), ('人指', 'IndexFinger'), ('中指', 'MiddleFinger'),
+                ('薬指', 'RingFinger'), ('小指', 'LittleFinger'))
+
+
+def _mesh_islands(objs):
+    """[(world points (n, 3))] per loose part of the meshes `objs`."""
+    out = []
+    for o in objs:
+        co = _world_verts([o])
+        if not len(co):
+            continue
+        lab = _islands(len(co), _topology(o, co))
+        out += [co[lab == k] for k in np.unique(lab)]
+    return out
+
+
+def _finger_line(pts, d):
+    """Knuckle .. tip joint points (FINGER_KNOTS) along the principal axis of one finger."""
+    c = pts.mean(0)
+    _, _, vt = np.linalg.svd(pts - c, full_matrices=False)
+    a = vt[0] if vt[0] @ np.array(d) > 0 else -vt[0]
+    t = (pts - c) @ a
+    t0, t1 = float(t.min()), float(t.max())
+    ln = t1 - t0
+    base, tip = t0 + 0.06 * ln, t1 - 0.04 * ln
+    out = []
+    for k in FINGER_KNOTS:
+        tk = base + (tip - base) * k
+        sel = pts[np.abs(t - tk) < 0.08 * ln]
+        p = sel.mean(0) if len(sel) >= 3 else c + a * tk
+        out.append(Vector(p - a * ((p - c) @ a - tk)))     # keep it exactly at tk along the axis
+    return out, a
+
+
+def fit_fingers(body_objs, J):
+    """{jp: [knuckle, joint, joint, tip]} (left side) from the body's loose finger parts.
+
+    The hand's five fingers are the loose parts lying past the wrist within reach of
+    the fingertip; the thumb is the one most angled away from the hand direction, the
+    others are ordered from the thumb side. Both hands are fitted (the right one
+    mirrored) and averaged. Returns {} unless every finger is found."""
+    wr, tip = J['wrist'], J['fingertip']
+    d = (tip - wr).normalized()
+    hand_len = (tip - wr).length
+    fwd = Vector((0, -1, 0))
+    f = (fwd - d * d.dot(fwd)).normalized()
+    sides = []
+    islands = _mesh_islands(body_objs)
+    for s in (1.0, -1.0):
+        found = []
+        for pts in islands:
+            p = pts * np.array([s, 1.0, 1.0])
+            c = Vector(p.mean(0))
+            ext = float(np.linalg.norm(p - p.mean(0), axis=1).max())
+            if len(p) >= 8 and (c - wr).dot(d) > 0 and (c - wr).length < 1.3 * hand_len and ext < 0.6 * hand_len:
+                found.append(_finger_line(p, d))
+        if len(found) != 5:
+            continue
+        thumb = max(range(5), key=lambda i: -abs(float(found[i][1] @ np.array(d))))
+        rest = sorted((i for i in range(5) if i != thumb), key=lambda i: -found[i][0][0].dot(f))
+        sides.append([found[i][0] for i in [thumb] + rest])
+    if not sides:
+        return {}
+    return {jp: [sum((sd[i][k] for sd in sides), Vector()) / len(sides) for k in range(4)]
+            for i, (jp, _) in enumerate(FINGER_NAMES)}
+
+
+def finger_chains(F, wr, d, f, hand_len, palm_end, fingers):
+    """(jp, en, 4 joint points) for the thumb and the four fingers: fitted ones from F,
+    otherwise a generic hand laid along the hand direction."""
+    t_pts = [wr + d * 0.08 * hand_len + f * 0.012, wr + d * 0.25 * hand_len + f * 0.028,
+             wr + d * 0.42 * hand_len + f * 0.038, wr + d * 0.58 * hand_len + f * 0.045]
+    yield '親指', 'Thumb', F.get('親指', t_pts)
+    for jp, en, off, ln in fingers:
+        base = palm_end + f * off
+        yield jp, en, F.get(jp, [base + d * (t * ln * hand_len) for t in (0.0, 0.4, 0.73, 1.0)])
+
+
+JOINT_AUX_LEN = 0.04  # length of the elbow / knee helper bones
+JOINT_AUX_BLEND = 0.06  # half-width (m) along the limb of the band the helper carries
+# per part: (blend start before the joint, blend end after it, use the half-turn helper).
+# Puffed sleeves spread the elbow bend over the whole balloon instead (no helper): from
+# 8 cm above to 15 cm below the joint.
+JOINT_BAND = {'sleeves': (0.06, 0.06, True)}
+JOINT_AUX_FOLLOW = 0.5  # share of the lower bone's rotation the helper takes
+
+
+def _joint_aux(add, jp, en, joint, nxt, parent, lower, upper, s, sfx, jp_side, en_sfx, group):
+    """Elbow / knee helper: a deform bone at the joint, child of the upper limb, that takes
+    JOINT_AUX_FOLLOW of the lower bone's rotation (回転付与). The band of skin and cloth
+    around the joint follows it, so a deep bend is shared between two half-turns instead
+    of being stretched (or collapsed) across one blend."""
+    tail = joint + (nxt - joint).normalized() * JOINT_AUX_LEN
+    add(Bone(jp + sfx, jp_side + jp, en + en_sfx, _mx(joint, s), _mx(tail, s), parent, group=group,
+             meta={'follow': (lower, JOINT_AUX_FOLLOW), 'joint_aux': (list(upper), lower)}))
+
+
+def _core_bones(J=None, H=None, F=None):
+    """Core MMD skeleton. Spine/head from landmarks (head depth and eyes from the
+    head mesh fit H when given), limbs from joints J (left side, built at +X and
+    mirrored)."""
     J = J or landmark_joints()
+    H = H or {}
+    F = F or {}
     b = []
     add = b.append
-    hc_y = L['head_center_y']
+    hc_y = H.get('head_y', L['head_center_y'])
     spine_y = L['waist_center_y'] * 0.8
     chest_y = L['chest_center_y'] * 0.85
     neck_y = L['neck_center_y']
@@ -195,7 +325,7 @@ def _core_bones(J=None):
              '首', connect=True, r=0.09, r_end=0.02))
     eyes = (0, hc_y - 0.06, L['head_top_z'] + 0.05)
     add(Bone('両目', '両目', 'Eyes', eyes, (eyes[0], eyes[1] - 0.03, eyes[2]), '頭', deform=False))
-    eye_y = L['nose_tip_y'] + 0.035
+    eye = H.get('eye', Vector((L['eye_x'], L['nose_tip_y'] + 0.035, L['eye_z'])))
     add(Bone('下半身', '下半身', 'LowerBody', (0, spine_y, z_pivot), (0, -0.02, L['crotch_z'] + 0.02),
              '腰', r=0.10, r_end=0.05))
 
@@ -216,34 +346,38 @@ def _core_bones(J=None):
         sfx = '.' + tag
         en_sfx = '_' + tag
         sj, el, wr = J['shoulder_joint'], J['elbow'], wrist
-        add(Bone('目' + sfx, jp_side + '目', 'Eye' + en_sfx, _mx((L['eye_x'], eye_y, L['eye_z']), s),
-                 _mx((L['eye_x'], eye_y - 0.03, L['eye_z']), s), '頭', r=0.02, r_end=0.015, group='Body'))
+        add(Bone('目' + sfx, jp_side + '目', 'Eye' + en_sfx, _mx(eye, s),
+                 _mx(eye - Vector((0, 0.03, 0)), s), '頭', r=0.02, r_end=0.015, group='Body'))
         add(Bone('肩' + sfx, jp_side + '肩', 'Shoulder' + en_sfx, _mx((L['neck_half_w'] * 1.1, sj.y, L['shoulder_z']), s),
                  _mx(sj, s), '上半身2', r=0.045, r_end=0.03, group='Arms'))
         add(Bone('腕' + sfx, jp_side + '腕', 'Arm' + en_sfx, _mx(sj, s), _mx(el, s), '肩' + sfx, connect=True,
                  r=0.04, r_end=0.03, group='Arms'))
-        add(Bone('ひじ' + sfx, jp_side + 'ひじ', 'Elbow' + en_sfx, _mx(el, s), _mx(wr, s), '腕' + sfx, connect=True,
+        # semi-standard twist bones: 腕 -> 腕捩 -> ひじ -> 手捩 -> 手首. They turn only about
+        # their own axis and take a share of their limb segment's weight that grows from
+        # 0 at its top to 1 at its bottom (_split_twist), so a twist spreads along the limb.
+        add(Bone('腕捩' + sfx, jp_side + '腕捩', 'ArmTwist' + en_sfx, _mx(sj.lerp(el, TWIST_AT), s), _mx(el, s),
+                 '腕' + sfx, group='Arms', meta={'twist_of': '腕' + sfx}))
+        add(Bone('ひじ' + sfx, jp_side + 'ひじ', 'Elbow' + en_sfx, _mx(el, s), _mx(wr, s), '腕捩' + sfx, connect=True,
                  r=0.035, r_end=0.03, group='Arms'))
-        add(Bone('手首' + sfx, jp_side + '手首', 'Wrist' + en_sfx, _mx(wr, s), _mx(palm_end, s), 'ひじ' + sfx,
+        _joint_aux(add, 'ひじ補助', 'ElbowAux', el, wr, '腕捩' + sfx, 'ひじ' + sfx, ('腕' + sfx, '腕捩' + sfx),
+                   s, sfx, jp_side, en_sfx, 'Arms')
+        add(Bone('手捩' + sfx, jp_side + '手捩', 'WristTwist' + en_sfx, _mx(el.lerp(wr, TWIST_AT), s), _mx(wr, s),
+                 'ひじ' + sfx, group='Arms', meta={'twist_of': 'ひじ' + sfx}))
+        add(Bone('手首' + sfx, jp_side + '手首', 'Wrist' + en_sfx, _mx(wr, s), _mx(palm_end, s), '手捩' + sfx,
                  connect=True, r=0.03, r_end=0.02, group='Arms'))
-        # thumb: 親指０ (metacarpal) + 親指１, 親指２
-        t_pts = [wr + d * 0.08 * hand_len + f * 0.012, wr + d * 0.25 * hand_len + f * 0.028,
-                 wr + d * 0.42 * hand_len + f * 0.038, wr + d * 0.58 * hand_len + f * 0.045]
-        parent = '手首' + sfx
-        for i in range(3):
-            nm = f'親指{"０１２"[i]}'
-            add(Bone(nm + sfx, jp_side + nm, f'Thumb{i}' + en_sfx, _mx(t_pts[i], s), _mx(t_pts[i + 1], s),
-                     parent, connect=i > 0, r=0.014, r_end=0.01, group='Fingers'))
-            parent = nm + sfx
-        for jp, en, off, ln in fingers:
-            base = palm_end + f * off
-            seg = [0.0, 0.4, 0.73, 1.0]
-            pts = [base + d * (t * ln * hand_len) for t in seg]
+        # fingers: one chain per finger, fitted to the finger's own centreline when the
+        # body mesh gives one (fit_fingers), each bone's Z rolled to the palm side so a
+        # positive turn about its local X curls it toward the palm
+        palm = d.cross(f).normalized()
+        for jp, en, pts in finger_chains(F, wr, d, f, hand_len, palm_end, fingers):
             parent = '手首' + sfx
+            thumb = jp == '親指'
             for i in range(3):
-                nm = f'{jp}{"１２３"[i]}'
-                add(Bone(nm + sfx, jp_side + nm, f'{en}{i + 1}' + en_sfx, _mx(pts[i], s), _mx(pts[i + 1], s),
-                         parent, connect=i > 0, r=0.012, r_end=0.008, group='Fingers'))
+                nm = f'{jp}{("０１２" if thumb else "１２３")[i]}'
+                add(Bone(nm + sfx, jp_side + nm, f'{en}{i if thumb else i + 1}' + en_sfx, _mx(pts[i], s),
+                         _mx(pts[i + 1], s), parent, connect=i > 0, r=0.014 if thumb else 0.012,
+                         r_end=0.01 if thumb else 0.008, group='Fingers',
+                         meta={'align_z': tuple(_mx(palm, s)), 'finger': jp}))
                 parent = nm + sfx
 
         hip, knee, ankle, toe = J['hip'], J['knee'], J['ankle'], J['toe']
@@ -251,6 +385,8 @@ def _core_bones(J=None):
                  r=0.065, r_end=0.04, group='Legs'))
         add(Bone('ひざ' + sfx, jp_side + 'ひざ', 'Knee' + en_sfx, _mx(knee, s), _mx(ankle, s), '足' + sfx,
                  connect=True, r=0.05, r_end=0.035, group='Legs'))
+        _joint_aux(add, 'ひざ補助', 'KneeAux', knee, ankle, '足' + sfx, 'ひざ' + sfx, ('足' + sfx,),
+                   s, sfx, jp_side, en_sfx, 'Legs')
         add(Bone('足首' + sfx, jp_side + '足首', 'Ankle' + en_sfx, _mx(ankle, s), _mx(toe, s), 'ひざ' + sfx,
                  connect=True, r=0.04, r_end=0.03, group='Legs'))
         add(Bone('つま先' + sfx, jp_side + 'つま先', 'Toe' + en_sfx, _mx(toe, s),
@@ -327,14 +463,30 @@ def _seg_dist(p, a, b):
     return np.linalg.norm(p - (a + t[:, None] * ab), axis=1)
 
 
-def _chain_bones(prefix, jp, en, joints, parent, r, group, sfx='', jp_side='', en_sfx=''):
+def _chain_bones(prefix, jp, en, joints, parent, r, group, sfx='', jp_side='', en_sfx='', meta=None):
     out = []
     for i, (a, bpt) in enumerate(zip(joints, joints[1:])):
         name = f'{prefix}_{i}{sfx}'
         out.append(Bone(name, f'{jp_side}{jp}_{i}', f'{en}_{i}{en_sfx}', a, bpt, parent, connect=i > 0,
-                        r=r, r_end=max(0.02, (bpt - a).length * 0.5), group=group))
+                        r=r, r_end=max(0.02, (bpt - a).length * 0.5), group=group,
+                        meta=dict(meta or {}, seg=i, nseg=len(joints) - 1)))
         parent = name
     return out
+
+
+HAIR_ROOT = '髪追従'
+HAIR_FOLLOW = 0.6     # share of the head's rotation the hair chains take (the scalp takes all of it)
+FOLLOW_FRONT = 1.0    # total share of the thighs' rotation a skirt chain takes at centre front
+FOLLOW_BACK = 0.5     # ... and at centre back (a leg swung back still pushes the back skirt)
+
+
+def skirt_follow(angle, s):
+    """Share of thigh `s` (+1 left, -1 right) a skirt chain at `angle` takes (0 = behind,
+    +90 = character's left). Both thighs together give FOLLOW_FRONT in front and
+    FOLLOW_BACK behind; each thigh's part fades smoothly to 0 on the far side."""
+    a = math.radians(angle)
+    total = FOLLOW_BACK + (FOLLOW_FRONT - FOLLOW_BACK) * 0.5 * (1.0 - math.cos(a))
+    return total * 0.5 * (1.0 + s * math.sin(a))
 
 
 def _secondary_bones(parts, core):
@@ -346,12 +498,21 @@ def _secondary_bones(parts, core):
         objs = [o for n in names for o in parts.get(n, [])]
         return _world_verts(objs)
 
+    def hair_parent():
+        # long hair hangs from a bone on the neck that takes HAIR_FOLLOW of the head's
+        # rotation, so a turned head doesn't swing the whole curtain through the body
+        if not any(b.name == HAIR_ROOT for b in bones):
+            h = byname['頭'].head
+            bones.append(Bone(HAIR_ROOT, HAIR_ROOT, 'HairRoot', h, h + Vector((0, 0, 0.03)), '首',
+                              deform=False, group='HairFollow', meta={'follow': ('頭', HAIR_FOLLOW)}))
+        return HAIR_ROOT
+
     # back hair: sectors around the skull axis, hanging from eye level
     pts = verts('hair_back')
     if len(pts):
         chains = _sector_chains(pts, (0.0, L['head_center_y']), L['eye_z'], 10, 4, 0.10)
         for k, (_, joints) in enumerate(chains):
-            bones += _chain_bones(f'後髪{k}', f'後髪{k}', f'HairBack{k}', joints, '頭', 0.035, 'Hair')
+            bones += _chain_bones(f'後髪{k}', f'後髪{k}', f'HairBack{k}', joints, hair_parent(), 0.035, 'Hair')
 
     # side locks: hair_front strands hanging beside the face, below the eyes
     pts = verts('hair_front')
@@ -363,7 +524,7 @@ def _secondary_bones(parts, core):
                 continue
             joints = _band_chain(sel, float(sel[:, 2].max()), float(sel[:, 2].min()), 3)
             if joints:
-                bones += _chain_bones('横髪', '横髪', 'SideHair', joints, '頭', 0.025, 'Hair',
+                bones += _chain_bones('横髪', '横髪', 'SideHair', joints, hair_parent(), 0.025, 'Hair',
                                       sfx='.' + tag, jp_side=jp_side, en_sfx='_' + tag)
 
     # skirt (+ petticoat): sectors around the body axis, hanging from the hip
@@ -371,9 +532,21 @@ def _secondary_bones(parts, core):
     if len(pts):
         cy = float(pts[:, 1].mean())
         chains = _sector_chains(pts, (0.0, cy), L['hip_z'], 12, 3, 0.08)
-        for k, (_, joints) in enumerate(chains):
+        for k, (ang, joints) in enumerate(chains):
             hem_r = max(0.03, math.hypot(joints[-1].x, joints[-1].y - cy) * math.pi / 12)
-            bones += _chain_bones(f'スカート{k}', f'スカート{k}', f'Skirt{k}', joints, '下半身', hem_r, 'Skirt')
+            # the chain hangs from two follow bones that add a share of each thigh's
+            # rotation (PMX 回転付与), so the skirt moves with the legs as a whole
+            # instead of being torn by per-vertex leg weights
+            parent = '下半身'
+            head = joints[0]
+            for tag, s, jp_side in SIDES[::-1]:
+                name = f'スカート{k}追従{jp_side}'
+                bones.append(Bone(name, name, f'Skirt{k}Follow{tag}', head, head + Vector((0, 0, 0.03)), parent,
+                                  deform=False, group='SkirtFollow',
+                                  meta={'follow': (f'足.{tag}', skirt_follow(ang, s))}))
+                parent = name
+            bones += _chain_bones(f'スカート{k}', f'スカート{k}', f'Skirt{k}', joints, parent, hem_r, 'Skirt',
+                                  meta={'chain': k, 'angle': ang, 'cy': cy})
 
     # sleeve drapes: sleeve vertices well away from the arm bones hang from the forearm
     pts = verts('sleeves')
@@ -415,18 +588,21 @@ def _candidates(part, obj, bones):
     grp = lambda *gs: _names(bones, lambda b: b.group in gs)  # noqa: E731
     base = lambda b: b.name.split('.')[0]  # noqa: E731
     if part in ('hair_front', 'hair_back'):
-        return ['頭'] + grp('Hair')
+        # front hair (bangs, crown, side locks) follows the head and its side-lock chains;
+        # only the long back hair uses the back-hair chains, which lag the head (髪追従)
+        own = '後髪' if part == 'hair_back' else '横髪'
+        return ['頭'] + _names(bones, lambda b: b.group == 'Hair' and b.name.startswith(own))
     if part == 'head':
         low = obj.name.lower()
         if 'eye' in low and not any(k in low for k in ('brow', 'lash', 'lid', 'white')):
             return ['目.L', '目.R']
         return ['頭', '首', '上半身2']
     if part in ('skirt', 'petticoat'):
-        return ['上半身', '下半身'] + _names(bones, lambda b: base(b) == '足') + grp('Skirt')
-    if part == 'sleeves':
-        return ['上半身2'] + _names(bones, lambda b: base(b) in ('肩', '腕', 'ひじ', '手首')) + grp('Sleeve')
-    if part == 'bodice':
-        return ['上半身', '上半身2', '首', '下半身'] + _names(bones, lambda b: base(b) in ('肩', '腕'))
+        return ['上半身', '下半身'] + grp('Skirt')
+    if part == 'sleeves':      # detached sleeves: arm only, never the torso
+        return _names(bones, lambda b: base(b) in ('肩', '腕', '腕捩', 'ひじ補助', 'ひじ', '手捩', '手首')) + grp('Sleeve')
+    if part == 'bodice':       # a strapless corset: torso only; anything hanging below the hip rides the skirt
+        return ['上半身', '上半身2', '首', '下半身'] + grp('Skirt')
     if part == 'shoes':
         return _names(bones, lambda b: base(b) in ('ひざ', '足首'))
     if part == 'accessories':
@@ -435,8 +611,17 @@ def _candidates(part, obj, bones):
     return core_names   # body, proxy, anything unknown
 
 
-def _weights(co, bones):
-    """(V, k) bone indices and weights for world positions `co` against `bones`."""
+def _smoothstep(e0, e1, x):
+    t = np.clip((x - e0) / (e1 - e0), 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
+
+def _envelope(co, bones):
+    """(V, B) bone weights for world positions `co`: softmax of the envelope log-weights.
+
+    The log-weight is -SHARPNESS * d^2 inside the envelope (d = normalized distance) and
+    continues linearly outside it, so far from every bone the weights still change
+    slowly instead of snapping to whichever envelope is a hair closer."""
     A = np.array([b.head for b in bones])
     B = np.array([b.tail for b in bones])
     r = np.array([b.r for b in bones])
@@ -449,15 +634,339 @@ def _weights(co, bones):
     lat = np.linalg.norm(rel - t[..., None] * axis[None], axis=2)
     over = np.maximum(0.0, -t) + np.maximum(0.0, t - ln[None])
     d2 = (lat / r) ** 2 + (over / re) ** 2
-    logw = -SHARPNESS * d2
-    k = min(MAX_INFLUENCE, len(bones))
-    idx = np.argsort(-logw, axis=1, kind='stable')[:, :k]
-    lw = np.take_along_axis(logw, idx, axis=1)
-    w = np.exp(lw - lw[:, :1])
-    w /= w.sum(1, keepdims=True)
-    w[w < MIN_WEIGHT] = 0.0
-    w /= w.sum(1, keepdims=True)
-    return idx, w
+    d = np.sqrt(d2)
+    logw = np.where(d <= 1.0, -SHARPNESS * d2, -SHARPNESS * (2.0 * d - 1.0))
+    w = np.exp(logw - logw.max(1, keepdims=True))
+    return w / w.sum(1, keepdims=True)
+
+
+# ---- skirt / petticoat: angle x height around the body axis
+ROOT_BLEND = 0.5      # chain units (from the hip) over which 上半身/下半身 hand over to the chains
+
+
+def _skirt_weights(co, bones):
+    """(V, B) weights for skirt / petticoat vertices, at most 4 bones each by construction.
+
+    Around the body axis a vertex blends linearly between the two nearest skirt chains
+    by angle; down each chain it blends between consecutive bones by height (hat
+    functions centred on the bones), and over the first half bone below the hip it
+    hands over from 上半身/下半身 (the same envelopes as the bodice above it). The thighs
+    are not weighted here at all: the chains follow them through their follow bones.
+    """
+    V = len(co)
+    col = {b.name: i for i, b in enumerate(bones)}
+    W = np.zeros((V, len(bones)))
+    chains = {}
+    for i, b in enumerate(bones):
+        if b.group == 'Skirt' and 'chain' in b.meta:
+            chains.setdefault(b.meta['chain'], []).append((b.meta['seg'], i, b))
+    body = [n for n in ('上半身', '下半身') if n in col]
+    if not chains or not body:
+        return _envelope(co, bones)
+    keys = sorted(chains, key=lambda k: chains[k][0][2].meta['angle'])
+    A = np.array([chains[k][0][2].meta['angle'] for k in keys])
+    cy = chains[keys[0]][0][2].meta['cy']
+    theta = np.degrees(np.arctan2(co[:, 0], co[:, 1] - cy))
+    rows = np.arange(V)
+    d_fwd = (theta[:, None] - A[None]) % 360.0         # how far past chain c (increasing angle)
+    d_bwd = (A[None] - theta[:, None]) % 360.0
+    prv, nxt = d_fwd.argmin(1), d_bwd.argmin(1)
+    dp, dn = d_fwd[rows, prv], d_bwd[rows, nxt]
+    gap = dp + dn
+    w_prv = np.where(gap > 1e-9, dn / np.maximum(gap, 1e-9), 1.0)
+    rest = np.zeros(V)                                  # share left to the body bones
+    for c, k in enumerate(keys):
+        ac = w_prv * (prv == c) + (1.0 - w_prv) * (nxt == c)
+        segs = sorted(chains[k], key=lambda s: s[0])
+        n = len(segs)
+        zj = np.array([s[2].head.z for s in segs] + [segs[-1][2].tail.z])
+        u = np.interp(-co[:, 2], np.maximum.accumulate(-zj), np.arange(n + 1.0))
+        share = _smoothstep(0.0, ROOT_BLEND, u)
+        uc = np.clip(u, 0.5, n - 0.5)
+        for i, j, _ in segs:
+            W[:, j] += ac * share * np.maximum(0.0, 1.0 - np.abs(uc - (i + 0.5)))
+        rest += ac * (1.0 - share)
+    bi = [col[n] for n in body]
+    W[:, bi] += _envelope(co, [bones[i] for i in bi]) * rest[:, None]
+    return W
+
+
+# ---- per-object helpers: topology, sides, smoothing, pruning
+SMOOTH_RADIUS = {     # metres of weight smoothing along the surface, per part
+    'body': 0.008, 'head': 0.01, 'shoes': 0.012, 'accessories': 0.012, 'bodice': 0.02,
+    'hair_front': 0.025, 'hair_back': 0.03, 'sleeves': 0.065, 'skirt': 0.02, 'petticoat': 0.02,
+}
+DEFAULT_SMOOTH = 0.012
+MAX_SMOOTH_ITERS = 300
+SIDE_BAND = 0.02      # a .L/.R bone fades out over this far past the midline
+ISLAND_SIDE_X = 0.03  # a loose piece whose centre is this far off the midline belongs to one side
+SIDED_PARTS_EXEMPT = ('skirt', 'petticoat')   # angular leg weights there are already symmetric
+
+
+def _topology(obj, co):
+    """Edges (E, 2) of the mesh plus links between coincident vertices (split seams)."""
+    me = obj.data
+    ed = np.empty(len(me.edges) * 2, dtype=np.int64)
+    me.edges.foreach_get('vertices', ed)
+    ed = ed.reshape(-1, 2)
+    _, first, inv = np.unique(np.round(co, 5), axis=0, return_index=True, return_inverse=True)
+    rep = first[inv.reshape(-1)]
+    dup = np.nonzero(rep != np.arange(len(co)))[0]
+    if len(dup):
+        ed = np.concatenate([ed, np.stack([dup, rep[dup]], 1)])
+    return ed
+
+
+def _islands(n, edges):
+    parent = np.arange(n)
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+    for a, b in edges.tolist():
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[max(ra, rb)] = min(ra, rb)
+    return np.array([find(i) for i in range(n)])
+
+
+def _side_mask(co, labels, bones, per_vertex):
+    """(V, B) factors that keep .L bones off the right side and .R bones off the left."""
+    m = np.ones((len(co), len(bones)))
+    sums = np.bincount(labels, weights=co[:, 0], minlength=labels.max() + 1)
+    cnt = np.bincount(labels, minlength=labels.max() + 1)
+    cx = (sums / np.maximum(cnt, 1))[labels]
+    isl_side = np.where(np.abs(cx) > ISLAND_SIDE_X, np.sign(cx), 0.0)
+    for j, b in enumerate(bones):
+        s = {'L': 1.0, 'R': -1.0}.get(b.name.rsplit('.', 1)[-1]) if '.' in b.name else None
+        if s is None:
+            continue
+        if per_vertex:
+            m[:, j] = _smoothstep(-SIDE_BAND, 0.0, co[:, 0] * s)
+        m[isl_side == -s, j] = 0.0
+    return m
+
+
+def _smooth(w, co, edges, radius):
+    """Laplacian smoothing of the weight rows along the mesh edges, about `radius` metres.
+
+    Each edge pulls with (median edge / its length)^2 (at most 1), so every iteration
+    spreads about one median edge length in metres whatever the edge: long edges down
+    a thin ribbon don't carry weights much farther than `radius`."""
+    if radius <= 0 or not len(edges):
+        return w
+    ln = np.linalg.norm(co[edges[:, 0]] - co[edges[:, 1]], axis=1)
+    pos = ln[ln > 1e-6]
+    if not len(pos):
+        return w
+    ref = float(np.median(pos))
+    iters = int(min(MAX_SMOOTH_ITERS, round(2.0 * (radius / ref) ** 2)))
+    if iters <= 0:
+        return w
+    c = np.minimum(1.0, (ref / np.maximum(ln, 1e-9)) ** 2)
+    src = np.concatenate([edges[:, 0], edges[:, 1]])
+    dst = np.concatenate([edges[:, 1], edges[:, 0]])
+    cc = np.concatenate([c, c])
+    order = np.argsort(src, kind='stable')
+    src, dst, cc = src[order], dst[order], cc[order][:, None]
+    verts, starts = np.unique(src, return_index=True)
+    deg = np.diff(np.append(starts, len(src)))[:, None]
+    w = w.copy()
+    for _ in range(iters):
+        pull = np.add.reduceat(cc * (w[dst] - w[src]), starts, axis=0) / deg
+        w[verts] += 0.5 * pull
+    return w
+
+
+def _prune(w):
+    """Keep the MAX_INFLUENCE strongest bones per vertex, continuously: the next-strongest
+    weight (at least MIN_WEIGHT) is subtracted from every bone before renormalizing, so a
+    bone entering or leaving the top four does so at zero weight instead of jumping."""
+    k = min(MAX_INFLUENCE, w.shape[1])
+    w = w / np.maximum(w.sum(1, keepdims=True), 1e-12)
+    thr = -np.sort(-w, axis=1)[:, k] if w.shape[1] > k else np.zeros(len(w))
+    top = np.argmax(w, axis=1)
+    w = np.maximum(w - np.maximum(thr, MIN_WEIGHT)[:, None], 0.0)
+    empty = np.nonzero(w.sum(1) <= 0)[0]      # only with 5+ exactly tied bones
+    w[empty, top[empty]] = 1.0
+    idx = np.argsort(-w, axis=1, kind='stable')[:, :k]
+    ww = np.take_along_axis(w, idx, axis=1)
+    return idx, ww / np.maximum(ww.sum(1, keepdims=True), 1e-12)
+
+
+SKIRT_BAND = 0.03     # bodice pieces hand over to the skirt weights within this of hip_z
+ANKLE_BLEND = 0.03    # foot / shin blend half-width around the ankle joint height
+DRAPE_NEAR, DRAPE_FAR = 0.04, 0.13   # sleeve drape weight fades in between these from the arm axis
+
+
+def _split_joint_aux(w, co, bones, band):
+    """Spread each elbow / knee bend over three rotations: the upper limb (0), its helper
+    bone (half the bend) and the lower limb with everything hanging from it (full bend).
+    Along the lower bone, within `width` of the joint, the limb's total weight is
+    re-split by a smooth partition of unity (upper -> helper -> lower); inside each group
+    the bones keep their envelope proportions."""
+    before, after, helper = band
+    col = {b.name: i for i, b in enumerate(bones)}
+    kids = {}
+    for b in bones:
+        kids.setdefault(b.parent, []).append(b.name)
+
+    def below(name):
+        out, todo = [], [name]
+        while todo:
+            n = todo.pop()
+            out.append(n)
+            todo += kids.get(n, [])
+        return out
+    for j, b in enumerate(bones):
+        if 'joint_aux' not in b.meta:
+            continue
+        upper, lower = b.meta['joint_aux']
+        if lower not in col:
+            continue
+        up = [col[n] for n in upper if n in col]
+        # the limb and what it carries rigidly; secondary chains (sleeve drapes) keep their own weights
+        lo = [col[n] for n in below(lower) if n in col and bones[col[n]].group not in ('Sleeve', 'Hair', 'Skirt')]
+        if not up:
+            continue
+        L = bones[col[lower]]
+        d = np.array((L.tail - L.head).normalized())
+        t = (co - np.array(b.head)) @ d
+        if helper:
+            f_lo = _smoothstep(0.0, after, t)
+            f_up = 1.0 - _smoothstep(-before, 0.0, t)
+        else:
+            f_lo = _smoothstep(-before, after, t)
+            f_up = 1.0 - f_lo
+        f_aux = 1.0 - f_lo - f_up
+        su, sl = w[:, up].sum(1), w[:, lo].sum(1)
+        tot = su + sl
+        live = tot > 1e-9
+        pu = np.where(live[:, None], w[:, up] / np.maximum(su, 1e-12)[:, None], 0.0)
+        pu[su <= 1e-12] = np.eye(len(up))[-1]          # empty group: its main bone
+        pl = np.where(live[:, None], w[:, lo] / np.maximum(sl, 1e-12)[:, None], 0.0)
+        pl[sl <= 1e-12] = np.eye(len(lo))[0]
+        w[:, up] = pu * (tot * f_up)[:, None]
+        w[:, lo] = pl * (tot * f_lo)[:, None]
+        w[:, j] += tot * f_aux
+
+
+def _split_twist(w, co, bones):
+    """Give each twist bone (meta 'twist_of') the share of its limb segment's weight that
+    grows smoothly from 0 at the segment's top to 1 at its bottom (TWIST_RAMP)."""
+    col = {b.name: i for i, b in enumerate(bones)}
+    for j, b in enumerate(bones):
+        p = col.get(b.meta.get('twist_of'))
+        if p is None:
+            continue
+        a, c = np.array(bones[p].head), np.array(bones[p].tail)
+        t = ((co - a) @ (c - a)) / max(float((c - a) @ (c - a)), 1e-12)
+        f = _smoothstep(TWIST_RAMP[0], TWIST_RAMP[1], t)
+        w[:, j] += w[:, p] * f
+        w[:, p] *= 1.0 - f
+
+
+def _split_ankle(w, co, bones):
+    """Below the ankle everything is foot (足首), above it shin (ひざ), with a short blend
+    around the joint: the shoe is rigid and the skin inside it moves the same way."""
+    col = {b.name: i for i, b in enumerate(bones)}
+    for tag in 'LR':
+        a, k = col.get(f'足首.{tag}'), col.get(f'ひざ.{tag}')
+        if a is None or k is None:
+            continue
+        s = w[:, a] + w[:, k]
+        f = _smoothstep(bones[a].head.z - ANKLE_BLEND, bones[a].head.z + ANKLE_BLEND, co[:, 2])
+        w[:, a], w[:, k] = s * (1.0 - f), s * f
+
+
+def _drape_only_away_from_arm(w, co, bones):
+    """Sleeve drape chains (袖) only move cloth hanging away from the arm: their weight
+    fades in between DRAPE_NEAR and DRAPE_FAR from the arm bones, so the cuff and the
+    band around the arm follow the arm and a swinging drape doesn't tear them."""
+    for tag in 'LR':
+        arm = [b for b in bones if b.name in (f'腕.{tag}', f'ひじ.{tag}')]
+        drape = [j for j, b in enumerate(bones) if b.group == 'Sleeve' and b.name.endswith('.' + tag)]
+        if not arm or not drape:
+            continue
+        d = np.min([_seg_dist(co, np.array(b.head), np.array(b.tail)) for b in arm], axis=0)
+        g = _smoothstep(DRAPE_NEAR, DRAPE_FAR, d)
+        moved = w[:, drape].sum(1) * (1.0 - g)
+        w[:, drape] *= g[:, None]
+        others = [j for j, b in enumerate(bones) if j not in drape and b.name in
+                  {f'{n}.{tag}' for n in ('腕', '腕捩', 'ひじ', '手捩', '手首')}]
+        tot = w[:, others].sum(1)
+        if others:
+            env = _envelope(co, [bones[j] for j in others])
+            w[:, others] += np.where(tot[:, None] > 1e-9, w[:, others] / np.maximum(tot, 1e-9)[:, None],
+                                     env) * moved[:, None]
+
+
+def _base_weights(part, co, bones):
+    """(V, B) weights before side masking / smoothing / pruning."""
+    plain = [j for j, b in enumerate(bones) if 'twist_of' not in b.meta and 'joint_aux' not in b.meta]
+    sub = [bones[j] for j in plain]
+    if part in ('skirt', 'petticoat'):
+        w0 = _skirt_weights(co, sub)
+    else:
+        main = [i for i, b in enumerate(sub) if b.group != 'Skirt']
+        w0 = np.zeros((len(co), len(sub)))
+        w0[:, main] = _envelope(co, [sub[i] for i in main])
+        if len(main) < len(sub):        # bodice ribbons hanging over the skirt ride the skirt
+            t = _smoothstep(L['hip_z'] + SKIRT_BAND, L['hip_z'] - SKIRT_BAND, co[:, 2])[:, None]
+            w0 = (1.0 - t) * w0 + t * _skirt_weights(co, sub)
+    w = np.zeros((len(co), len(bones)))
+    w[:, plain] = w0
+    if part == 'sleeves':
+        _drape_only_away_from_arm(w, co, bones)
+    _split_ankle(w, co, bones)
+    _split_twist(w, co, bones)
+    _split_joint_aux(w, co, bones, JOINT_BAND.get(part, (JOINT_AUX_BLEND, JOINT_AUX_BLEND, True)))
+    return w
+
+
+RIGID_ISLAND = 0.05   # loose pieces (not skin) within this radius move rigidly: island-average weights
+
+
+def _island_rules(w, co, labels, bones, part):
+    """Per loose part: a finger part belongs to its own finger chain only (neighbouring
+    finger envelopes overlap at ~1 cm), and small ornaments (bows, leaves, beads) take
+    their island's average weights so they move as one piece."""
+    chains = {}
+    for j, b in enumerate(bones):
+        if 'finger' in b.meta:
+            chains.setdefault(b.meta['finger'], []).append(j)
+    for k in np.unique(labels):
+        m = labels == k
+        if chains:
+            sums = {jp: w[np.ix_(m, cols)].sum() for jp, cols in chains.items()}
+            tot = sum(sums.values())
+            best = max(sums, key=sums.get)
+            if tot > 0.3 * m.sum() and sums[best] > 0.6 * tot:
+                for jp, cols in chains.items():
+                    if jp != best:
+                        w[np.ix_(m, cols)] = 0.0
+        if part != 'body':
+            p = co[m]
+            if np.linalg.norm(p - p.mean(0), axis=1).max() < RIGID_ISLAND:
+                w[m] = w[m].mean(0)
+    s = w.sum(1, keepdims=True)
+    return np.where(s > 1e-12, w / np.maximum(s, 1e-12), w)
+
+
+def _weights(obj, part, co, bones):
+    """(V, k) bone indices and weights for the vertices of `obj` (world positions `co`)."""
+    w = _base_weights(part, co, bones)
+    edges = _topology(obj, co)
+    labels = _islands(len(co), edges)
+    masked = w * _side_mask(co, labels, bones, part not in SIDED_PARTS_EXEMPT)
+    ok = masked.sum(1) > 1e-9
+    w = np.where(ok[:, None], masked, w)
+    w = w / w.sum(1, keepdims=True)
+    w = _smooth(w, co, edges, SMOOTH_RADIUS.get(part, DEFAULT_SMOOTH))
+    w = _island_rules(w, co, labels, bones, part)
+    return _prune(w)
 
 
 def _skin(obj, part, bones, arm):
@@ -472,7 +981,7 @@ def _skin(obj, part, bones, arm):
     obj['levi_rig_groups'] = []
     if len(me.vertices):
         co = _world_verts([obj])
-        idx, w = _weights(co, cand)
+        idx, w = _weights(obj, part, co, cand)
         groups = {}
         for j in np.unique(idx[w > 0]):
             groups[j] = obj.vertex_groups.new(name=cand[j].name)
@@ -559,6 +1068,8 @@ def _create_armature(bones):
         e = data.edit_bones.new(b.name)
         e.head, e.tail = b.head, b.tail
         e.roll = 0.0
+        if 'align_z' in b.meta:
+            e.align_roll(Vector(b.meta['align_z']))
         e.use_deform = b.deform
         eb[b.name] = e
     for b in bones:
@@ -583,6 +1094,27 @@ def _create_armature(bones):
         c.iterations = iters
         c.use_tail = True
         c.use_stretch = False
+    for b in bones:
+        pb = arm.pose.bones[b.name]
+        if 'follow' in b.meta:
+            # PMX 回転付与: add `influence` of the source bone's rotation (relative to its
+            # rest, expressed in this bone's rest orientation) to this bone
+            src, infl = b.meta['follow']
+            pb['mmd_append'] = src
+            pb['mmd_append_influence'] = float(infl)
+            if src in data.bones and infl > 1e-4:
+                c = pb.constraints.new('COPY_ROTATION')
+                c.name = 'Follow'
+                c.target, c.subtarget = arm, src
+                c.target_space, c.owner_space = 'LOCAL_OWNER_ORIENT', 'LOCAL'
+                c.mix_mode = 'BEFORE'
+                c.influence = infl
+        if 'twist_of' in b.meta:
+            # PMX fixed axis: a twist bone turns only about its own length
+            pb.rotation_mode = 'QUATERNION'
+            pb.lock_rotation = (True, False, True)
+            pb.lock_rotation_w = False
+            pb['mmd_fixed_axis'] = 1
     for t in 'LR':
         knee = arm.pose.bones[f'ひざ.{t}']
         knee.lock_ik_y = knee.lock_ik_z = True      # hinge about its local X
@@ -613,7 +1145,14 @@ def build_rig():
     for k in JOINT_KEYS:
         src = 'mesh' if k in fitted else 'spec'
         print(f'rig joint {k:14s} {src}  ({J[k].x:+.3f}, {J[k].y:+.3f}, {J[k].z:+.3f})')
-    core = _core_bones(J)
+    H = fit_head(parts.get('head', []))
+    F = fit_fingers(parts.get('body', []), J)
+    print(f"rig fingers    {'mesh' if F else 'spec'}  ({len(F)} chains fitted to the body's fingers)")
+    core = _core_bones(J, H, F)
+    by = {b.name: b for b in core}
+    hd, ey = by['頭'].head, by['目.L'].head
+    print(f"rig head  頭             {'mesh' if 'head_y' in H else 'spec'}  ({hd.x:+.3f}, {hd.y:+.3f}, {hd.z:+.3f})")
+    print(f"rig head  目.L           {'mesh' if 'eye' in H else 'spec'}  ({ey.x:+.3f}, {ey.y:+.3f}, {ey.z:+.3f})")
     bones = core + _secondary_bones(parts, core)
     arm = _create_armature(bones)
     for part, objs in parts.items():

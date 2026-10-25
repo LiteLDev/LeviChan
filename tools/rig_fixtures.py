@@ -11,7 +11,7 @@ import bmesh
 import bpy
 from mathutils import Vector
 
-from levi import common, spec
+from levi import common, rig, spec
 
 L = spec.L
 FIXTURES = ('body', 'skirt', 'hair_back', 'hair_front', 'sleeves')
@@ -170,7 +170,7 @@ def body(col):
     _finish(common.new_object(col, 'fx_head', bm, [mat]))
     for s in (1, -1):
         m = lambda p: (s * p[0], p[1], p[2])  # noqa: E731
-        tube(f'fx_leg_{s}', [m((L['leg_center_x'], 0, L['crotch_z'] + 0.04)), m((L['leg_center_x'], -0.012, L['knee_z'])),
+        tube(f'fx_leg_{s}', [m((L['leg_center_x'], 0, L['crotch_z'] + 0.04)), m((L['leg_center_x'], -0.012, spec.px_to_z(rig.KNEE_ROW))),
                              m((L['ankle_center_x'], 0, L['ankle_z'])), m((L['toe_tip_x'], L['toe_tip_y'], 0.015))],
              [L['thigh_half_w'], L['knee_half_w'], L['ankle_half_w'], 0.012])
         tube(f'fx_arm_{s}', [m(L['shoulder_joint']), m(L['elbow']), m(L['wrist']), m(L['fingertip'])],

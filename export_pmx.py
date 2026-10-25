@@ -115,6 +115,13 @@ def toon_ramp(key, out_dir):
 
 
 # ---------------------------------------------------------------- mmd conversion
+def _ancestors(pb):
+    p = pb.parent
+    while p is not None:
+        yield p
+        p = p.parent
+
+
 def convert(arm, mesh, no_edge, out_dir):
     bpy.context.view_layer.objects.active = arm
     for o in bpy.context.view_layer.objects:
@@ -130,8 +137,25 @@ def convert(arm, mesh, no_edge, out_dir):
     root.mmd_root.comment_e_text = txt.name
 
     for name, jp, en in rig.bone_table(arm):
-        mb = arm.pose.bones[name].mmd_bone
+        pb = arm.pose.bones[name]
+        mb = pb.mmd_bone
         mb.name_j, mb.name_e = jp, en
+        src = pb.get('mmd_append')
+        if src:                      # 回転付与 (skirt / hair follow bones), evaluated after IK
+            mb.has_additional_rotation = True
+            mb.additional_transform_bone = src
+            mb.additional_transform_influence = float(pb.get('mmd_append_influence', 1.0))
+        if src or any(pb.get('mmd_append') for pb in _ancestors(pb)):
+            mb.transform_order = 1
+        bone = pb.bone
+        axis = bone.matrix_local.to_3x3()
+        if pb.get('mmd_fixed_axis'):  # 捩 bones turn only about their own length
+            mb.enabled_fixed_axis = True
+            mb.fixed_axis = axis.col[1].xzy
+        if bone.collections and bone.collections[0].name == 'Fingers':   # curl about local X
+            mb.enabled_local_axes = True
+            mb.local_axis_x = axis.col[0].xzy
+            mb.local_axis_z = axis.col[2].xzy
 
     toon_dir = os.path.join(out_dir, 'toon')
     os.makedirs(toon_dir, exist_ok=True)
@@ -208,6 +232,10 @@ def add_physics(root, arm):
         else:
             r = 0.045 if bname in ('上半身', '上半身2', '下半身') else 0.03
             body(bname, 'CAPSULE', (r, max(0.01, b.length - r), 0), 0, 0, set())
+    if rig.HAIR_ROOT in bones:
+        # the hair chains hang from the head-follow bone (60 % of the head's turn, as in
+        # Blender): a small bone-following body there anchors their joints; it collides with nothing
+        body(rig.HAIR_ROOT, 'SPHERE', (0.01, 0, 0), 0, 0, set(range(16)), location=bones[rig.HAIR_ROOT].head_local)
 
     chain_groups = set(CHAIN_GROUP.values())
     n_joints = 0
@@ -218,7 +246,10 @@ def add_physics(root, arm):
         rad = 0.018 if grp == 'Hair' else 0.025
         root_of_chain = b.parent is None or b.parent.collections[0].name != grp
         mask = chain_groups | ({0} if root_of_chain else set())   # chain roots sit on the body: no collision
-        body(b.name, 'CAPSULE', (rad, max(0.01, b.length - rad), 0), 1, CHAIN_GROUP[grp], mask, mass=0.3)
+        # skirt chain roots follow the bone (their follow parents add the thighs' rotation);
+        # everything below them is simulated
+        dyn = 0 if grp == 'Skirt' and root_of_chain else 1
+        body(b.name, 'CAPSULE', (rad, max(0.01, b.length - rad), 0), dyn, CHAIN_GROUP[grp], mask, mass=0.3)
         parent = b.parent
         while parent is not None and parent.name not in bodies:
             parent = parent.parent
@@ -271,12 +302,15 @@ def main():
         raise SystemExit(f'export failed: {res}')
 
     summary = {
-        'bones': len(arm.data.bones),
+        'bones': sum(1 for pb in arm.pose.bones if not pb.is_mmd_shadow_bone),   # mmd_tools adds shadow bones for 付与
         'materials': len(mesh.data.materials),
         'mesh_vertices': len(mesh.data.vertices),
         'mesh_faces': len(mesh.data.polygons),
         'rigid_bodies': n_rb,
         'joints': n_j,
+        'append_bones': sum(1 for pb in arm.pose.bones if pb.mmd_bone.has_additional_rotation),
+        'fixed_axis_bones': sum(1 for pb in arm.pose.bones if pb.mmd_bone.enabled_fixed_axis),
+        'local_axes_bones': sum(1 for pb in arm.pose.bones if pb.mmd_bone.enabled_local_axes),
         'ik_bones': sorted({c.subtarget for pb in arm.pose.bones for c in pb.constraints if c.type == 'IK'}),
     }
     with open(os.path.splitext(out)[0] + '.json', 'w', encoding='utf-8') as f:

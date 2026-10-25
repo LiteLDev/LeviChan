@@ -26,10 +26,18 @@ import bpy  # noqa: E402
 import numpy as np  # noqa: E402
 from mathutils import Vector  # noqa: E402
 
-from levi import rig  # noqa: E402
-from rig_pose import apply_test_pose, build_scene  # noqa: E402
+from levi import builder, rig  # noqa: E402
+import rig_pose  # noqa: E402
+from rig_pose import build_scene  # noqa: E402
 
-MAX_STRETCH = 3.0     # posed / rest edge length
+MAX_STRETCH = 2.0     # posed / rest edge length, any edge of any mesh, any pose
+MIN_EDGE = 5e-4       # edges shorter than this (degenerate) are not measured
+MAX_PEN = 0.02        # deepest new penetration of clothes / hair into the body (m)
+PEN_DEPTH = 0.005     # vertices deeper than this are counted in the report
+PEN_SEARCH = 0.2      # find_nearest radius; farther points are treated as outside
+PEN_BODY = ('body', '_proxy')                 # the closed skin the others must stay out of
+PEN_SKIP = ('head',)
+WINDING_CHUNK = 2e5     # points x triangles per winding-number batch                          # the head's neck sits inside the body's neck on purpose
 
 CORE_PARENTS = {
     '全ての親': None, 'センター': '全ての親', 'グルーブ': 'センター', '腰': 'グルーブ',
@@ -37,8 +45,9 @@ CORE_PARENTS = {
 }
 for _t in 'LR':
     CORE_PARENTS.update({
-        f'目.{_t}': '頭', f'肩.{_t}': '上半身2', f'腕.{_t}': f'肩.{_t}', f'ひじ.{_t}': f'腕.{_t}',
-        f'手首.{_t}': f'ひじ.{_t}', f'親指０.{_t}': f'手首.{_t}', f'親指１.{_t}': f'親指０.{_t}',
+        f'目.{_t}': '頭', f'肩.{_t}': '上半身2', f'腕.{_t}': f'肩.{_t}', f'ひじ.{_t}': f'腕捩.{_t}',
+        f'腕捩.{_t}': f'腕.{_t}', f'手捩.{_t}': f'ひじ.{_t}',
+        f'手首.{_t}': f'手捩.{_t}', f'親指０.{_t}': f'手首.{_t}', f'親指１.{_t}': f'親指０.{_t}',
         f'親指２.{_t}': f'親指１.{_t}',
         f'足.{_t}': '下半身', f'ひざ.{_t}': f'足.{_t}', f'足首.{_t}': f'ひざ.{_t}', f'つま先.{_t}': f'足首.{_t}',
         f'足ＩＫ.{_t}': '全ての親', f'つま先ＩＫ.{_t}': f'足ＩＫ.{_t}',
@@ -150,29 +159,126 @@ def _eval_edges(objs):
     return out
 
 
-def check_pose(arm, errors):
+def _winding(tris, pts):
+    """Generalized winding number of the triangle soup `tris` (T, 3, 3) at `pts` (P, 3):
+    ~1 inside a closed surface, ~0 outside, and well defined next to open borders
+    (the body's neck opening)."""
+    out = np.zeros(len(pts))
+    step = max(1, int(WINDING_CHUNK // max(len(tris), 1)))     # bounded memory per chunk
+    for s in range(0, len(pts), step):
+        a = tris[None, :, 0] - pts[s:s + step, None]
+        b = tris[None, :, 1] - pts[s:s + step, None]
+        c = tris[None, :, 2] - pts[s:s + step, None]
+        la, lb, lc = (np.linalg.norm(v, axis=2) for v in (a, b, c))
+        det = np.einsum('ptk,ptk->pt', a, np.cross(b, c))
+        den = (la * lb * lc + np.einsum('ptk,ptk->pt', a, b) * lc
+               + np.einsum('ptk,ptk->pt', b, c) * la + np.einsum('ptk,ptk->pt', c, a) * lb)
+        out[s:s + step] = np.arctan2(det, den).sum(1) / (2 * np.pi)
+    return out
+
+
+def _inside_depth(body, co):
+    """Depth (m) of each point inside the body surface, 0 outside. Points the nearest
+    face calls inside are confirmed with the winding number."""
+    bvh, tris = body
+    out = np.zeros(len(co))
+    cand, dist = [], []
+    for i, p in enumerate(co):
+        loc, nrm, _, d = bvh.find_nearest(Vector(p), PEN_SEARCH)
+        if loc is not None and d > 1e-5 and (Vector(p) - loc).dot(nrm) < 0.0:
+            cand.append(i)
+            dist.append(d)
+    if cand:
+        wn = _winding(tris, co[cand])
+        out[np.array(cand)[wn > 0.5]] = np.array(dist)[wn > 0.5]
+    return out
+
+
+def _body_bvh(body_objs):
+    """(BVHTree, triangles) of the posed body meshes in world space, or None."""
+    from mathutils.bvhtree import BVHTree
+    dg = bpy.context.evaluated_depsgraph_get()
+    verts, polys = [], []
+    for o in body_objs:
+        ev = o.evaluated_get(dg)
+        me = ev.to_mesh()
+        mw = o.matrix_world
+        base = len(verts)
+        verts += [mw @ v.co for v in me.vertices]
+        polys += [[base + i for i in p.vertices] for p in me.polygons]
+        ev.to_mesh_clear()
+    if not polys:
+        return None
+    v = np.array(verts)
+    tris = np.array([v[[p[0], p[i], p[i + 1]]] for p in polys for i in range(1, len(p) - 1)])
+    return BVHTree.FromPolygons(verts, polys), tris
+
+
+def pose_metrics(arm, objs, pose, rest, rest_depth):
+    """{'stretch': (ratio, obj), 'pen': (depth, obj, count)} for one pose."""
+    rig_pose.apply_pose(arm, pose)
+    posed = _eval_edges(objs)
+    stretch, bad = (0.0, ''), []
+    for name, (co, ln) in posed.items():
+        if not np.isfinite(co).all():
+            bad.append(name)
+            continue
+        r0 = rest[name][1]
+        keep = r0 > MIN_EDGE
+        r = ln[keep] / r0[keep]
+        if len(r) and r.max() > stretch[0]:
+            stretch = (float(r.max()), name)
+    pen = (0.0, '', 0)
+    body = [o for o in objs if o.users_collection[0].name in PEN_BODY]
+    bvh = _body_bvh(body)
+    if bvh is not None:
+        for o in objs:
+            if o in body or o.users_collection[0].name in PEN_SKIP:
+                continue
+            d = _inside_depth(bvh, _eval_verts(o))
+            d = d - rest_depth[o.name]          # only new or deeper penetration counts
+            n = int((d > PEN_DEPTH).sum())
+            if len(d) and d.max() > pen[0]:
+                pen = (float(d.max()), o.name, n)
+    return {'stretch': stretch, 'pen': pen, 'nonfinite': bad}
+
+
+def _eval_verts(o):
+    dg = bpy.context.evaluated_depsgraph_get()
+    ev = o.evaluated_get(dg)
+    me = ev.to_mesh()
+    co = np.empty(len(me.vertices) * 3)
+    me.vertices.foreach_get('co', co)
+    ev.to_mesh_clear()
+    mw = np.array(o.matrix_world)
+    return co.reshape(-1, 3) @ mw[:3, :3].T + mw[:3, 3]
+
+
+def check_poses(arm, errors, poses):
     objs = skinned_meshes(arm)
     for o in objs:
         if 'Outline' in o.modifiers:
             o.modifiers['Outline'].show_viewport = False
+    rig_pose.reset_pose(arm)
     rest = _eval_edges(objs)
-    apply_test_pose(arm)
-    posed = _eval_edges(objs)
-    worst = (0.0, '')
-    for name, (co, ln) in posed.items():
-        if not np.isfinite(co).all():
-            errors.append(f'{name}: non-finite vertices in pose')
-            continue
-        r = ln / np.maximum(rest[name][1], 1e-6)
-        if len(r) and r.max() > worst[0]:
-            worst = (float(r.max()), name)
-    print(f'pose: max edge stretch {worst[0]:.2f} ({worst[1]})')
-    if worst[0] > MAX_STRETCH:
-        errors.append(f'pose tears {worst[1]}: edge stretched x{worst[0]:.2f}')
-    for pb in arm.pose.bones:
-        pb.matrix_basis.identity()
-        for c in pb.constraints:
-            c.mute = False
+    body = [o for o in objs if o.users_collection[0].name in PEN_BODY]
+    bvh = _body_bvh(body)
+    rest_depth = {o.name: _inside_depth(bvh, _eval_verts(o)) for o in objs
+                  if bvh and o not in body and o.users_collection[0].name not in PEN_SKIP}
+    print(f'{"pose":16s} {"stretch":>7s}  {"worst object":24s} {"pen cm":>6s} {"verts":>5s}  object')
+    for pose in poses:
+        m = pose_metrics(arm, objs, pose, rest, rest_depth)
+        s, so = m['stretch']
+        p, po, pn = m['pen']
+        flag = 'FAIL' if s > MAX_STRETCH or p > MAX_PEN or m['nonfinite'] else 'ok'
+        print(f'{pose:16s} {s:7.2f}  {so:24s} {p * 100:6.2f} {pn:5d}  {po:24s} {flag}')
+        for name in m['nonfinite']:
+            errors.append(f'{pose}: {name} has non-finite vertices')
+        if s > MAX_STRETCH:
+            errors.append(f'pose {pose} tears {so}: edge stretched x{s:.2f}')
+        if p > MAX_PEN:
+            errors.append(f'pose {pose}: {po} sinks {p * 100:.1f} cm into the body ({pn} vertices > {PEN_DEPTH * 1000:.0f} mm)')
+    rig_pose.reset_pose(arm)
     for o in objs:
         if 'Outline' in o.modifiers:
             o.modifiers['Outline'].show_viewport = True
@@ -198,26 +304,32 @@ def main():
     ap.add_argument('--parts', default='')
     ap.add_argument('--proxy', action='store_true')
     ap.add_argument('--fixtures', action='store_true')
+    ap.add_argument('--poses', default='', help='comma-separated rig_pose.POSES (default: all)')
+    ap.add_argument('--quick', action='store_true', help='build once: skip the repeatability checks')
     args = ap.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
 
     errors = []
     prints = []
-    for attempt in (1, 2):
+    for attempt in ((1,) if args.quick else (1, 2)):
         arm = build_scene(args.parts, args.proxy, args.fixtures)
         prints.append(fingerprint(arm))
-    if prints[0] != prints[1]:
+    if prints[0] != prints[-1]:
         errors.append('rig not repeatable (bones/weights differ between builds)')
-    # rigging the same scene twice must also be stable
-    arm = rig.build_rig()
-    if fingerprint(arm) != prints[1]:
-        errors.append('re-running build_rig on a rigged scene changes the result')
+    if not args.quick:
+        # rigging the same scene twice must also be stable
+        arm = rig.build_rig()
+        if fingerprint(arm) != prints[1]:
+            errors.append('re-running build_rig on a rigged scene changes the result')
 
     n_def = sum(1 for b in arm.data.bones if b.use_deform)
     print(f'bones={len(arm.data.bones)} deform={n_def} meshes={len(skinned_meshes(arm))}')
     check_bones(arm, errors)
     check_ik(arm, errors)
     check_weights(arm, errors)
-    check_pose(arm, errors)
+    # the throwaway fixtures (tubes, no hands) only make sense for the round-1 test pose
+    fixtures = args.fixtures or not (args.parts or builder.available_parts())
+    default = ["test"] if fixtures else list(rig_pose.POSES)
+    check_poses(arm, errors, [p for p in args.poses.split(",") if p] or default)
     if any(not math.isfinite(c) for b in arm.data.bones for c in b.head_local):
         errors.append('non-finite bone position')
 
@@ -227,4 +339,5 @@ def main():
     sys.exit(1 if errors else 0)
 
 
-main()
+if __name__ == '__main__':
+    main()
