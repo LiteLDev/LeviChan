@@ -2,9 +2,9 @@
 
 Objects:
   petticoat_core     inner cone from the hips down; hidden by the skirt.
-  petticoat_tier0-2  gathered ruffle tiers, outermost first. The two outer ones
-                     show where the skirt's sides are lifted; the innermost
-                     hangs lowest, beside the legs.
+  petticoat_tier0-1  gathered ruffle tiers, outermost first. The outer one
+                     shows where the skirt is lifted; the inner one hangs
+                     lowest, beside the legs, and shows below the outer one.
 
 Each tier is one thin band of gathered fabric, not a row of padded panels:
 - The band falls from its seam (gathered onto the core, or under the skirt
