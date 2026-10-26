@@ -52,8 +52,9 @@ from functools import lru_cache
 import bmesh
 import bpy
 import numpy as np
-from mathutils import Matrix, Vector
+from mathutils import Vector
 from mathutils.bvhtree import BVHTree
+from mathutils.kdtree import KDTree
 
 from .. import common, spec, toon
 
@@ -461,6 +462,28 @@ SKIN_UV = (2.0 / TEX_RES, 2.0 / TEX_RES)   # plain-skin corner for the back of t
 LASH = '#262A40'
 
 
+# the lid-shadow layer (EyeShade): colour, strength at the lash line, fade [px]
+SHADE_COLOUR, SHADE_ALPHA, SHADE_FADE = '#D3DCEB', 0.8, 2.2
+# the 照れ overlay covers the cheeks: X range, bottom row [px]; its top
+# follows the lower lid (flush_top)
+FLUSH_X, FLUSH_BOTTOM = (11.0, 34.0), 131.0
+
+
+def flush_top(X):
+    return np.maximum(lower_lid(np.clip(X, EYE_IN + 2.0, EYE_OC - 3.0)) + 1.6, 118.5)
+
+
+def _flush_d(X, R):
+    """Distance-like value [px] inside the 照れ overlay (negative outside)."""
+    X, R = np.asarray(X, float), np.asarray(R, float)
+    return np.minimum.reduce([R - flush_top(X), FLUSH_BOTTOM - R, X - FLUSH_X[0], FLUSH_X[1] - X])
+
+
+def _flush_fade(X, R):
+    """The flush fades out toward the overlay's edge (plain face texture there)."""
+    return _smooth(0.4, 2.6, _flush_d(X, R))
+
+
 def _texture_grid():
     j = (np.arange(TEX_RES) + 0.5) / TEX_PX
     col = TEX_COL0 + j[None, :]
@@ -500,9 +523,10 @@ def _eye_opening_d(X, R):
     return np.where((dx > 0) | (dr > 0), np.hypot(np.maximum(dx, 0), np.maximum(dr, 0)), np.maximum(dx, dr))
 
 
-def face_texture_pixels():
+def face_texture_pixels(flushed=False):
     """RGBA float array (rows top->bottom). RGB = lit colour, A = 1 where the
-    toon shade applies (skin), 0 for unshaded decals (lashes)."""
+    toon shade applies (skin), 0 for unshaded decals (lashes). flushed: the
+    texture of the 照れ overlay (a deeper blush with hatching)."""
     X, R = _texture_grid()
     cv = _Canvas(hexrgb(spec.PALETTE['skin']['base']))
     paint = cv.paint
@@ -515,6 +539,18 @@ def face_texture_pixels():
         d = np.abs((X - xs) + 0.45 * (R - 125.5)) - 0.25
         inside = (np.abs(R - 125.5) < 1.3)
         paint(0.12 * _soft(d) * inside, hexrgb('#EE9C98'))
+    if flushed:
+        # a broader, deeper flush under the eyes and across the nose's sides,
+        # with five clear hatch strokes (faded toward the overlay's edge,
+        # _flush_fade, so it meets the plain face without a seam)
+        wash = np.exp(-(((X - 24.0) / 10.5) ** 2 + ((R - 127.0) / 3.6) ** 2))
+        fade = _flush_fade(X, R)
+        paint(0.62 * wash * fade, hexrgb('#F49C98'))
+        for k in range(5):
+            xs = 17.5 + 3.0 * k
+            d = np.abs((X - xs) + 0.5 * (R - 127.0)) - 0.32
+            inside = _soft(np.abs(R - 127.0) - 1.9, 0.5)
+            paint(0.55 * _soft(d) * inside * fade, hexrgb('#E07479'))
 
     y_up = upper_lid(X)
     y_lo = lower_lid(X)
@@ -554,25 +590,29 @@ def face_texture_pixels():
     # drawn mouth stroke's weight and fades toward the corners
     mouth_d = np.maximum(np.abs(R - mouth_row(X)) - 0.55, X - (MOUTH_HALF + 0.2))
     gap = 0.55 + 0.25 * np.clip(X / 1.5, 0, 1)
-    paint(0.55 * gap * _soft(mouth_d, 0.45), hexrgb('#A65F5A'))
+    paint(0.8 * gap * _soft(mouth_d, 0.45), hexrgb('#9C5A55'))
     lip_d = np.hypot(X / 2.2, (R - 147.3) / 0.6) - 1.0
     paint(0.12 * _soft(lip_d * 0.6), hexrgb(spec.PALETTE['mouth']['base']))
     return cv.pixels()
 
 
-def eye_texture_pixels(iris_only=False):
-    """The eyes' texture in the same front-view mapping. The white (sclera,
-    static): white with the lid's soft shadow under the upper lid. The iris
-    (turns with the eye bone, iris_only): muted dark green top -> light mint
-    bottom, soft rim, slit pupil, the lashes' shadow band and the highlights.
-    All unshaded (A = 0)."""
+def eye_texture_pixels(iris_only=False, shade=False):
+    """The eyes' texture in the same front-view mapping. All unshaded (A = 0).
+    The white (sclera, static): plain white. shade: the lid-shadow layer
+    (EyeShade) over the white: the upper lid's soft blue-grey shadow, fading
+    to white below the lashes. The iris (turns with the eye bone, iris_only):
+    muted dark green top -> light mint bottom, soft rim, slit pupil and the
+    lashes' shadow band; the highlights are their own geometry (Highlights)."""
     X, R = _texture_grid()
     cv = _Canvas(hexrgb('#FFFFFF'))
     paint = lambda cov, colour: cv.paint(cov, colour, unshaded=True)   # noqa: E731
     paint(np.ones_like(X), hexrgb('#FFFFFF'))
     y_up = upper_lid(X)
-    # soft lid shadow on the white under the upper lid
-    paint(0.55 * _soft(R - (y_up + 2.4), 0.8), hexrgb('#DCE3EE'))
+    if shade:
+        Xl = np.clip(X, EYE_IN, EYE_OC)
+        t = np.clip((R - lash_bottom(Xl)) / SHADE_FADE, 0.0, 1.0)
+        paint(SHADE_ALPHA * (1.0 - t * t * (3.0 - 2.0 * t)), hexrgb(SHADE_COLOUR))
+        return cv.pixels()
     if not iris_only:
         return cv.pixels()
     ix, iy, irx, iry = IRIS
@@ -586,18 +626,46 @@ def eye_texture_pixels(iris_only=False):
     paint(_soft((q - 1.0) * 1.3) * 0.8, hexrgb('#123F28'))
     # upper iris shadow band cast by the lashes
     paint(iris * 0.35 * _soft(R - (y_up + 3.2), 1.2), hexrgb('#143F2A'))
-    hi = np.hypot(X - (ix - 1.0), R - 110.8) - 1.5
-    paint(_soft(hi), hexrgb('#FFFFFF'))
-    hi2 = np.hypot(X - (ix + 3.2), R - 121.2) - 0.7
-    paint(_soft(hi2) * 0.8, hexrgb('#E8FFF0'))
     return cv.pixels()
+
+
+# flat colour swatches (an ATLAS_N x ATLAS_N grid of ATLAS_CELL px cells) for
+# the small geometric decals: real lashes, highlights, tears, sweat, the はぅ
+# strokes. (colour, shaded): shaded swatches take the toon shade like skin.
+ATLAS = {
+    'lash': ('#262A40', False),
+    'white': ('#FFFFFF', False),
+    'tear': ('#A9D9F2', False),
+    'sweat': ('#C4E9F8', False),
+    'tear_line': ('#6FA9CF', False),
+    'tongue': ('#EE9C9A', True),        # lighter than the cavity ('mouth'), so ぺろっ reads
+}
+ATLAS_N, ATLAS_CELL = 4, 4
+
+
+def atlas_pixels():
+    n = ATLAS_N * ATLAS_CELL
+    out = np.ones((n, n, 4), np.float32)
+    for k, (hexc, shaded) in enumerate(ATLAS.values()):
+        r, c = divmod(k, ATLAS_N)
+        out[r * ATLAS_CELL:(r + 1) * ATLAS_CELL, c * ATLAS_CELL:(c + 1) * ATLAS_CELL, :3] = hexrgb(hexc)
+        out[r * ATLAS_CELL:(r + 1) * ATLAS_CELL, c * ATLAS_CELL:(c + 1) * ATLAS_CELL, 3] = 1.0 if shaded else 0.0
+    return out
+
+
+def atlas_uv(key):
+    """UV of the centre of a swatch (rows top->bottom in atlas_pixels)."""
+    r, c = divmod(list(ATLAS).index(key), ATLAS_N)
+    n = ATLAS_N * ATLAS_CELL
+    return ((c + 0.5) * ATLAS_CELL / n, 1.0 - (r + 0.5) * ATLAS_CELL / n)
 
 
 def face_image(pixels, name):
     img = bpy.data.images.get(name)
     if img:
         bpy.data.images.remove(img)
-    img = bpy.data.images.new(name, TEX_RES, TEX_RES, alpha=True, float_buffer=False)
+    h, w = pixels.shape[:2]
+    img = bpy.data.images.new(name, w, h, alpha=True, float_buffer=False)
     img.colorspace_settings.name = 'sRGB'
     img.alpha_mode = 'CHANNEL_PACKED'
     px = pixels[::-1]      # Blender images start at the bottom row
@@ -665,11 +733,17 @@ EYE_BOX = ((99.0, 131.5), 6.5, math.radians(88.0))   # rows, inner X [px], outer
 EYE_LOOPS = (0.2, 0.42, 0.7)     # intermediate loops between the lash loop (0) and the grid (1)
 MOUTH_BOX = ((139.0, 154.25), 9.0)                   # rows, half-width [px]
 MOUTH_LOOPS = (0.25, 0.5, 0.75)
+MOUTH_OUTLINE = (0.2, 0.6, 0.9, 1.0)   # outline hull width on the mouth loops from the slit out
 EYE_GAP = 0.35                   # px between the opening's rim and the eyeball (closest point)
 EYE_WALL_IN = 0.4                # px the rim rolls back into the eyeball
 EYE_SLEEVE = 5.0                 # px deep socket sleeve behind the rim: what a turned eyeball uncovers
-POUCH_BACK = (0.7, 3.6)          # px behind the slit: the slit's back rim, the pouch back
-POUCH_SIZE = (6.2, 3.4)          # half-width, half-height [px] of the pouch back
+POUCH_BACK = (0.7, 6.2)          # px behind the slit: the slit's back rim, the cavity's back centre
+POUCH_ROW = MOUTH_ROW + 0.9       # the cavity's centre row behind the slit
+# the mouth cavity behind the lips' inner rim: rings (depth behind the face
+# surface [px], centre row, half-width, half-height): a rounded bowl roomy
+# enough for the upper teeth (under its roof) and the tongue (on its floor)
+POUCH_RINGS = ((1.5, MOUTH_ROW + 0.45, 4.9, 2.45), (3.6, MOUTH_ROW + 0.8, 6.0, 3.4),
+               (5.4, MOUTH_ROW + 1.0, 4.6, 2.8))
 
 
 def _nearest(seq, v):
@@ -1413,45 +1487,107 @@ def pouch_back(co):
     return co + Vector((0.0, POUCH_BACK[0] / PPM, 0.0))
 
 
+def pouch_point(X, row, depth, detail=True):
+    """A point `depth` px behind the face surface at front-view (X, row)."""
+    return face_point(X, row, detail) + Vector((0.0, depth / PPM, 0.0))
+
+
 def add_pouch(bm, p, detail):
-    """The mouth slit's lips roll back into a small closed pouch."""
+    """The mouth slit's lips roll back into a closed cavity (POUCH_RINGS)."""
     c0 = [bm.verts[v] for v in p.loops[0]]
     rim = [_new_vert(bm, pouch_back(v.co)) for v in c0]
-    centre = face_point(0.0, MOUTH_ROW + 0.8, detail) + Vector((0.0, POUCH_BACK[1] / PPM, 0.0))
-    back = []
-    for (X, rr) in p.px[0]:
-        ang = math.atan2((rr - (MOUTH_ROW + 0.8)) / POUCH_SIZE[1], X / POUCH_SIZE[0])
-        back.append(_new_vert(bm, centre + Vector((math.cos(ang) * POUCH_SIZE[0] / PPM, -0.6 / PPM,
-                                                   -math.sin(ang) * POUCH_SIZE[1] / PPM))))
-    mid = _new_vert(bm, centre)
+    rings = []
+    for depth, crow, hx, hy in POUCH_RINGS:
+        ring = []
+        for (X, rr) in p.px[0]:
+            ang = math.atan2((rr - float(mouth_row(X))) / MOUTH_GAP, X / MOUTH_HALF)
+            ring.append(_new_vert(bm, pouch_point(math.cos(ang) * hx, crow + math.sin(ang) * hy, depth, detail)))
+        rings.append(ring)
+    mid = _new_vert(bm, pouch_point(0.0, POUCH_ROW, POUCH_BACK[1], detail))
     n = len(c0)
     for m in range(n):
         m2 = (m + 1) % n
-        bm.faces.new((rim[m], rim[m2], c0[m2], c0[m]))          # the lips' inner edge: skin
-        for f in (bm.faces.new((back[m], back[m2], rim[m2], rim[m])), bm.faces.new((mid, back[m2], back[m]))):
-            f.material_index = 1                                  # the pouch: 'mouth'
+        # the lips' inner edge and the cavity: 'mouth' (the painted lip line
+        # stays on the lips' outer face, so an open mouth is not ringed by it)
+        faces = [bm.faces.new((rim[m], rim[m2], c0[m2], c0[m]))]
+        faces += [bm.faces.new((b[m], b[m2], a[m2], a[m])) for a, b in zip([rim] + rings, rings)]
+        faces.append(bm.faces.new((mid, rings[-1][m2], rings[-1][m])))
+        for f in faces:
+            f.material_index = 1                                  # the cavity: 'mouth'
     _sync(bm)
     p.wall = [v.index for v in rim]
-    p.pouch = [v.index for v in back] + [mid.index]
+    p.pouch = [v.index for ring in rings for v in ring] + [mid.index]
 
 
 # ---------------------------------------------------------------- morphs
+# MMD expression morphs: shape keys at value 0 at rest. head_face carries the
+# lid, brow and mouth motion. The other head pieces carry the same keys where
+# they move: the lashes and the lid shadow follow the lids, the iris shrinks
+# (瞳小), the highlights go out (ハイライト消), the teeth and tongue go with
+# the mouth. The overlays (照れ, 涙, 汗 and the はぅ strokes) wait hidden
+# inside the head and move into place. Panels: export_pmx.MORPH_INFO.
 BLINK_KEY = 'まばたき'
-EYE_MORPHS = (BLINK_KEY, 'ウィンク', 'ウィンク右', '笑い')
-MOUTH_MORPHS = ('あ', 'い', 'う', 'え', 'お')
+EYE_CLOSE = (BLINK_KEY, 'ウィンク', 'ウィンク右', '笑い', 'はぅ')   # the lids meet
+EYE_OPEN = ('なごみ', 'びっくり', 'じと目', 'ｷﾘｯ')                  # the lids move, the eye stays open
+EYE_MORPHS = EYE_CLOSE + EYE_OPEN
+IRIS_MORPHS = ('瞳小',)
+HILITE_MORPHS = ('ハイライト消',)
+BROW_MORPHS = ('真面目', '困る', 'にこり', '怒り', '上', '下')
+MOUTH_MORPHS = ('あ', 'い', 'う', 'え', 'お', 'ワ', 'ん', '∧', 'ω', '▲', 'にやり', '口角上げ', '口角下げ',
+                '口横広げ', 'ぺろっ', '歯無し上')
+FX_MORPHS = ('照れ', '涙', '汗')
+FACE_MORPHS = EYE_MORPHS + BROW_MORPHS + MOUTH_MORPHS          # the keys on head_face
+ALL_MORPHS = EYE_MORPHS + IRIS_MORPHS + HILITE_MORPHS + BROW_MORPHS + MOUTH_MORPHS + FX_MORPHS
 LID_OVERLAP = 0.25               # px the closed upper lid sits in front of the lower lid
 LID_PATH = 0.2                   # px the lids keep in front of the eyeball along a morph
+HAU_LINE = (118.5, 7.5)          # はぅ: the lids meet on a line from the inner corner (row) rising this much outward
+JITO_ROW = 113.8                 # じと目: the flat upper lid's row
+SMILE_ARCH = 2.5                 # 笑い: px the closed lids' middle rises over the corners' line
+
+
+def eye_affects(name, side):
+    """Whether the eye morph `name` moves the eye on `side` (+1 left, -1 right)."""
+    return not ((name == 'ウィンク' and side < 0) or (name == 'ウィンク右' and side > 0))
+
+
+def eye_open_shift(name, Xc):
+    """(upper, lower) lid edge shift [rows, + down] at Xc of an open-eye morph."""
+    top, bot = float(lash_bottom(Xc)), float(lower_lid(Xc))
+    h = bot - top
+    u = min(max((Xc - EYE_IN) / (EYE_OC - EYE_IN), 0.0), 1.0)
+    mid = math.sin(math.pi * u) ** 0.7
+    if name == 'なごみ':      # calm: heavy, relaxed lids
+        return 0.42 * h, -0.1 * h
+    if name == 'びっくり':    # surprised: wide open at the middle, the corners stay
+        return -1.8 * mid, 1.1 * mid
+    if name == 'じと目':      # half-lidded: a flat upper lid across the iris
+        return min(max(JITO_ROW - top, 0.0), 0.8 * h), -0.6 * mid
+    # ｷﾘｯ (determined): the inner upper lid comes down, the lower lid rises
+    return 2.6 * (1.0 - u) ** 1.5 + 0.5 * mid, -1.2 * mid
 
 
 def eye_motion(name, X, row, upper):
     """(dX, drow, forward) of an opening vertex in the eye morph `name` [px]."""
     Xc = min(max(X, EYE_IN), EYE_OC)
+    if name in EYE_OPEN:
+        up, lo = eye_open_shift(name, Xc)
+        if X <= EYE_IN + 1e-6:     # the inner edge, in order: from the upper to the lower lid's shift
+            top, bot = float(lash_bottom(Xc)), float(lower_lid(Xc))
+            t = min(max((row - top) / max(bot - top, 1e-6), 0.0), 1.0)
+            return 0.0, up + (lo - up) * t, 0.0
+        return 0.0, (up if upper else lo), 0.0
     close = float(lower_lid(Xc)) - 1.4            # where the lids meet
     if name == '笑い':
-        # smiling eyes: closed along an upward arch, the lower lid (and the
-        # cheek under it) pushed up further at the middle
-        bump = math.sin(math.pi * min(max((X - EYE_IN) / (EYE_OC - EYE_IN), 0.0), 1.0)) ** 0.9
-        close -= 4.0 * bump
+        # smiling eyes: closed along an upward arch (the middle above both
+        # corners), the lower lid and the cheek under it pushed up to meet it
+        u = min(max((X - EYE_IN) / (EYE_OC - EYE_IN), 0.0), 1.0)
+        c_in, c_out = float(lower_lid(EYE_IN)) - 1.4, float(lower_lid(EYE_OC)) - 1.4
+        close = c_in + (c_out - c_in) * u - SMILE_ARCH * math.sin(math.pi * u) ** 0.9
+    elif name == 'はぅ':
+        # squeezed shut: the lids meet on a line rising from the inner corner
+        # to the outer one (the upper stroke of '>' / '<'); the lower stroke
+        # is an overlay (Fx 'hau')
+        close = HAU_LINE[0] - HAU_LINE[1] * (Xc - EYE_IN) / (EYE_OC - EYE_IN)
     # the vertical inner edge keeps a trace of its height (in order), so its
     # vertices close onto a short line instead of collapsing onto one point
     spread = 0.12 * (row - float(lash_bottom(Xc) + lower_lid(Xc)) / 2) if X <= EYE_IN + 1e-6 else 0.0
@@ -1465,7 +1601,8 @@ def eye_motion(name, X, row, upper):
 # (below the ear) by JAW_OPEN degrees, times jaw_share(); the lips then shape
 # the opening (mouth_motion). The throat and neck stay (the share fades out
 # over the first neck loops), and the cheeks stretch between.
-JAW_OPEN = {'あ': 9.0, 'い': 2.2, 'う': 2.2, 'え': 5.2, 'お': 6.5}   # degrees
+JAW_OPEN = {'あ': 9.0, 'い': 2.2, 'う': 2.2, 'え': 5.2, 'お': 6.5,       # degrees
+            'ワ': 11.0, '▲': 3.0, 'にやり': 1.2, 'ぺろっ': 6.0}
 JAW_HINGE = (287.0, 133.0)        # side-view col, row of the hinge axis (along X)
 JAW_LINE = (0.45, 4.0, 0.35)      # the jaw's moving part ends along a line rising from the mouth
 #                                   corners toward the hinge: rise per px of X, band half-width + growth per px
@@ -1476,12 +1613,36 @@ def mouth_motion(name, X, row, upper):
     the lips' own shape, on top of the jaw."""
     w = max(0.0, 1.0 - (X / MOUTH_HALF) ** 2) ** 0.7
     pull = 1.0 - 0.3 * abs(X) / MOUTH_HALF
+    c = min((X / MOUTH_HALF) ** 2, 1.0)            # the corners
+    shut = (0.27 if upper else -0.27) * w           # the lips meet (the slit closes)
+    if name == 'ワ':      # wide open
+        return 0.35 * X, (-1.4 if upper else 0.15) * w, 0.0
+    if name == 'ん':      # lips pressed together
+        return -0.06 * X, shut, 0.25 * pull
+    if name == '∧':      # closed, the corners down
+        return -0.04 * X, shut - 0.5 + 1.5 * (abs(X) / MOUTH_HALF) ** 1.2, 0.0
+    if name == 'ω':      # cat mouth: corners and middle up, dips between
+        return -0.08 * X, shut - 0.55 * math.cos(2.0 * math.pi * X / MOUTH_HALF), 0.35 * pull
+    if name == '▲':      # open triangle: the upper lip peaks at the middle
+        return -0.1 * X, (-2.3 * (1.0 - abs(X) / MOUTH_HALF) if upper else 0.7 * w ** 0.3), 0.0
+    if name == 'にやり':  # grin: wide, corners up, the upper teeth just show
+        return 0.18 * X, (-0.8 if upper else 0.1) * w - 1.0 * c, 0.0
+    if name == '口角上げ':
+        return 0.06 * X, -1.0 * c, 0.0
+    if name == '口角下げ':
+        return -0.03 * X, 0.9 * c, 0.0
+    if name == '口横広げ':
+        return 0.3 * X, 0.5 * shut, 0.0
+    if name == 'ぺろっ':  # opens for the tongue (Teeth.tongue_out)
+        return 0.1 * X, (-0.6 if upper else 0.3) * w, 0.0
+    if name == '歯無し上':  # only the teeth move
+        return 0.0, 0.0, 0.0
     if name == 'あ':
-        return 0.14 * X, (-0.55 if upper else 0.1) * w, 0.0
+        return 0.14 * X, (-1.05 if upper else 0.1) * w, 0.0
     if name == 'い':     # wide, corners up a little
-        return 0.3 * X, (-0.3 if upper else 0.15) * w - 0.5 * (1 - w), 0.0
+        return 0.3 * X, (-0.75 if upper else 0.15) * w - 0.5 * (1 - w), 0.0
     if name == 'え':
-        return 0.22 * X, (-0.5 if upper else 0.1) * w - 0.25 * (1 - w), 0.0
+        return 0.22 * X, (-0.9 if upper else 0.1) * w - 0.25 * (1 - w), 0.0
     if name == 'お':
         return -0.34 * X, (-0.6 if upper else 0.15) * w, 0.9 * pull
     # う: a small, round, pursed mouth
@@ -1507,6 +1668,15 @@ def jaw_share(X, row, col, upper=None):
             * float(_smooth(LOWER_TOP, LOWER_TOP + 5.0, row)))
 
 
+POUCH_SHARE = (MOUTH_ROW + 0.35, MOUTH_ROW + 1.4)   # rows: the cavity hands over from the head
+#                                                       (roof, teeth) to the jaw (floor, tongue)
+
+
+def pouch_share(row):
+    """Share of the jaw's turn inside the mouth cavity, by row."""
+    return float(_smooth(*POUCH_SHARE, row))
+
+
 def _jaw_turn(co, share, ang):
     """`co` turned about the jaw hinge by ang * share (radians, opening)."""
     h = Vector((HEAD_DX, yc(JAW_HINGE[0]), zr(JAW_HINGE[1])))
@@ -1516,16 +1686,84 @@ def _jaw_turn(co, share, ang):
     return h + Vector((d.x, d.y * ca - d.z * sa, d.y * sa + d.z * ca))
 
 
-def morph_targets(name, patches, eyes, co, layout):
-    """{vertex index: world position} of the morph `name`; co: rest positions."""
+def morph_targets(name, patches, eyes, co, layout, skip=()):
+    """{vertex index: world position} of the morph `name`; co: rest positions.
+    skip: vertices the brow field leaves alone (the rims rolling into the
+    openings, the mouth cavity)."""
+    if name in BROW_MORPHS:
+        return _brow_targets(name, eyes, co, skip)
     out = {}
     for p in patches:
         if p.kind == 'eye' and name in EYE_MORPHS:
-            if (name == 'ウィンク' and p.side < 0) or (name == 'ウィンク右' and p.side > 0):
+            if not eye_affects(name, p.side):
                 continue
             out.update(_eye_targets(name, p, eyes, co))
         elif p.kind == 'mouth' and name in MOUTH_MORPHS:
             out.update(_mouth_targets(name, p, eyes, co, layout))
+    return out
+
+
+# Brows: the painted brow (a soft line just above the lid crease, mostly under
+# the bangs) moves with the skin. A brow morph shifts the skin in the front
+# view by brow_shift() times brow_weight(): 1 on the brow line, fading over the
+# forehead above and to nothing at the lash band below (the eye keeps its
+# shape), and out between the brows and past the temples. The shifted points
+# go back on the face (face_point + hug), so the skin slides over the form.
+BROW_X = (15.0, 37.0)            # inner / outer end of the painted brow [px]
+BROW_LAT = ((6.0, 13.0), (37.5, 41.5))   # the field fades in / out across X [px]
+BROW_UP = 10.0                   # rows above the brow line the field fades over
+
+
+def brow_row(X):
+    return 103.9 - 0.04 * (X - 20.0) + 0.006 * (X - 26.0) ** 2
+
+
+def brow_shift(name, X):
+    """(dX outward, drow down) [px] of the brow at X for the brow morph `name`."""
+    u = min(max((X - BROW_X[0]) / (BROW_X[1] - BROW_X[0]), 0.0), 1.0)
+    inner = (1.0 - u) ** 1.3
+    if name == '上':
+        return 0.0, -2.4
+    if name == '下':
+        return 0.0, 1.2
+    if name == '困る':    # troubled: the inner ends rise, the outer ends drop
+        return 0.3 * inner, -3.0 * inner + 0.9 * u
+    if name == '怒り':    # angry: the inner ends drop and draw together
+        return -0.9 * inner, 2.2 * inner - 1.0 * u
+    if name == '真面目':  # serious: a little lower and flatter
+        return -0.3 * inner, 1.2 * inner + 0.3
+    return 0.0, -1.1 - 0.9 * math.sin(math.pi * u) ** 0.8   # にこり: raised, arched
+
+
+def brow_weight(X, R):
+    lat = float(_smooth(*BROW_LAT[0], X)) * (1.0 - float(_smooth(*BROW_LAT[1], X)))
+    if lat <= 0.0:
+        return 0.0
+    rb = brow_row(min(max(X, BROW_X[0]), BROW_X[1]))
+    if R <= rb:
+        return lat * float(_smooth(rb - BROW_UP, rb - 0.6, R))
+    lid = float(upper_lid(min(max(X, EYE_IN), EYE_OUT))) - 1.0      # above the lash band (C1)
+    if lid <= rb + 0.2:
+        return 0.0
+    return lat * (1.0 - float(_smooth(rb + 0.2, lid, R)))
+
+
+def _brow_targets(name, eyes, co, skip):
+    out = {}
+    back_y = yc(285.0)
+    for v, p in enumerate(co):
+        if v in skip or p.y > back_y:
+            continue
+        X, R = (p.x - HEAD_DX) * PPM, row_of(p.z)
+        if R > LOWER_TOP - 2.0:
+            continue
+        w = brow_weight(abs(X), R)
+        if w < 1e-4:
+            continue
+        dX, dR = brow_shift(name, abs(X))
+        sgn = 1.0 if X >= 0 else -1.0
+        # the surface's own displacement, added to the vertex (exact at the field's edge)
+        out[v] = p + (hug(face_point(sgn * (abs(X) + w * dX), R + w * dR), eyes) - hug(face_point(X, R), eyes))
     return out
 
 
@@ -1629,13 +1867,12 @@ def _mouth_targets(name, p, eyes, co, layout):
             share[v] = 1.0
     for v in p.wall:
         share[v] = 1.0
-    centre = row_of(co[p.pouch[-1]].z)
-    for v in p.pouch:                             # the pouch: its lower half goes with the jaw
+    for v in p.pouch:                             # the cavity: its floor goes with the jaw
         share[v] = None
     for v, f in share.items():
         X, col, row = _px(co[v])
         if f is None:
-            s = 0.5 + 0.5 * max(-1.0, min(1.0, (row - centre) / POUCH_SIZE[1]))
+            s = pouch_share(row)
         else:
             s = jaw_share(X, row, col, upper.get(v)) * f
         if s > 1e-6:
@@ -1775,13 +2012,15 @@ def eyeball_mesh(c, r, side, rim, tree):
 
 
 IRIS_LIFT = 0.08                 # px the iris disc floats in front of the white
-IRIS_RINGS, IRIS_SEG = 5, 28
+IRIS_RINGS, IRIS_SEG = 7, 28
 IRIS_EDGE = 0.985                # disc edge on the painted iris outline (inside its soft rim)
+IRIS_SMALL = 0.72                # 瞳小: the iris (and pupil) shrink to this share
 
 
-def iris_mesh(c, r, side):
+def iris_mesh(c, r, side, scale=1.0):
     """The iris disc: a piece of the sphere IRIS_LIFT in front of the white,
-    whose front projection is exactly the painted iris ellipse."""
+    whose front projection is exactly the painted iris ellipse (scale: the
+    same disc shrunk about its centre, 瞳小)."""
     ix, iy, irx, iry = IRIS
     rr = r + IRIS_LIFT / PPM
     bm = bmesh.new()
@@ -1792,7 +2031,7 @@ def iris_mesh(c, r, side):
     centre = bm.verts.new(at(ix, iy))
     rings = []
     for j in range(1, IRIS_RINGS + 1):
-        rho = IRIS_EDGE * j / IRIS_RINGS
+        rho = IRIS_EDGE * j / IRIS_RINGS * scale
         rings.append([bm.verts.new(at(ix + irx * rho * math.cos(a), iy + iry * rho * math.sin(a)))
                       for a in (2 * math.pi * s / IRIS_SEG for s in range(IRIS_SEG))])
     for s in range(IRIS_SEG):
@@ -1824,33 +2063,692 @@ def eye_object(col, name, mat, c, bm):
     return obj
 
 
-# ---------------------------------------------------------------- ears, neck
-def ear_mesh(side):
-    """Small ear, mostly hidden by the hair; peeks out on the front view. A
-    thin oval plate whose front edge tucks into the side of the head and whose
-    back edge flares out a little, with a shallow bowl (concha) on its outer
-    face, so it reads as an ear and not a button."""
+# ---------------------------------------------------------------- eye layers
+# Besides the white (static) and the iris (on the eye bone), each eye has:
+# * EyeShade: the upper lid's shadow on the white, a band just in front of the
+#   white and behind the iris (so the turning iris covers it). Static on the
+#   head, but its shape keys ride the upper lid's edge, so the shadow stays
+#   under the lid in every eye morph.
+# * Highlights: two discs just in front of the iris, on the eye bone with it
+#   (a static highlight would leave the iris at the gaze limits: the 36 px
+#   eyeball moves the iris ~6 px there, its radius is 8.4 px). They do not
+#   shrink with 瞳小 and go out in ハイライト消.
+# * Lashes: real geometry over the painted upper lash (see Lashes).
+SHADE_LIFT = 0.04                # px the lid-shadow layer floats in front of the white (behind the iris)
+HILITE_LIFT = 0.11               # px the highlights float in front of the white (in front of the iris)
+HILITES = ((IRIS[0] - 1.0, 110.8, 1.5), (IRIS[0] + 3.2, 121.2, 0.7))   # X, row, radius [px]
+HILITE_SEG = 14
+
+
+def _sphere_at(c, rr, side, X, row):
+    return sphere_point(c, rr, HEAD_DX + side * X / PPM, zr(row))
+
+
+def upper_shift(name, X):
+    """Row shift of the upper lid's edge at X in the eye morph `name`."""
+    Xc = min(max(X, EYE_IN + 1e-3), EYE_OC)
+    return eye_motion(name, Xc, float(lash_bottom(Xc)), True)[1]
+
+
+class EyeShade:
+    NS, NT = 28, 6
+
+    def __init__(self, c, r, side):
+        self.c, self.rr, self.side = c, r + SHADE_LIFT / PPM, side
+        self.px = []
+        for i in range(self.NS + 1):
+            X = EYE_IN - 1.0 + (EYE_OC - EYE_IN + 2.0) * i / self.NS
+            top = float(lash_bottom(min(max(X, EYE_IN), EYE_OC)))
+            for j in range(self.NT + 1):
+                self.px.append((X, top - 1.2 + (SHADE_FADE + 2.0) * j / self.NT))
+
+    def positions(self, name=None):
+        moves = name is not None and eye_affects(name, self.side)
+        return [_sphere_at(self.c, self.rr, self.side, X, row + (upper_shift(name, X) if moves else 0.0))
+                for X, row in self.px]
+
+    def mesh(self):
+        bm = bmesh.new()
+        vs = [bm.verts.new(p) for p in self.positions()]
+        n = self.NT + 1
+        for i in range(self.NS):
+            for j in range(self.NT):
+                a = i * n + j
+                bm.faces.new((vs[a], vs[a + n], vs[a + n + 1], vs[a + 1]))
+        return bm
+
+
+class Highlights:
+    def __init__(self, c, r, side):
+        self.c, self.rr, self.side = c, r + HILITE_LIFT / PPM, side
+
+    def positions(self, off=False):
+        out = []
+        for X, row, rad in HILITES:
+            centre = _sphere_at(self.c, self.rr, self.side, X, row)
+            out.append(centre)
+            for s in range(HILITE_SEG):
+                a = 2.0 * math.pi * s / HILITE_SEG
+                out.append(centre.copy() if off else
+                           _sphere_at(self.c, self.rr, self.side, X + rad * math.cos(a), row + rad * math.sin(a)))
+        return out
+
+    def mesh(self):
+        bm = bmesh.new()
+        vs = [bm.verts.new(p) for p in self.positions()]
+        n = HILITE_SEG + 1
+        for k in range(len(HILITES)):
+            ctr = vs[k * n]
+            ring = vs[k * n + 1:(k + 1) * n]
+            for s in range(HILITE_SEG):
+                bm.faces.new((ctr, ring[s], ring[(s + 1) % HILITE_SEG]))
+        return bm
+
+
+# ---------------------------------------------------------------- skin-attached pieces
+class PatchSurface:
+    """The eye patch's loops (opening -> grid boundary) as triangles in the
+    front view (local X, row): a piecewise-linear map from front-view px to the
+    patch's skin, at rest or in a morph."""
+
+    def __init__(self, p):
+        verts, px, index = [], [], {}
+        for j, (lp, pxl) in enumerate(zip(p.loops, p.px)):
+            for m, (v, q) in enumerate(zip(lp, pxl)):
+                index[j, m] = len(verts)
+                verts.append(v)
+                px.append(q)
+        n = len(p.loops[0])
+        tris = []
+        for j in range(len(p.loops) - 1):
+            for m in range(n):
+                m2 = (m + 1) % n
+                a, b, c, d = index[j, m], index[j, m2], index[j + 1, m2], index[j + 1, m]
+                tris += [(a, b, c), (a, c, d)]
+        self.side = p.side
+        self.verts = np.array(verts)
+        self.px = np.array(px, float)
+        self.tris = np.array(tris)
+
+    def pos(self, co, targets=None):
+        """(V, 3) positions of the patch vertices: rest `co`, or a morph's targets."""
+        targets = targets or {}
+        return np.array([tuple(targets.get(v, co[v])) for v in self.verts])
+
+    def px_of(self, pos):
+        """Front-view (local X, row) of patch vertex positions."""
+        return np.stack([(pos[:, 0] - HEAD_DX) * PPM * self.side, row_of(pos[:, 2])], 1)
+
+    def locate(self, Q, px=None, pos=None):
+        """(triangle, barycentric) of the front-view points Q (N, 2). With `pos`
+        (the patch positions behind `px`), where the patch overlaps itself in
+        the front view (closed lids), the triangle nearest the viewer wins."""
+        P = self.px if px is None else px
+        Q = np.asarray(Q, float).reshape(-1, 2)
+        A = P[self.tris[:, 0]]
+        e1, e2 = P[self.tris[:, 1]] - A, P[self.tris[:, 2]] - A
+        det = e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]
+        ok = np.abs(det) > 1e-9
+        det = np.where(ok, det, 1.0)
+        d = Q[:, None, :] - A[None]
+        u = (d[..., 0] * e2[None, :, 1] - d[..., 1] * e2[None, :, 0]) / det
+        v = (e1[None, :, 0] * d[..., 1] - e1[None, :, 1] * d[..., 0]) / det
+        w = 1.0 - u - v
+        score = np.where(ok[None], np.minimum(np.minimum(u, v), w), -np.inf)
+        if pos is not None:
+            ys = (pos[self.tris][None, :, :, 1] * np.stack([w, u, v], 2)).sum(2)
+            score = np.where(score >= -1e-6, 1e3 - ys * PPM, score)
+        t = np.argmax(score, axis=1)
+        i = np.arange(len(Q))
+        return t, np.stack([w[i, t], u[i, t], v[i, t]], 1)
+
+    def points(self, t, bary, pos):
+        return (pos[self.tris[t]] * bary[..., None]).sum(1)
+
+
+def _frames(T):
+    """Orthonormal frames (columns: edge, in-plane normal, normal toward -y) of
+    triangles T (N, 3, 3)."""
+    e1 = T[:, 1] - T[:, 0]
+    n = np.cross(e1, T[:, 2] - T[:, 0])
+    n *= np.where(n[:, 1:2] > 0, -1.0, 1.0)
+    e1 /= np.linalg.norm(e1, axis=1, keepdims=True)
+    n /= np.linalg.norm(n, axis=1, keepdims=True)
+    return np.stack([e1, np.cross(n, e1), n], 2)
+
+
+class SkinDecal:
+    """Points riding an eye patch's skin: a root on the patch (front-view px)
+    plus an offset that turns with the triangle under it. offsets: (N, 2) of
+    (forward along -y, along the skin normal) [px] at rest."""
+
+    def __init__(self, surf, co, Q, offsets):
+        self.surf = surf
+        rest = surf.pos(co)
+        self.t, self.bary = surf.locate(Q)
+        self.Fr = _frames(rest[surf.tris[self.t]])
+        root = surf.points(self.t, self.bary, rest)
+        off = np.asarray(offsets, float) / PPM
+        self.off = off[:, 0:1] * np.array([0.0, -1.0, 0.0]) + off[:, 1:2] * self.Fr[:, :, 2]
+        self.rest = root + self.off
+
+    def positions(self, co, targets=None):
+        pos = self.surf.pos(co, targets)
+        root = self.surf.points(self.t, self.bary, pos)
+        R = _frames(pos[self.surf.tris[self.t]]) @ np.transpose(self.Fr, (0, 2, 1))
+        return root + np.einsum('nij,nj->ni', R, self.off)
+
+
+# Lashes: the upper lash line as a thin solid over the painted lash mass (whose
+# front view it covers exactly: it stands forward along -y only), so it reads
+# in profile and 3/4. Its top edge lies on the lid; toward its lower edge (the
+# opening's top) it stands LASH_E forward of the lid, more at the outer end.
+# The outer flick is a ribbon lifted off the skin along its normal. Both ride
+# the lid band (SkinDecal) through every morph.
+LASH_E = (0.4, 1.2)              # px the lash's lower edge stands forward: inner .. outer end
+LASH_LIFT = 0.05                 # px the lash floats off the skin
+LASH_NS, LASH_NT = 48, 4
+FLICK = (0.8, 2.2, 8)            # the flick runs from EYE_OUT - a to EYE_OUT + b (stations)
+FLICK_LIFT = (0.1, 0.9)          # px off the skin along its normal: root .. tip
+
+
+def lash_decal(p, co):
+    """SkinDecal and faces of one eye's lash solid and flick."""
+    Q, off, faces = [], [], []
+    xa, xb = EYE_IN - 0.3, EYE_OUT + 1.2
+    n = LASH_NT + 1
+    for i in range(LASH_NS):
+        s = i / (LASH_NS - 1)
+        X = xa + (xb - xa) * s
+        top, bot = float(upper_lid(X)) - 0.7, float(upper_lid(X) + lash_thick(X))
+        e_max = ((LASH_E[0] + (LASH_E[1] - LASH_E[0]) * float(_smooth(0.1, 0.95, s)))
+                 * (1.0 - 0.85 * float(_smooth(0.82, 1.0, s))) * (0.15 + 0.85 * float(_smooth(0.0, 0.12, s))))
+        for j in range(n):
+            t = j / LASH_NT
+            Q.append((X, top + (bot - top) * t))
+            off.append((LASH_LIFT + e_max * t ** 1.6, 0.0))
+    base = len(Q)
+    for i in range(LASH_NS):          # the underside's root along the opening's top edge
+        Q.append(Q[i * n + LASH_NT])
+        off.append((LASH_LIFT * 0.5, 0.0))
+    for i in range(LASH_NS - 1):
+        for j in range(LASH_NT):
+            a = i * n + j
+            faces.append((a, a + n, a + n + 1, a + 1))
+        faces.append((i * n + LASH_NT, base + i, base + i + 1, (i + 1) * n + LASH_NT))
+    faces.append(tuple(range(0, n)) + (base,))
+    last = (LASH_NS - 1) * n
+    faces.append((base + LASH_NS - 1,) + tuple(range(last + LASH_NT, last - 1, -1)))
+    a0, a1, K = FLICK
+    q = np.array([0.8, 1.0]) / math.hypot(1.0, 0.8)
+    fl = len(Q)
+    for k in range(K):
+        s = k / (K - 1)
+        X = EYE_OUT - a0 + (a0 + a1) * s
+        c = np.array([X, 112.0 - 0.8 * (X - EYE_OUT)])
+        hw = 0.7 * (1.0 - s) + 0.12 * s
+        lift = FLICK_LIFT[0] + (FLICK_LIFT[1] - FLICK_LIFT[0]) * s ** 1.3
+        for sg in (-1.0, 1.0):
+            Q.append(tuple(c + sg * hw * q))
+            off.append((0.0, lift))
+        if k:
+            b = fl + 2 * k
+            faces.append((b - 2, b, b + 1, b - 1))
+    return SkinDecal(PatchSurface(p), co, Q, off), faces
+
+
+# はぅ: the lower stroke of '>' / '<' (the closed lids' lash band is the upper
+# one): hidden inside the head at rest; in はぅ it lies on the closed lids.
+HAU_STROKE = (2.4, 1.5, 24)      # px width at the apex, at the outer end; stations
+HAU_BOW = 0.8                    # px the stroke bows down at its middle (tapered at its end)
+FX_LIFT = 0.15                   # px the overlays float off the skin when in place
+FX_HIDE = 10.0                   # px the overlays wait inside the head at rest ...
+FX_CENTRE = (292.0, 118.0)       # ... toward this point on the midline (side-view col, row)
+
+
+def fx_hidden(p):
+    """Where an overlay point waits at rest: FX_HIDE px into the head."""
+    c = Vector((HEAD_DX, yc(FX_CENTRE[0]), zr(FX_CENTRE[1])))
+    return p + (c - p).normalized() * (FX_HIDE / PPM)
+
+
+def hau_stroke(p, co, targets):
+    """(rest, in place) world points and faces of one eye's はぅ stroke."""
+    surf = PatchSurface(p)
+    w0, w1, K = HAU_STROKE
+    x0, r0 = EYE_IN - 1.2, HAU_LINE[0] + 0.1
+    x1, r1 = EYE_OC - 3.0, HAU_LINE[0] + 0.85 * HAU_LINE[1]
+    Q, faces = [], []
+    for k in range(K):
+        s = k / (K - 1)
+        X, R = x0 + (x1 - x0) * s, r0 + (r1 - r0) * s + HAU_BOW * math.sin(math.pi * s)
+        w = (w0 + (w1 - w0) * s ** 0.8) * (1.0 - 0.7 * float(_smooth(0.75, 1.0, s)))
+        Q += [(X, R - 0.15 * w), (X - 0.25 * w, R + 0.85 * w)]
+        if k:
+            faces.append((2 * k - 2, 2 * k, 2 * k + 1, 2 * k - 1))
+    pos = surf.pos(co, targets)
+    t, b = surf.locate(Q, surf.px_of(pos), pos)
+    placed = surf.points(t, b, pos) + np.array([0.0, -2.0 * FX_LIFT / PPM, 0.0])
+    # (at rest those points lie over the open eye: it waits behind where it goes)
+    rest = np.array([tuple(fx_hidden(Vector(tuple(q)))) for q in placed])
+    return rest, placed, faces
+
+
+# ---------------------------------------------------------------- mouth interior
+# Upper teeth: a curved band under the cavity's roof, its lower edge just
+# above the slit (hidden while the mouth is closed), static with the head
+# (歯無し上 lifts it into the gum). Tongue: a flattened ellipsoid on the
+# cavity's floor, riding the jaw with the floor (pouch_share); ぺろっ pushes
+# its front out between the lips.
+TEETH_HALF = 3.1                 # px half-width (about 2/3 of the slit)
+TEETH_TOP = 144.6                # row of the band's top at the middle (rises 0.09 px / px^2 at the sides)
+TEETH_GAP = 0.55                 # px the band's lower edge stays above the mouth line
+TEETH_DEPTH = (1.9, 0.17, 0.55)  # px behind the face surface: middle, + per px^2 to the sides; thickness
+TEETH_HIDE = (1.6, 0.6)          # 歯無し上: px up, px back
+TONGUE = (148.5, 3.8, 3.3, 0.85, 1.8)   # centre row, depth [px]; half-width, half-height, half-depth
+TONGUE_OUT = 7.0                 # ぺろっ: px the tip comes forward ...
+TONGUE_OUT_JAW = 0.5             # ... taking this share of the jaw's turn (it rises over the lower lip)
+
+
+def teeth_mesh(hidden=False):
     bm = bmesh.new()
-    bmesh.ops.create_uvsphere(bm, u_segments=10, v_segments=7, radius=1.0)
-    for v in bm.verts:
-        x, y, z = v.co
-        if x > 0.2:   # outer face: dish the middle in
-            v.co.x -= 0.75 * x * max(0.0, 1.0 - (y * y + z * z) / 0.55)
-    bmesh.ops.scale(bm, vec=(3.0 / PPM, 5.0 / PPM, 6.6 / PPM), verts=bm.verts)
-    bmesh.ops.rotate(bm, cent=(0, 0, 0), verts=bm.verts,
-                     matrix=Matrix.Rotation(math.radians(-14), 3, 'Y'))   # top leans out
-    bmesh.ops.rotate(bm, cent=(0, 0, 0), verts=bm.verts,
-                     matrix=Matrix.Rotation(math.radians(-16), 3, 'Z'))   # back edge flares out
-    bmesh.ops.rotate(bm, cent=(0, 0, 0), verts=bm.verts,
-                     matrix=Matrix.Rotation(math.radians(-10), 3, 'X'))   # top tilts back
-    if side < 0:
-        for v in bm.verts:
-            v.co.x = -v.co.x
-        bmesh.ops.reverse_faces(bm, faces=bm.faces)
-    bmesh.ops.translate(bm, vec=(HEAD_DX + side * 37.0 / PPM, yc(290.5), zr(134.0)), verts=bm.verts)
+    ns = 20
+    rows = []
+    for i in range(ns + 1):
+        X = -TEETH_HALF + 2.0 * TEETH_HALF * i / ns
+        top = TEETH_TOP + 0.09 * X * X
+        bot = float(mouth_row(X)) - TEETH_GAP
+        dep = TEETH_DEPTH[0] + TEETH_DEPTH[1] * X * X
+        ring = []
+        for R, d in ((top, dep), (0.5 * (top + bot), dep), (bot, dep), (bot, dep + TEETH_DEPTH[2]),
+                     (top, dep + TEETH_DEPTH[2])):
+            pt = pouch_point(X, R, d)
+            if hidden:
+                pt += Vector((0.0, TEETH_HIDE[1] / PPM, TEETH_HIDE[0] / PPM))
+            ring.append(bm.verts.new(pt))
+        rows.append(ring)
+    m = len(rows[0])
+    for a, b in zip(rows, rows[1:]):
+        for k in range(m):
+            k2 = (k + 1) % m
+            bm.faces.new((a[k], b[k], b[k2], a[k2]))
+    bm.faces.new(rows[0])
+    bm.faces.new(list(reversed(rows[-1])))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     return bm
 
 
+def _face_front(bm):
+    """Turn every face of an open sheet toward the viewer (-y): the toon shading
+    reads a back-facing face's normal flipped."""
+    bm.normal_update()
+    flip = [f for f in bm.faces if f.normal.y > 0]
+    if flip:
+        bmesh.ops.reverse_faces(bm, faces=flip)
+    return bm
+
+
+def tongue_local(nu=16, nv=9):
+    """Unit-sphere (lon, lat) samples of the tongue (x across, z down, d back)."""
+    pts = [(0.0, 0.0, -1.0)]
+    for j in range(1, nv):
+        th = math.pi * j / nv
+        for i in range(nu):
+            ph = 2.0 * math.pi * i / nu
+            pts.append((math.sin(th) * math.cos(ph), math.sin(th) * math.sin(ph), -math.cos(th)))
+    pts.append((0.0, 0.0, 1.0))
+    return pts
+
+
+def tongue_points(out=0.0):
+    """World points of the tongue; out: share of ぺろっ's push."""
+    row, depth, hx, hz, hd = TONGUE
+    origin = pouch_point(0.0, row, depth)
+    res = []
+    for x, z, d in tongue_local():
+        X, Z, D = hx * x, hz * z * (0.75 if z < 0 else 1.0), hd * d    # flatter on top
+        if out:
+            f = min(max((hd - D) / (2.0 * hd), 0.0), 1.0)            # 1 at the tip, 0 at the root
+            D -= out * TONGUE_OUT * f ** 1.5
+            X *= 1.0 - 0.15 * out * f
+            Z += out * (-2.4 * min(1.0, 1.6 * f) + 3.6 * max(0.0, (f - 0.7) / 0.3) ** 2)   # lifted; the tip hangs over the lower lip
+        res.append(origin + Vector((X / PPM, D / PPM, -Z / PPM)))
+    return res
+
+
+def tongue_mesh():
+    bm = bmesh.new()
+    vs = [bm.verts.new(p) for p in tongue_points()]
+    nu, nv = 16, 9
+    top, bot = vs[0], vs[-1]
+    ring = lambda j: vs[1 + (j - 1) * nu:1 + j * nu]   # noqa: E731
+    for i in range(nu):
+        i2 = (i + 1) % nu
+        bm.faces.new((top, ring(1)[i2], ring(1)[i]))
+        bm.faces.new((bot, ring(nv - 1)[i], ring(nv - 1)[i2]))
+        for j in range(1, nv - 1):
+            a, b = ring(j), ring(j + 1)
+            bm.faces.new((a[i], a[i2], b[i2], b[i]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return bm
+
+
+def tongue_targets(name):
+    """World points of the tongue in the mouth morph `name` (None: it stays)."""
+    ang = math.radians(JAW_OPEN.get(name, 0.0))
+    if ang <= 0.0 and name != 'ぺろっ':
+        return None
+    pts = tongue_points(1.0 if name == 'ぺろっ' else 0.0)
+    return [_jaw_turn(p, TONGUE_OUT_JAW if name == 'ぺろっ' else pouch_share(row_of(p.z)), ang) for p in pts]
+
+
+# ---------------------------------------------------------------- overlays
+# 照れ (a deeper blush with hatching, on both cheeks), 涙 (a tear down each
+# cheek), 汗 (a sweat drop on the right cheek): hidden FX_HIDE behind the skin
+# at rest, their key moves them FX_LIFT in front of it.
+TEAR = ((27.0, 0.9), (27.8, 133.0), (0.7, 1.05, 1.35))   # top X, rows below the lower lid; bottom X, row;
+#                                                          half-width top, bottom, bead
+SWEAT = (-27.5, 126.0, 7.0, 2.3, 1.3, 14.0)   # X, top row, length, half-width, height [px], tilt [deg]
+
+
+def skin_at(X, R, eyes, lift=FX_LIFT):
+    return hug(face_point(X, R), eyes) + Vector((0.0, -lift / PPM, 0.0))
+
+
+SKIN_MOTION = (8, 2.0)           # nearest face vertices, falloff [px] for skin_motion
+
+
+def skin_motion(kd, co, targets, pts, surfs=()):
+    """Displacement of the face skin under each point in `pts` in a morph
+    (`targets`): piecewise linear over an eye patch (surfs: PatchSurface)
+    where the point lies on one in the front view, else an inverse-distance
+    blend of the nearest face vertices' motion. None when nothing moves."""
+    out, moved = [], False
+    for p in pts:
+        X, R = (p.x - HEAD_DX) * PPM, row_of(p.z)
+        s = next((s for s in surfs if s.side * X > 0), None)
+        if s is not None:
+            t, b = s.locate([(abs(X), R)])
+            if b.min() >= -1e-6:
+                tri = s.verts[s.tris[t[0]]]
+                d = sum(((targets[i] - co[i]) * float(w) for i, w in zip(tri, b[0]) if i in targets),
+                        Vector((0.0, 0.0, 0.0)))
+                moved |= d.length > 1e-7
+                out.append(d)
+                continue
+        acc, wsum = Vector((0.0, 0.0, 0.0)), 0.0
+        for q, i, dist in kd.find_n(p, SKIN_MOTION[0]):
+            w = 1.0 / (dist * PPM + SKIN_MOTION[1]) ** 2
+            if i in targets:
+                acc += (targets[i] - co[i]) * w
+            wsum += w
+        d = acc / wsum
+        moved |= d.length > 1e-7
+        out.append(d)
+    return out if moved else None
+
+
+def flush_mesh(eyes):
+    """The 照れ overlay: a grid over each cheek (FLUSH_X x flush_top..FLUSH_BOTTOM)."""
+    bm = bmesh.new()
+    ns, nt = 16, 9
+    for side in (1, -1):
+        grid = []
+        for i in range(ns + 1):
+            X = FLUSH_X[0] + (FLUSH_X[1] - FLUSH_X[0]) * i / ns
+            top = float(flush_top(X))
+            grid.append([bm.verts.new(skin_at(side * X, top + (FLUSH_BOTTOM - top) * j / nt, eyes))
+                         for j in range(nt + 1)])
+        for a, b in zip(grid, grid[1:]):
+            for j in range(nt):
+                bm.faces.new((a[j], b[j], b[j + 1], a[j + 1]))
+    return _face_front(bm)
+
+
+def tear_mesh(eyes):
+    """Two tears; per face UV keys in `bm.faces.layers.int['swatch']`."""
+    bm = bmesh.new()
+    sw = bm.faces.layers.int.new('swatch')
+    (xt, dr), (xb, rb), (w0, w1, wb) = TEAR
+    rt = float(lower_lid(xt)) + dr
+    K = 14
+    for side in (1, -1):
+        rows = []
+        for k in range(K + 1):
+            s = k / K
+            X, R = xt + (xb - xt) * s, rt + (rb - rt) * s
+            w = (w0 + (w1 - w0) * s) * (1.0 - float(_smooth(0.9, 1.0, s)))
+            if s < 0.12:    # the top tapers from the lid
+                w *= 0.4 + 0.6 * s / 0.12
+            w = max(w, wb * math.sqrt(max(0.0, 1.0 - ((s - 0.86) / 0.14) ** 2)), 0.02)   # the bead
+            rows.append([bm.verts.new(skin_at(side * (X + o * w), R, eyes, FX_LIFT + 0.1))
+                         for o in (-1.0, -0.7, 0.7, 1.0)])
+        for a, b in zip(rows, rows[1:]):
+            for m, key in ((0, 'tear_line'), (1, 'tear'), (2, 'tear_line')):
+                f = (a[m], a[m + 1], b[m + 1], b[m])
+                f = bm.faces.new(f if side > 0 else f[::-1])
+                f[sw] = list(ATLAS).index(key)
+        # a highlight streak on the tear
+        hl = []
+        for k in range(4, 11):
+            s = k / K
+            X, R = xt + (xb - xt) * s - 0.25, rt + (rb - rt) * s
+            hl.append([bm.verts.new(skin_at(side * (X + o), R, eyes, FX_LIFT + 0.16)) for o in (-0.18, 0.18)])
+        for a, b in zip(hl, hl[1:]):
+            f = (a[0], a[1], b[1], b[0])
+            f = bm.faces.new(f if side > 0 else f[::-1])
+            f[sw] = list(ATLAS).index('white')
+    return bm
+
+
+def sweat_mesh(eyes):
+    """A sweat drop lying on the right cheek: pointed top, round bottom, domed."""
+    bm = bmesh.new()
+    sw = bm.faces.layers.int.new('swatch')
+    hh = SWEAT[4]
+    nv, na = 12, 10
+
+    def at(v, a, h):
+        """v: 0 tip .. 1 bottom along the drop, a: -1..1 across, h: height share."""
+        return skin_at(*_sweat_px(v, a), eyes, FX_LIFT + 0.15 + hh * h)
+    tip = bm.verts.new(at(0.0, 0.0, 0.0))
+    rings = []
+    for k in range(1, nv + 1):
+        v = k / (nv + 0.35)
+        ring = []
+        for i in range(na + 1):
+            a = -1.0 + 2.0 * i / na
+            ring.append(bm.verts.new(at(v, a, math.sqrt(max(0.0, 1.0 - a * a)) * math.sin(math.pi * v) ** 0.5)))
+        rings.append(ring)
+    for i in range(na):
+        f = bm.faces.new((tip, rings[0][i + 1], rings[0][i]))
+        f[sw] = list(ATLAS).index('sweat')
+    for a, b in zip(rings, rings[1:]):
+        for i in range(na):
+            f = bm.faces.new((a[i], a[i + 1], b[i + 1], b[i]))
+            f[sw] = list(ATLAS).index('sweat')
+    end = rings[-1]
+    f = bm.faces.new(end[::-1])
+    f[sw] = list(ATLAS).index('sweat')
+    # its highlight: a small streak on the upper inner side
+    hl = []
+    for k in range(4, 8):
+        v = k / (nv + 0.35)
+        hl.append([bm.verts.new(skin_at(*_sweat_px(v, a), eyes, FX_LIFT + 0.2 + hh * 0.95))
+                   for a in (0.15, 0.4)])
+    for a, b in zip(hl, hl[1:]):
+        f = bm.faces.new((a[0], a[1], b[1], b[0]))
+        f[sw] = list(ATLAS).index('white')
+    return bm
+
+
+def _sweat_px(v, a):
+    X0, R0, L, hw, hh, tilt = SWEAT
+    ca, sa = math.cos(math.radians(tilt)), math.sin(math.radians(tilt))
+    width = hw * math.sin(math.pi * min(v, 0.999) ** 0.62)
+    x, y = a * width, v * L
+    return X0 + x * ca - y * sa, R0 + x * sa + y * ca
+
+
+def atlas_object(col, name, bm, mat, swatch=None):
+    """Mesh object of an unshaded decal coloured from the atlas (swatch: one key
+    for all faces, else the bmesh's 'swatch' face layer). No outline, casts no
+    shadow, 'eye' region (toon_grad 1)."""
+    uv = bm.loops.layers.uv.new('UVMap')
+    lay = bm.faces.layers.int.get('swatch')
+    keys = list(ATLAS)
+    for f in bm.faces:
+        u = atlas_uv(swatch if swatch else keys[f[lay]])
+        for loop in f.loops:
+            loop[uv].uv = u
+    obj = common.new_object(col, name, bm, [mat])
+    obj.data.shade_smooth()
+    attr = obj.data.attributes.new(common.GRAD_ATTR, 'FLOAT', 'POINT')
+    for a in attr.data:
+        a.value = 1.0
+    obj['no_outline'] = True
+    obj['levi_cast_shadow'] = False
+    return obj
+
+
+def add_keys(obj, keys):
+    """Shape keys {name: [world points per vertex]} (the object has identity
+    transform); keys that move nothing are left out."""
+    rest = [v.co.copy() for v in obj.data.vertices]
+    if obj.data.shape_keys is None:
+        obj.shape_key_add(name='Basis', from_mix=False)
+    for name, pts in keys.items():
+        if pts is None or max((Vector(tuple(p)) - q).length for p, q in zip(pts, rest)) < 1e-7:
+            continue
+        kb = obj.shape_key_add(name=name, from_mix=False)
+        for v, p in zip(kb.data, pts):
+            v.co = Vector(tuple(p))
+        kb.value = 0.0
+
+
+# ---------------------------------------------------------------- ears
+# Anime ear, mostly under the hair: ~2.95 cm tall, from the upper lid to the
+# nose tip (spanning eye level, as both references do), set back of the head's
+# widest point, the top leaning back. An oval plate on the side of the head,
+# its back plane sunk into the skin at the front edge and bent to follow the
+# head's curve top to bottom; the back edge stands out (EAR_FLARE). The outer
+# face carries a rolled helix rim over the top and back, the scapha groove,
+# the antihelix ridge, a concha bowl, the tragus and a soft lobe.
+EAR_ROWS = (108.5, 127.5)        # top, bottom [px]
+EAR_COL = 297.0                  # side-view column of the ear's middle
+EAR_HALF_DEPTH = (6.8, 5.2)      # px: half the front-to-back size at the top / the lobe
+EAR_TILT = 12.0                  # deg: the top leans back
+EAR_FLARE = 20.0                 # deg: the back edge stands out
+EAR_SINK = 1.8                   # px the back plane sits inside the skin at the ear's middle
+EAR_BACK = 1.3                   # px from the back plane to the outer face's base
+EAR_NT = 40
+EAR_FRONT_RINGS = 10
+
+
+def _arc(th, a, b, soft):
+    return float(_smooth(a, a + soft, th)) * (1.0 - float(_smooth(b - soft, b, th)))
+
+
+def ear_height(v, u, rho, th):
+    """Outer face height [px] over the base at (v back, u up), radius share rho,
+    outline angle th [deg] (0 back, 90 top, 180 front, -90 the lobe)."""
+    helix = 1.5 * math.exp(-((rho - 0.9) / 0.1) ** 2) * _arc(th, -65.0, 170.0, 25.0)
+    scapha = -0.55 * math.exp(-((rho - 0.72) / 0.08) ** 2) * _arc(th, -45.0, 140.0, 30.0)
+    anti = 0.75 * math.exp(-((rho - 0.52) / 0.11) ** 2) * _arc(th, -40.0, 115.0, 30.0)
+    concha = -1.9 * math.exp(-((v + 1.0) / 3.0) ** 2 - ((u + 1.2) / 3.4) ** 2)
+    tragus = 0.9 * math.exp(-((v + 5.0) / 1.3) ** 2 - ((u + 2.2) / 1.7) ** 2)
+    lobe = 0.5 * math.exp(-((u + 7.0) / 2.0) ** 2)
+    return 0.9 + 0.4 * (1.0 - rho * rho) + helix + scapha + anti + concha + tragus + lobe
+
+
+def _ear_frame(col):
+    """(origin, e_v back, e_u up, e_w out) of the left ear (world): the origin
+    on its front edge at side-view column `col`, EAR_SINK inside the skin."""
+    row = 0.5 * (EAR_ROWS[0] + EAR_ROWS[1])
+    a = min(np.linspace(math.radians(60.0), math.radians(150.0), 361),
+            key=lambda a: abs(col_of(surf(a, row, False).y) - col))
+    p = surf(a, row, False)
+    da, dr = math.radians(1.0), 1.0
+    t_ring = surf(a + da, row, False) - surf(a - da, row, False)
+    t_down = surf(a, row + dr, False) - surf(a, row - dr, False)
+    n = t_down.cross(t_ring).normalized()
+    if n.x < 0:
+        n = -n
+    up0 = Vector((0.0, 0.0, 1.0))
+    up0 = (up0 - n * up0.dot(n)).normalized()
+    back0 = up0.cross(n).normalized()
+    if back0.y < 0:
+        back0 = -back0
+    t = math.radians(EAR_TILT)
+    e_u = up0 * math.cos(t) + back0 * math.sin(t)
+    e_v = back0 * math.cos(t) - up0 * math.sin(t)
+    f = math.radians(EAR_FLARE)
+    e_v, e_w = e_v * math.cos(f) + n * math.sin(f), n * math.cos(f) - e_v * math.sin(f)
+    return p - n * (EAR_SINK / PPM), e_v, e_u, e_w
+
+
+def ear_mesh(side):
+    bm = bmesh.new()
+    hu = 0.5 * (EAR_ROWS[1] - EAR_ROWS[0])
+    bend = 1.7 / (hu * hu)          # the plate bends with the head's curve, top to bottom
+    v_front = -0.5 * (EAR_HALF_DEPTH[0] + EAR_HALF_DEPTH[1])
+    o, e_v, e_u, e_w = _ear_frame(EAR_COL + v_front)
+
+    def outline(th):
+        r = math.radians(th)
+        a = EAR_HALF_DEPTH[1] + (EAR_HALF_DEPTH[0] - EAR_HALF_DEPTH[1]) * 0.5 * (1.0 + math.sin(r))
+        return a * math.cos(r), hu * math.sin(r)
+
+    def world(v, u, w):
+        # the frame turns about the ear's front edge (o), so the front stays sunk
+        return o + e_v * ((v - v_front) / PPM) + e_u * (u / PPM) + e_w * ((w - bend * u * u) / PPM)
+
+    ths = [360.0 * k / EAR_NT - 180.0 for k in range(EAR_NT)]
+    rings = []
+    for k in range(1, EAR_FRONT_RINGS + 1):
+        rho = k / EAR_FRONT_RINGS
+        ring = []
+        for th in ths:
+            ov, ou = outline(th)
+            v, u = ov * rho, ou * rho
+            ring.append(world(v, u, ear_height(v, u, rho, th)))
+        rings.append(ring)
+    for phi in (40.0, 80.0, 120.0, 160.0):
+        ring = []
+        for th in ths:
+            ov, ou = outline(th)
+            hf = ear_height(ov, ou, 1.0, th)
+            wc, rr = 0.5 * (hf - EAR_BACK), 0.5 * (hf + EAR_BACK)
+            L = math.hypot(ov, ou)
+            grow = 1.0 + rr * 0.55 * math.sin(math.radians(phi)) / L
+            ring.append(world(ov * grow, ou * grow, wc + rr * math.cos(math.radians(phi))))
+        rings.append(ring)
+    for rho in (1.0, 0.65, 0.3):
+        ring = []
+        for th in ths:
+            ov, ou = outline(th)
+            ring.append(world(ov * rho, ou * rho, -EAR_BACK))
+        rings.append(ring)
+    front_c = world(0.0, 0.0, ear_height(0.0, 0.0, 0.0, 0.0))
+    back_c = world(0.0, 0.0, -EAR_BACK)
+    vf = bm.verts.new(front_c)
+    vrings = [[bm.verts.new(p) for p in ring] for ring in rings]
+    vb = bm.verts.new(back_c)
+    n = EAR_NT
+    for i in range(n):
+        i2 = (i + 1) % n
+        bm.faces.new((vf, vrings[0][i], vrings[0][i2]))
+        for a, b in zip(vrings, vrings[1:]):
+            bm.faces.new((a[i], b[i], b[i2], a[i2]))
+        bm.faces.new((vb, vrings[-1][i2], vrings[-1][i]))
+    if side < 0:
+        for v in bm.verts:
+            v.co.x = 2.0 * HEAD_DX - v.co.x
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return bm
+
+
+# ---------------------------------------------------------------- neck
 NECK_SHADE_ROW = 166.0    # the neck's shading normals turn under the jaw above this row
 NECK_SHADE_BAND = 8.0     # ... over this many rows either side (no hard edge)
 NECK_TILT = Vector((0.0, 0.6, -0.8)) * 0.15   # added to the shading normal: down and back
@@ -1876,10 +2774,14 @@ def shade_tilts(me, vloop, i_neck):
 def build(col):
     skin = common.toon_material('skin')
     mouth = common.toon_material('mouth')
+    teeth_mat = common.toon_material('cuff')
     pixels = face_texture_pixels()
     face = face_material(pixels)
     white_mat = face_material(eye_texture_pixels(), 'toon_face_eyewhite', 'levi_eyewhite_tex')
     iris_mat = face_material(eye_texture_pixels(iris_only=True), 'toon_face_iris', 'levi_iris_tex')
+    shade_mat = face_material(eye_texture_pixels(shade=True), 'toon_face_eyeshade', 'levi_eyeshade_tex')
+    atlas_mat = face_material(atlas_pixels(), 'toon_face_decal', 'levi_decal_tex')
+    flush_mat = face_material(face_texture_pixels(flushed=True), 'toon_face_flush', 'levi_flush_tex')
 
     bm, patches, eyes, layout = build_head(detail=True)
     co = [v.co.copy() for v in bm.verts]
@@ -1901,12 +2803,17 @@ def build(col):
     me.shade_smooth()
     set_face_uv(me)
     set_eye_region(me, pixels, skip=own)
-    set_shading_normals(me, smooth, own - set(rim_of), rim_of,
-                        shade_tilts(me, layout['vloop'], len(RING_ROWS) - 1 + layout['iT']))
+    normals = set_shading_normals(me, smooth, own - set(rim_of), rim_of,
+                                  shade_tilts(me, layout['vloop'], len(RING_ROWS) - 1 + layout['iT']))
     head.shape_key_add(name='Basis', from_mix=False)
-    for name in EYE_MORPHS + MOUTH_MORPHS:
+    targets = {}
+    for name in FACE_MORPHS:
+        targets[name] = {v: q for v, q in morph_targets(name, patches, eyes, co, layout, own).items()
+                         if (q - co[v]).length > 1e-7}
+        if not targets[name]:
+            continue
         kb = head.shape_key_add(name=name, from_mix=False)
-        for v, pt in morph_targets(name, patches, eyes, co, layout).items():
+        for v, pt in targets[name].items():
             kb.data[v].co = pt
         kb.value = 0.0   # a new key is not guaranteed to start at 0
     # no outline hull on the rims rolling into the openings and the pouch: seen
@@ -1914,15 +2821,100 @@ def build(col):
     vg = head.vertex_groups.new(name='outline_width')
     vg.add([v.index for v in me.vertices if v.index not in own], 1.0, 'REPLACE')
     vg.add(sorted(own), 0.0, 'REPLACE')
+    # ... and it thins out toward the mouth slit, or an open mouth shows hull
+    # wedges at its corners
+    mp = next(p for p in patches if p.kind == 'mouth')
+    for lp, wgt in zip(mp.loops, MOUTH_OUTLINE):
+        vg.add(lp, wgt, 'REPLACE')
     common.add_outline(head, vertex_group='outline_width', min_factor=0.0)
 
     tree = BVHTree.FromPolygons([v.co for v in me.vertices], [tuple(q.vertices) for q in me.polygons])
+    eye_patch = {p.side: p for p in patches if p.kind == 'eye'}
+    hau = []
     for side, sfx in ((1, 'L'), (-1, 'R')):
         c, r = eyes[side]
         eye_object(col, f'head_eye_white_{sfx}', white_mat, c, eyeball_mesh(c, r, side, rims[side], tree))
         iris = eye_object(col, f'head_eye_{sfx}', iris_mat, c, iris_mesh(c, r, side))
         iris['levi_eye_pivot'] = tuple(c)      # 目.L / 目.R turn the iris about this point
         iris['levi_eye_radius'] = r
+        small = iris_mesh(c, r, side, IRIS_SMALL)
+        add_keys(iris, {'瞳小': [v.co.copy() for v in small.verts]})
+        small.free()
+        # the lid shadow: static, but it rides the upper lid in the eye morphs
+        es = EyeShade(c, r, side)
+        shade = eye_object(col, f'head_eye_shade_{sfx}', shade_mat, c, es.mesh())
+        shade['levi_cast_shadow'] = False
+        add_keys(shade, {n: es.positions(n) for n in EYE_MORPHS})
+        # the highlights ride the eye bone with the iris
+        hl = Highlights(c, r, side)
+        hobj = atlas_object(col, f'head_eye_hilite_{sfx}', hl.mesh(), atlas_mat, 'white')
+        hobj['levi_eye_pivot'] = tuple(c)
+        hobj['levi_eye_radius'] = r
+        add_keys(hobj, {'ハイライト消': hl.positions(off=True)})
+        # the lashes follow the lid band through every morph
+        p = eye_patch[side]
+        decal, faces = lash_decal(p, co)
+        lbm = bmesh.new()
+        vs = [lbm.verts.new(Vector(tuple(q))) for q in decal.rest]
+        for f in faces:
+            lbm.faces.new([vs[i] for i in f])
+        lash = atlas_object(col, f'head_eye_lash_{sfx}', lbm, atlas_mat, 'lash')
+        add_keys(lash, {n: decal.positions(co, targets[n]) for n in EYE_MORPHS + BROW_MORPHS if targets.get(n)})
+        hau.append(hau_stroke(p, co, targets.get('はぅ', {})))
+
+    # the mouth: upper teeth and tongue inside the cavity
+    teeth = common.new_object(col, 'head_mouth_teeth', teeth_mesh(), [teeth_mat])
+    hidden = teeth_mesh(hidden=True)
+    add_keys(teeth, {'歯無し上': [v.co.copy() for v in hidden.verts]})
+    hidden.free()
+    tongue = atlas_object(col, 'head_mouth_tongue', tongue_mesh(), atlas_mat, 'tongue')
+    add_keys(tongue, {n: tongue_targets(n) for n in MOUTH_MORPHS})
+    teeth.data.shade_smooth()
+    teeth['no_outline'] = True
+    teeth['levi_cast_shadow'] = False
+
+    # overlays, hidden inside the head until their key
+    surfs = [PatchSurface(p) for p in patches if p.kind == 'eye']
+    kd = KDTree(len(co))
+    for i, q in enumerate(co):
+        kd.insert(q, i)
+    kd.balance()
+    fbm = flush_mesh(eyes)
+    uv = fbm.loops.layers.uv.new('UVMap')
+    for f in fbm.faces:
+        for loop in f.loops:
+            loop[uv].uv = front_uv(loop.vert.co)
+    flush = common.new_object(col, 'head_fx_flush', fbm, [flush_mat])
+    flush.data.shade_smooth()
+    flush.data.normals_split_custom_set_from_vertices([normals[kd.find(v.co)[1]] for v in flush.data.vertices])
+    flush['no_outline'] = True
+    flush['levi_cast_shadow'] = False
+    for name, obj in (('照れ', flush),
+                      ('涙', atlas_object(col, 'head_fx_tear', tear_mesh(eyes), atlas_mat)),
+                      ('汗', atlas_object(col, 'head_fx_sweat', sweat_mesh(eyes), atlas_mat))):
+        placed = [v.co.copy() for v in obj.data.vertices]
+        for v in obj.data.vertices:       # (the flush moves rigidly: its custom normals stay)
+            v.co = v.co + Vector((0.0, FX_HIDE / PPM, 0.0)) if obj is flush else fx_hidden(v.co)
+        hidden = [v.co.copy() for v in obj.data.vertices]
+        keys = {name: placed}
+        # the skin under an overlay moves in the face's morphs (笑い lifts the
+        # cheek, the jaw drags it): the overlay takes the same motion, so the
+        # keys add up (照れ + 笑い) without the skin coming through
+        for n in FACE_MORPHS:
+            if targets.get(n):
+                d = skin_motion(kd, co, targets[n], placed, surfs)
+                if d is not None:
+                    keys[n] = [h + dv for h, dv in zip(hidden, d)]
+        add_keys(obj, keys)
+    hbm = bmesh.new()
+    placed_pts = []
+    for rest, placed, faces in hau:
+        vs = [hbm.verts.new(Vector(tuple(q))) for q in rest]
+        placed_pts += list(placed)
+        for f in faces:
+            hbm.faces.new([vs[i] for i in f])
+    hobj = atlas_object(col, 'head_fx_hau', hbm, atlas_mat, 'lash')
+    add_keys(hobj, {'はぅ': placed_pts})
 
     for side, nm in ((1, 'head_ear_L'), (-1, 'head_ear_R')):
         ear = common.new_object(col, nm, ear_mesh(side), [skin])
