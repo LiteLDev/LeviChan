@@ -867,7 +867,7 @@ def hug(co, eyes):
     h = HUG_SOFT / PPM
     e = out.y - (ys - EYE_GAP / PPM)
     push = 0.0 if e <= -h else (e if e >= h else (e + h) ** 2 / (4 * h))
-    out.y -= push * w_far * (1.0 - w_near)
+    out.y -= push * w_far
     return out
 
 
