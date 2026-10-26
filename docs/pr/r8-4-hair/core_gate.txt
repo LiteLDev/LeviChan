@@ -1,0 +1,17 @@
+test                1.69  skirt                      0.34     0  petticoat_core             59.8 ok
+arms_up             1.77  body                       0.60     4  sleeve_balloon             -0.0 ok
+arms_forward        1.73  body                       1.18    16  sleeve_ribbon               0.0 ok
+wrist_twist_pos     1.31  sleeve_balloon             0.00     0                              0.0 ok
+wrist_twist_neg     1.31  sleeve_balloon             0.00     0                              0.0 ok
+squat               1.72  shoes_leaves               0.84    30  shoes_ribbons             113.2 ok
+walk                1.58  petticoat_tier0            1.71     7  hair_back                  29.5 ok
+head_left           1.46  hair_back_side             0.22     0  hair_cap                    0.0 ok
+head_right          1.46  hair_back_side             0.22     0  hair_cap                    0.0 ok
+torso_left          1.51  skirt                      0.10     0  petticoat_core              0.0 ok
+torso_right         1.37  skirt                      0.09     0  petticoat_core              0.0 ok
+swing               1.51  petticoat_tier1            0.00     0  skirt                       0.0 ok
+fist                1.68  body                       0.00     0                              0.0 ok
+raise_bend          1.43  body                       0.64     4  sleeve_balloon              0.0 ok
+reach_forward       1.56  sleeve_balloon             0.06     0  bodice_shell                0.0 ok
+forward_bend        1.23  hair_back_shell            0.27     0  petticoat_core             21.0 ok
+side_bend           1.46  body                       1.57    25  skirt                       0.0 ok
