@@ -443,6 +443,42 @@ def _seg_seg_dist(p1, q1, p2, q2):
 
 CHAIN_RADIUS = {'Hair': 0.018, 'Skirt': 0.025, 'Sleeve': 0.025}
 CHAIN_CLEARANCE = 0.005     # rest gap (m) two chain groups need before they may collide
+# Leg bodies about as thick as the legs (the thigh is 5-7 cm round, the calf ~4.5 cm), so
+# the skirt and petticoat chain bodies (CHAIN_RADIUS) stop at the skin instead of sinking
+# 3-4 cm into the thigh as they did against 3 cm capsules. Each is held CHAIN_CLEARANCE
+# off every dynamic chain body at rest (leg_radius), so nothing starts inside a leg.
+LEG_RADIUS = {'足': 0.055, 'ひざ': 0.04}
+LEG_RADIUS_MIN = 0.03
+
+
+def _chain_root(b, grp):
+    """Whether chain bone b (collection grp) is the root of its chain: the nearest chain
+    bone above it, skipping the skirt follow bones between segments, is not in grp."""
+    up = b.parent
+    while up is not None and up.collections and up.collections[0].name == 'SkirtFollow':
+        up = up.parent
+    return up is None or not up.collections or up.collections[0].name != grp
+
+
+def leg_radius(bones, leg, want):
+    """Radius for the leg body on bone `leg`: `want`, less whatever would bring it within
+    CHAIN_CLEARANCE of a chain body that collides with it (below its chain's root) at
+    rest; at least LEG_RADIUS_MIN. Returns (radius, the chain bone that limited it or '')."""
+    h, t = np.array(leg.head_local), np.array(leg.tail_local)
+    ax = (t - h) / max(np.linalg.norm(t - h), 1e-9)
+    r, by = want, ''
+    for b in bones:
+        grp = b.collections[0].name if len(b.collections) else ''
+        if grp not in CHAIN_GROUP or _chain_root(b, grp):
+            continue
+        # a capsule reaches half its radius past each end of its bone (mmd height = length
+        # - radius); the leg's is taken at the full `want`, the larger
+        p, q = np.array(b.head_local), np.array(b.tail_local)
+        u = (q - p) / max(np.linalg.norm(q - p), 1e-9) * CHAIN_RADIUS[grp] / 2
+        d = _seg_seg_dist(h - ax * want / 2, t + ax * want / 2, p - u, q + u)
+        if d - CHAIN_RADIUS[grp] - CHAIN_CLEARANCE < r:
+            r, by = d - CHAIN_RADIUS[grp] - CHAIN_CLEARANCE, b.name
+    return max(LEG_RADIUS_MIN, r), by
 
 
 def chain_groups_overlapping(bones):
@@ -506,6 +542,9 @@ def add_physics(root, arm):
             body(bname, 'SPHERE', (spec.L['head_half_w'] * 1.05, 0, 0), 0, 0, set(), location=center)
         else:
             r = 0.045 if bname in ('上半身', '上半身2', '下半身') else 0.03
+            if bname.split('.')[0] in LEG_RADIUS:
+                r, by = leg_radius(bones, b, LEG_RADIUS[bname.split('.')[0]])
+                print(f'physics: leg body {bname} radius {r:.3f}' + (f' (held clear of {by})' if by else ''))
             body(bname, 'CAPSULE', (r, max(0.01, b.length - r), 0), 0, 0, set())
     for bname in HAND_BODIES:
         if bname in bones:
@@ -524,11 +563,7 @@ def add_physics(root, arm):
         if grp not in CHAIN_GROUP:
             continue
         rad = CHAIN_RADIUS[grp]
-        # the nearest chain bone above, skipping the skirt follow bones between segments
-        up = b.parent
-        while up is not None and up.collections and up.collections[0].name == 'SkirtFollow':
-            up = up.parent
-        root_of_chain = up is None or not up.collections or up.collections[0].name != grp
+        root_of_chain = _chain_root(b, grp)
         # a chain ignores its own group and any chain group its bodies already overlap at
         # rest (they would explode apart on the first frame); hair, skirt and sleeves that
         # are clear of each other collide. Chain roots sit on the body: no collision there.
