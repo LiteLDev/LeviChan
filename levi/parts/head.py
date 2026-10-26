@@ -142,7 +142,7 @@ NOSE_SIGMA = ((106.0, 6.5), (116.0, 5.4), (122.0, 5.0), (126.0, 4.9), (135.5, 4.
 # front half cross-section exponent by row: fuller than an ellipse at eye
 # level (with the widest point brought forward, see TABLE) so the face plate
 # is broad, relaxing to a plain ellipse at the chin
-FRONT_EXP = ((80.0, 2.2), (98.0, 2.8), (118.0, 2.8), (132.0, 2.4), (148.0, 2.1), (161.3, 2.0))
+FRONT_EXP = ((80.0, 2.2), (98.0, 2.8), (118.0, 2.8), (132.0, 2.55), (146.0, 2.5), (155.0, 2.35), (161.3, 2.1))
 
 RING_ROWS = ([43.0, 44.5, 47, 50, 54, 59, 65, 72, 80, 88, 94, 98.5]
              + [100.0 + 1.5 * k for k in range(21)]        # eyes and nose: 100 .. 130
@@ -1332,6 +1332,7 @@ def ear_mesh(side):
     return bm
 
 
+NECK_LINE_ROWS = (155.0, 161.0)   # the neck outline fades in between these rows (below the jaw junction)
 NECK_SHADE_ROW = 166.0    # the neck's shading normals turn under the jaw above this row
 NECK_SHADE_BAND = 8.0     # ... over this many rows either side (no hard edge)
 NECK_TILT = Vector((0.0, 0.6, -0.8)) * 0.15   # added to the real normal: down and back
@@ -1424,7 +1425,13 @@ def build(col):
     neck = common.new_object(col, 'head_neck', neck_mesh(), [skin])
     neck.data.shade_smooth()
     set_neck_normals(neck.data)
-    common.add_outline(neck)
+    # the neck's top is buried in the jaw: no hull there, or the attachment
+    # draws a second jaw line; full outline from just below the junction
+    vg = neck.vertex_groups.new(name='outline_width')
+    lo, hi = zr(NECK_LINE_ROWS[1]), zr(NECK_LINE_ROWS[0])
+    for v in neck.data.vertices:
+        vg.add([v.index], 1.0 - float(_smooth(lo, hi, v.co.z)), 'REPLACE')
+    common.add_outline(neck, vertex_group='outline_width', min_factor=0.0)
     c, r = eyes[1]
     print(f'HEAD eye pivot L ({c.x:.4f}, {c.y:.4f}, {c.z:.4f}) radius {r * PPM:.2f} px')
     return col
