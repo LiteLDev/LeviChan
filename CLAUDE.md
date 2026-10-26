@@ -32,6 +32,9 @@ python tools/review.py [--focus <part>] [--build] [--turntable 8]   # renders + 
 "$B" -b -P tools/check.py -- [--parts body,skirt]      # exit code 1 on failure
 "$B" -b -P build.py -- --rig ...                         # + MMD armature, skinned (levi/rig.py)
 "$B" -b -P tools/rig_check.py                            # rig tests, exit code 1 on failure
+"$B" -b -P tools/rig_check.py -- --quick --no-core --extended --report-core --motion   # motion report, not gated
+python tools/motion_review.py [--build]                  # extended poses + clips: sheets + Codex ratings
+"$B" -b out/levi.blend -P tools/motion_vmd.py            # clips -> PMX + VMD -> Blender (after export_pmx.py)
 "$B" -b -P tools/rig_pose.py -- --out out/levi_pose.blend [--pose squat]  # posed model for render.py
 "$B" -b -P export_pmx.py -- --out out/pmx/Levi.pmx       # needs mmd_tools: no --factory-startup
 "$B" -b -P tools/pmx_reimport.py                         # re-import + count check
@@ -86,6 +89,22 @@ The body part may store fitted limb joints for the rig as `obj["levi_joints"] = 
   - clothes and hair no more than 2 cm newly inside the body, measured with a winding-number test;
   - no knee bent backward.
   It also checks that the standard PMX bone names motions bind to are all there.
+- Complex-motion tests (round 6; reported, not gated yet: the core 17 above stay the gate):
+  - `tools/motion_poses.py`: `EXTENDED`, 24 combined, extreme but humanly plausible poses (chair sit, seiza, one-knee kneel, cross-legged, deep lunge, run phases, tuck jump, high kick, arm wraps, hands behind head / back, reach up and back, torso twist + bend, lying back on the elbows, looking over the shoulder, curtsy, MMD dance keys), and `CLIPS`, 6 clips at 30 fps (walk, run, turn in place, sit down / stand up, spin with the arms out, an idol-dance phrase).
+    - Helpers: `arm_pose` / `limb` aim the upper bone, roll it so the elbow / knee hinge flexes toward a given direction, then bend the hinge; `foot` places the leg IK (offset, heel lift, toe-out, or a toe direction); `leg_fk` mutes one leg's IK (cross_legged, high_kick, lie_back_elbows only). Directions are world directions with the parent at rest, for the left side, mirrored for .R.
+    - Clips key the standard input bones (センター, 足ＩＫ / つま先ＩＫ, 上半身…, 腕, ひじ, fingers) with Bezier keys from key poses; driver-driven bones are never keyed. Clips use the leg IK only.
+    - Every pose name works in `rig_pose.apply_pose`, `rig_pose.py --pose` and `render.py --pose`; a clip frame is `<clip>@<frame>` (e.g. `walk@14`).
+  - `rig_check.py --extended` / `--motion` (`tools/motion_check.py`, vectorized numpy, ~0.2 s a frame at 72k vertices; the whole report in a few minutes): every extended pose and every clip frame against (minor, major) thresholds in `motion_check.THRESH`. It writes `out/motion/report.md` (a table per set, the top problems grouped by metric, part and location, issues per part) and `motion_report.json`.
+    - stretch / compress: edge ratios. flip: faces turned > 120° against their dominant bone (folding, collapse).
+    - pen / pen_frac: clothes and hair newly inside the body. Two parity rays confirm the nearest-face test, and the winding number decides where they disagree or a point sits inside two overlapping volumes.
+    - self / contact: body self-intersection between segments far apart at rest, with a winding-confirmed depth. `self` is for segments passing through each other (thigh × thigh, forearm × chest); `contact` is for neighbours pressing in at a deep bend (calf × thigh, upper arm × chest). cross: new crossings between hair, garments, skirt and petticoat.
+    - joint / vol: per joint band (shoulder, elbow, forearm twist (candy wrapper), wrist, hip, knee, ankle, neck, waist), the median skin radius around the bone axis (posed / rest; a crease squeezes one side, a collapse the whole band) and the mean squared radius (local volume).
+    - knee / elbow: signed bends (negative = hyperextended); twist angles are logged.
+    - Clips only: pop / bone_pop (a one-frame acceleration spike beyond both neighbours two frames away), jitter (the same test on edge strain), speed.
+    - eye: the eyes at the gaze limits combined with まばたき / ウィンク / 笑い.
+  - `tools/motion_review.py` renders the extended poses and 6 frames of every clip (plus each clip's worst frames from the report), front + 3/4. It builds `p*_poses.png` and `c_<clip>.png` sheets and asks `gpt-6-astra` and `gpt-6.1-sol` to rate every pose and clip clean / minor / major / broken for physically unrealistic deformation, with location, parts and frames. `review.md` puts the models side by side with the metrics' worst level. `--docs` exports JPEG sheets.
+  - `tools/motion_vmd.py` (mmd_tools): keys clips on the PMX import by bone name every frame, exports VMD, re-imports it and compares bone positions (round trip ≤ 2 mm; the Blender rig vs PMX + VMD difference is reported). MMD physics is not simulated anywhere in these tests: hair, skirt and sleeve chains move only as keyed or driven.
+  - Baseline: `docs/pr/r6-motion/`.
 - Pose renders: save each pose with `rig_pose.py --pose NAME --out out/poses/NAME.blend`, then render it with `render.py -- --out out/poses/NAME --no-regions`. `tools/rig_sheet.py` tiles the results into front | side | back sheets on white.
 - PMX (`export_pmx.py`, then `tools/pmx_reimport.py`):
   - Shape keys become PMX vertex morphs in the 表情 frame. `export_pmx.MORPH_INFO` gives the standard names their panels (まばたき / 笑い / ウィンク… → eye, あ / い / う / え / お… → mouth, 真面目 / 困る / にこり / 怒り → brow); other keys go to 'other'. Generator modifiers on a mesh with shape keys are applied per key (`rig._apply_modifiers_with_keys`), so morphs survive. pmx_reimport checks every morph's panel. Copies of one key from several objects are merged into one morph. pmx_reimport checks that every exported morph is there, moves vertices and is listed in a frame.

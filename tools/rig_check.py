@@ -13,6 +13,14 @@ the standard PMX bone names (センター ... 足ＩＫ, 捩, 親指０) are all
 tools/rig_pose.py produces finite geometry without torn or exploded edges, clothes
 and hair stay out of the body, and the leg IK never bends a knee backward;
 rigging twice gives identical bones and weights.
+
+    --extended   also report (not gate) the motion metrics of tools/motion_check.py on the
+                 extended poses (motion_poses.EXTENDED; --report-core adds the core poses)
+                 and the eyes at the gaze limits with the eye morphs
+    --motion     ... and on every frame of the motion clips (motion_poses.CLIPS; --clips a,b)
+    --report DIR where report.md / motion_report.json go (default out/motion)
+    --no-core    skip the gated core pose loop (structure, weights, IK and eyes still run)
+The exit code only reflects the core checks.
 """
 import argparse
 import hashlib
@@ -388,6 +396,48 @@ def check_poses(arm, errors, poses):
     bpy.context.view_layer.update()
 
 
+def motion_report(arm, args):
+    """--extended / --motion: the motion_check metrics, reported against their thresholds
+    (no effect on the exit code)."""
+    import time
+    import motion_check
+    import motion_poses
+    t0 = time.time()
+    objs = skinned_meshes(arm)
+    for o in objs:
+        if 'Outline' in o.modifiers:
+            o.modifiers['Outline'].show_viewport = False
+    model = motion_check.Model(arm, objs)
+    results, eyes = {}, None
+    nv = sum(len(model.info[o.name]['rest']) for o in objs)
+    print(f'MOTION model: {len(objs)} meshes, {nv} vertices, {len(model.joints)} joint bands '
+          f'({time.time() - t0:.1f} s)')
+    if args.extended:
+        names = [p for p in args.ext_poses.split(',') if p] or list(motion_poses.EXTENDED)
+        if args.report_core:
+            results['core'] = motion_check.run_poses(model, list(rig_pose.POSES))
+        results['extended'] = motion_check.run_poses(model, names)
+        eyes = motion_check.eye_check(model)
+        for r in eyes:
+            print(f"eyes {r['name']:22s} poke {r['value'] * 1000:.2f} mm {r['object']} {r['where']}")
+    if args.motion:
+        clips = [c for c in args.clips.split(',') if c] or list(motion_poses.CLIPS)
+        results['motion'] = {c: motion_check.run_clip(model, c, stride=max(1, args.pen_stride)) for c in clips}
+    out = os.path.join(ROOT, args.report)
+    faces = sum(len(o.data.polygons) for o in objs)
+    note = (f'Model: {len(objs)} meshes, {nv} vertices, {faces} faces (without outlines). '
+            f'Run time {time.time() - t0:.0f} s. Not gated: the exit code of rig_check covers the core poses '
+            'only. No cloth or hair physics: chains move only as keyed or driven (MMD simulates them).')
+    txt = motion_check.report(results, out, eyes, extra=note)
+    print(txt)
+    print('MOTION REPORT', os.path.join(out, 'report.md'), f'({time.time() - t0:.0f} s)')
+    rig_pose.reset_pose(arm)
+    for o in objs:
+        if 'Outline' in o.modifiers:
+            o.modifiers['Outline'].show_viewport = True
+    bpy.context.view_layer.update()
+
+
 def fingerprint(arm):
     h = hashlib.sha1()
     for b in arm.data.bones:
@@ -409,8 +459,23 @@ def main():
     ap.add_argument('--fixtures', action='store_true')
     ap.add_argument('--poses', default='', help='comma-separated rig_pose.POSES (default: all)')
     ap.add_argument('--quick', action='store_true', help='build once: skip the repeatability checks')
+    ap.add_argument('--extended', action='store_true', help='report (not gate) the extended poses')
+    ap.add_argument('--motion', action='store_true', help='report (not gate) every frame of the motion clips')
+    ap.add_argument('--ext-poses', default='', help='comma-separated extended poses (default: all)')
+    ap.add_argument('--clips', default='', help='comma-separated motion clips (default: all)')
+    ap.add_argument('--report-core', action='store_true', help='add the core poses to the motion report')
+    ap.add_argument('--report', default='out/motion', help='report directory (--extended / --motion)')
+    ap.add_argument('--pen-stride', type=int, default=1,
+                    help='clips: penetration / layer crossings every Nth frame (other metrics every frame)')
+    ap.add_argument('--no-core', action='store_true', help='skip the gated core pose loop')
     args = ap.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
 
+    if args.extended or args.motion:
+        import motion_poses
+        bad = [p for p in args.ext_poses.split(',') if p and p not in motion_poses.EXTENDED]
+        bad += [c for c in args.clips.split(',') if c and c not in motion_poses.CLIPS]
+        if bad:
+            ap.error(f'unknown extended pose(s) / clip(s) {bad}')
     errors = []
     prints = []
     for attempt in ((1,) if args.quick else (1, 2)):
@@ -434,7 +499,10 @@ def main():
     # the throwaway fixtures (tubes, no hands) only make sense for the round-1 test pose
     fixtures = args.fixtures or not (args.parts or builder.available_parts())
     default = ["test"] if fixtures else list(rig_pose.POSES)
-    check_poses(arm, errors, [p for p in args.poses.split(",") if p] or default)
+    if not args.no_core:
+        check_poses(arm, errors, [p for p in args.poses.split(",") if p] or default)
+    if args.extended or args.motion:
+        motion_report(arm, args)
     if any(not math.isfinite(c) for b in arm.data.bones for c in b.head_local):
         errors.append('non-finite bone position')
 

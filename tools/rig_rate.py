@@ -94,10 +94,10 @@ def stage_sheets(argv):
         print('SHEET 04_detail.png')
 
 
-def run_codex(models, prompt, sheets, out, codex, timeout):
-    schema = os.path.join(out, 'rate_schema.json')
+def run_codex(models, prompt, sheets, out, codex, timeout, schema=None):
+    schema_obj, schema = schema or SCHEMA, os.path.join(out, 'rate_schema.json')
     with open(schema, 'w', encoding='utf-8') as f:
-        json.dump(SCHEMA, f, indent=1)
+        json.dump(schema_obj, f, indent=1)
     prompt_path = os.path.join(out, 'prompt.md')
     with open(prompt_path, 'w', encoding='utf-8') as f:
         f.write(prompt)
