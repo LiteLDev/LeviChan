@@ -417,7 +417,8 @@ def relief(X, R):
     only, so the front-view projection of the painted features does not move."""
     X = np.asarray(X, float)
     R = np.asarray(R, float)
-    y_up, y_lo = upper_lid(X), lower_lid(X)
+    Xl = np.clip(X, EYE_IN, EYE_OUT)          # the lid curves run off steeply past the corners
+    y_up, y_lo = upper_lid(Xl), lower_lid(Xl)
     along = _smooth(EYE_IN - 4.0, EYE_IN + 1.0, X) * (1.0 - _smooth(EYE_OUT + 0.5, EYE_OUT + 5.0, X))
     # orbit: a soft hollow around the opening (the eyeball sits in it)
     e_d = np.maximum.reduce([y_up - R, R - y_lo, EYE_IN - X, X - EYE_OUT])
@@ -472,8 +473,15 @@ class _Canvas:
 
 
 def _eye_opening_d(X, R):
-    """Signed distance-like value of the eye opening (negative inside)."""
-    return np.maximum.reduce([lash_bottom(X) - R, R - lower_lid(X), EYE_IN - X, X - EYE_OC])
+    """Signed distance-like value of the eye opening [px] (negative inside):
+    round outside the corners, and the lid curves are not followed past them
+    (they run off steeply)."""
+    X = np.asarray(X, float)
+    R = np.asarray(R, float)
+    Xl = np.clip(X, EYE_IN, EYE_OC)
+    dx = np.maximum(EYE_IN - X, X - EYE_OC)
+    dr = np.maximum(lash_bottom(Xl) - R, R - lower_lid(Xl))
+    return np.where((dx > 0) | (dr > 0), np.hypot(np.maximum(dx, 0), np.maximum(dr, 0)), np.maximum(dx, dr))
 
 
 def face_texture_pixels():
@@ -810,35 +818,41 @@ def build_head(detail=True, eye_fit=None):
     return bm, patches, eyes
 
 
-HUG_BAND = (2.0, 9.0)            # px outside the opening: lids drape on the eyeball .. own shape
-HUG_COVER = 15.0                 # px outside the opening: the skin still covers the eyeball sphere
+HUG_BAND = (0.5, 5.0)            # px outside the opening: lids drape on the eyeball .. own shape
+IRIS_REACH = (11.0, 19.0)        # px from the iris centre: where a turned iris can roll (fading)
+HUG_DISC = (0.72, 0.9)           # share of the eyeball radius (seen from the front) the cover fades over
+HUG_SOFT = 1.5                   # px: softness of the cover push
 
 
 def hug(co, eyes):
     """The lids drape over the eyeball: near the opening the face sits EYE_GAP
     (plus the lid rims' thickness) in front of the eyeball sphere, fading back
-    to its own shape HUG_BAND px outside the opening. So the eyeball never
-    shows through the skin beyond the opening, and the rim stays shallow."""
+    to its own shape HUG_BAND px outside the opening. Further out, where the
+    iris can roll to, the skin is only kept in front of the sphere (a soft
+    push, fading out smoothly), so a turned iris stays under the skin."""
     if not eyes:
         return co
     X = (co.x - HEAD_DX) * PPM
     c, r = eyes[1 if X >= 0 else -1]
-    X, R = abs(X), row_of(co.z)
-    d = _eye_opening_d(X, R)
-    w = 1.0 - float(_smooth(HUG_BAND[0], HUG_BAND[1], d))
-    w_far = 1.0 - float(_smooth(HUG_BAND[1], HUG_COVER, d))
     ys = sphere_y(c, r, co.x, co.z)
-    if w_far <= 0.0 or ys is None or co.y > c.y:     # (the back of the head is not the face)
+    if ys is None or co.y > c.y:     # (the back of the head is not the face)
+        return co
+    X, R = abs(X), row_of(co.z)
+    disc = 1.0 - float(_smooth(HUG_DISC[0], HUG_DISC[1], math.hypot(co.x - c.x, co.z - c.z) / r))
+    w_near = (1.0 - float(_smooth(HUG_BAND[0], HUG_BAND[1], _eye_opening_d(X, R)))) * disc
+    w_far = (1.0 - float(_smooth(IRIS_REACH[0], IRIS_REACH[1], math.hypot(X - IRIS[0], R - IRIS[1])))) * disc
+    if w_near <= 0.0 and w_far <= 0.0:
         return co
     along = _smooth(EYE_IN - 4.0, EYE_IN + 1.0, X) * (1.0 - _smooth(EYE_OUT + 0.5, EYE_OUT + 5.0, X))
-    rim = 0.6 * np.exp(-((R - (upper_lid(X) + 1.0)) / 2.3) ** 2) * along \
-        + 0.2 * np.exp(-((R - (lower_lid(X) + 1.0)) / 2.0) ** 2) * along
-    target = ys - (EYE_GAP + float(rim)) / PPM
+    Xl = min(max(X, EYE_IN), EYE_OUT)
+    rim = 0.6 * np.exp(-((R - (upper_lid(Xl) + 1.0)) / 2.3) ** 2) * along \
+        + 0.2 * np.exp(-((R - (lower_lid(Xl) + 1.0)) / 2.0) ** 2) * along
     out = co.copy()
-    out.y += (target - co.y) * w
-    # further out the skin only has to stay in front of the sphere, where the
-    # iris can roll to
-    out.y -= max(0.0, out.y - (ys - EYE_GAP / PPM)) * w_far
+    out.y += (ys - (EYE_GAP + float(rim)) / PPM - co.y) * w_near
+    # a soft max(0, excess): a hard one leaves a crease where the skin meets the sphere
+    k = HUG_SOFT / PPM
+    excess = out.y - (ys - EYE_GAP / PPM)
+    out.y -= k * math.log1p(math.exp(min(excess / k, 50.0))) * w_far
     return out
 
 
