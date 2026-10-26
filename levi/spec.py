@@ -176,9 +176,9 @@ PALETTE = {k: {**v, **PALETTE_TUNING.get(k, {})} for k, v in SHEET_PALETTE.items
 # required; budget is in polygons as Blender reports them).
 BUDGET = {
     'body': 4000,
-    'head': 3500,
-    'hair_front': 3000,
-    'hair_back': 6000,
+    'head': 3650,
+    'hair_front': 3400,
+    'hair_back': 6400,
     'accessories': 1500,
     'bodice': 2500,
     'skirt': 4000,
@@ -186,7 +186,7 @@ BUDGET = {
     'sleeves': 3000,
     'shoes': 1500,
 }
-TOTAL_BUDGET = 32000
+TOTAL_BUDGET = 32500  # target ~32k (user-approved round 5)
 
 # Outline (inverted hull) thickness in metres, per part default. The sheet's
 # strokes are ~1-1.5 px at 643 px/m; the ortho renders are 1:1 with the panel,

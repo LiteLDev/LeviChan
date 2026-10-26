@@ -159,4 +159,5 @@ python tools/review.py [--blend out/levi.blend] [--rig out/levi_rig.blend] [--bu
 - Builds must be deterministic and repeatable. No randomness without a fixed seed.
 - Don't edit `spec.py`, `common.py`, `toon.py` or another part from a part PR. If a landmark is off, put a local correction in your part and explain it in the PR.
 - Never commit `.blend` files or `out/`. PR screenshots go under `docs/pr/<part>/`.
+  - Keep PR images small: JPEG (quality ~85) or downscaled PNG, at most ~1.5 MB per PR in total. Contact sheets can be downscaled to ~1200 px wide.
 - No Claude/AI attribution in commits or PRs.
