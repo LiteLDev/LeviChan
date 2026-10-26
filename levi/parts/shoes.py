@@ -61,7 +61,7 @@ import numpy as np
 from mathutils import Quaternion, Vector
 
 from .. import common, spec
-from .body import FOOT, LEG_FRONT, LEG_SIDE, MARGIN as BODY_MARGIN
+from .body import FOOT, LEG_FRONT, LEG_ROWS, LEG_SIDE, MARGIN as BODY_MARGIN, leg_offset, leg_section
 
 PX = 1.0 / spec.PX_PER_M
 
@@ -231,6 +231,49 @@ def _clear_foot(x, y, zpx):
     return x, zpx
 
 
+LEG_CAP = 5.0      # px: body.build_leg's pole cap below its last ring
+_LEG_CACHE = {}
+
+
+def _leg_outline(row):
+    """Body leg skin at body `row` as (x, y) px points round the ring (body.leg_section
+    + body.leg_offset, so the malleoli and the heel count), or None below the leg."""
+    lo, hi = LEG_ROWS[0], LEG_ROWS[-1]
+    if not lo <= row <= hi + LEG_CAP:
+        return None
+    row = round(row, 2)       # the cache key is the row the outline is computed for
+    if row not in _LEG_CACHE:
+        r = min(row, hi)
+        cx, cy, hw, hd = leg_section(r)
+        k = 1.0 if row <= hi else max(0.0, 1.0 - (row - hi) / LEG_CAP) ** 0.5
+        a = 2 * math.pi * np.arange(72) / 72
+        f = leg_offset(r)
+        off = np.array([f(dx, dy) for dx, dy in zip(np.cos(a), np.sin(a))])
+        _LEG_CACHE[row] = np.stack([cx + (np.cos(a) * hw + off[:, 0]) * k,
+                                    cy - (np.sin(a) * hd + off[:, 1]) * k], 1)
+    return _LEG_CACHE[row]
+
+
+def _clear_leg(x, y, zpx):
+    """Round 8: the leg runs on into the heel below the malleoli (body.ANKLE_ROW), so
+    a shell point at the topline may sit over the leg rather than the foot: push it
+    out sideways (x) to FOOT_CLEAR outside the leg's skin at its own y."""
+    pts = _leg_outline(spec.SHEET_GROUND_Y - zpx)
+    if pts is None:
+        return x
+    xs = []
+    for (x0, y0), (x1, y1) in zip(pts, np.roll(pts, -1, axis=0)):
+        if (y0 - y) * (y1 - y) <= 0 and abs(y1 - y0) > 1e-9:
+            xs.append(x0 + (x1 - x0) * (y - y0) / (y1 - y0))
+    if len(xs) < 2:
+        return x
+    lo, hi = min(xs) - FOOT_CLEAR, max(xs) + FOOT_CLEAR
+    if lo < x < hi:
+        mid = (min(xs) + max(xs)) / 2
+        return hi if x >= mid else lo
+    return x
+
+
 def _ring(st, sx):
     y, cx, hw, zb, zt, frac, skew, pinch, keel, rin = st
     closed = frac >= 0.999
@@ -265,6 +308,7 @@ def _ring(st, sx):
         if closed and k in (0, RING - 1):
             x = cx - skew * ((1 + c) / 2) ** 1.5      # exact top centre: ends merge
         x, zpx = _clear_foot(x, y, z / PX)
+        x = _clear_leg(x, y, zpx)
         pts.append(Vector((sx * x * PX, y * PX, zpx * PX)))
     if closed:
         pts[-1] = pts[0].copy()

@@ -2603,7 +2603,21 @@ def _prune_subtract(w):
 # x2.1-2.2 stretch and up to 55% of the tails inside the thigh when the skirt lifted).
 # It starts just below waist_z, so nothing at the waist bow or above changes hands.
 SKIRT_BAND = (0.035, 0.0)
-ANKLE_BLEND = 0.03    # foot / shin blend half-width around the ankle joint height
+ANKLE_BLEND = 0.03    # foot / shin blend half-width around the ankle joint height (no ANKLE_BAND)
+# Round 8: the ankle pivot is the real joint inside the shoe (body.ANKLE_ROW). Shin share
+# smoothstep edges (m along the shin from the pivot, + up), instep side and heel side,
+# blended round the leg: the instep's skin rises in front of the joint and stays foot
+# higher up; behind, the skin from the pivot up is shin, bending over the tendon to the
+# heel counter's top (the counter is rigid, RIGID_FOOT). Starting the heel side at
+# +0.8 / +1.6 cm, inside the counter, stretched the tendon x2.3 / x2.8 with the toes
+# tucked (kneel_one) and x1.9 / x2.15 in a squat.
+ANKLE_BAND = ((-0.01, 0.045), (0.0, 0.035))
+# Round 8: hand share smoothstep edges (m along the hand from the wrist pivot): 10-90%
+# over ~4 cm, reaching back into the forearm; the palm heel is ~97% hand (round 7:
+# envelopes, 5-6 cm, 55% 1.2 cm into the palm). In pairwise review +-1.5 cm and +-2.2 cm
+# read as a pinched notch at a flexed wrist; this band won 8/2 and 10/0 against round 7.
+WRIST_BAND = (-0.04, 0.025)
+WRIST_PARTS = ('body', '_proxy')   # parts whose skin takes WRIST_BAND
 DRAPE_NEAR, DRAPE_FAR = 0.04, 0.13   # sleeve drape weight fades in between these from the arm axis
 
 
@@ -2760,16 +2774,81 @@ def _split_along(w, co, bones, key, span):
 
 
 def _split_ankle(w, co, bones):
-    """Below the ankle everything is foot (足首), above it shin (ひざ), with a short blend
-    around the joint: the shoe is rigid and the skin inside it moves the same way."""
+    """Foot (足首) below the ankle, shin (ひざ) above it, blended along the shin axis about
+    the ankle pivot (ANKLE_BAND: higher on the instep, where the foot's skin rises in
+    front of the joint, short behind it, the heel), so a foot turn bends the leg at the
+    joint inside the shoe. The laces take the same positional weights as the skin under
+    them; the shoe's shell is then made rigid on the foot (RIGID_FOOT), and the skin
+    inside it is foot too (the band starts above the vamp and the heel counter's top).
+    Without ANKLE_BAND: a horizontal band ANKLE_BLEND about the pivot's height (round 7)."""
     col = {b.name: i for i, b in enumerate(bones)}
     for tag in 'LR':
         a, k = col.get(f'足首.{tag}'), col.get(f'ひざ.{tag}')
         if a is None or k is None:
             continue
         s = w[:, a] + w[:, k]
-        f = _smoothstep(bones[a].head.z - ANKLE_BLEND, bones[a].head.z + ANKLE_BLEND, co[:, 2])
+        if ANKLE_BAND:
+            piv = np.array(bones[a].head)
+            up = np.array(bones[k].head) - piv
+            up /= np.linalg.norm(up)
+            fwd = np.array(bones[a].tail) - piv
+            fwd -= up * (fwd @ up)
+            fwd /= np.linalg.norm(fwd)
+            rel = co - piv
+            along = rel @ up
+            lat = rel - along[:, None] * up
+            c = (lat @ fwd) / np.maximum(np.linalg.norm(lat, axis=1), 1e-9)
+            g = _smoothstep(-1.0, 1.0, c)               # 0 behind (heel) .. 1 in front (instep)
+            (fl, fh), (bl, bh) = ANKLE_BAND
+            f = _smoothstep(bl + (fl - bl) * g, bh + (fh - bh) * g, along)
+        else:
+            f = _smoothstep(bones[a].head.z - ANKLE_BLEND, bones[a].head.z + ANKLE_BLEND, co[:, 2])
         w[:, a], w[:, k] = s * (1.0 - f), s * f
+
+
+# Round 8: objects that move rigidly with the foot whatever ANKLE_BAND says (part ->
+# object name prefix): the shoe's shell. Its topline rises above the ankle pivot at the
+# heel counter, and blended with the shin it stretched x2.2 in a squat.
+RIGID_FOOT = {'shoes': 'shoes_shell'}
+
+
+def _rigid_foot(w, bones):
+    """Fold each side's shin (ひざ) weight into its foot (足首)."""
+    col = {b.name: i for i, b in enumerate(bones)}
+    for tag in 'LR':
+        a, k = col.get(f'足首.{tag}'), col.get(f'ひざ.{tag}')
+        if a is not None and k is not None:
+            w[:, a] += w[:, k]
+            w[:, k] = 0.0
+
+
+def _split_wrist(w, co, bones):
+    """Hand (手首) vs forearm (ひじ, 手捩, ひじ補助) by a band WRIST_BAND along the hand
+    about the wrist pivot (round 8): the palm heel moves with the hand instead of half
+    following the forearm. Run before the twist split (_split_along), which then hands
+    the forearm's share near the wrist to 手捩 as before. Fingers keep their weights.
+    Skin only (WRIST_PARTS): the sleeves build their own arm weights."""
+    if not WRIST_BAND:
+        return
+    col = {b.name: i for i, b in enumerate(bones)}
+    for tag in 'LR':
+        h = col.get(f'手首.{tag}')
+        names = [n for n in (f'ひじ.{tag}', f'手捩.{tag}', f'ひじ補助.{tag}') if n in col]
+        if h is None or not names:
+            continue
+        arm = [col[n] for n in names]
+        piv = np.array(bones[h].head)
+        d = np.array(bones[h].tail) - piv
+        d /= np.linalg.norm(d)
+        f = _smoothstep(WRIST_BAND[0], WRIST_BAND[1], (co - piv) @ d)
+        fa = w[:, arm].sum(1)
+        s = w[:, h] + fa
+        rest = s * (1.0 - f)
+        prop = np.where(fa[:, None] > 1e-9, w[:, arm] / np.maximum(fa, 1e-9)[:, None], 0.0)
+        # where the arm had no weight: all to ひじ (else the first forearm bone present)
+        prop[fa <= 1e-9, names.index(f'ひじ.{tag}') if f'ひじ.{tag}' in names else 0] = 1.0
+        w[:, arm] = prop * rest[:, None]
+        w[:, h] = s * f
 
 
 def _drape_along_chain(w, co, bones, drape):
@@ -3123,6 +3202,8 @@ def _base_weights(part, co, bones):
     if part == 'sleeves':
         _drape_only_away_from_arm(w, co, bones)
     _split_ankle(w, co, bones)
+    if part in WRIST_PARTS:
+        _split_wrist(w, co, bones)
     _split_along(w, co, bones, 'twist_of', TWIST_RAMP)
     if part != 'bodice':        # the bodice took the skin's shrug weight as it is
         _split_along(w, co, bones, 'shrug_of', SHRUG_SPAN)
@@ -3543,6 +3624,8 @@ def _weights(obj, part, co, bones):
         w = _skin_ornament_weights(w, co, labels, part, bones, roots)
     else:
         w = _island_rules(w, co, labels, bones, part)
+    if part in RIGID_FOOT and obj.name.startswith(RIGID_FOOT[part]):
+        _rigid_foot(w, bones)
     # which bones a vertex keeps is decided on a wider-smoothed copy of its weights, so
     # the set changes gradually along the surface instead of wherever two weak bones swap
     guide = _smooth(w, co, edges, PRUNE_SMOOTH) if PRUNE_SMOOTH > 0 and radius > 0 else None

@@ -39,7 +39,9 @@ Local corrections vs. spec.L (re-measured on the reference):
 
 Other parts import from here (data / pure functions only, keep the names):
 accessories calls build_torso() (the chest surface the halter rests on) and
-smoothstep(); shoes reads FOOT, LEG_FRONT, LEG_SIDE and MARGIN.
+smoothstep(); shoes reads FOOT, LEG_FRONT, LEG_SIDE, LEG_ROWS and MARGIN and calls
+leg_section() / leg_offset() (round 8: it clears its shell off the leg, which now runs
+on below the malleoli into the heel round the ankle pivot).
 """
 import math
 
@@ -470,8 +472,10 @@ ARM_R = [
     (('E', 14), (12.0, 11.5, 12, 12)),
     (('E', 45), (11.5, 11.0, 11, 10.5)),
     (('E', 80), (10.0, 9.5, 9, 8.5)),
-    (('E', 108), (9.5, 9.0, 7.5, 7.0)),
-    (('W', 0), (10.5, 10.5, 7.0, 7.0)),
+    # round 8: a fuller wrist (was 9.5 / 9.0 / 7.5 / 7.0 and 10.5 / 10.5 / 7.0 / 7.0),
+    # still 1.5 : 1, so the palm doesn't sit on a narrow waist when the wrist bends
+    (('E', 108), (9.9, 9.5, 7.7, 7.3)),
+    (('W', 0), (11.2, 11.2, 7.3, 7.3)),
 ]
 # hand twist (0 = forearm frame, 1 = hand frame) by offset from the elbow
 ARM_TWIST = [(45, 0.0), (80, 0.45), (108, 0.8)]   # ... and 1.0 at the wrist
@@ -480,11 +484,18 @@ ARM_TWIST = [(45, 0.0), (80, 0.45), (108, 0.8)]   # ... and 1.0 at the wrist
 ARM_STATIONS = ([('S', d) for d in (38, 49, 60, 72, 84, 96, 108, 119)]
                 + [('E', d) for d in (-21, -14, -7, 0, 7, 14, 21, 31, 44, 58, 72, 86, 99, 111)]
                 + [('W', d) for d in (-12, -6, 0)])
-# Hand rings: (distance from the wrist along the hand px, radii as above)
-HAND_R = [(0, (10.5, 10.5, 7.0, 7.0)), (8, (13, 12.5, 7.2, 7.2)), (19, (16.5, 16, 7.2, 7.0)),
-          (28, (17.5, 17, 6.7, 6.5)), (34, (17.0, 16.5, 6.0, 5.8)), (39, (14.5, 14.0, 5.6, 5.3)),
-          (42, (9.5, 9.0, 4.2, 3.9))]
+# Hand rings: (distance from the wrist along the hand px, radii as above: toward
+# the thumb, toward the little finger, palm side, back). Round 8: the palm ~5%
+# wider and ~12% thicker than round 7's flat paddle, with squarer edges, on the
+# 1.53 : 1 wrist. (+12% / +20% read as a swollen mitten in pairwise review.)
+HAND_R = [(0, (11.2, 11.2, 7.3, 7.3)), (8, (13.2, 12.8, 7.8, 7.6)), (19, (17.2, 16.6, 8.2, 7.8)),
+          (28, (18.3, 17.7, 7.6, 7.3)), (34, (17.8, 17.2, 6.8, 6.6)), (39, (15.3, 14.7, 6.2, 5.9)),
+          (42, (10.2, 9.6, 4.6, 4.3))]
 HAND_STATIONS = (4, 8, 13, 19, 24, 28, 31, 34, 36.5, 39, 41, 42)
+# superellipse exponent of the hand rings (wrist -> palm): squarer palm edges
+HAND_P = ((0, 2.0), (12, 2.3))
+# thumb ball along the hand (px from the wrist): ramps in, full, full, out
+THENAR = (3, 10, 20, 31)
 
 
 def hand_frame():
@@ -507,7 +518,10 @@ def _palm_shape(t_px):
     staggered along the palm end (index/middle longest, the little finger side
     shortest)."""
     k = px(1)
-    thenar = smoothstep(2, 10, t_px) * (1 - smoothstep(18, 30, t_px))
+    # round 8: the thumb ball starts at the heel of the palm, where the thumb now
+    # roots (build_fingers), and stands ~5 mm proud
+    t0, t1, t2, t3 = THENAR
+    thenar = smoothstep(t0, t1, t_px) * (1 - smoothstep(t2, t3, t_px))
     hypo = smoothstep(4, 14, t_px) * (1 - smoothstep(24, 34, t_px))
     arch = smoothstep(8, 18, t_px) * (1 - smoothstep(32, 40, t_px))
     knuck = smoothstep(26, 33, t_px) * (1 - smoothstep(37, 41, t_px))
@@ -517,12 +531,16 @@ def _palm_shape(t_px):
         a = b = d = 0.0
         if dy > 0:     # palm side
             b -= 1.3 * arch * dy * max(0.0, 1 - (dx / 0.7) ** 2)          # hollow of the palm
-            pad = thenar * 6.0 * max(0.0, dx) ** 1.5 * dy ** 0.7          # thumb ball
+            pad = thenar * 6.5 * max(0.0, dx) ** 1.2 * dy ** 0.8          # thumb ball
             pad += hypo * 1.1 * max(0.0, -dx) ** 1.5 * dy ** 0.7          # little finger pad
             a += pad * 0.55 * (1 if dx > 0 else -1)
             b += pad
-        else:          # back of the hand: a low dome, fuller over the knuckle heads
-            b += (0.45 * arch + 0.5 * knuck) * dy * (1 - dx * dx)
+        else:          # back of the hand: a dome over the metacarpals rising into the
+            # knuckle row, highest over the middle and ring fingers (transverse arch)
+            b += (0.8 * arch + 1.4 * knuck) * dy * (1 - dx * dx)
+        # the thumb-side edge swells out along the thumb's metacarpal, so the outline
+        # runs from the wrist into the thumb instead of meeting it at a corner
+        a += thenar * 2.2 * max(0.0, dx) ** 3 * max(0.0, 1 - ((dy - 0.35) / 0.9) ** 2)
         d += stagger * (2.6 * dx - 2.0 * dx * dx)                          # knuckle arc
         return a * k, b * k, d * k
     return f
@@ -572,7 +590,8 @@ def arm_rings(loop, tans):
 
     def shape(i, dx, dy):
         return shapes[i](dx, dy) if shapes[i] else (0.0, 0.0, 0.0)
-    rings, frames = ring_points(centers, hints, radii, ARM_N, shape=shape)
+    pexp = [2.0 if ht is None else _interp(HAND_P, ht) for ht in hand_t]
+    rings, frames = ring_points(centers, hints, radii, ARM_N, p=pexp, shape=shape)
     # transition: cubic Hermite from each socket vertex (leaving along the
     # torso surface) to its vertex on the first round ring (arriving along the arm)
     t1 = frames[0][0]
@@ -619,17 +638,39 @@ def build_arm(bm, loop, tans, side):
 
 
 # finger: (offset along w px, knuckle distance px, splay deg, segment lengths px,
-#          base radius px, curl deg per joint, lift toward the back of the hand px)
+#          base radius px, curl deg per joint, palm-side offset px: - = toward the back)
+# Round 8: the fingers are held together, 1-2 mm apart at the proximal segment, with
+# little splay (3 / 0 / -3 / -7 deg; round 7 fanned them 5.5 / -0.5 / -5 / -12), the
+# proximal segment ~46% of the finger, and the middle and ring knuckles ~4 mm higher
+# on the back of the hand than the index and little ones (the transverse arch).
 FINGERS = [
-    (11.0, 38.0, 5.5, (17, 12, 10), 4.3, 4.5, -0.2),       # index
-    (3.6, 40.0, -0.5, (18.5, 13, 10.5), 4.5, 6.5, -0.7),  # middle
-    (-4.0, 38.0, -5.0, (16.5, 11.5, 9.5), 4.2, 9.5, -0.2),  # ring
-    (-11.0, 34.0, -12.0, (12.5, 9, 8), 3.6, 12.5, 0.6),    # pinky
+    (12.5, 38.0, 3.0, (18, 11.5, 9.5), 3.9, 5.0, 0.3),      # index
+    (4.2, 40.0, 0.0, (19.5, 12.5, 10), 4.1, 7.0, -2.2),     # middle
+    (-4.0, 38.0, -3.0, (18, 11.5, 9.5), 3.9, 9.0, -1.8),    # ring
+    (-11.6, 34.0, -7.0, (13.5, 8.5, 7.5), 3.3, 11.0, 0.8),  # pinky
 ]
 JOINT_RINGS = (0.22, 0.78, 1.0)  # ring positions along each finger segment
 FINGER_TAPER = (1.0, 0.86, 0.74, 0.62)   # radius at knuckle, two middle joints, tip
-KNUCKLE_SWELL = 1.07                     # joint rings a little fuller than the shafts
+KNUCKLE_SWELL = 1.04                     # joint rings a little fuller than the shafts
 FINGER_N = 8                             # vertices per finger ring
+# Finger section (round 8): radii as shares of the ring radius, across / back of the
+# hand / palm side: ~10% deeper than wide (round 7: 15% flatter than wide).
+FINGER_SECTION = (0.9, 0.95, 1.05)
+# Joint relief as shares of the ring radius: the knuckle stands out on the back of
+# each finger joint and the skin creases on the palm side; between the joints the
+# palm side is a little fuller (the finger pads).
+JOINT_BUMP, JOINT_CREASE, FINGER_PAD = 0.10, 0.10, 0.05
+# Fingertip dome: rings (distance past the last ring, radius) as shares of the tip
+# radius; the last entry is the pole.
+TIP_DOME = ((0.45, 0.88), (0.8, 0.55), (1.0, 0.0))
+# Thumb (round 8): rooted at the heel of the palm inside the thumb ball, ~20% of the
+# way to the knuckles and ~6 mm toward the palm (round 7: 35%, 3.5 mm), leaving the
+# side of the palm heel through the ball, so the outline runs from the wrist into the
+# thumb (round 7's thumb hung from the middle of the palm like a separate stick).
+# (along d, toward the thumb w, toward the palm n) px; direction (d, w, n);
+# segments (metacarpal, mostly inside the ball; proximal; distal) px; radius px; curl deg
+THUMB = ((9.0, 8.5, 3.2), (0.86, 0.47, 0.20), (19, 14, 11), 5.6, 10.0)
+THUMB_TAPER = (1.0, 0.76, 0.70, 0.59)   # a thick metacarpal inside the ball, then the free thumb
 
 
 def _rot(v, axis, deg):
@@ -640,29 +681,53 @@ def finger(bm, base, direction, bend_axis, seg_len, r0, curl, mirror, n=FINGER_N
     pts = [base - direction * px(r0 * 0.6)]
     dirs = [direction]
     rs = [r0 * 0.82]
+    kind = [None]
     cur, dcur = base, direction
     pts.append(cur)
     dirs.append(dcur)
     rs.append(r0)
+    kind.append(None)
     # rings just after / before each knuckle and on it, so every joint bends
     # over three loops instead of one
+    rtip = r0 * taper[-1]
     for j, L in enumerate(seg_len):
+        if j == len(seg_len) - 1:
+            L -= rtip * TIP_DOME[-1][0]     # the dome below keeps the finger's length
         dcur = _rot(dcur, bend_axis, curl * (0.6 if j == 0 else 1.0))
         ra, rb = taper[j], taper[j + 1]
         for t in JOINT_RINGS:
             pts.append(cur + dcur * px(L * t))
             dirs.append(dcur)
             r = ra + (rb - ra) * t
-            if t == 1.0 and j < len(seg_len) - 1:
+            joint = t == 1.0 and j < len(seg_len) - 1
+            if joint:
                 r *= KNUCKLE_SWELL
             rs.append(r0 * r)
+            kind.append('joint' if joint else ('pad' if t < 1.0 else None))
         cur = cur + dcur * px(L)
-    radii = [(px(r), px(r), px(r) * 0.85, px(r) * 0.85) for r in rs]
-    # side hint = across the finger (in the palm plane), up = palm normal
+    # a rounded fingertip (round 7: a cone to a pole, a pencil point in clay)
+    for f, k in TIP_DOME[:-1]:
+        pts.append(cur + dcur * px(rtip * f))
+        dirs.append(dcur)
+        rs.append(rtip * k)
+        kind.append(None)
+    sw, sb, sp = FINGER_SECTION
+    radii = [(px(r) * sw, px(r) * sw, px(r) * sb, px(r) * sp) for r in rs]
+    # side hint = across the finger (in the palm plane); up = toward the back of the hand
+
+    def shape(i, dx, dy):
+        r = px(rs[i])
+        if kind[i] == 'joint':
+            b = r * (JOINT_BUMP if dy > 0 else JOINT_CREASE) * dy * dy
+        elif kind[i] == 'pad' and dy < 0:
+            b = -r * FINGER_PAD * dy * dy
+        else:
+            b = 0.0
+        return 0.0, b, 0.0
     hints = [bend_axis.copy() for _ in dirs]
-    rings, frames = ring_points(pts, hints, radii, n)
-    skin_rings(bm, rings, frames, cap0='pole', cap1='pole',
-               cap0_len=px(1.0), cap1_len=px(r0 * taper[-1] * 0.9), mirror=mirror)
+    rings, frames = ring_points(pts, hints, radii, n, shape=shape)
+    skin_rings(bm, rings, frames, cap0='pole', cap1='pole', cap0_len=px(1.0),
+               cap1_len=px(rtip * (TIP_DOME[-1][0] - TIP_DOME[-2][0])), mirror=mirror)
 
 
 def build_fingers(bm, W, d, w, n, mirror=False):
@@ -672,12 +737,13 @@ def build_fingers(bm, W, d, w, n, mirror=False):
         direction = _rot(d, n, splay)       # splay within the palm plane
         axis = direction.cross(n).normalized()  # rotating about it bends toward +n (palm)
         finger(bm, base, direction, axis, segs, r0, curl, mirror)
-    # thumb: from the thumb ball at the heel of the palm, angled out toward the
-    # thumb side and turned toward the palm, out of the fingers' plane
-    base = W + d * 14 * k + w * 8.5 * k + n * 2.2 * k
-    tdir = (d * 0.82 + w * 0.5 + n * 0.29).normalized()
+    # thumb: from inside the thumb ball at the heel of the palm, angled out toward
+    # the thumb side and turned toward the palm, out of the fingers' plane
+    (ta, tw, tn), (da, dw, dn), segs, r0, curl = THUMB
+    base = W + d * ta * k + w * tw * k + n * tn * k
+    tdir = (d * da + w * dw + n * dn).normalized()
     axis = tdir.cross(n).normalized()
-    finger(bm, base, tdir, axis, (16, 12, 10), 5.4, 10.0, mirror, taper=(1.0, 0.8, 0.72, 0.62))
+    finger(bm, base, tdir, axis, segs, r0, curl, mirror, taper=THUMB_TAPER)
 
 
 # ---------------------------------------------------------------- legs + feet
@@ -691,8 +757,12 @@ LEG_FRONT = {
     670: (65.5, 19.5), 680: (67.5, 20), 690: (69.5, 20.5), 700: (70.5, 20),
     710: (70.5, 19.5), 720: (69.5, 20.5), 730: (67.5, 22), 740: (65.5, 22),
     750: (63.5, 22.5), 760: (61, 23.5), 770: (58.5, 24), 780: (56, 24),
-    790: (54, 24), 800: (51.5, 24), 810: (49.5, 23.5), 820: (46.5, 24),
-    830: (45, 25), 842: (43, 27), 856: (41, 28),
+    790: (54, 24), 800: (51.5, 24), 810: (49.5, 23.5),
+    # round 8: the ankle no longer pinches to 2.5 cm above the shoe. The sheet's
+    # skin stays ~25 px wide down into the shoe opening (rows 800-860); below the
+    # malleoli the leg runs on into the heel, round the ankle pivot (ANKLE_ROW)
+    820: (48.5, 23.5), 830: (47.5, 22.5), 842: (47, 21.5), 852: (46, 21.5),
+    862: (42.5, 23), 874: (39, 25),
 }
 LEG_SIDE = {
     455: (-50, 22), 472: (-49, 21), 490: (-48, 20), 510: (-47, 18), 530: (-46, 16),
@@ -701,15 +771,19 @@ LEG_SIDE = {
     670: (-30.5, 19), 680: (-30, 22), 690: (-29, 24), 700: (-28, 25),
     710: (-27, 25), 720: (-27, 23), 730: (-26, 23), 740: (-25, 21),
     750: (-24, 18), 760: (-24, 17), 770: (-23, 15), 780: (-23, 13),
-    790: (-23, 11), 800: (-23, 8), 810: (-23, 6), 820: (-22, 5),
-    830: (-21, 5), 842: (-18, 4), 856: (-15, 5),
+    790: (-23, 11), 800: (-23, 9), 810: (-24, 8.5),
+    # round 8: as deep as the sheet's ankle (rows 812-842 measure -25..+9), the
+    # heel swelling out behind it below the Achilles tendon
+    820: (-25, 9), 830: (-25, 9.5), 842: (-24, 10), 852: (-22, 11),
+    862: (-17, 11.5), 874: (-12, 11),
 }
 # Loft rows: ~13 rows apart over the hip / groin (the leg swings), ~15 down the
 # hidden thigh, then 6-7 rows (about 1 cm) over the whole knee band the rig's
-# two ひざ補助 helpers bend (rows ~660-740), and ~11 down the shin to the ankle.
+# two ひざ補助 helpers bend (rows ~660-740), ~11 down the shin, and 7 again
+# (about 1 cm) over the ankle band the foot bends about (rows ~830-873).
 LEG_ROWS = (455, 467, 480, 493, 506, 520, 535, 550, 566, 582, 598, 612, 624, 635, 645,
             654, 662, 670, 677, 684, 691, 697, 703, 709, 715, 721, 728, 735, 743,
-            752, 762, 773, 785, 797, 809, 820, 831, 842, 849, 856)
+            752, 762, 773, 785, 797, 809, 820, 830, 838, 845, 852, 859, 866, 873)
 LEG_N = 28        # vertices per leg ring: a round terminator on the cel shade
 # Knee pivot exported to the rig (obj['levi_joints']['knee']): the
 # thigh-to-shin transition, above the widest leg section at row ~700 (the
@@ -739,6 +813,24 @@ GLUTE_FOLD = (493.0, 0.8, 7.0)
 # inner side) and the shin front stays straight: px radial offsets on the
 # oblique sectors only, so the measured front / side extremes are unchanged.
 CALF = ((705, 725, 775, 815), 1.3, 0.5, -0.8)   # rows (ramp in, full, full, out), back-inner, back-outer, front
+# Ankle (round 8). The rig's ankle pivot (obj['levi_joints']['ankle']) is the
+# real ankle joint inside the shoe, about 4.5 cm above the heel seat (row 899),
+# not spec ankle_z (row 830, 6 cm higher, where the shin was thinnest and every
+# foot turn bent it into an hourglass). ANKLE_BACK px behind the leg axis there.
+ANKLE_ROW = 868.0
+ANKLE_BACK = 1.0
+# Malleoli: (row, amplitude px, vertical sigma px, angle round from straight
+# out (+ toward the back), angular sigma rad); the inner one sits ~1 cm higher.
+# (Over 4 px / 0.45 rad they read as a round knob when the foot turned; at 1.1-1.2 px
+# the ankle lost the pairwise review at rest, "constricted where it enters the shoe".)
+MALLEOLUS_OUT = (858.0, 1.5, 5.0, 0.25, 0.6)
+MALLEOLUS_IN = (851.0, 1.7, 5.0, 0.15, 0.6)
+# Achilles tendon: the back obliques either side of the tendon are drawn in
+# (rows ramp in, full, full, out; depth px), so the tendon stands as a ridge
+# between the calf and the heel.
+ACHILLES = ((806, 822, 846, 860), 0.9)
+# Heel: the back of the leg swells out under the tendon into the heel (row, px, sigma).
+HEEL_BULGE = (870.0, 1.2, 5.0)
 
 
 def _smoothed(table, row, sigma=LEG_SIGMA):
@@ -781,6 +873,10 @@ def _leg_shape(row):
     glute = _bump(GLUTE_FOLD, row)
     (c0, c1, c2, c3), bi, bo, fr = CALF
     calf = smoothstep(c0, c1, row) * (1 - smoothstep(c2, c3, row))
+    mal = [(_bump(m[:3], row), m[3], m[4], sgn) for m, sgn in ((MALLEOLUS_OUT, 1.0), (MALLEOLUS_IN, -1.0))]
+    (a0, a1, a2, a3), adep = ACHILLES
+    ach = adep * smoothstep(a0, a1, row) * (1 - smoothstep(a2, a3, row))
+    heel = _bump(HEEL_BULGE, row)
 
     def f(dx, dy):
         a = b = 0.0
@@ -788,11 +884,21 @@ def _leg_shape(row):
             b += knee * dy * dy
         else:
             b += (crease + glute) * dy * dy        # toward the front: drawn in
+            b -= heel * dy * dy                    # the heel swells out behind
         if calf:
             obl = (2 * dx * dy) ** 2               # 0 on the axes, 1 at 45 deg
             amt = calf * obl * (fr if dy > 0 else (bo if dx > 0 else bi))
             a += amt * dx
             b += amt * dy
+        amt = 0.0
+        for m, ang0, sig, sgn in mal:
+            if m > 1e-4 and dx * sgn > 0:
+                ang = math.atan2(-dy, dx * sgn)    # 0 straight out (in), + toward the back
+                amt += m * math.exp(-0.5 * ((ang - ang0) / sig) ** 2)
+        if ach > 1e-4 and dy < 0:
+            amt -= ach * (2 * dx * dy) ** 2        # the hollows beside the tendon
+        a += amt * dx
+        b += amt * dy
         return a, b
     return f
 
@@ -804,17 +910,35 @@ def knee_joint():
     return P((xo + xi) / 2, (yf + yb) / 2 - KNEE_FWD, KNEE_ROW)
 
 
+def ankle_joint():
+    """Left ankle pivot (world): on the leg axis at ANKLE_ROW, ANKLE_BACK px behind it."""
+    cx, cy, _, _ = leg_section(ANKLE_ROW)
+    return P(cx, cy + ANKLE_BACK, ANKLE_ROW)
+
+
+def leg_section(row):
+    """Left leg ring at `row` (panel px): (centre x, centre y, half width, half depth),
+    before the anatomy offsets (leg_offset). shoes.py clears its shell against it."""
+    r0, r1, r2, r3, sk = LEG_SIGMA_KNEE
+    knee = smoothstep(r0, r1, row) * (1 - smoothstep(r2, r3, row))
+    xo, xi = _smoothed(LEG_FRONT, row, LEG_SIGMA + (sk - LEG_SIGMA) * knee)
+    yf, yb = _smoothed(LEG_SIDE, row, LEG_SIGMA_SIDE)
+    return (xo + xi) / 2, (yf + yb) / 2, (xo - xi) / 2 - MARGIN, (yb - yf) / 2 - MARGIN
+
+
+def leg_offset(row):
+    """f(dx, dy) -> (d_side, d_front) px: how the anatomy (kneecap, calf, malleoli,
+    tendon, heel) moves the point of the leg ring at `row` at unit direction (dx: + outer,
+    dy: + front). shoes.py clears its shell against it."""
+    return _leg_shape(row)
+
+
 def build_leg(bm):
     centers, hints, radii, shapes = [], [], [], []
-    r0, r1, r2, r3, sk = LEG_SIGMA_KNEE
     for row in LEG_ROWS:
-        knee = smoothstep(r0, r1, row) * (1 - smoothstep(r2, r3, row))
-        xo, xi = _smoothed(LEG_FRONT, row, LEG_SIGMA + (sk - LEG_SIGMA) * knee)
-        yf, yb = _smoothed(LEG_SIDE, row, LEG_SIGMA_SIDE)
-        centers.append(P((xo + xi) / 2, (yf + yb) / 2, row))
+        cx, cy, hw, hd = leg_section(row)
+        centers.append(P(cx, cy, row))
         hints.append(Vector((1, 0, 0)))
-        hw = (xo - xi) / 2 - MARGIN
-        hd = (yb - yf) / 2 - MARGIN
         # side+ = outer, side- = inner, up+ = front, up- = back
         radii.append((px(hw), px(hw), px(hd), px(hd)))
         shapes.append(_leg_shape(row))
@@ -917,7 +1041,7 @@ def build(col):
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     obj = common.new_object(col, 'body', bm, [common.toon_material('skin')])
     obj['levi_socket_param'] = SOCKET_PARAM_ATTR
-    joints = {'knee': tuple(knee_joint())}
+    joints = {'knee': tuple(knee_joint()), 'ankle': tuple(ankle_joint())}
     if SHOULDER_JOINT is not None:
         joints['shoulder_joint'] = tuple(P(*SHOULDER_JOINT))
     obj['levi_joints'] = joints
