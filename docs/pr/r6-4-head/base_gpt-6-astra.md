@@ -1,0 +1,30 @@
+# Codex review: gpt-6-astra
+
+The head is recognizable and remains attached coherently in the six supplied body poses, but the three-quarter and clay views expose a broad, flat facial plane terminating in an angular lower cheek and chin. The first correction should be to round the cheek-to-jaw transition in the actual geometry, then refine the eyelid-to-cheek transition and the remaining fragmented facial shading. The existing head builder already includes dense facial rings, opening loops, eye pivots, and expression morphs, so adding resolution indiscriminately would not address the main problems. The pose ratings and scores here apply to the head-focused review; none of the supplied poses shows a clear head-related deformation failure, while blinking, mouth morphs, and extreme gaze remain unverified by these images. No other part shows a sufficiently clear priority-1 interaction with the head to warrant an additional finding.
+
+Scores: naturalness 6/10, animation 7/10, fidelity 7/10
+
+## Per-pose rating
+
+clean / minor / major / broken: parts at fault, note.
+
+| pose | gpt-6-astra |
+|---|---|
+| walk | **clean** The head, eyes, and visible neck retain their shape and alignment in both walk views. |
+| arms_up | **clean** The raised arms do not visibly deform the face or break the head-to-neck connection. |
+| squat | **clean** The head remains coherent in both squat views, with no visible facial stretching or neck separation. |
+| forward_bend | **clean** The inclined head and visible neck remain connected without an evident collapse or facial displacement. |
+| head_left | **clean** The face and eyes turn together, and the exposed jaw-to-neck junction shows no clear tearing or separation at this scale. |
+| swing | **clean** The head retains its shape and eye alignment during the displayed lateral swing. |
+
+## head
+
+- **P1** [naturalness] *q34_front_left, clay q34_front_left, clay side* - Lower cheeks, mouth-side facial plane, and the transition into the chin and underside of the jaw: The lower face reads as a flat shield with an angular underside rather than a softly turning cheek volume. In three-quarter view, the broad nearly planar cheek ends in a conspicuous diagonal jaw edge; the clay views retain this wedge-like appearance, so it is not solely a toon-ramp artifact.
+  - Fix: In levi/parts/head.py, reshape the cross-sections before changing the shader: trial FRONT_EXP values around 2.2–2.3 instead of 2.55–2.5 over rows 132–146, and broaden LOWER_CHEEK from its current narrow lateral placement toward the mouth-side cheek. Preserve the front half-width and midline profile while moving intermediate cheek vertices forward by approximately 0.15–0.3 cm and rounding their transition into the underside. Ease the TABLE mid/back progression over rows 146–158 so the underside turns through several rings rather than presenting a single bevel-like band. Rebuild the detail=False shading-normal source from the revised form and compare clay views at intermediate yaw angles.
+- **P2** [naturalness] *clay front, clay q34_front_left, clay high* - Lower eyelid rims and the upper cheek immediately beneath both eyes: The eye region reads as raised oval cushions with a distinct lower rim, especially in clay, instead of an eyeball seated beneath a thin lid that blends into the cheek. This makes the orbital region look assembled onto the facial plane and accentuates the contrast with the flatter lower face.
+  - Fix: Adjust hug(), HUG_BAND, and relief() in levi/parts/head.py together. Keep the opening rim's required eyeball clearance, but broaden the transition from sphere-following skin to the cheek from the current 5 px outer extent to roughly 7–8 px, using a smooth falloff. Reduce any additional lower-lid relief outside the opening by an initial 0.1–0.2 cm where it compounds the sphere-cover displacement. Retain EYE_GAP and rerun the existing lid-path and gaze-clearance checks after the change; do not solve the bulge by pushing the lid through the eyeball.
+- **P2** [naturalness] *q34_front_left, high, islands front, islands side, islands high* - Outer eye corners, lower cheek edge, and chin-to-jaw shading boundary: Thin disconnected shade fragments remain around the eyes and jaw, while the three-quarter cheek has a narrow, hard peach-colored band along its lower edge. These marks make the pale face look edged or chipped rather than softly modeled. The red diagnostic confirms facial fragments, although the supplied skin totals also include the body and cannot be treated as head-only counts.
+  - Fix: After the geometry correction, inspect head_face alone with cast shadows toggled to distinguish surface-normal fragments from cast shadows. In set_shading_normals(), extend the opening-normal treatment smoothly through the first surrounding eye loop instead of limiting it to wall and pouch vertices, and trial a reduction of the broad-face SHADE_KEEP value from 0.18 to about 0.10–0.12. Keep a rounded jaw in the detail=False normal source so this does not merely flatten all facial shading. If fragments follow painted feature boundaries, smooth the set_eye_region() shading-mask transition locally rather than changing the global skin ramp.
+- **P2** [fidelity] *sheet front versus render front* - Both eye openings, particularly the upper lid over each iris and the inner-to-middle lower lid: The rendered eyes appear more hooded and vertically compressed than the reference, giving the neutral face a more tired expression. The difference is noticeable even though the iris color and general placement are close; the opening shape matters more here than increasing iris size.
+  - Fix: In levi/parts/head.py, trial lifting upper_lid() by 0.5–1 reference pixel over the central portion of each iris and lowering lower_lid() by approximately 0.5 pixel over the inner-to-middle opening, tapering both changes to zero at the corners. Regenerate the texture and opening topology from the same revised curves, then refit the eyeballs and regenerate the blink targets. Preserve the iris centers initially and compare a head-only aligned front render before making further expression changes.
+
