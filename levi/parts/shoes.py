@@ -18,14 +18,17 @@ Construction (left shoe, +X, mirrored for the right one):
     thickness, not a paper sheet.
   * stiletto: a tapered solid whose top is a broad heel-seat footprint sunk
     into the shell, narrowing smoothly to a small top lift.
-  * laces: flat ribbons (triangular section: broad flat face outward, a low
-    ridge toward the skin) kept at a constant small offset from the leg. They start under the topline on
+  * laces: rounded straps (a flattened hexagonal section, shaded with flat
+    strap normals so each broad face reads as one tone, as the sheet paints
+    them) kept at a constant small offset from the leg. They start under the topline on
     both sides of the vamp, cross on the instep, wrap the ankle, cross again
-    behind it above the heel counter, and are tied in a bow at the front with
-    two short ends; one long end hangs at the outer back.
-  * leaves: two ovate, cupped blades with a midrib groove, springing from
-    one point on top of the ankle wrap at the outer back (where the long lace
-    end also leaves the wrap), each rolled its own way so the pair fans.
+    behind it above the heel counter, and are tied in a bow at the front (two
+    full teardrop loops, a domed knot band, two ends falling away); one long
+    end hangs at the outer back.
+  * leaves: two ovate, cupped blades with a midrib groove and a short narrow
+    stalk, springing from one point on top of the ankle wrap at the outer
+    back (where the long lace end also leaves the wrap), each rolled its own
+    way and twisting gradually toward the tip so the pair fans.
 
 Every shell section keeps the body's foot (body.FOOT, imported so a foot
 change cannot make skin poke through) inside it with FOOT_CLEAR px to spare.
@@ -123,22 +126,22 @@ def _pchip(xs, ys, x):
 # the counter is round in plan view.
 STATIONS = [
     (-95.0, 15.4, 1.4, 942.6, 940.4, 1.0, 0.3, 0.0, 0.3, 0.0),
-    (-89.0, 17.0, 4.3, 943.5, 937.0, 1.0, 0.6, 0.0, 0.6, 0.0),
-    (-83.0, 18.8, 7.2, 944.1, 933.8, 1.0, 0.8, 0.0, 0.8, 0.0),
-    (-77.0, 20.6, 9.9, 944.4, 930.6, 1.0, 1.0, 0.0, 1.0, 0.0),
-    (-71.0, 22.6, 12.4, 944.5, 927.8, 1.0, 1.0, 0.0, 1.0, 0.0),
-    (-66.0, 24.0, 14.4, 944.5, 925.5, 1.0, 1.0, 0.0, 1.0, 0.0),
-    (-62.0, 25.0, 15.8, 944.5, 923.5, 0.9, 1.0, 0.0, 1.0, 1.5),
-    (-56.0, 25.6, 17.2, 944.5, 920.5, 0.8, 1.0, 0.0, 1.0, 4.0),
-    (-50.0, 25.8, 18.0, 944.5, 918.0, 0.72, 1.0, 0.0, 1.0, 6.0),
-    (-40.0, 26.5, 18.6, 944.5, 916.5, 0.67, 1.0, 0.0, 1.0, 8.0),
-    (-30.0, 27.0, 18.0, 944.5, 916.0, 0.67, 1.0, 0.0, 1.0, 8.0),
-    (-23.0, 28.5, 17.0, 942.5, 914.0, 0.67, 0.8, 0.0, 0.8, 6.0),
-    (-18.0, 29.5, 15.5, 933.0, 903.0, 0.67, 0.5, 0.0, 0.4, 3.0),
-    (-13.0, 30.0, 14.5, 923.5, 893.5, 0.67, 0.3, 0.05, 0.0, 0.0),
-    (-8.0, 30.0, 14.0, 914.5, 885.0, 0.67, 0.0, 0.1, 0.0, 0.0),
-    (-3.0, 30.0, 13.5, 907.0, 878.0, 0.67, 0.0, 0.15, 0.0, 0.0),
-    (2.0, 30.0, 12.4, 902.0, 872.0, 0.67, 0.0, 0.2, 0.0, 0.0),
+    (-89.0, 17.0, 4.3, 943.5, 936.4, 1.0, 0.6, 0.0, 0.6, 0.0),
+    (-83.0, 18.8, 6.7, 944.1, 932.8, 1.0, 0.8, 0.0, 0.8, 0.0),
+    (-77.0, 20.6, 9.3, 944.4, 929.3, 1.0, 1.0, 0.0, 1.0, 0.0),
+    (-71.0, 22.6, 11.7, 944.5, 926.3, 1.0, 1.0, 0.0, 1.0, 0.0),
+    (-66.0, 24.0, 13.7, 944.5, 924.1, 1.0, 1.0, 0.0, 1.0, 0.0),
+    (-62.0, 25.0, 15.2, 944.5, 922.4, 0.9, 1.0, 0.0, 1.0, 1.5),
+    (-56.0, 25.6, 16.7, 944.5, 919.8, 0.8, 1.0, 0.0, 1.0, 4.0),
+    (-50.0, 25.8, 16.8, 944.5, 918.0, 0.72, 1.0, 0.0, 1.0, 6.0),
+    (-40.0, 26.5, 17.2, 944.5, 916.5, 0.67, 1.0, 0.0, 1.0, 8.0),
+    (-30.0, 27.0, 16.7, 944.5, 916.0, 0.67, 1.0, 0.0, 1.0, 8.0),
+    (-23.0, 28.5, 15.9, 941.8, 914.0, 0.67, 0.8, 0.0, 0.8, 6.0),
+    (-18.0, 29.5, 14.9, 934.0, 903.0, 0.67, 0.5, 0.0, 0.4, 3.0),
+    (-13.0, 30.0, 14.5, 924.5, 893.5, 0.67, 0.3, 0.05, 0.0, 0.0),
+    (-8.0, 30.0, 14.0, 913.5, 885.0, 0.67, 0.0, 0.1, 0.0, 0.0),
+    (-3.0, 30.0, 13.5, 906.0, 878.0, 0.67, 0.0, 0.15, 0.0, 0.0),
+    (2.0, 30.0, 12.4, 901.8, 872.0, 0.67, 0.0, 0.2, 0.0, 0.0),
     (7.0, 30.0, 11.3, 900.0, 868.0, 0.67, 0.0, 0.25, 0.0, 0.0),
     (12.0, 30.0, 10.3, 899.5, 864.5, 0.67, 0.0, 0.3, 0.0, 0.0),
     (16.0, 30.0, 9.2, 898.5, 861.5, 0.67, 0.0, 0.35, 0.0, 0.0),
@@ -147,18 +150,29 @@ STATIONS = [
     (22.3, 30.0, 2.7, 884.0, 858.3, 0.67, 0.0, 0.35, 0.0, 0.0),
 ]
 # Resampled stations (y): dense where the outline curves (toe, arch, heel).
-SAMPLES = (-94.5, -88.0, -81.0, -74.0, -68.0, -62.0, -56.0, -49.0, -42.0,
-           -34.0, -27.0, -21.0, -15.5, -10.0, -4.0, 3.0, 10.0, 15.0, 18.5, 20.6, 21.8)
+# Round 5: ~2.5 px apart through the ball-to-arch bend (-30..+3), where the
+# sole climbs into the heel seat, so the waist reads as one continuous curve.
+SAMPLES = (-94.5, -91.0, -87.0, -83.0, -78.5, -74.0, -69.5, -65.0, -60.5, -56.0,
+           -51.0, -45.5, -40.0, -34.5, -30.0, -27.0, -24.5, -22.0, -19.5, -17.0,
+           -14.5, -12.0, -9.0, -5.5, -1.5, 3.0, 7.0, 11.0, 14.5, 17.3, 19.5, 21.0, 21.9)
 TOE_TIP = (14.8, -97.0, 941.6)
 BACK_Y = 22.8      # heel back spine (centre line)
-RING = 13          # verts per cross-section (12 segments)
+RING = 21          # verts per cross-section (20 segments: round toe box, smooth sole edge)
 SQ_LO = 0.7        # superellipse exponent of the lower half: flat sole, defined edge
 SQ_UP = 0.9        # upper half: rounded toe box / quarters
 SQ_HEEL = 1.0      # ... both blend to a plain ellipse round the heel cup
 HEEL_ROUND = (-4.0, 12.0)  # y range (px) of that blend
 SOLE_Y = (-24.0, 6.0)  # the arch underside between these y is tan
-SOLE_HALF = 0.15   # ... within this fraction of pi of the bottom centre (2 of 12 faces,
-                   # the same faces on every span: the tan edge runs along the shoe)
+SOLE_HALF = 0.15   # ... within this fraction of pi of the bottom centre (4 of 20 faces,
+                   # the same faces on every span: the tan edge runs along the shoe;
+                   # the whole flat underside, 8 faces, was tried in round 5: the tan
+                   # then reads as a broad inset panel from behind, unlike the sheet)
+# Waist: the lower half of each section narrows toward the sole through the
+# shank (fraction of the half width at the bottom centre), so the arch reads
+# as a slim sole bridging to the heel seat instead of a filled wedge, and the
+# heel cup tapers toward the stiletto from behind. _clear_foot still keeps
+# the foot inside.
+WAIST = ((-32.0, 0.0), (-22.0, 0.15), (-12.0, 0.38), (0.0, 0.38), (8.0, 0.28), (15.0, 0.14), (20.0, 0.0))
 FOOT_P = 2.3       # body foot section exponent (body.build_foot)
 FOOT_CLEAR = 1.8   # px the shell keeps outside the foot
 RIM_T = 1.3        # px: upper thickness at the rolled topline
@@ -170,6 +184,7 @@ def _spow(v, p):
 
 
 _STATION_COLS = list(zip(*STATIONS))
+_WAIST_Y, _WAIST_K = (list(c) for c in zip(*WAIST))
 _FOOT_ROWS = sorted(FOOT, key=lambda f: f[0])
 FOOT_CAP = 3.0     # px: body.build_foot's pole caps beyond the first / last slice
 
@@ -227,6 +242,7 @@ def _ring(st, sx):
     u = min(1.0, max(0.0, (y - HEEL_ROUND[0]) / (HEEL_ROUND[1] - HEEL_ROUND[0])))
     u = u * u * (3.0 - 2.0 * u)
     sq_lo, sq_up = SQ_LO + (SQ_HEEL - SQ_LO) * u, SQ_UP + (SQ_HEEL - SQ_UP) * u
+    waist = _pchip(_WAIST_Y, _WAIST_K, y)
     # half height so the ring ends land on the top row
     hh = (zt_m - zb_m) / (1.0 + abs(math.cos(phim)) ** sq_up)
     zmid = zb_m + hh
@@ -238,6 +254,8 @@ def _ring(st, sx):
         xo = hw * _spow(s, sq)
         if c < 0.0:     # upper half: pinch toward the centre line
             xo *= 1.0 - pinch * (-c / cend) ** 0.8
+        else:           # lower half: slim waist through the shank
+            xo *= 1.0 - waist * c ** 1.5
         x = cx + xo - skew * ((1 + c) / 2) ** 1.5
         z = zmid - hh * _spow(c, sq)
         if c > 0.0:     # lower half: keel (sole corners lifted -> V bottom)
@@ -331,17 +349,23 @@ def _shell(bm, sx):
 # The top ring is the heel-seat footprint, sunk into the shell above its
 # underside (row ~899), so the shaft grows out of the seat with no seam. Its
 # cap ends inside the foot's heel pad, out of sight, as in round 2.
+# Round 5: two more rings through the seat-to-shaft flare (a short concave
+# neck instead of one crease) and 14 sides, so the shaft reads round.
 HEEL = [
     (895.0, 11.0, 8.4, 6.6),
-    (901.0, 10.8, 7.0, 5.4),
-    (908.0, 10.7, 4.8, 4.3),
+    (898.0, 10.9, 7.5, 5.8),
+    (901.0, 10.8, 6.9, 5.35),
+    (904.5, 10.75, 5.7, 4.75),
+    (908.0, 10.7, 4.75, 4.3),
+    (914.0, 10.5, 3.85, 3.8),
     (920.0, 10.3, 3.3, 3.4),
     (935.0, 9.9, 2.5, 2.9),
     (944.0, 9.6, 2.1, 2.6),
 ]
 HEEL_X = 29.5
-HEEL_SIDES = 8
-HEEL_SQ = 1.0      # elliptical shaft section
+HEEL_SIDES = 14
+HEEL_SQ = 0.8      # shaft section: a rounded box (broad back face, tight sides: no wide
+                   # shade strip down the shaft from behind)
 
 
 def _heel(bm, sx):
@@ -365,12 +389,23 @@ def _heel(bm, sx):
 
 
 # ---------------------------------------------------------------- ribbons
-def _ribbon(bm, pts, nrms, w, th, closed=False, taper=1.0):
-    """Flat ribbon along pts (world): triangular section `w` wide and `th`
-    thick, the flat broad face toward +nrms (pass nrms pointing away from the
-    skin) and a low ridge toward -nrms. `taper` scales the width at the far
-    end of an open ribbon."""
+RIB_SIDES = 6      # lace section: a flattened hexagon (rounded strap)
+RIB_SQ = 0.75      # superellipse exponent of the section: fuller than an ellipse
+RIB_EDGE_N = 0.45  # shading normals: broad-face normal + this much of the radial
+                   # direction, so each face shades as one flat strap (as the sheet
+                   # paints the laces) instead of a round cord with a terminator
+RIB_N_ATTR = 'shoe_rib_n'
+# the outermost section vertices sit at +-30 degrees: scale them out to the full width
+RIB_REACH = math.cos(math.pi / RIB_SIDES) ** RIB_SQ
+
+
+def _ribbon(bm, pts, nrms, w, th, closed=False, taper=1.0, swell=None):
+    """Lace along pts (world): a rounded strap section `w` wide and `th`
+    thick, its broad faces toward +-nrms (pass nrms pointing away from the
+    skin). `taper` scales the width at the far end of an open ribbon; `swell`
+    (optional, one factor per point) scales width and thickness locally."""
     m = len(pts)
+    nl = bm.verts.layers.float_vector.get(RIB_N_ATTR) or bm.verts.layers.float_vector.new(RIB_N_ATTR)
     rings = []
     prev = None
     for i, p in enumerate(pts):
@@ -385,18 +420,25 @@ def _ribbon(bm, pts, nrms, w, th, closed=False, taper=1.0):
         n.normalize()
         prev = n
         b = t.cross(n)
-        hw = 0.5 * w * (1.0 + (taper - 1.0) * (i / (m - 1) if not closed else 0.0))
-        ht = 0.5 * th
-        # triangular section: the flat broad face outward, a low ridge toward
-        # the skin (reads as a flat strap at 3/4 the faces of a rectangle)
-        rings.append([bm.verts.new(p + b * hw + n * ht), bm.verts.new(p - b * hw + n * ht),
-                      bm.verts.new(p - n * ht)])
+        k = swell[i] if swell is not None else 1.0
+        hw = 0.5 * w * k * (1.0 + (taper - 1.0) * (i / (m - 1) if not closed else 0.0))
+        ht = 0.5 * th * k
+        ring = []
+        for j in range(RIB_SIDES):
+            # half-step offset: no vertex sits exactly on an edge, so every
+            # vertex belongs to one broad face (top or bottom)
+            a = 2.0 * math.pi * (j + 0.5) / RIB_SIDES
+            ca, sa = math.cos(a), math.sin(a)
+            v = bm.verts.new(p + b * (hw * _spow(ca, RIB_SQ) / RIB_REACH) + n * (ht * _spow(sa, RIB_SQ)))
+            v[nl] = (n * math.copysign(1.0, sa) + b * (RIB_EDGE_N * ca)).normalized()
+            ring.append(v)
+        rings.append(ring)
     pairs = list(zip(rings, rings[1:]))
     if closed:
         pairs.append((rings[-1], rings[0]))
     for a, b in pairs:
-        for j in range(3):
-            k = (j + 1) % 3
+        for j in range(RIB_SIDES):
+            k = (j + 1) % RIB_SIDES
             bm.faces.new((a[j], a[k], b[k], b[j]))
     if not closed:
         bm.faces.new(list(reversed(rings[0])))
@@ -429,7 +471,7 @@ def _catmull(ctrl, n, closed=False):
 ROW_MIN, ROW_MAX = 800.0, 910.0
 RIB_OFF = 1.7      # ribbon centre offset above the skin, px
 RIB_W = 0.0023     # ribbon width, m
-RIB_T = 0.0008     # ribbon thickness, m
+RIB_T = 0.0009     # ribbon thickness, m
 
 
 def _leg_sec(row):
@@ -526,7 +568,7 @@ def _to_leg(p, sx):
     return th, row, dist - _skin_radius(sec, d.x, d.y)
 
 
-def _on_leg(bm, ctrl, sx, n=3, closed=False, w=RIB_W, taper=1.0, around=False):
+def _on_leg(bm, ctrl, sx, n=3, closed=False, w=RIB_W, taper=1.0, around=False, swell=None):
     """Ribbon through (theta, row, off) controls around the skin. `around`: a
     closed loop whose theta runs once round the leg (wraps at 360 degrees)."""
     if around:
@@ -538,7 +580,9 @@ def _on_leg(bm, ctrl, sx, n=3, closed=False, w=RIB_W, taper=1.0, around=False):
         samples = _catmull(ctrl, n, closed)
     pts = [ank(th, r, off, sx) for th, r, off in samples]
     nrms = [(ank(th, r, off + 1.0, sx) - ank(th, r, off, sx)).normalized() for th, r, off in samples]
-    _ribbon(bm, pts, nrms, w, RIB_T, closed=closed, taper=taper)
+    span = len(samples) if closed else max(len(samples) - 1, 1)   # closed: f=1 is the start again
+    sw = [swell(i / span) for i in range(len(samples))] if swell else None
+    _ribbon(bm, pts, nrms, w, RIB_T, closed=closed, taper=taper, swell=sw)
 
 
 KNOT = (-12.0, 832.0)  # bow knot (theta, row)
@@ -560,34 +604,40 @@ def _ribbons(bm, sx, line):
     # the inner side, as on the sheet), reaches the far side of the leg and
     # runs round behind the ankle into the wrap. The second lace rides one
     # ribbon thickness higher where they cross.
-    for s, lift in ((1, 0.0), (-1, 0.6)):
+    for s, lift in ((1, 0.0), (-1, 0.7)):
         want = ank(-78.0 * s, 908.0, o, sx)
         anchor = min(line, key=lambda q: (q - want).length)
         th0, row0, off0 = _to_leg(anchor, sx)
         _on_leg(bm, [(th0, row0, off0 - RIM_T * 0.5), (CROSS[0], CROSS[1], o + lift),
                      (72 * s, 866.0, o + lift), (125 * s, 856.0, o),
-                     (150 * s, _band_row(150 * s) + 1.0, o)], sx, n=3)
+                     (150 * s, _band_row(150 * s) + 1.0, o)], sx, n=4)   # ~0.5 cm samples through the ankle bend
     # back X above the heel counter: wrap sides -> across the back -> tab top
     for s in (1, -1):
-        _on_leg(bm, [(115 * s, _band_row(115 * s), o), (165 * s, 853.0, o + 0.3 * (s + 1)),
-                     (192 * s, 859.0, o + 0.6)], sx, n=2)
-    # bow: two loops spreading sideways from the knot at the front of the
-    # ankle and lifting off the skin toward their ends, a gathering knot and
-    # two short ends
+        _on_leg(bm, [(115 * s, _band_row(115 * s), o), (165 * s, 853.0, o + 0.35 * (s + 1)),
+                     (192 * s, 859.0, o + 0.7)], sx, n=2)
+    # bow: two full loops spreading sideways from the knot at the front of
+    # the ankle and lifting off the skin toward their ends (a soft teardrop:
+    # narrow at the knot, round at the far end), a gathering knot and two
+    # short ends falling away from it
     kth, krow = KNOT
-    for s, span, hgt in ((1, 62.0, 7.0), (-1, 55.0, 6.5)):
+    for s, span, hgt in ((1, 68.0, 8.0), (-1, 61.0, 7.5)):
         ctrl = []
-        for i in range(6):
-            t = 2 * math.pi * i / 6
+        for i in range(8):
+            t = 2 * math.pi * i / 8
             u = (1 - math.cos(t)) / 2                       # 0 at the knot, 1 at the far end
             th = kth + s * span * u
-            row = krow - 3.5 * u - hgt * math.sin(t) * (0.45 + 0.55 * u) * s
-            ctrl.append((th, row, o + 0.7 + 4.5 * u * u))
-        _on_leg(bm, ctrl, sx, n=2, closed=True)
+            row = krow - 3.5 * u - hgt * math.sin(t) * (0.35 + 0.65 * u ** 0.7) * s
+            ctrl.append((th, row, o + 0.8 + 5.0 * u * u))
+        # the ribbon is a little narrower where it is gathered into the knot
+        _on_leg(bm, ctrl, sx, n=2, closed=True,
+                swell=lambda f: 0.8 + 0.2 * (1 - math.cos(2 * math.pi * f)) / 2)
     for s in (1, -1):
-        _on_leg(bm, [(kth + 2 * s, krow + 1.0, o + 1.1), (kth + 9 * s, krow + 7.0, o + 1.0),
-                     (kth + 17 * s, krow + 15.0, o + 0.9)], sx, n=1, taper=0.6)
-    _on_leg(bm, [(kth - 4, krow, o + 1.4), (kth + 4, krow, o + 1.4)], sx, n=1, w=RIB_W * 1.8)
+        _on_leg(bm, [(kth + 2 * s, krow + 1.0, o + 1.3), (kth + 8 * s, krow + 6.5, o + 1.6),
+                     (kth + 15 * s, krow + 13.0, o + 1.7), (kth + 21 * s, krow + 19.0, o + 1.5)],
+                sx, n=2, taper=0.55)
+    # knot: a short band wrapped round the gathered loops, domed off the skin
+    _on_leg(bm, [(kth - 4.5, krow, o + 1.3), (kth, krow, o + 1.9), (kth + 4.5, krow, o + 1.3)],
+            sx, n=2, w=RIB_W * 1.9)
     # long end hanging at the outer back below the leaves, swinging out a
     # little (kept close to the heel: further back it crosses the ankle's
     # knee/ankle weight blend and stretches when the foot points)
@@ -604,12 +654,14 @@ def _ribbons(bm, sx, line):
 # ---------------------------------------------------------------- leaves
 LEAF_THETA = 132.0   # leaf root on the ankle wrap: outer back (degrees from the front)
 LEAF_ROOT_OFF = 0.9  # px the root sits outside the wrap's centre line (on top of the ribbon)
-LEAVES = [  # tip (x, y, row), half width px, roll about the blade axis (deg)
-    ((65.0, 30.5, 804.0), 11.5, -38.0),
-    ((73.0, 44.0, 824.0), 12.5, 30.0),
+LEAVES = [  # tip (x, y, row), half width px, roll about the blade axis (deg), twist to the tip (deg)
+    ((65.0, 30.5, 804.0), 11.5, -38.0, -12.0),
+    ((73.0, 44.0, 824.0), 12.5, 30.0, 14.0),
 ]
 LEAF_FACE = (1.0, -0.5, 0.3)   # blade face normal before the roll: outer, a little front and up
-LEAF_RINGS = 6
+LEAF_RINGS = 9
+LEAF_STALK = 0.2   # fraction of the length over which the blade widens from a narrow
+                   # stalk (35% of the ovate width) to the full ovate width
 LEAF_T = 0.0008   # blade half thickness at the midrib, m
 LEAF_CUP = 0.22   # the halves curve up toward the face (fraction of the half width at the edge)
 LEAF_RIB = 0.6    # midrib groove on the face, as a fraction of LEAF_T
@@ -623,7 +675,7 @@ def wrap_point(off, sx=1):
     return ank(LEAF_THETA, _band_row(LEAF_THETA), off, sx)
 
 
-def _leaf(bm, base, tip, half_w, roll, sx):
+def _leaf(bm, base, tip, half_w, roll, sx, twist=0.0):
     """Ovate, cupped blade from base to tip (left-shoe world coordinates) with
     a soft midrib groove on its face; the finished points are mirrored for
     sx=-1 so both feet curl the same way. The section is a closed lens: five
@@ -643,12 +695,19 @@ def _leaf(bm, base, tip, half_w, roll, sx):
     if nrm.dot(n0) < 0:
         nrm = -nrm
     th = LEAF_T
+    nrm0, wdir0 = nrm, wdir
     rings = []
     for i in range(1, LEAF_RINGS + 1):
         t = i / (LEAF_RINGS + 1)
+        # the blade turns gradually about its axis toward the tip (each leaf
+        # its own way), so its face changes along the length instead of
+        # reading as one flat paddle
+        q = Quaternion(a, math.radians(twist) * t * t)
+        nrm, wdir = q @ nrm0, q @ wdir0
         w = half_w * PX * math.sin(math.pi * t ** LEAF_PEAK)
-        c = base + axis * t + nrm * (math.sin(math.pi * t) * 0.05 * length)   # blade arches back
-        c -= wdir * (0.05 * length * t * t)                 # slight sideways curl
+        w *= 0.35 + 0.65 * min(1.0, t / LEAF_STALK) ** 0.7   # narrow stalk at the root
+        c = base + axis * t + nrm0 * (math.sin(math.pi * t) * 0.05 * length)  # blade arches back
+        c -= wdir0 * (0.05 * length * t * t)                # slight sideways curl
         h = th * min(1.0, 4.0 * t * (1.0 - t) + 0.25)      # thinner toward root and tip
 
         def pt(u, side):
@@ -679,6 +738,21 @@ def _finish(bm):
     return bm
 
 
+def _strap_normals(me):
+    """Custom normals from the per-vertex strap normals _ribbon stored."""
+    attr = me.attributes.get(RIB_N_ATTR)
+    if attr is None:
+        return
+    nrm = [Vector(d.vector) for d in attr.data]
+    me.attributes.remove(attr)
+    # the hexagonal end caps keep their own face normal
+    loops = [None] * len(me.loops)
+    for poly in me.polygons:
+        for li in poly.loop_indices:
+            loops[li] = poly.normal.copy() if poly.loop_total > 4 else nrm[me.loops[li].vertex_index]
+    me.normals_split_custom_set(loops)
+
+
 def build(col):
     shell_bm, rib_bm, leaf_bm = bmesh.new(), bmesh.new(), bmesh.new()
     heel_faces = []
@@ -688,8 +762,8 @@ def build(col):
         line = _shell(shell_bm, sx)
         heel_faces += _heel(shell_bm, sx)
         _ribbons(rib_bm, sx, line)
-        for tip, hw, roll in LEAVES:
-            _leaf(leaf_bm, root, P(*tip), hw, roll, sx)
+        for tip, hw, roll, twist in LEAVES:
+            _leaf(leaf_bm, root, P(*tip), hw, roll, sx, twist)
     # heels are closed: let bmesh orient them; the open shells are wound
     # outward by construction (_shell)
     bmesh.ops.recalc_face_normals(shell_bm, faces=heel_faces)
@@ -704,6 +778,7 @@ def build(col):
     # brighter trim green
     rib = common.new_object(col, 'shoes_ribbons', rib_bm, [common.toon_material('shoe')])
     common.shade_smooth(rib, 50.0)
+    _strap_normals(rib.data)
     leaf = common.new_object(col, 'shoes_leaves', leaf_bm, [common.toon_material('leaf')])
     common.shade_smooth(leaf, 60.0)
     objs = [shell, rib, leaf]
