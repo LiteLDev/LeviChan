@@ -109,7 +109,7 @@ Motion eye check (`rig_check --extended`; mm the eyes come further out of the fa
   - the tongue (lifted over the lower lip, lighter than the cavity);
   - the はぅ stroke (bowed and tapered);
   - the lash ends (tapered, no end caps);
-  - the highlights moved closer to the iris.
+  - the highlights moved closer to the iris (0.095 px in front of the white; the iris is at 0.08 px).
 
 ### Remaining (not addressed here)
 - The head review's P1 is the lower cheek → jaw bevel in 3/4 and clay. That is lower-face construction from round 6, outside this unit.
