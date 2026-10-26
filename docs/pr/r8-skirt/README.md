@@ -99,3 +99,13 @@ From the code-review pass:
 - The stale `DRAPE_RING_STEP` constant is gone and the docs are updated.
 
 The ring strain still counts from the innermost cloth's spacing (`DRAPE_TAUT`), on purpose. Measuring only the growth pulled the back into her when seated, and pairwise review preferred the taut version.
+
+## Tripo fold-depth reference (optional, not kept)
+
+Tripo's hem has deeper tube folds, so I tried deeper folds through mid-skirt: `skirt.MID_CREST` 0.35 → 0.6. The troughs, the petticoat clearance and the hem outline stay put. Against this PR's look baseline (`review.py --baseline`):
+
+- side silhouette IoU went from 0.859 to 0.853 (dress region −0.009);
+- front and back dress IoU dropped by 0.003;
+- the 3/4 front view gained 3 dress shade islands.
+
+The hard constraint was that nothing may get worse, so the change is reverted and the skirt part is unchanged. Deeper relief without moving the silhouette would need the folds deepened inward (troughs), which the petticoat clearance and SKIRT_GAP constrain. That is a separate part task.
