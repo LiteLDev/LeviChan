@@ -514,8 +514,13 @@ def _catmull(ctrl, n, closed=False):
 # horizontal skin section (centre x, half width, front y, back y).
 ROW_MIN, ROW_MAX = 800.0, 910.0
 RIB_OFF = 1.7      # ribbon centre offset above the skin, px
+# Round 9 tried 2.6-4.2 mm ribbons, 1.1-1.4 mm thick (strengths guide 3.10); pairwise
+# review (docs/pr/r9-5-trims) called them heavy and their shaded backs added shade islands,
+# so the laces keep round 8's size. The crossing lift follows the thickness.
 RIB_W = 0.0023     # ribbon width, m
 RIB_T = 0.0009     # ribbon thickness, m
+RIB_CROSS = RIB_T / PX + 0.15   # px the upper lace rides above the lower where they cross
+RIB_KNOT_W = 1.9   # the ankle knot band's width, in ribbon widths
 
 
 def _leg_sec(row):
@@ -648,7 +653,7 @@ def _ribbons(bm, sx, line):
     # the inner side, as on the sheet), reaches the far side of the leg and
     # runs round behind the ankle into the wrap. The second lace rides one
     # ribbon thickness higher where they cross.
-    for s, lift in ((1, 0.0), (-1, 0.7)):
+    for s, lift in ((1, 0.0), (-1, RIB_CROSS)):
         want = ank(-78.0 * s, 908.0, o, sx)
         anchor = min(line, key=lambda q: (q - want).length)
         th0, row0, off0 = _to_leg(anchor, sx)
@@ -681,7 +686,7 @@ def _ribbons(bm, sx, line):
                 sx, n=2, taper=0.55)
     # knot: a short band wrapped round the gathered loops, domed off the skin
     _on_leg(bm, [(kth - 4.5, krow, o + 1.3), (kth, krow, o + 1.9), (kth + 4.5, krow, o + 1.3)],
-            sx, n=2, w=RIB_W * 1.9)
+            sx, n=2, w=RIB_W * RIB_KNOT_W)
     # long end hanging at the outer back below the leaves, swinging out a
     # little (kept close to the heel: further back it crosses the ankle's
     # knee/ankle weight blend and stretches when the foot points)
@@ -706,6 +711,9 @@ LEAF_FACE = (1.0, -0.5, 0.3)   # blade face normal before the roll: outer, a lit
 LEAF_RINGS = 9
 LEAF_STALK = 0.2   # fraction of the length over which the blade widens from a narrow
                    # stalk (35% of the ovate width) to the full ovate width
+# Round 9 tried thicker (1.1 mm half), deeper-cupped (0.30) blades with a raised midrib
+# (strengths guide 3.10): pairwise review (docs/pr/r9-5-trims) found no difference and
+# each change added a shade island on the rear blade in the high view, so they stay.
 LEAF_T = 0.0008   # blade half thickness at the midrib, m
 LEAF_CUP = 0.22   # the halves curve up toward the face (fraction of the half width at the edge)
 LEAF_RIB = 0.6    # midrib groove on the face, as a fraction of LEAF_T

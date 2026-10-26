@@ -172,6 +172,16 @@ DIAMOND = (291.8, 11.2, 6.4)                 # centre row, half-width, half-heig
 EYELET_ROWS = [294.5, 302.8, 310.8, 318.8]
 EYELET_DX = 25.5
 LACE_END = (337.0, 1.8)                      # row, |dx| where the lacing ends inside the knot
+# Lacing cord: width x thickness of the oval section (m) and the centreline lift
+# (px) of the under strand at a crossing; the over strand clears it by LACE_CLEAR
+# whatever the thickness. Round 9 tried 2.0-2.4 mm cords and larger eyelets
+# (strengths guide 3.6); pairwise review (docs/pr/r9-5-trims) found them crowded and heavy.
+LACE_W = 0.0019
+LACE_T = 0.0012
+LACE_UNDER = 0.85
+LACE_CLEAR = 0.0003
+LACE_OVER = LACE_UNDER + (LACE_T + LACE_CLEAR) / PX
+EYELET_R = (1.5, 0.5)                        # px: ring radius, tube radius
 FACING = (289.0, 324.0)                      # rows spanned by the eyelet facings
 
 # Bow (front view, px; centre knot + two loops).
@@ -180,6 +190,9 @@ BOW_LOOP_L = [(318, 340), (306, 332), (293, 327.5), (289, 333), (289.5, 344), (2
               (305, 349), (317, 343), (321, 339)]
 BOW_Y_KNOT = -97.0        # side view: bow front edge at col ~220 incl. outline
 BOW_Y_SLOPE = 0.62        # loops sweep back around the waist
+# Round 9 tried 9-11 mm loops 1.3-2 mm thick, a 30 deg twist of the loop roots and a
+# knot bead (strengths guide 3.6 / item 10); pairwise review (docs/pr/r9-5-trims) read the twist
+# as a pinch at the knot and the wider loops as heavy, so the bow is unchanged.
 BOW_W = 5.3               # ribbon width (px)
 BOW_TILT = math.radians(60)   # ribbon face tilted from the viewer toward the loop's outside
 BOW_TILT_OUT = math.radians(44)   # ... less on the outgoing span, which shows its broad face
@@ -200,6 +213,9 @@ TAILS = {
                 (349, 557)], 2.0, 0.5),
 }
 TAIL_THICK = 0.0011
+# Round 9 tried the traced widths x 1.1-1.4 (strengths guide: 8-10 mm ribbons) and
+# 1.3-1.8 mm thickness; pairwise review (docs/pr/r9-5-trims) was split and the wider twists
+# added shade islands, so the tails keep the traced widths.
 # Stations along a tail: Catmull-Rom samples per control span, then thinned to at most
 # this many px apart (wide, thin tails) except in the bends. Round 7: 10 samples and 5 /
 # 6.5 px left 12-22 mm between stations across the skirt chains' hand-over below the
@@ -678,7 +694,7 @@ def ring_bm(center, normal, r_major, r_minor, nu=8, nv=4, squash=0.6):
     return bm
 
 
-def cord(a, b, lift_end, lift_mid, n=10, width=0.0019, thick=0.0012, lift_to=None):
+def cord(a, b, lift_end, lift_mid, n=10, width=LACE_W, thick=LACE_T, lift_to=None):
     """Round cord (a slightly flattened oval section) between two front-view
     points: it leaves the cloth at the ends (inside the eyelets) and bows out
     to lift_mid at its middle. lift_to: the cord instead rises off the cloth
@@ -708,7 +724,7 @@ def build_lacing(col, mat_green):
         for sx in (-1, 1):
             over = (sx > 0) == (i % 2 == 0)
             bms.append(cord((sx * EYELET_DX, rows[i]), (-sx * EYELET_DX, rows[i + 1]),
-                            0.0, 1.75 if over else 0.85))
+                            0.0, LACE_OVER if over else LACE_UNDER))
     dr, dw, dh = DIAMOND
     for sx in (-1, 1):
         # top: from under the diamond's side tips out to the first eyelets
@@ -721,7 +737,8 @@ def build_lacing(col, mat_green):
     for r in rows:
         for sx in (-1, 1):
             dx = sx * (EYELET_DX + 0.4)
-            bms.append(ring_bm(on_shell(dx, r, 0.8), shell_normal(dx, r), 1.5 * PX, 0.5 * PX))
+            bms.append(ring_bm(on_shell(dx, r, 0.8), shell_normal(dx, r), EYELET_R[0] * PX,
+                               EYELET_R[1] * PX))
     return finish(col, 'bodice_lacing', bms, mat_green, angle=80)
 
 
@@ -933,8 +950,12 @@ def build_tails(col, mat):
 
 
 # ---------------------------------------------------------------- leaves
-LEAF_CUP = 1.8            # px the leaf's edges curl toward the viewer
-LEAF_RIB = 0.6            # px the midrib ridge stands proud
+# Round 9 (strengths guide 3.11: 3-6 mm cup, a midrib ridge, 1-1.5 mm thick).
+# Round 8: 1.8 / 0.6 px, 0.7 mm thick, 0.6 px off the shell.
+LEAF_CUP = 2.4            # px the leaf's edges curl toward the viewer
+LEAF_RIB = 0.9            # px the midrib ridge stands proud
+LEAF_THICK = 0.0012       # m: the blade's thickness (extruded toward the body)
+LEAF_OFF = LEAF_THICK / PX + 0.15   # px the blade's face stands off the shell at its base
 LEAF_ROOT = (359.5, 250.0)   # shared attachment of the cluster (front col,row)
 
 
@@ -970,7 +991,7 @@ def leaf_bm(base, tip, half_w, tilt_px, roll_px=0.0):
             # is sampled no further out than 90 % of the half width: past the
             # shell's side the surface turns backward and would curl the tip.
             x = math.copysign(min(abs(q.x) * PX, 0.9 * profile(q.z)[0]), q.x)
-            yy = (front_y(x, q.z) / PX - 0.6 - 1.0 * smoothstep(0.0, 0.35, u)
+            yy = (front_y(x, q.z) / PX - LEAF_OFF - 1.0 * smoothstep(0.0, 0.35, u)
                   - tilt_px * u - 0.6 * u * u - fwd)
             row_pts.append(Vector((q.x * PX, yy * PX, Z(q.z))))
         rows.append(row_pts)
@@ -985,7 +1006,7 @@ def leaf_bm(base, tip, half_w, tilt_px, roll_px=0.0):
     # a little thickness so the outline hull reads cleanly
     ext = bmesh.ops.extrude_face_region(bm, geom=list(bm.faces))
     moved = [e for e in ext['geom'] if isinstance(e, bmesh.types.BMVert)]
-    bmesh.ops.translate(bm, vec=(0, 0.0007, 0), verts=moved)
+    bmesh.ops.translate(bm, vec=(0, LEAF_THICK, 0), verts=moved)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     return bm
 

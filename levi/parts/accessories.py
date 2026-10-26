@@ -65,6 +65,9 @@ LEAVES = (
 LEAF_NU = 19          # rings along the leaf (incl. base/tip points), cosine-spaced
 LEAF_NV = 5           # samples across the top surface (odd: midrib vertex)
 LEAF_THICK = 0.0011   # half thickness at the midrib (m)
+# Round 9 tried a taller ridge (1.5 mm) and a 25 % deeper cup (strengths guide
+# 3.11): pairwise review (docs/pr/r9-5-trims) saw a hard light facet on the outer blade, so
+# the head leaves stay as they were.
 LEAF_RIDGE = 0.0009   # midrib ridge raised on the upper surface (m)
 
 # Blade outline: u^a (1-u)^b, widest at u = a / (a + b) ~ 0.38, with a rounded
@@ -93,7 +96,11 @@ PETAL_WIDEST = 0.62   # radial position of the widest point
 # m: each petal's leading edge up, trailing edge down (pinwheel overlap), times
 # sqrt(s): where neighbours overlap (v ~ +/-0.66, s >= 0.25) the gap between
 # their mid-surfaces exceeds their two half thicknesses, so they never cross
+# (round 9 tried 1.0-1.3 mm petals with a 1.3-1.6 mm lean and a 2.5-3 mm dome: they
+# added shade islands on the flower at the sheet views, so they stay at round 8)
 PETAL_LEAN = 0.0011
+PETAL_THICK = 0.0008  # petal thickness at the centre line
+FLOWER_DOME = 0.002   # the centre stands this far proud of the petals
 PETAL_S0 = 0.1        # petals start this far out (under the centre dome)
 PETAL_NS = 9          # stations along a petal (incl. the base and tip points)
 PETAL_NV = 5          # samples across the top surface
@@ -127,6 +134,10 @@ STRAP = ((16.8, -26, 180), (20.5, -33, 183), (22.6, -42.5, 187), (24, -48, 191.5
 # runs straight (in the front view) to the right strap near the bodice top.
 CROSS = tuple((x, y, 193 + (24.9 - x) * 40.0 / 66.4) for x, y in (
     (24.9, -48.1), (12, -48.3), (0, -52.5), (-14, -56.5), (-28, -59.4), (-41.5, -58.8)))
+# Cord radius. Every offset below is in terms of STRING_R, so a thicker cord still
+# rests on the skin. Round 9 tried 3.4 and 4.4 mm cords (strengths guide 3.6: >= 4 mm
+# to read at full-body size); pairwise review (docs/pr/r9-5-trims) preferred the finer 2.8 mm
+# cords in every view (a heavy chest crossing, swollen branch junctions).
 STRING_R = 0.0014
 STRING_LINE = 0.0006
 STRING_SIDES = 8          # round cords
@@ -257,7 +268,7 @@ def _petal_width(s):
     return math.sqrt(max(0.0, 1.0 - ((s - PETAL_WIDEST) / (1.0 - PETAL_WIDEST)) ** 2))
 
 
-def _flower(bm, center, normal, radius, cup=0.22, thick=0.0008):
+def _flower(bm, center, normal, radius, cup=0.22, thick=PETAL_THICK):
     """Five separate, softly cupped petals (each a closed lens-section blade)
     radiating from the centre, overlapping their neighbours like a pinwheel:
     each petal's leading edge lies over the next petal's trailing edge."""
@@ -399,7 +410,7 @@ def _build_side(col, sx):
     _flower(bm, c, nrm, FLOWER['radius'])
     npet = len(bm.faces)
     dc = c + nrm * (0.06 * FLOWER['radius'] * PX)
-    _dome(bm, dc, nrm, FLOWER['radius'] * PX * 0.3, 0.002, seg=12,
+    _dome(bm, dc, nrm, FLOWER['radius'] * PX * 0.3, FLOWER_DOME, seg=12,
           depth=(dc - c0).dot(nrm) + FLOWER_MOUNT)
     for i, f in enumerate(bm.faces):
         f.material_index = 0 if i < npet else 1
