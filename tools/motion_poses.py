@@ -130,6 +130,10 @@ def foot(arm, tag, off=(0, 0, 0), pitch=0.0, yaw=0.0, toe_dir=None):
 def centre(arm, off=(0, 0, 0), yaw=0.0):
     if yaw:
         turn(arm, 'センター', (0, 0, 1), yaw)
+        # move() writes the evaluated matrix back: without this update it wrote the
+        # un-turned one and dropped the yaw (round 6's turn / spin never turned the body
+        # while the feet walked round it, crossing the legs)
+        bpy.context.view_layer.update()
     if any(off):
         move(arm, 'センター', off)
 

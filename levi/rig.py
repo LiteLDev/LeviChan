@@ -353,9 +353,35 @@ SHRUG_SPAN = (0.1, 0.8)
 # them: the shrug's and arm's combined weight is handed shrug -> 肩補助2 -> 肩補助3 -> 腕D
 # at these knots (m), the same all round the socket, so no border between helper and no
 # helper crosses it (round 4's seams). (total turns, knots); None = off.
+# Round 7: the last two knots 1.5 / 3.5 -> 2 / 4.5 cm (stage 3 -> 腕D further onto the arm):
+# with the swing + twist stages, shoulder volume 0.60 -> 0.65 in hands_behind_head and
+# 0.63 -> 0.66 in dance_sway.
 SHOULDER_STAGES = ((SHOULDER_SHRUG + (1.0 - SHOULDER_SHRUG) / 3.0, SHOULDER_SHRUG + 2.0 * (1.0 - SHOULDER_SHRUG) / 3.0),
-                   (-0.03, -0.005, 0.015, 0.035))
+                   (-0.03, -0.005, 0.02, 0.045))
 _SOCKET_S = None   # per-vertex socket parameter of the body object being skinned (_weights)
+# Round 7, Blender: how the shrug, the stages and 腕D share 腕's rotation (_shoulder_drivers).
+# A plain share q^k of 腕's turn (PMX 回転付与, slerp from identity) flips sides when the turn
+# passes 180 deg, which an arm hanging 18 deg off vertical does on its way overhead with a
+# little humeral roll (round 6: a 431 mm pop of 肩補助2 in idol_dance@80). Instead the turn
+# splits into a swing that carries the arm from this reference direction (world, left side:
+# out, a little up and back) to where it points, and a twist about the arm. The swing is
+# singular only with the arm pointing straight across the front of the body to her other
+# side; every pose and clip frame stays at least 64 deg from that (idol_dance@76; hug_self
+# 75 deg). The stages take the share of that swing (B^k A^-k: B the swing from the reference to the
+# arm, A the one to the rest direction, so rest is identity) and of the twist. The twist
+# share fades out between SHOULDER_TWIST_FADE and 180 deg of twist, where a share of an
+# angle would jump from +180 to -180 (only idol_dance's run -> overhead transition gets
+# there: its keys carry 腕 once round a full turn). 腕D takes whatever is left of 腕's turn,
+# so the arm points exactly where 腕 aims. The PMX keeps the plain shares.
+SHOULDER_SWING_REF = (1.0, 0.1, 0.3)
+SHOULDER_TWIST_FADE = 120.0     # deg
+# The clavicle (肩補助) keeps round 6's plain share q^0.15 while 腕's turn stays below
+# SHOULDER_SHRUG_BLEND[0] deg and blends to the swing + twist share by [1], before q^k would
+# flip: the swing + twist shrug alone moved the shoulder joint up to 2.9 cm in poses whose
+# hands were placed against the old one (hands in the hair and flowers in dance_heart,
+# dance_point, jump_tuck). A long blend keeps the clavicle's handover slow even when the
+# arm sweeps through it (idol_dance@78-81: arm bone pop 4.7 mm; 150-178 deg: 43 mm).
+SHOULDER_SHRUG_BLEND = (100.0, 175.0)
 # per helper name: (blend start before the joint, blend end after it) overriding the part's band
 JOINT_BAND_BY_AUX = {'腕補助': (0.04, 0.06)}   # the knee uses JOINT_HINGE (round 5's band: 7.5 cm)
 # per joint (first helper's name): the helpers as (share of the lower bone's rotation,
@@ -380,7 +406,15 @@ JOINT_REACH_BY_AUX = {'腕補助': (0.05, 0.08)}
 # tan 75 deg), so the kneecap wraps round a long arc while the hollow folds short. The
 # round-5 band (7.5 cm x 1.4 in front, x 0.85 behind) swung thigh skin above the joint
 # out into a lobe; shorter bands here (d 3-4 cm) pinched the knee or passed x1.85.
-JOINT_HINGE = {'ひざ補助': ((0.05, 0.05, 0.03), (-75.0, -22.0, 22.0, 75.0), (0.0, -1.0, 0.0))}
+# Round 7: the hollow folds without crossing itself only if the share changes no faster
+# along the angle than the bend allows (share' x bend < 1): behind the knee the band is
+# longer (d 4.5 cm) and the knots wider (+-80 / +-27 deg), so a seiza (156 deg) folds the
+# hollow instead of passing calf and thigh skin through each other (round 6: 160 faces
+# flipped in seiza, 116 in jump_tuck, knee volume 0.61; now 54 / 44, 0.65). Longer still
+# (7 cm, +-84 deg: 32 flips) swelled the calf behind a squatting knee into a hook, so the
+# visible shape decided here. JOINT_HINGE_CAP keeps the angular band off the ankle and hip.
+JOINT_HINGE = {'ひざ補助': ((0.05, 0.05, 0.045), (-80.0, -27.0, 27.0, 80.0), (0.0, -1.0, 0.0))}
+JOINT_HINGE_CAP = (0.10, 0.16)   # m along the limb: beyond, the hinge band is all upper / lower limb
 
 
 def _joint_aux(add, jp, en, joint, nxt, parent, lower, upper, s, sfx, jp_side, en_sfx, group):
@@ -477,13 +511,15 @@ def _core_bones(J=None, H=None, F=None):
             sh0 = Vector((L['neck_half_w'] * 1.1, sj.y, L['shoulder_z']))
             add(Bone('肩補助' + sfx, jp_side + '肩補助', 'ShoulderAux' + en_sfx, _mx(sh0, s),
                      _mx(sh0 + arm_dir * JOINT_AUX_LEN, s), '肩' + sfx, group='Arms',
-                     meta={'follow_q': ('腕' + sfx, SHOULDER_SHRUG), 'shrug_of': '肩' + sfx}))
+                     meta={'follow_q': ('腕' + sfx, SHOULDER_SHRUG), 'shrug_of': '肩' + sfx,
+                           'shoulder': ('shrug', '肩補助' + sfx)}))
             add(Bone('腕' + sfx, jp_side + '腕', 'Arm' + en_sfx, _mx(sj, s), _mx(el, s), '肩' + sfx, connect=True,
                      deform=False, group='Arms'))
             arm = '腕D' + sfx
             add(Bone(arm, jp_side + '腕D', 'ArmD' + en_sfx, _mx(sj, s), _mx(el, s), '肩補助' + sfx,
                      r=0.04, r_end=0.03, group='Arms',
-                     meta={'follow_q': ('腕' + sfx, 1.0 - SHOULDER_SHRUG), 'helper': True}))
+                     meta={'follow_q': ('腕' + sfx, 1.0 - SHOULDER_SHRUG), 'helper': True,
+                           'shoulder': ('arm', '肩補助' + sfx)}))
             if SHOULDER_STAGES:
                 # staged shoulder helpers (SHOULDER_STAGES): total turn = the shrug's
                 # SHOULDER_SHRUG (their parent) + their own append, like 腕D's
@@ -492,6 +528,7 @@ def _core_bones(J=None, H=None, F=None):
                     add(Bone('肩補助' + k + sfx, jp_side + '肩補助' + k, 'ShoulderAux' + k + en_sfx, _mx(sj, s),
                              _mx(el, s), '肩補助' + sfx, group='Arms',
                              meta={'follow_q': ('腕' + sfx, total - SHOULDER_SHRUG), 'helper': True,
+                                   'shoulder': ('stage', '肩補助' + sfx),
                                    'stage': ('肩補助' + sfx, arm, (total - SHOULDER_SHRUG) / (1.0 - SHOULDER_SHRUG))}))
         else:
             add(Bone(arm, jp_side + '腕', 'Arm' + en_sfx, _mx(sj, s), _mx(el, s), '肩' + sfx, connect=True,
@@ -538,6 +575,13 @@ def _core_bones(J=None, H=None, F=None):
                  connect=True, r=0.05, r_end=0.035, group='Legs'))
         _joint_aux(add, 'ひざ補助', 'KneeAux', knee, ankle, '足' + sfx, 'ひざ' + sfx, ('足' + sfx,),
                    s, sfx, jp_side, en_sfx, 'Legs')
+        if HIP_AUX:
+            # hip helper (round 7): turns HIP_AUX of the thigh about the hip joint (回転付与);
+            # the skin blending pelvis and thigh blends through it (_hat_remap)
+            tail = hip + (knee - hip).normalized() * JOINT_AUX_LEN
+            add(Bone('足補助' + sfx, jp_side + '足補助', 'LegAux' + en_sfx, _mx(hip, s), _mx(tail, s), '下半身',
+                     group='Legs', meta={'follow': ('足' + sfx, HIP_AUX), 'joint_aux': (('下半身',), '足' + sfx),
+                                         'aux_share': HIP_AUX, 'hat': True}))
         add(Bone('足首' + sfx, jp_side + '足首', 'Ankle' + en_sfx, _mx(ankle, s), _mx(toe, s), 'ひざ' + sfx,
                  connect=True, r=0.04, r_end=0.03, group='Legs'))
         add(Bone('つま先' + sfx, jp_side + 'つま先', 'Toe' + en_sfx, _mx(toe, s),
@@ -1181,7 +1225,11 @@ def _skirt_weights(co, bones, group='Skirt', body_names=('上半身', '下半身
 # Garments over the torso take the weights of the body skin under them, so skin and cloth
 # move together (the skirt's waist in a side bend, the bodice rim at the armpit)
 SKIN_FOLLOW = True
-SKIN_FOLLOW_ARM = ('肩', '肩補助', '腕D')   # shoulder bones the bodice may take from the skin
+# round 7: garments sample the shrug and the staged shoulder bones themselves (they used to
+# be folded into the shrug and 腕D): the Blender stages turn by swing + twist
+# (_shoulder_drivers), which a blend of the shrug and the arm no longer reproduces (the
+# bodice sank 1.5 cm into the chest in jump_tuck, dance_point and dance_heart)
+SKIN_FOLLOW_ARM = ('肩', '肩補助', '肩補助2', '肩補助3', '腕D')   # shoulder bones the bodice may take from the skin
 BODICE_ARM_CAP = 0.12      # most of a bodice vertex the arm (腕D) may carry
 SKIN_K = 8                 # nearest skin vertices averaged (inverse distance) ...
 SKIN_SOFT = 0.005          # ... softened by this many m, so the sample varies smoothly
@@ -1243,19 +1291,6 @@ def _store_skin(objs):
     for i, r in enumerate(rows):
         for c, wv in r:
             W[i, c] = wv
-    if SHOULDER_STAGES:
-        # garments sample the skin by the plain bones only: a staged shoulder helper's
-        # weight goes to the shrug and the arm in the proportion of its turn
-        for i, total in enumerate(SHOULDER_STAGES[0]):
-            frac = (total - SHOULDER_SHRUG) / (1.0 - SHOULDER_SHRUG)
-            for t in 'LR':
-                c = names.get(f'肩補助{i + 2}.{t}')
-                if c is None:
-                    continue
-                for n, share in ((f'肩補助.{t}', 1.0 - frac), (f'腕D.{t}', frac)):
-                    if n in names:
-                        W[:, names[n]] += W[:, c] * share
-                W[:, c] = 0.0
     _SKIN = (np.concatenate(pts), names, W)
 
 
@@ -1638,7 +1673,7 @@ def _split_joint_aux(w, co, bones, band):
         return out
     joints = {}
     for j, b in enumerate(bones):
-        if 'joint_aux' in b.meta:
+        if 'joint_aux' in b.meta and not b.meta.get('hat'):
             joints.setdefault(b.meta['joint_aux'][1], []).append(j)
     for lower, aux in joints.items():
         if lower not in col:
@@ -1685,6 +1720,13 @@ def _split_joint_aux(w, co, bones, band):
             knots = [-before] + [bones[j].meta.get('aux_at', 0.0) for j in aux] + [after]
         steps = [_smoothstep(k0, k1, t) for k0, k1 in zip(knots, knots[1:])]
         f = [1.0 - steps[0]] + [s0 - s1 for s0, s1 in zip(steps, steps[1:])] + [steps[-1]]
+        if hinge is not None and JOINT_HINGE_CAP:
+            # a long band behind the joint never reaches the ankle or the hip: beyond these
+            # distances along the limb the skin is all upper / all lower limb
+            along = (co - np.array(lb.head)) @ d
+            g = _smoothstep(JOINT_HINGE_CAP[0], JOINT_HINGE_CAP[1], np.abs(along))
+            hard = [np.where(along < 0, 1.0, 0.0)] + [np.zeros(len(co))] * (len(f) - 2) + [np.where(along < 0, 0.0, 1.0)]
+            f = [fi * (1.0 - g) + hi * g for fi, hi in zip(f, hard)]
         cols = up + lo + aux
         old = w[:, cols].copy()
         su, sl = w[:, up].sum(1), w[:, lo].sum(1)
@@ -1704,6 +1746,45 @@ def _split_joint_aux(w, co, bones, band):
             # weight (the ribs under the armpit) must not be handed to the arm
             g = (1.0 - _smoothstep(reach[0], reach[1], lat_d))[:, None]
             w[:, cols] = old * (1.0 - g) + w[:, cols] * g
+
+
+# Round 7: hip helpers 足補助 turn HIP_AUX of their thigh about the hip joint. Wherever the
+# skin blends the pelvis (下半身) and a thigh, the blend is re-made through the helper
+# (_hat_remap): with s the thigh's share of the pair and a = HIP_AUX, weights
+# (1 - s/a, s/a, 0) below s = a and (0, (1-s)/(1-a), (s-a)/(1-a)) above, so the skin moves
+# the same to first order but the skin at s = a turns rigidly with the helper instead of
+# averaging a straight and a bent thigh, which collapsed the hip (volume 0.48-0.75 in
+# cross_legged, lie_back_elbows, high_kick; now 0.9+). The crotch midline, shared by both
+# thighs, splits its pelvis weight between the sides by their thigh weights first.
+# (0.4 eased cross_legged's stretch between the buttocks, x2.38 -> x2.25, but pushed the
+# inner thighs 6.5 cm into each other there.) None = off.
+HIP_AUX = 0.5
+
+
+def _hat_remap(w, bones):
+    col = {b.name: i for i, b in enumerate(bones)}
+    hats = [(j, b) for j, b in enumerate(bones) if b.meta.get('hat') and b.meta['joint_aux'][1] in col]
+    groups = {}
+    for j, b in hats:
+        up = next((u for u in reversed(list(b.meta['joint_aux'][0])) if u in col), None)
+        if up is not None:
+            groups.setdefault(col[up], []).append((j, col[b.meta['joint_aux'][1]], b.meta.get('aux_share', 0.5)))
+    for up, items in groups.items():
+        lows = np.stack([w[:, lo] for _, lo, _ in items], 1)
+        tot_lo = lows.sum(1)
+        wu = w[:, up].copy()
+        new_up = np.where(tot_lo > 1e-12, 0.0, wu)
+        for k, (h, lo, a) in enumerate(items):
+            pu = np.where(tot_lo > 1e-12, wu * lows[:, k] / np.maximum(tot_lo, 1e-12), 0.0)
+            T = pu + lows[:, k]
+            s = np.where(T > 1e-12, lows[:, k] / np.maximum(T, 1e-12), 0.0)
+            # hat functions with the helper's knot at its share a
+            w_up = T * np.clip(1.0 - s / a, 0.0, 1.0)
+            w_lo = T * np.clip((s - a) / (1.0 - a), 0.0, 1.0)
+            new_up += w_up
+            w[:, h] += T - w_up - w_lo
+            w[:, lo] = w_lo
+        w[:, up] = new_up
 
 
 def _split_along(w, co, bones, key, span):
@@ -1798,9 +1879,12 @@ def _hair_head_fade(w, co, bones):
     return w
 
 
-CROTCH_SMOOTH = 0.045          # weight smoothing radius (m) at the crotch
+# round 7: wider and smoother (round 6: 4.5 cm over a 7 cm half width, 22 cm deep): the
+# pelvis / thigh change spreads over the buttocks and the groin, x2.0-2.1 -> 1.7-1.8 in
+# high_kick, the lunges and kneeling (with the hip helpers)
+CROTCH_SMOOTH = 0.06           # weight smoothing radius (m) at the crotch
 CROTCH_PARTS = ('body', '_proxy')   # skin only: garments there follow the skirt chains
-CROTCH_ZONE = (0.07, 0.22, 0.04)   # half width, depth below the hip joints, vertical fade
+CROTCH_ZONE = (0.12, 0.25, 0.06)   # half width, depth below the hip joints, vertical fade
 
 
 def _crotch_mask(co, bones):
@@ -1821,6 +1905,9 @@ ARMPIT_SMOOTH = 0.05          # weight smoothing radius (m) in the armpit
 ARMPIT_ZONE = ((0.04, 0.0, 0.04), 0.06, 0.11)
 
 
+ARMPIT_TOP = (0.0, 0.02)   # m above the shoulder joint over which the armpit zone fades out (round 7)
+
+
 def _armpit_mask(co, bones):
     """0..1: vertices in either armpit, below and inside the shoulder joint."""
     col = {b.name: i for i, b in enumerate(bones)}
@@ -1833,6 +1920,10 @@ def _armpit_mask(co, bones):
         h = bones[arm].head
         c = np.array((h.x - s * off[0], h.y + off[1], h.z - off[2]))
         f = 1.0 - _smoothstep(r0, r1, np.linalg.norm(co - c, axis=1))
+        if ARMPIT_TOP:
+            # round 7: only below the shoulder: the sphere also reached the top of the
+            # shoulder beside the neck, where it smeared the arm over the trapezius
+            f = f * (1.0 - _smoothstep(h.z + ARMPIT_TOP[0], h.z + ARMPIT_TOP[1], co[:, 2]))
         m = f if m is None else np.maximum(m, f)
     return m
 
@@ -2013,6 +2104,9 @@ def _base_weights(part, co, bones):
     """(V, B) weights before side masking / smoothing / pruning."""
     plain = [j for j, b in enumerate(bones) if not {'twist_of', 'joint_aux', 'shrug_of', 'stage'} & set(b.meta)]
     sub = [bones[j] for j in plain]
+    # the bodice samples the shrug and the stages from the skin too (they are not 'plain')
+    stg = [j for j, b in enumerate(bones) if {'stage', 'shrug_of'} & set(b.meta)] if part == 'bodice' else []
+    ws = np.zeros((len(co), len(stg)))
     if part in ('skirt', 'petticoat'):
         w0 = _skirt_weights(co, sub)
     elif part == 'hair_back' and HAIR_RING:
@@ -2021,10 +2115,16 @@ def _base_weights(part, co, bones):
         main = [i for i, b in enumerate(sub) if b.group != 'Skirt']
         w0 = np.zeros((len(co), len(sub)))
         env = _envelope(co, [sub[i] for i in main])
-        w0[:, main] = _skin_sample(co, [sub[i].name for i in main], env) if part == 'bodice' else env
         if part == 'bodice':
+            # the skin's own shrug and staged shoulder bones too, so the bodice rides the
+            # chest skin under it exactly
+            names_s = [sub[i].name for i in main] + [bones[j].name for j in stg]
+            smp = _skin_sample(co, names_s, np.concatenate([env, np.zeros((len(co), len(stg)))], 1))
+            w0[:, main], ws = smp[:, :len(main)], smp[:, len(main):]
             # a fitted strapless bodice takes at most BODICE_ARM_CAP of the arm from the skin
-            # (its rim at the armpit rides along; the neckline and chest stay on the torso)
+            # (its rim at the armpit rides along; the neckline and chest stay on the torso).
+            # The stages are not capped: capping them too left the chest skin, which turns
+            # with them, pushing through the bodice (and the cap split the rim's weights)
             arm = [i for i in main if sub[i].name.split('.')[0] in ('腕D', '腕')]
             chest = next((i for i in main if sub[i].name == '上半身2'), None)
             if arm and chest is not None:
@@ -2032,11 +2132,18 @@ def _base_weights(part, co, bones):
                 k = np.minimum(1.0, BODICE_ARM_CAP / np.maximum(a, 1e-9))
                 w0[:, chest] += a * (1.0 - k)
                 w0[:, arm] *= k[:, None]
+        else:
+            w0[:, main] = env
         if len(main) < len(sub):        # bodice ribbons hanging over the skirt ride the skirt
             t = _smoothstep(L['hip_z'] + SKIRT_BAND[0], L['hip_z'] + SKIRT_BAND[1], co[:, 2])[:, None]
             w0 = (1.0 - t) * w0 + t * _skirt_weights(co, sub)
+            ws = ws * (1.0 - t)
     w = np.zeros((len(co), len(bones)))
     w[:, plain] = w0
+    if len(stg):
+        w[:, stg] = ws
+    if part in NECK_PARTS:
+        _neck_partition(w, co, bones)
     if part == 'sleeves' and SLEEVE_BUILD:
         ok = lambda x: x if x is not None and len(co) > 1 and _SLEEVE_N == len(co) else None  # noqa: E731
         return _sleeve_weights(co, bones, ok(_SLEEVE_S), ok(_SLEEVE_EDGES))
@@ -2044,7 +2151,8 @@ def _base_weights(part, co, bones):
         _drape_only_away_from_arm(w, co, bones)
     _split_ankle(w, co, bones)
     _split_along(w, co, bones, 'twist_of', TWIST_RAMP)
-    _split_along(w, co, bones, 'shrug_of', SHRUG_SPAN)
+    if part != 'bodice':        # the bodice took the skin's shrug weight as it is
+        _split_along(w, co, bones, 'shrug_of', SHRUG_SPAN)
     _split_joint_aux(w, co, bones, JOINT_BAND.get(part, (JOINT_AUX_BLEND, JOINT_AUX_BLEND)))
     if part == 'body' and SHOULDER_STAGES and any('stage' in b.meta for b in bones):
         if _SOCKET_S is not None and len(_SOCKET_S) == len(co):
@@ -2053,6 +2161,50 @@ def _base_weights(part, co, bones):
             print('rig: WARNING body has no socket parameter (body.SOCKET_PARAM_ATTR): '
                   'the staged shoulder helpers get no weight')
     return w
+
+
+# Round 7: the neck's skin is split between 上半身2, 首 and 頭 by height along 首 (0 at its
+# head, 1 at its tail; knots: 上半身2 -> 首, then 首 -> 頭), so a turned or tipped head is
+# shared over the whole neck in two steps. The envelopes left the neck mostly 上半身2 up to
+# the choker with 頭 reaching down to the nape (首 never above 35%): looking over the
+# shoulder stretched the nape x2.0 and the choker, riding 首 alone over that skin, x2.5.
+NECK_PARTS = ('body', 'head', '_proxy')
+NECK_KNOTS = ((-0.35, 0.45), (0.5, 1.15))   # 頭 by the chin (t 1.16)
+NECK_REACH = (0.045, 0.075)    # m from 首's axis: the split applies fully within, not beyond
+NECK_SPAN = ((-1.2, -0.8), (1.6, 2.0))   # ... and fades out below / above 首 (its fractions)
+
+
+def _neck_frac(co, bones):
+    """(t, rho): the fraction along 首 and the distance from its axis of each point."""
+    col = {b.name: i for i, b in enumerate(bones)}
+    nb = bones[col['首']]
+    a, c = np.array(nb.head), np.array(nb.tail)
+    d = c - a
+    t = ((co - a) @ d) / max(float(d @ d), 1e-12)
+    rho = np.linalg.norm(co - (a + t[:, None] * d), axis=1)
+    return t, rho
+
+
+def _neck_split(t):
+    """(上半身2, 首, 頭) shares at fraction t along 首 (NECK_KNOTS)."""
+    u1 = _smoothstep(NECK_KNOTS[0][0], NECK_KNOTS[0][1], t)
+    u2 = _smoothstep(NECK_KNOTS[1][0], NECK_KNOTS[1][1], t)
+    return 1.0 - u1, u1 - u2, u2
+
+
+def _neck_partition(w, co, bones):
+    """Re-split the spine weight (上半身2 + 首 + 頭) of the skin around the neck by height
+    (_neck_split); other bones (肩, the shoulders) keep theirs."""
+    col = {b.name: i for i, b in enumerate(bones)}
+    if not all(n in col for n in ('上半身2', '首', '頭')) or not len(co):
+        return
+    idx = [col['上半身2'], col['首'], col['頭']]
+    t, rho = _neck_frac(co, bones)
+    m = (1.0 - _smoothstep(NECK_REACH[0], NECK_REACH[1], rho)) * \
+        _smoothstep(NECK_SPAN[0][0], NECK_SPAN[0][1], t) * (1.0 - _smoothstep(NECK_SPAN[1][0], NECK_SPAN[1][1], t))
+    s = w[:, idx].sum(1)
+    for i, f in zip(idx, _neck_split(t)):
+        w[:, i] = (1.0 - m) * w[:, i] + m * s * f
 
 
 def _shoulder_stages(w, bones, sparam):
@@ -2142,7 +2294,6 @@ def _island_rules(w, co, labels, bones, part):
 
 # neck accessories with explicit weights (accessories part, by object name prefix)
 NECK_CORDS = {'acc_choker': 'choker', 'acc_halter': 'halter'}
-CHOKER_TORSO = 0.3       # 上半身2 share at the choker's lower edge (fades out by its middle)
 HALTER_NECK_FADE = (0.03, 0.005)   # below choker_z: the halter hands over from 首 to the skin's weights
 
 
@@ -2153,28 +2304,38 @@ def _neck_cord(obj, part):
 
 
 def _neck_cord_weights(kind, w, co, bones):
-    """The choker rides the neck: 首, with a little 上半身2 at its lower edge. The halter
-    cords run from the choker over the shoulder slope to the bodice: at the choker end they
-    take 首 like the choker, below it the same smoothed envelope weights as the skin under
-    them (上半身2, 肩, the shrug), so they stay on the shoulder slope as it moves."""
+    """The choker rides the neck: the skin's neck split (_neck_partition: 上半身2 / 首 / 頭 by
+    height) read at the tube's centreline (the loop's best-fit plane: the ring is tilted), so
+    each cross-section of the tube moves as one with the skin under it (round 6: 首 with 30%
+    上半身2 at the tube's lower edge, a weight step across 1-3 mm edges that stretched them
+    x2.5 when looking over the shoulder). The halter cords run from the choker over the
+    shoulder slope to the bodice: at the choker end they take the neck split at their own
+    height, below it the same smoothed envelope weights as the skin under them (上半身2, 肩,
+    the shrug), so they stay on the shoulder slope as it moves."""
     col = {b.name: i for i, b in enumerate(bones)}
-    neck, chest = col.get('首'), col.get('上半身2')
-    if neck is None or chest is None:
+    neck, chest, head = col.get('首'), col.get('上半身2'), col.get('頭')
+    if neck is None or chest is None or head is None:
         return w
-    out = np.zeros_like(w)
     if kind == 'choker':
-        # height below the loop's best-fit plane (the ring is tilted), so the lower edge
-        # of the tube all the way round takes the 上半身2 share, not the front of the loop
-        A = np.c_[co[:, 0], co[:, 1], np.ones(len(co))]
-        coef = np.linalg.lstsq(A, co[:, 2], rcond=None)[0]
-        dz = co[:, 2] - A @ coef
-        r = max(float(np.abs(dz).max()), 1e-6)
-        b = CHOKER_TORSO * (1.0 - _smoothstep(-r, 0.0, dz))
-        out[:, neck], out[:, chest] = 1.0 - b, b
+        out = np.zeros_like(w)
+        t, _ = _neck_frac(_choker_centre(co), bones)
+        for i, g in zip((chest, neck, head), _neck_split(t)):
+            out[:, i] = g
         return out
     f = _smoothstep(L['choker_z'] - HALTER_NECK_FADE[0], L['choker_z'] - HALTER_NECK_FADE[1], co[:, 2])
     out = w * (1.0 - f)[:, None]
-    out[:, neck] += f
+    t, _ = _neck_frac(co, bones)
+    for i, g in zip((chest, neck, head), _neck_split(t)):
+        out[:, i] += f * g
+    return out
+
+
+def _choker_centre(co):
+    """Each choker vertex moved onto the loop's best-fit plane (its centreline height)."""
+    A = np.c_[co[:, 0], co[:, 1], np.ones(len(co))]
+    coef = np.linalg.lstsq(A, co[:, 2], rcond=None)[0]
+    out = co.copy()
+    out[:, 2] = A @ coef
     return out
 
 
@@ -2232,6 +2393,11 @@ def _weights(obj, part, co, bones):
     w = _base_weights(part, co, bones)
     _SLEEVE_S, _SLEEVE_EDGES, _SLEEVE_N = None, None, 0
     _SOCKET_S = None
+    cord = _neck_cord(obj, part)
+    if cord == 'halter':
+        # the cords lie on the skin: its weights, staged shoulder included (smoothed below
+        # along the cord, so a cord's cross-section does not see different skin samples)
+        w = _skin_sample(co, [b.name for b in bones], w)
     labels = _islands(len(co), edges)
     if part == 'hair_back':
         _lock_weights(w, co, labels, bones)
@@ -2251,13 +2417,14 @@ def _weights(obj, part, co, bones):
         # a raised arm pulls the armpit skin between the ribs and the arm: spread the
         # torso / arm weight change over a wider band there too
         w = w * (1.0 - m[:, None]) + _smooth(w, co, edges, ARMPIT_SMOOTH) * m[:, None]
+    if part in CROTCH_PARTS and HIP_AUX:
+        _hat_remap(w, bones)
     if part == 'hair_back':
         w = _hair_head_fade(w, co, bones)
     if part in SHELL_PARTS:
         w = _shell_share(w, co, bones)
     if part in CROTCH_PARTS and ARM_CAP:
         w = _arm_cap(w, co, bones)
-    cord = _neck_cord(obj, part)
     if cord:
         w = _neck_cord_weights(cord, w, co, bones)
     else:
@@ -2510,6 +2677,211 @@ def _quat_power_drivers(arm, pb, src, k):
             fc.modifiers.remove(m)
 
 
+# symbolic quaternions for driver expressions: a component is a polynomial
+# {sorted tuple of factor strings: coefficient}, so products of constant quaternions
+# collapse into a few terms per channel
+def _p_const(c):
+    return {(): float(c)} if abs(c) > 1e-12 else {}
+
+
+def _p_atom(*factors):
+    return {tuple(sorted(factors)): 1.0}
+
+
+def _p_add(a, b, k=1.0):
+    r = dict(a)
+    for f, v in b.items():
+        r[f] = r.get(f, 0.0) + k * v
+    return {f: v for f, v in r.items() if abs(v) > 1e-12}
+
+
+def _p_mul(a, b):
+    r = {}
+    for fa, va in a.items():
+        for fb, vb in b.items():
+            f = tuple(sorted(fa + fb))
+            r[f] = r.get(f, 0.0) + va * vb
+    return {f: v for f, v in r.items() if abs(v) > 1e-12}
+
+
+def _q_mul(a, b):
+    def comb(*terms):
+        r = {}
+        for k, p, q in terms:
+            r = _p_add(r, _p_mul(p, q), k)
+        return r
+    (w1, x1, y1, z1), (w2, x2, y2, z2) = a, b
+    return [comb((1, w1, w2), (-1, x1, x2), (-1, y1, y2), (-1, z1, z2)),
+            comb((1, w1, x2), (1, x1, w2), (1, y1, z2), (-1, z1, y2)),
+            comb((1, w1, y2), (-1, x1, z2), (1, y1, w2), (1, z1, x2)),
+            comb((1, w1, z2), (1, x1, y2), (-1, y1, x2), (1, z1, w2))]
+
+
+def _num(v):
+    s = f'{v:.7f}'.rstrip('0').rstrip('.')
+    return s if s not in ('', '-', '-0') else '0'
+
+
+def _p_str(p):
+    """A polynomial as a driver expression (short: Blender keeps 255 characters)."""
+    if not p:
+        return '0.0'
+    terms = []
+    for f, v in sorted(p.items()):
+        if not f:
+            terms.append(_num(v))
+        elif abs(v - 1.0) < 1e-9:
+            terms.append('*'.join(f))
+        elif abs(v + 1.0) < 1e-9:
+            terms.append('-' + '*'.join(f))
+        else:
+            terms.append('*'.join([_num(v)] + list(f)))
+    return '+'.join(terms).replace('+-', '-')
+
+
+def _q_const(q):
+    return [_p_const(c) for c in (q.w, q.x, q.y, q.z)]
+
+
+def _q_conj(q):
+    return [q[0]] + [{f: -v for f, v in p.items()} for p in q[1:]]
+
+
+def _q_pow_const(q, k):
+    from mathutils import Quaternion
+    ax, ang = q.to_axis_angle()
+    return Quaternion(ax, ang * k)
+
+
+def _driver(fc, expr, variables):
+    """Scripted driver on F-curve fc: variables are (name, id, data path)."""
+    if len(expr) > 255:
+        raise ValueError(f'driver expression longer than Blender keeps ({len(expr)}): {expr}')
+    drv = fc.driver
+    drv.type = 'SCRIPTED'
+    for name, idv, path in variables:
+        v = drv.variables.new()
+        v.name, v.type = name, 'SINGLE_PROP'
+        t = v.targets[0]
+        t.id_type, t.id = 'OBJECT', idv
+        t.data_path = path
+    drv.expression = expr
+    for m in list(fc.modifiers):
+        fc.modifiers.remove(m)
+
+
+def _shoulder_drivers(arm, pb, src, kind, total, shrug):
+    """Blender evaluation of the shrug, the staged helpers and 腕D (SHOULDER_SWING_REF):
+    swing from a reference direction + twist about the arm, both shared continuously
+    instead of q^k. The shrug bone carries the decomposition as custom properties (sh_*,
+    from 腕's quaternion); each bone's quaternion is a product of constants, a power of the
+    swing and twists (kind 'shrug' / 'stage' / 'arm', total = its total share), evaluated
+    in steps of short expressions (custom properties), one quaternion product per step."""
+    a = SHOULDER_SHRUG
+    src_pb = arm.pose.bones[src]
+    src_pb.rotation_mode = 'QUATERNION'
+    sp = arm.pose.bones[shrug]
+    m = arm.data.bones[src].matrix_local.to_3x3()
+    side = -1.0 if src.endswith('.R') else 1.0
+    uw = Vector((SHOULDER_SWING_REF[0] * side, SHOULDER_SWING_REF[1], SHOULDER_SWING_REF[2])).normalized()
+    u = (m.transposed() @ uw).normalized()
+    A = u.rotation_difference(Vector((0.0, 1.0, 0.0)))
+    q_src = [(c, arm, f'pose.bones["{src}"].rotation_quaternion[{i}]') for i, c in enumerate('wxyz')]
+
+    def path(bone, name):
+        return f'pose.bones["{bone}"]["{name}"]'
+
+    def prop(owner, name, expr, variables):
+        owner[name] = 0.0
+        _driver(owner.driver_add(f'["{name}"]'), expr, variables)
+
+    def qprop(owner, name, qsym, variables):
+        for c, comp in zip('wxyz', qsym):
+            prop(owner, f'{name}_{c}', _p_str(comp), variables)
+
+    def qread(bone, name, var):     # a quaternion stored as properties: symbols + variables
+        names = [f'{var}{i}' for i in range(4)]
+        return [_p_atom(n) for n in names], [(n, arm, path(bone, f'{name}_{c}')) for n, c in zip(names, 'wxyz')]
+
+    def swing(e):        # B^e: the share e of the swing from the reference to the arm
+        s = f'sin({_num(0.5 * e)}*b)'
+        return [_p_atom(f'cos({_num(0.5 * e)}*b)'), _p_atom(s, 'ax'), _p_atom(s, 'ay'), _p_atom(s, 'az')]
+
+    def twist(k):        # the share k of the (faded) twist about the arm's own axis
+        return [_p_atom(f'cos({_num(0.5 * k)}*t)'), {}, _p_atom(f'sin({_num(0.5 * k)}*t)'), {}]
+    bv = [('b', arm, path(shrug, 'sh_b'))] + [(f'a{c}', arm, path(shrug, f'sh_a{c}')) for c in 'xyz']
+    tv = [('t', arm, path(shrug, 'sh_tw'))]
+    qv = [_p_atom(c) for c in 'wxyz']
+    if kind == 'shrug':
+        # the decomposition, as properties of the shrug bone
+        n = '(w*w+x*x+y*y+z*z)'
+        for k, e in (('sh_dx', f'2*(x*y-w*z)/{n}'), ('sh_dy', f'(w*w-x*x+y*y-z*z)/{n}'),
+                     ('sh_dz', f'2*(y*z+w*x)/{n}')):
+            prop(sp, k, e, q_src)
+        dv = [(c, arm, path(shrug, 'sh_d' + c)) for c in 'xyz']
+        U = [_num(c) for c in u]
+        prop(sp, 'sh_cx', f'{U[1]}*z-{U[2]}*y'.replace('--', '+'), dv)
+        prop(sp, 'sh_cy', f'{U[2]}*x-{U[0]}*z'.replace('--', '+'), dv)
+        prop(sp, 'sh_cz', f'{U[0]}*y-{U[1]}*x'.replace('--', '+'), dv)
+        cv = [('c' + c, arm, path(shrug, 'sh_c' + c)) for c in 'xyz']
+        cn = 'sqrt(cx*cx+cy*cy+cz*cz)'
+        prop(sp, 'sh_b', f'atan2({cn},{U[0]}*x+{U[1]}*y+{U[2]}*z)'.replace('+-', '-'), cv + dv)
+        for c in 'xyz':
+            prop(sp, f'sh_a{c}', f'c{c}/max({cn},1e-9)', cv)
+        # T = S^-1 q, S = B A^-1: the twist about the arm; then its faded share
+        qprop(sp, 'sh_i', _q_mul(_q_const(A), swing(-1.0)), bv)
+        iq, iv = qread(shrug, 'sh_i', 'i')
+        tq = _q_mul(iq, qv)
+        prop(sp, 'sh_tww', _p_str(tq[0]), iv + q_src)
+        prop(sp, 'sh_twy', _p_str(tq[2]), iv + q_src)
+        prop(sp, 'sh_tau', '2*atan2(r*(1 if p>=0 else -1),abs(p))',
+             [('p', arm, path(shrug, 'sh_tww')), ('r', arm, path(shrug, 'sh_twy'))])
+        f0 = math.radians(SHOULDER_TWIST_FADE)
+        prop(sp, 'sh_fs', f'min(max((abs(g)-{_num(f0)})/{_num(math.pi - f0)},0),1)', [('g', arm, path(shrug, 'sh_tau'))])
+        prop(sp, 'sh_tw', 'g*(1-s*s*(3-2*s))', [('g', arm, path(shrug, 'sh_tau')), ('s', arm, path(shrug, 'sh_fs'))])
+        # the shrug by swing + twist ...
+        qprop(sp, 'sh_s', _q_mul(swing(a), _q_const(_q_pow_const(A, -a))), bv)
+        pq, pv = qread(shrug, 'sh_s', 'p')
+        qprop(sp, 'sh_r', _q_mul(pq, twist(a)), pv + tv)
+        # ... and as round 6's plain share q^a (shortest path), which is what the poses
+        # and garments were set up against; the clavicle takes q^a up to SHOULDER_SHRUG_BLEND[0]
+        # of 腕's turn and hands over to the swing + twist share by [1], before q^a flips
+        prop(sp, 'sh_h', 'atan2(sqrt(x*x+y*y+z*z),abs(w))', q_src)
+        hv = [('h', arm, path(shrug, 'sh_h')), ('g', arm, path(shrug, 'sh_sg'))]
+        prop(sp, 'sh_sg', '1 if w>=0 else -1', q_src)
+        prop(sp, 'sh_c_w', f'cos({_num(a)}*h)', hv)
+        for c in 'xyz':
+            prop(sp, f'sh_c_{c}', f'g*{c}*sin({_num(a)}*h)/max(sqrt(x*x+y*y+z*z),1e-9)', hv + q_src)
+        b0, b1 = (math.radians(0.5 * v) for v in SHOULDER_SHRUG_BLEND)
+        prop(sp, 'sh_al', f'min(max((h-{_num(b0)})/{_num(b1 - b0)},0),1)', hv)
+        prop(sp, 'sh_k', 'k*k*(3-2*k)', [('k', arm, path(shrug, 'sh_al'))])
+        cq, cv2 = qread(shrug, 'sh_c', 'c')
+        rq, rv = qread(shrug, 'sh_r', 'r')
+        prop(sp, 'sh_dot', '+'.join(f'c{i}*r{i}' for i in range(4)), cv2 + rv)
+        kv = [('k', arm, path(shrug, 'sh_k')), ('e', arm, path(shrug, 'sh_dot'))]
+        for i, c in enumerate('wxyz'):
+            prop(sp, f'sh_u_{c}', f'(1-k)*c{i}+k*(1 if e>=0 else -1)*r{i}', kv + cv2 + rv)
+        uq, uv = qread(shrug, 'sh_u', 'u')
+        for i, c in enumerate('wxyz'):
+            prop(sp, f'sh_f_{c}', f'u{i}/max(sqrt(u0*u0+u1*u1+u2*u2+u3*u3),1e-9)', uv)
+        out, ov = qread(shrug, 'sh_f', 'f')
+    elif kind == 'stage':
+        # total turn B^t A^-t T^t, then relative to the (blended) shrug: f^-1 total
+        qprop(pb, 'st_p', _q_mul(swing(total), _q_const(_q_pow_const(A, -total))), bv)
+        pq, pv = qread(pb.name, 'st_p', 'p')
+        qprop(pb, 'st_t', _q_mul(pq, twist(total)), pv + tv)
+        tq, tv2 = qread(pb.name, 'st_t', 'r')
+        fq, fv = qread(shrug, 'sh_f', 'f')
+        out, ov = _q_mul(_q_conj(fq), tq), fv + tv2
+    else:
+        # 腕D: whatever is left of 腕's turn after the shrug, f^-1 q
+        fq, fv = qread(shrug, 'sh_f', 'f')
+        out, ov = _q_mul(_q_conj(fq), qv), fv + q_src
+    pb.rotation_mode = 'QUATERNION'
+    for i in range(4):
+        _driver(pb.driver_add('rotation_quaternion', i), _p_str(out[i]), ov)
+
+
 def _create_armature(bones):
     col = bpy.data.collections.new(RIG_COLLECTION)
     bpy.context.scene.collection.children.link(col)
@@ -2622,7 +2994,14 @@ def _create_armature(bones):
             src, infl = b.meta['follow_q']
             pb['mmd_append'] = src
             pb['mmd_append_influence'] = float(infl)
-            _quat_power_drivers(arm, pb, src, infl)
+            if 'shoulder' in b.meta and SHOULDER_SWING_REF:
+                # the same total shares as the PMX append: the shrug's, the shrug's plus
+                # the stage's own, the whole turn for 腕D
+                kind, shrug = b.meta['shoulder']
+                total = {'shrug': SHOULDER_SHRUG, 'stage': SHOULDER_SHRUG + infl, 'arm': 1.0}[kind]
+                _shoulder_drivers(arm, pb, src, kind, total, shrug)
+            else:
+                _quat_power_drivers(arm, pb, src, infl)
         if 'twist_of' in b.meta:
             # PMX fixed axis: a twist bone turns only about its own length
             pb.rotation_mode = 'QUATERNION'

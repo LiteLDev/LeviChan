@@ -1,0 +1,61 @@
+NEW MAJORS
+  ('extended', 'dance_heart', 'pen_frac', 'acc_flower_L') accessories 0.0158 -> 0.0665 頭 
+  ('extended', 'dance_heart', 'pen_frac', 'acc_flower_R') accessories 0.0063 -> 0.0665 頭 
+  ('extended', 'dance_point', 'pen_frac', 'hair_curtain_L') hair_front 0.0142 -> 0.0426 横髪奥_1.L 
+  ('extended', 'dance_point', 'pen_frac', 'hair_lock_R') hair_front 0.0199 -> 0.0565 横髪長_2.R 
+  ('extended', 'dance_sway', 'pen_frac', 'hair_cheek_L') hair_front 0.0 -> 0.0304 頭 
+  ('extended', 'jump_tuck', 'pen_frac', 'hair_curl_L') hair_front 0.0218 -> 0.0405 横髪巻_1.L 
+  ('extended', 'jump_tuck', 'pen_frac', 'hair_curl_R') hair_front 0.0218 -> 0.0405 横髪巻_1.R 
+  ('extended', 'jump_tuck', 'pen_frac', 'petticoat_tier1') petticoat 0.0281 -> 0.0422 スカート15_2 
+  ('extended', 'reach_up_back', 'pen_frac', 'hair_curtain_L') hair_front 0.0142 -> 0.0638 横髪奥_1.L 
+  ('extended', 'reach_up_back', 'pen_frac', 'hair_curtain_R') hair_front 0.0142 -> 0.0638 横髪奥_1.R 
+  ('extended', 'run_l', 'pen_frac', 'petticoat_tier1') petticoat 0.0267 -> 0.0314 スカート15_2 
+  ('extended', 'seiza', 'pen_frac', 'petticoat_tier1') petticoat 0.0193 -> 0.0434 スカート0_2 
+  ('extended', 'sit_chair', 'pen', 'petticoat_core') petticoat 0.0116 -> 0.0241 スカート14_0 
+  ('motion', 'idol_dance', 'compress', 'body') body 0.1358 -> 0.0939 肩補助3.L 79
+  ('motion', 'idol_dance', 'jitter', 'sleeve_balloon') sleeves None -> 0.8905 ひじ.L 80
+  ('motion', 'idol_dance', 'joint', 'joint:shoulder.L') body 0.7677 -> 0.6034 shoulder.L 79
+  ('motion', 'idol_dance', 'pen_frac', 'acc_flower_L') accessories 0.0158 -> 0.0665 頭 48
+  ('motion', 'idol_dance', 'pen_frac', 'acc_flower_R') accessories 0.0063 -> 0.0665 頭 48
+  ('motion', 'idol_dance', 'pen_frac', 'petticoat_tier1') petticoat 0.0267 -> 0.0314 スカート15_2 72
+  ('motion', 'idol_dance', 'pop', 'sleeve_ribbon') sleeves None -> 0.0856 ひじ.L 80
+  ('motion', 'run', 'jitter', 'petticoat_tier1') petticoat None -> 0.34 スカート11_2 16
+FIXED MAJORS 38
+  ('extended', 'cross_legged', 'compress', 'body') body 0.1 -> 0.1474
+  ('extended', 'cross_legged', 'flip', 'body') body 126.0 -> 51.0
+  ('extended', 'cross_legged', 'vol', 'joint:hip.L') body 0.4752 -> 0.9598
+  ('extended', 'cross_legged', 'vol', 'joint:hip.R') body 0.5195 -> 0.9694
+  ('extended', 'cross_legged', 'vol', 'joint:knee.L') body 0.6392 -> 0.6691
+  ('extended', 'cross_legged', 'vol', 'joint:knee.R') body 0.6392 -> 0.6691
+  ('extended', 'dance_heart', 'pen_frac', 'acc_halter') accessories 0.1121 -> 0.0
+  ('extended', 'dance_heart', 'pen_frac', 'bodice_shell') bodice 0.0554 -> 0.0
+  ('extended', 'dance_heart', 'pen_frac', 'hair_curl_L') hair_front 0.0436 -> 0.0
+  ('extended', 'dance_heart', 'pen_frac', 'hair_lock_L') hair_front 0.0415 -> 0.0
+  ('extended', 'dance_sway', 'pen_frac', 'acc_halter') accessories 0.0661 -> 0.0
+  ('extended', 'dance_sway', 'pen_frac', 'bodice_shell') bodice 0.0386 -> 0.0
+  ('extended', 'dance_sway', 'stretch', 'body') body 2.0988 -> 1.7029
+  ('extended', 'deep_lunge', 'stretch', 'body') body 2.03 -> 1.6616
+  ('extended', 'hand_to_shoulder', 'pen', 'hair_lock_L') hair_front 0.0205 -> 0.0191
+  ('extended', 'hands_behind_back', 'stretch', 'body') body 2.2152 -> 1.685
+  ('extended', 'hands_behind_head', 'pen_frac', 'acc_halter') accessories 0.1293 -> 0.0
+  ('extended', 'hands_behind_head', 'pen_frac', 'bodice_shell') bodice 0.062 -> 0.0
+  ('extended', 'high_kick', 'stretch', 'body') body 2.0706 -> 1.7915
+  ('extended', 'hug_self', 'stretch', 'body') body 2.1105 -> 1.7994
+  ('extended', 'jump_tuck', 'flip', 'body') body 120.0 -> 44.0
+  ('extended', 'jump_tuck', 'pen', 'bodice_ribbon_tails') bodice 0.0203 -> 0.0192
+  ('extended', 'jump_tuck', 'vol', 'joint:knee.L') body 0.6118 -> 0.6549
+  ('extended', 'jump_tuck', 'vol', 'joint:knee.R') body 0.6118 -> 0.6549
+  ('extended', 'lie_back_elbows', 'stretch', 'acc_choker') accessories 2.4128 -> 1.0977
+  ('extended', 'look_over_shoulder', 'stretch', 'acc_choker') accessories 2.4723 -> 1.2627
+  ('extended', 'reach_up_back', 'pen_frac', 'acc_halter') accessories 0.0517 -> 0.0
+  ('extended', 'reach_up_back', 'pen_frac', 'bodice_shell') bodice 0.0858 -> 0.0
+  ('extended', 'seiza', 'flip', 'body') body 160.0 -> 54.0
+  ('motion', 'idol_dance', 'jitter', 'body') body 0.9881 -> None
+  ('motion', 'idol_dance', 'pen_frac', 'acc_halter') accessories 0.1121 -> 0.0
+  ('motion', 'idol_dance', 'pen_frac', 'acc_leaves_L') accessories 0.058 -> 0.0
+  ('motion', 'idol_dance', 'pen_frac', 'bodice_shell') bodice 0.0554 -> 0.0
+  ('motion', 'idol_dance', 'pop', 'sleeve_balloon') sleeves 0.1074 -> None
+  ('motion', 'idol_dance', 'self', 'body:hand.L x pelvis') body 0.0385 -> None
+  ('motion', 'run', 'jitter', 'body') body 0.7894 -> None
+  ('motion', 'run', 'vol', 'joint:knee.L') body 0.6362 -> 0.6684
+  ('motion', 'run', 'vol', 'joint:knee.R') body 0.6362 -> 0.6684

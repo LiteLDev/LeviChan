@@ -84,9 +84,11 @@ LEVELS = ('ok', 'minor', 'major')
 # body segments by bone stem (dominant deform weight); .L/.R kept as suffix
 SEGMENT = {
     '上半身': 'chest', '上半身2': 'chest', '下半身': 'pelvis', '首': 'neck', '頭': 'head',
-    '肩': 'shoulder', '肩補助': 'shoulder', '腕D': 'upperarm', '腕捩': 'upperarm', '腕': 'upperarm',
+    '肩': 'shoulder', '肩補助': 'shoulder', '肩補助2': 'shoulder', '肩補助3': 'shoulder',
+    '腕D': 'upperarm', '腕捩': 'upperarm', '腕': 'upperarm',
     'ひじ補助': 'forearm', 'ひじ': 'forearm', '手捩': 'forearm', '手首': 'hand',
-    '足': 'thigh', 'ひざ補助': 'shin', 'ひざ補助2': 'shin', 'ひざ': 'shin', '足首': 'foot', 'つま先': 'foot',
+    '足補助': 'thigh', '足': 'thigh', 'ひざ補助': 'shin', 'ひざ補助2': 'shin', 'ひざ': 'shin', '足首': 'foot',
+    'つま先': 'foot',
 }
 ADJACENT = {frozenset(p) for p in (
     ('chest', 'pelvis'), ('chest', 'neck'), ('neck', 'head'), ('chest', 'shoulder'), ('shoulder', 'upperarm'),
@@ -97,7 +99,7 @@ ADJACENT = {frozenset(p) for p in (
 # as (bone whose motion carries it, rest point a, rest point b) with points 'bone.head' /
 # 'bone.tail' / 'bone.head+z<m>')
 JOINTS = {
-    'shoulder': ('腕D', 0.07, ('上半身2', '肩', '肩補助', '腕D', '腕捩'),
+    'shoulder': ('腕D', 0.07, ('上半身2', '肩', '肩補助', '肩補助2', '肩補助3', '腕D', '腕捩'),
                  (('肩', '肩.head', '腕D.head'), ('腕D', '腕D.head', 'ひじ.head'))),
     'elbow': ('ひじ', 0.06, ('腕D', '腕捩', 'ひじ補助', 'ひじ', '手捩'),
               (('腕捩', '腕D.head', 'ひじ.head'), ('ひじ', 'ひじ.head', '手首.head'))),
@@ -105,7 +107,7 @@ JOINTS = {
                 (('ひじ', 'ひじ.head', '手捩.head'), ('手捩', '手捩.head', '手首.head'))),
     'wrist': ('手首', 0.035, ('手捩', 'ひじ', '手首'),
               (('手捩', '手捩.head', '手首.head'), ('手首', '手首.head', '手首.tail'))),
-    'hip': ('足', 0.09, ('下半身', '足'),
+    'hip': ('足', 0.09, ('下半身', '足補助', '足'),
             (('下半身', '足.head+z0.12', '足.head'), ('足', '足.head', 'ひざ.head'))),
     'knee': ('ひざ', 0.07, ('足', 'ひざ補助', 'ひざ補助2', 'ひざ'),
              (('足', '足.head', 'ひざ.head'), ('ひざ', 'ひざ.head', '足首.head'))),
