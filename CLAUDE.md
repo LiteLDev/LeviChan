@@ -70,7 +70,13 @@ The body part may store fitted limb joints for the rig as `obj["levi_joints"] = 
   - .L/.R bones are masked off the other side.
   - Small loose ornaments move rigidly with the weights of the surface they sit on: the part's weights at the closest vertex of any larger skinned piece within `rig.ATTACH_REACH` (shoe leaves ride the ankle wrap, flowers the hair). The exception is an ornament that straddles 上半身/下半身 (the waist bow): it rides the waist like the cloth under it.
   - Eyelid sheets (head objects named *lid*, carrying the blink shape key) are 頭 only and left out of the eye fit.
-  - Weights are smoothed along the surface (wider at the crotch, `rig.CROTCH_SMOOTH`, where a stride pulls the skin between the thighs, and in the armpits) and pruned to 4 continuously (no jumps).
+  - Weights are smoothed along the surface (wider at the crotch, `rig.CROTCH_SMOOTH`, where a stride pulls the skin between the thighs, and in the armpits).
+    - The smoothing radius is in metres whatever the mesh density: above `rig.SMOOTH_DIRECT` diffusion steps it runs on a coarsened copy of the mesh (neighbouring vertices paired along edges) and finishes with a short pass on the full mesh. Cost stays about linear in the vertex count (4x the round-4 faces rigs in ~20 s).
+  - Pruning to 4 influences (PMX BDEF4) is continuous and motion-aware (`rig._prune`):
+    - Which bones a vertex keeps is decided on a wider-smoothed copy of its weights (`rig.PRUNE_SMOOTH`), so the kept set changes gradually along the surface.
+    - A bone folds away 1 - smoothstep(t, 2t, w) of its weight, t being the 5th-largest guide weight: no jump when bones swap rank. The round-4 prune subtracted t from every bone, which turned 5-6 overlapping bones (elbow, armpit, petticoat front) into a cliff on dense meshes (×2.0-2.8).
+    - The folded weight goes to the bones a helper blends between (ひじ補助 → 腕捩/ひじ, 手捩 → ひじ), then to limb relatives, otherwise in proportion.
+    - Then each pruned vertex's kept weights are refitted (least squares, regularized toward the fold) so it moves as the unpruned blend did in a set of generic sample poses (`rig.MOTION_POSES`, evaluated on the real armature). Dense meshes now deform about as they would with 8+ influences.
 - `tools/rig_check.py` deforms the model with every pose in `rig_pose.POSES` (17, including `forward_bend` and `side_bend` for the torso). Each pose must stay within these limits (`--poses a,b` and `--quick` for iteration):
   - any edge at most ×2.0;
   - clothes and hair no more than 2 cm newly inside the body, measured with a winding-number test;

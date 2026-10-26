@@ -915,18 +915,23 @@ def _topology(obj, co):
 
 
 def _islands(n, edges):
-    parent = np.arange(n)
-
-    def find(a):
-        while parent[a] != a:
-            parent[a] = parent[parent[a]]
-            a = parent[a]
-        return a
-    for a, b in edges.tolist():
-        ra, rb = find(a), find(b)
-        if ra != rb:
-            parent[max(ra, rb)] = min(ra, rb)
-    return np.array([find(i) for i in range(n)])
+    """Loose-part label of every vertex: the smallest vertex index in its part.
+    Vectorized union-find (hook roots onto the smaller root, then pointer jumping)."""
+    lab = np.arange(n)
+    if not len(edges):
+        return lab
+    a, b = edges[:, 0], edges[:, 1]
+    while True:
+        la, lb = lab[a], lab[b]
+        diff = la != lb
+        if not diff.any():
+            return lab
+        np.minimum.at(lab, np.maximum(la, lb)[diff], np.minimum(la, lb)[diff])
+        while True:
+            nl = lab[lab]
+            if (nl == lab).all():
+                break
+            lab = nl
 
 
 def _side_mask(co, labels, bones, per_vertex):
@@ -954,12 +959,100 @@ def _smooth(w, co, edges, radius):
     a thin ribbon don't carry weights much farther than `radius`."""
     if radius <= 0 or not len(edges):
         return w
+    # only the bones this mesh uses: the rest stay zero under any averaging
+    act = np.nonzero(np.abs(w).max(0) > 0.0)[0]
+    if not len(act):
+        return w
+    out = w.copy()
+    out[:, act] = _smooth_ml(w[:, act], co, edges, radius, 0)
+    return out
+
+
+def _edge_ref(co, edges):
     ln = np.linalg.norm(co[edges[:, 0]] - co[edges[:, 1]], axis=1)
     pos = ln[ln > 1e-6]
-    if not len(pos):
+    return ln, (float(np.median(pos)) if len(pos) else 0.0)
+
+
+def _match(co, edges, ln):
+    """Cluster labels pairing each vertex with a neighbour (handshake matching on the
+    shortest edges, a few rounds), so the coarse graph keeps the mesh's connectivity:
+    clusters never join surfaces that only lie close in space. Deterministic."""
+    n = len(co)
+    lab = -np.ones(n, dtype=np.int64)
+    src = np.concatenate([edges[:, 0], edges[:, 1]])
+    dst = np.concatenate([edges[:, 1], edges[:, 0]])
+    d = np.concatenate([ln, ln])
+    keep = src != dst
+    src, dst, d = src[keep], dst[keep], d[keep]
+    nxt = 0
+    for _ in range(3):
+        free = (lab[src] < 0) & (lab[dst] < 0)
+        s, t, dd = src[free], dst[free], d[free]
+        if not len(s):
+            break
+        order = np.lexsort((t, dd, s))          # per source: shortest edge first, then index
+        s, t = s[order], t[order]
+        first = np.ones(len(s), dtype=bool)
+        first[1:] = s[1:] != s[:-1]
+        choice = -np.ones(n, dtype=np.int64)
+        choice[s[first]] = t[first]
+        v = np.nonzero(choice >= 0)[0]
+        mutual = v[(choice[choice[v]] == v) & (v < choice[v])]
+        if not len(mutual):
+            break
+        ids = nxt + np.arange(len(mutual))
+        lab[mutual] = ids
+        lab[choice[mutual]] = ids
+        nxt += len(mutual)
+    single = np.nonzero(lab < 0)[0]
+    lab[single] = nxt + np.arange(len(single))
+    return lab, nxt + len(single)
+
+
+SMOOTH_DIRECT = 64   # iterations above which smoothing runs on a coarsened mesh first
+
+
+def _smooth_ml(w, co, edges, radius, depth):
+    """Smoothing about `radius` metres whatever the mesh density. Within SMOOTH_DIRECT
+    iterations of the plain diffusion (_diffuse) it runs directly; otherwise neighbouring
+    vertices are paired (_match), the cluster averages are smoothed on the coarse graph
+    (recursively), the coarse change is added back to every vertex of its cluster, and a
+    short diffusion on the fine mesh (about one coarse edge) evens out the cluster steps.
+    Diffusion radii add in squares, so the two passes together give `radius`. Cost stays
+    about linear in the vertex count."""
+    ln, ref = _edge_ref(co, edges)
+    if ref <= 0.0:
         return w
-    ref = float(np.median(pos))
-    iters = int(min(MAX_SMOOTH_ITERS, round(2.0 * (radius / ref) ** 2)))
+    iters = int(round(2.0 * (radius / ref) ** 2))
+    if iters <= SMOOTH_DIRECT or len(co) < 64 or depth >= 12:
+        return _diffuse(w, co, edges, ln, ref, min(iters, MAX_SMOOTH_ITERS))
+    lab, nc = _match(co, edges, ln)
+    if nc > 0.85 * len(co):       # nothing to pair (a soup of separate edges): plain diffusion
+        return _diffuse(w, co, edges, ln, ref, min(iters, MAX_SMOOTH_ITERS))
+    cnt = np.bincount(lab, minlength=nc).astype(float)[:, None]
+    cco = np.zeros((nc, 3))
+    np.add.at(cco, lab, co)
+    cco /= cnt
+    cw = np.zeros((nc, w.shape[1]))
+    np.add.at(cw, lab, w)
+    cw /= cnt
+    ce = np.stack([lab[edges[:, 0]], lab[edges[:, 1]]], 1)
+    ce = ce[ce[:, 0] != ce[:, 1]]
+    ce = np.unique(np.sort(ce, 1), axis=0) if len(ce) else ce
+    _, cref = _edge_ref(cco, ce) if len(ce) else (None, 0.0)
+    post = min(radius * 0.7, 1.5 * max(cref, ref))      # fine-level pass: about one coarse edge
+    rc = math.sqrt(max(radius ** 2 - post ** 2, 0.0))
+    if len(ce):
+        cw = _smooth_ml(cw, cco, ce, rc, depth + 1) - cw
+    else:
+        cw = np.zeros_like(cw)
+    w = w + cw[lab]
+    return _diffuse(w, co, edges, ln, ref, int(round(2.0 * (post / ref) ** 2)))
+
+
+def _diffuse(w, co, edges, ln, ref, iters):
+    """`iters` Laplacian steps of the weight rows along the mesh edges."""
     if iters <= 0:
         return w
     c = np.minimum(1.0, (ref / np.maximum(ln, 1e-9)) ** 2)
@@ -977,7 +1070,157 @@ def _smooth(w, co, edges, radius):
     return w
 
 
-def _prune(w):
+PRUNE_FOLD = 2.0      # a bone keeps all its weight from this many times the 5th-largest weight up
+PRUNE_SMOOTH = 0.03    # m: smoothing of the copy that picks the kept bones (_prune's guide)
+PRUNE_MOTION = True   # refit pruned vertices to their unpruned motion (_motion_refit)
+FOLD_TARGET_MIN = 0.05   # a helper folds into a bone it blends between in full once that keeps this much
+
+
+_PARENTS = {}         # bone name -> parent name, the whole rig (set by build_rig)
+FOLD_CHAIN_GROUPS = ('Skirt', 'Hair', 'Sleeve')   # chain bones fold into the kept bones in proportion
+
+
+def _fold_targets(bones):
+    """Per column: [(column, fraction)], the bones a pruned weight folds into, first
+    choice first, so the skin keeps moving almost as before. A joint helper splits into
+    the upper and lower bone by its share of the bend (ひじ補助 50/50 between 腕捩 and ひじ);
+    a twist bone goes to the bone it twists with, the shrug to 肩. Then, for limb and torso
+    bones, the nearest relatives: the parent chain upward, then the children. Secondary
+    chains (skirt, hair, sleeve drapes) have none: neighbouring chains move alike, so
+    their weight is spread over the kept bones in proportion."""
+    col = {b.name: j for j, b in enumerate(bones)}
+    kids = {}
+    for b in bones:
+        p = _PARENTS.get(b.name, b.parent)
+        while p and p not in col:
+            p = _PARENTS.get(p)
+        if p:
+            kids.setdefault(p, []).append(b.name)
+    out = []
+    for b in bones:
+        m, t = b.meta, []
+        if 'joint_aux' in m:
+            upper, lower = m['joint_aux']
+            share = m.get('aux_share', 0.5)
+            up = next((u for u in reversed(list(upper)) if u in col), None)
+            if up is not None:
+                t.append((col[up], 1.0 - share))
+            if lower in col:
+                t.append((col[lower], share))
+        for key in ('twist_of', 'shrug_of'):
+            if m.get(key) in col:
+                t.append((col[m[key]], 1.0))
+        if b.group not in FOLD_CHAIN_GROUPS:
+            p = _PARENTS.get(b.name, b.parent)
+            while p:
+                if p in col and bones[col[p]].group not in FOLD_CHAIN_GROUPS:
+                    t.append((col[p], 1.0))
+                p = _PARENTS.get(p)
+            t += [(col[c], 1.0) for c in sorted(kids.get(b.name, []))
+                  if bones[col[c]].group not in FOLD_CHAIN_GROUPS]
+        out.append(t)
+    return out
+
+
+def _prune(w, bones=None, guide=None, co=None):
+    """Keep at most MAX_INFLUENCE bones per vertex, continuously and without crushing the
+    kept ones. With t the 5th-largest weight (at least MIN_WEIGHT), every bone folds away
+    the share 1 - smoothstep(t, PRUNE_FOLD * t, w) of its weight w: all of it at or below t
+    (so at most four remain), none from PRUNE_FOLD * t up. The result is a continuous
+    function of the weights, whichever bones swap rank; the round-4 prune subtracted t from
+    every bone, which turned a smooth field into a cliff where five or six bones overlap
+    on a dense mesh. The folded weight goes to the bones a helper blends between
+    (_fold_targets: ひじ補助 to 腕捩 / ひじ by its share, a twist bone to its limb, the
+    shrug to 肩) as far as those keep weight, the rest to the kept bones in proportion.
+    `bones`: the columns' Bone objects (None: proportional only)."""
+    k = MAX_INFLUENCE
+    n, B = w.shape
+    w = w / np.maximum(w.sum(1, keepdims=True), 1e-12)
+    g = w if guide is None else guide / np.maximum(guide.sum(1, keepdims=True), 1e-12)
+    if B > k:
+        t = -np.partition(-g, k, axis=1)[:, k]
+    else:
+        t = np.zeros(n)
+    t = np.maximum(t, MIN_WEIGHT)[:, None]
+    fold = w * (1.0 - _smoothstep(0.0, 1.0, (g - t) / ((PRUNE_FOLD - 1.0) * t)))
+    out = w - fold
+    left = fold.sum(1)
+    if bones is not None:
+        for j, tg in enumerate(_fold_targets(bones)):
+            if not tg:
+                continue
+            amt = fold[:, j].copy()
+            split = sum(f for _, f in tg if f < 1.0) > 0.0      # a helper's fixed split
+            for c, frac in tg:
+                if c == j:
+                    continue
+                g = _smoothstep(0.0, FOLD_TARGET_MIN, out[:, c])
+                give = (fold[:, j] * frac if split and frac < 1.0 else amt) * g
+                give = np.minimum(give, amt)
+                out[:, c] += give
+                left -= give
+                amt -= give
+    out += out / np.maximum(out.sum(1, keepdims=True), 1e-12) * np.maximum(left, 0.0)[:, None]
+    empty = np.nonzero(out.sum(1) <= 1e-12)[0]      # only with 5+ exactly tied bones
+    out[empty, np.argmax(w[empty], axis=1)] = 1.0
+    kk = min(k, B)
+    idx = np.argsort(-out, axis=1, kind='stable')[:, :kk]
+    ww = np.take_along_axis(out, idx, axis=1)
+    ww = ww / np.maximum(ww.sum(1, keepdims=True), 1e-12)
+    if co is not None and bones is not None and _MOTION:
+        ww = _motion_refit(w, idx, ww, co, bones, fold.sum(1) > 1e-9)
+    return idx, ww
+
+
+_MOTION = {}          # deform bone name -> (K, 3, 4) skinning matrices in the sample poses (build_rig)
+MOTION_D = 0.01       # m: motion error that weighs as much as moving a kept weight by its own size
+MOTION_TOP = 8        # strongest unpruned bones whose motion the refit matches
+
+
+def _motion_refit(w, idx, ww, co, bones, folded):
+    """Re-weight the kept bones of each pruned vertex so it moves as the unpruned blend
+    did in the sample poses (_motion_samples): least squares over the poses, sum 1,
+    regularized toward the folded weights, the more strongly the smaller a kept weight
+    is (a bone entering the set enters at zero: no jump). Folding a few % of torso weight
+    on a raised upper arm into the arm moves the skin centimetres; this puts it back.
+    Only vertices that lost weight in the prune are touched."""
+    rows = np.nonzero(folded)[0]
+    if not len(rows):
+        return ww
+    shape = next(iter(_MOTION.values())).shape
+    S = np.zeros((len(bones),) + shape)
+    have = np.zeros(len(bones), dtype=bool)
+    for j, b in enumerate(bones):
+        if b.name in _MOTION:
+            S[j] = _MOTION[b.name]
+            have[j] = True
+    K = shape[0]
+    m = min(MOTION_TOP, w.shape[1])
+    out = ww.copy()
+    for s0 in range(0, len(rows), 8192):
+        r = rows[s0:s0 + 8192]
+        p = np.c_[co[r], np.ones(len(r))]
+        src = np.argsort(-w[r], axis=1, kind='stable')[:, :m]
+        sw = np.take_along_axis(w[r], src, 1)
+        sw = sw / np.maximum(sw.sum(1, keepdims=True), 1e-12)
+        ok = have[src].all(1) & have[idx[r]].all(1)
+        y = np.einsum('nj,njkab,nb->nka', sw, S[src], p).reshape(len(r), -1)
+        A = np.einsum('njkab,nb->njka', S[idx[r]], p)
+        A = A.reshape(len(r), A.shape[1], -1)
+        o = ww[r]
+        lam = K * MOTION_D ** 2 * (0.05 / (o + 0.002))
+        H = np.einsum('nia,nja->nij', A, A) + lam[:, :, None] * np.eye(A.shape[1])[None]
+        g = np.einsum('nia,na->ni', A, y) + lam * o
+        Hi = np.linalg.inv(H)
+        hg, h1 = np.einsum('nij,nj->ni', Hi, g), Hi.sum(2)
+        mu = (hg.sum(1) - 1.0) / np.maximum(h1.sum(1), 1e-12)
+        u = np.maximum(hg - mu[:, None] * h1, 0.0)
+        u = u / np.maximum(u.sum(1, keepdims=True), 1e-12)
+        out[r[ok]] = u[ok]
+    return out
+
+
+def _prune_subtract(w):
     """Keep the MAX_INFLUENCE strongest bones per vertex, continuously: the next-strongest
     weight (at least MIN_WEIGHT) is subtracted from every bone before renormalizing, so a
     bone entering or leaving the top four does so at zero weight instead of jumping."""
@@ -1156,7 +1399,7 @@ def _hair_head_fade(w, co, bones):
     return w
 
 
-CROTCH_SMOOTH = 0.03          # weight smoothing radius (m) at the crotch
+CROTCH_SMOOTH = 0.045          # weight smoothing radius (m) at the crotch
 CROTCH_PARTS = ('body', '_proxy')   # skin only: garments there follow the skirt chains
 CROTCH_ZONE = (0.07, 0.22, 0.04)   # half width, depth below the hip joints, vertical fade
 
@@ -1392,9 +1635,13 @@ def _weights(obj, part, co, bones):
         w = _hair_head_fade(w, co, bones)
     cord = _neck_cord(obj, part)
     if cord:
-        return _prune(_neck_cord_weights(cord, w, co, bones))
-    w = _island_rules(w, co, labels, bones, part)
-    return _prune(w)
+        w = _neck_cord_weights(cord, w, co, bones)
+    else:
+        w = _island_rules(w, co, labels, bones, part)
+    # which bones a vertex keeps is decided on a wider-smoothed copy of its weights, so
+    # the set changes gradually along the surface instead of wherever two weak bones swap
+    guide = _smooth(w, co, edges, PRUNE_SMOOTH) if PRUNE_SMOOTH > 0 else None
+    return _prune(w, bones, guide, co)
 
 
 def _skin(obj, part, bones, arm):
@@ -1625,6 +1872,71 @@ def _create_armature(bones):
     return arm
 
 
+# generic poses for the prune's motion refit: (input bone stems, how, degrees). `how` is a
+# world direction to bend toward (x mirrored on .R), or twist / curl / pitch / yaw / roll / side
+MOTION_POSES = (
+    (('腕',), (0, 0, 1), 80), (('腕',), (0, -1, 0), 80), (('ひじ',), (0, -1, 0), 90),
+    (('手捩',), 'twist', 60), (('腕捩',), 'twist', 45), (('手首',), (0, -1, 0), 45),
+    (('肩',), (0, 0, 1), 20), (('足',), (0, -1, 0), 60), (('足',), (0, 1, 0), 30),
+    (('足',), 'side', 30), (('ひざ',), (0, 1, 0), 90), (('足首',), (0, -1, 0), 30),
+    (('上半身',), 'pitch', 30), (('上半身',), 'yaw', 30), (('上半身2',), 'roll', 20),
+    (('下半身',), 'pitch', 20), (('首',), 'yaw', 40), (('頭',), 'pitch', 30),
+    (('Fingers',), 'curl', 60), (('Chains',), 'pitch', 25),
+)
+
+
+def _motion_samples(arm):
+    """{deform bone: (K, 3, 4)} skinning matrices (posed @ rest^-1) of every deform bone
+    in MOTION_POSES (each joint bent or twisted on its own, chain roots swung), evaluated
+    on the real armature with its constraints and drivers, IK muted. The prune's refit
+    (_motion_refit) compares vertex motion in them. The pose is reset afterwards."""
+    from mathutils import Quaternion
+    pbs = arm.pose.bones
+    muted = [c for pb in pbs for c in pb.constraints if c.type == 'IK' and not c.mute]
+    for c in muted:
+        c.mute = True
+    deform = [pb for pb in pbs if pb.bone.use_deform]
+    out = {pb.name: [] for pb in deform}
+
+    def rot(pb, axis_w, deg):
+        local = (pb.bone.matrix_local.to_3x3().inverted() @ Vector(axis_w)).normalized()
+        pb.rotation_mode = 'QUATERNION'
+        pb.rotation_quaternion = Quaternion(local, math.radians(deg)) @ pb.rotation_quaternion
+
+    for stems, how, deg in MOTION_POSES:
+        for pb in pbs:
+            pb.matrix_basis.identity()
+        for pb in pbs:
+            stem = pb.name.split('.')[0]
+            grp = pb.bone.collections[0].name if pb.bone.collections else ''
+            side = -1.0 if pb.name.endswith('.R') else 1.0
+            hit = stem in stems or ('Fingers' in stems and grp == 'Fingers') or \
+                ('Chains' in stems and grp in FOLD_CHAIN_GROUPS and stem.endswith('_0'))
+            if not hit:
+                continue
+            ax = pb.bone.matrix_local.to_3x3()
+            if how == 'twist':
+                rot(pb, ax.col[1], deg * side)
+            elif how == 'curl':
+                rot(pb, ax.col[0], deg)
+            elif isinstance(how, str):
+                w_ax = {'pitch': (1, 0, 0), 'yaw': (0, 0, 1), 'roll': (0, 1, 0), 'side': (0, side, 0)}[how]
+                rot(pb, w_ax, deg)
+            else:
+                tgt = Vector(how)
+                tgt.x *= side
+                rot(pb, ax.col[1].cross(tgt), deg)
+        bpy.context.view_layer.update()
+        for pb in deform:
+            out[pb.name].append(np.array(pb.matrix @ pb.bone.matrix_local.inverted())[:3])
+    for pb in pbs:
+        pb.matrix_basis.identity()
+    for c in muted:
+        c.mute = False
+    bpy.context.view_layer.update()
+    return {k: np.array(v) for k, v in out.items()}
+
+
 def bone_table(arm=None):
     """[(blender_name, jp, en)] for the rig in the scene (for export)."""
     arm = arm or bpy.data.objects[ARM_NAME]
@@ -1659,7 +1971,9 @@ def build_rig():
     print(f"rig head  目.L           {'mesh' if 'eye' in H else 'spec'}  ({ey.x:+.3f}, {ey.y:+.3f}, {ey.z:+.3f})")
     bones = core + _secondary_bones(parts, core)
     arm = _create_armature(bones)
-    global _ATTACH_HOST
+    global _ATTACH_HOST, _PARENTS, _MOTION
+    _MOTION = _motion_samples(arm) if PRUNE_MOTION else {}
+    _PARENTS = {b.name: b.parent for b in bones}
     host = []
     for objs in parts.values():
         for o in objs:
