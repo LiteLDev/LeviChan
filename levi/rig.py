@@ -669,16 +669,58 @@ SKIRT_SEG_FOLLOW = (0.65, 0.1)
 SKIRT_LEG_SHARPNESS = 1.0   # 1 = the even split (1 + sin a) / 2; 1.5-2 sheared the petticoat (x2.0-2.4 in walk)
 SKIRT_SECTORS = 16          # skirt chains around the body
 SKIRT_SEGMENTS = 3          # bones per skirt chain
+# The chains hang from just below the waistband (this share of the way from hip_z up to
+# waist_z), the pivot cloth really turns about: a thigh raised to the horizontal stands
+# ~7 cm above the skirt's hip-level bell in front, which no turn about a hip-level root
+# (round 6) can lift the cloth over, so the drape lifted the whole panel past 110 deg
+# instead and the cloth in front of the hip stayed inside the thigh.
+# 0.6 puts the roots 9 mm above the 上半身 / 下半身 split (_core_bones' z_pivot), where the
+# skin is still almost all 下半身, so a torso bend barely moves the skin there; at 0.5 (on
+# the split) the drape needs ~10 deg more lift for the same clearance, which stretched the
+# cloth just below the roots to x2.15 (high_kick).
+SKIRT_ROOT_RISE = 0.6
+SKIRT_ROOT_Z = L['hip_z'] + SKIRT_ROOT_RISE * (L['waist_z'] - L['hip_z'])
 # Skirt drape (Blender): each chain joint turns forward / back only as far as the cloth must
 # to clear the thighs, and hangs back toward its rest direction otherwise (_skirt_drape).
 SKIRT_DRAPE = True
-DRAPE_PHI = tuple(range(-60, 121, 10))   # deg of thigh pitch (forward +) the drape table samples
-DRAPE_CLEAR = 0.012         # m kept between the innermost cloth layer and the thigh surface
-DRAPE_BEND = 30.0           # deg: most a joint bends against the segment above it
+DRAPE_PHI = tuple(range(-70, 141, 5))   # deg of thigh pitch (forward +) the drape table samples
+DRAPE_CLEAR = 0.016         # m kept between the innermost cloth layer and the thigh surface
+DRAPE_ROOT_MAX = 110.0      # deg the root segment may turn (seated, the front panel lies on the lap)
+DRAPE_SPHERE_STEP = 0.015   # m between the spheres that stand in for the thigh (_thigh_spheres)
+# ... which run on past the knee along a straight shin to this many thigh lengths (radius
+# DRAPE_SHIN_R there): a kicked leg is straight, and the petticoat tiers below the skirt
+# hem reach past the knee when the skirt lies along the thigh (the shoe came through them)
+DRAPE_LEG_EXT = 1.45
+DRAPE_SHIN_R = 0.05
+# (m from the hip joint along the thigh, the thigh's skin weight there): measured on the
+# round-6 body (足 vs 下半身, mean round the thigh); the obstacle near the groin moves as
+# much as the blended skin does
+DRAPE_SKIN_W = ((0.0, 0.5), (0.05, 0.6), (0.10, 0.75), (0.14, 0.97), (0.17, 1.0))
+DRAPE_RES = 1.0             # deg: resolution of the clearance search
+DRAPE_SLACK = 0.004         # m: where nothing clears, the least turn within this of the best depth
+DRAPE_SMOOTH = 5            # [1 2 1] passes over the pitch samples (~9 deg; the drivers add C1 Bezier keys)
+DRAPE_BEND = 24.0           # deg: most a joint bends against the segment above it (30: x2.1 at the joint)
 DRAPE_UP = 10.0             # deg a segment may lift above the one over it
-DRAPE_SPREAD = 100.0        # deg around the body over which a lifted chain lifts its neighbours
-DRAPE_SPREAD_POW = 2.0      # ... falling off as 1 - (angle / spread) ** this (flat next to the lifted chain)
+# A lifted chain lifts its neighbours as the cloth between them is pulled along: each
+# segment's turn falls off around the ring by at most this many deg per chain step (root,
+# middle, hem), so neighbouring chains never differ by more and the cloth blended between
+# them is not stretched (linear skinning draws it along the chord): a cone, the round-6
+# 1 - (angle / 100) ** 2 falloff was steepest 70-90 deg out, x2.3-2.8 at the sides.
+DRAPE_RING_STEP = (13.0, 11.0, 9.0)
+# Early lift: below DRAPE_EARLY_MAX deg of pitch a segment turns at least DRAPE_EARLY x the
+# pitch x its steepest later turn per deg (its table made star-shaped from rest), so a
+# stride starts the cloth moving with the thigh instead of only past the clearance
+# angle; when the legs scissor (walk, run) the lift handed from one thigh to the other
+# no longer dips to nothing for a frame (the pops of round 6).
+DRAPE_EARLY = 0.5
+DRAPE_EARLY_MAX = 70.0
+DRAPE_COMBINE_EPS = 0.3     # rad: softness of the smooth max of both thighs' lifts (_drape_combine_expr)
 DRAPE_SHARE_AT = 60.0       # deg of thigh pitch at which the PMX's linear 回転付与 share is read
+DRAPE_SHARE_NORM = 0.5      # PMX: both thighs' shares scaled by (max / sum) ** this (_drape_share)
+# Abduction: a second table with the thigh swung out this far (deg, seen from above); the
+# drivers blend to it as the raised thigh turns outward (cross-legged, a side step), where
+# the side-front cloth, not the front, lies over the thigh. Blender only.
+DRAPE_PSI = 45.0
 
 
 def skirt_follow(angle, s):
@@ -722,37 +764,110 @@ def _rot_x(p, c, a):
     return np.stack([q[..., 0], q[..., 1] * ca + q[..., 2] * sa, -q[..., 1] * sa + q[..., 2] * ca], -1) + c
 
 
-def _thigh_depth(q, hip, knee, prof):
-    """How far points q lie inside the thigh capsule hip -> knee widened by DRAPE_CLEAR
-    (<= 0 outside); the hip end (t < 0.12, the pelvis) does not count."""
+def _drape_share(tabs, tag, i):
+    """PMX: the share of thigh `tag`'s rotation (回転付与) that skirt follow bone i takes,
+    the drape's linear part at DRAPE_SHARE_AT. MMD adds the two thighs' appended turns,
+    where Blender takes about the larger (_drape_combine_expr): each thigh's absolute
+    turn is scaled by (max / sum) ** DRAPE_SHARE_NORM of the two at that pitch, so both
+    thighs raised together (seated) lift the cloth by sqrt(max x sum) at 0.5, not by the
+    sum of their tables (up to ~1.7x the drape), while one thigh alone keeps most of its
+    own (MMD physics, colliding with the legs, does the rest)."""
+    xs = np.array(DRAPE_PHI, dtype=float)
+
+    def absolute(j):
+        if j < 0:
+            return 0.0
+        T = {t: float(np.interp(DRAPE_SHARE_AT, xs, tabs[t][j])) for t in 'LR'}
+        tot = abs(T['L']) + abs(T['R'])
+        f = (max(abs(T['L']), abs(T['R'])) / tot) ** DRAPE_SHARE_NORM if tot > 1e-9 else 1.0
+        return T[tag] * f
+    return (absolute(i) - absolute(i - 1)) / math.radians(DRAPE_SHARE_AT)
+
+
+def _thigh_spheres(hip, knee, prof, phi, psi=0.0, s=1.0):
+    """The thigh pitched forward by phi (rad; its hip -> knee line seen from the side) and
+    swung out so that, seen from above, it points psi (rad) outward from straight ahead
+    (side s: +1 left), as a chain of spheres (centres (S, 3), radii (S,) widened by
+    DRAPE_CLEAR), every DRAPE_SPHERE_STEP from the hip joint on past the knee along a
+    straight shin (DRAPE_LEG_EXT, DRAPE_SHIN_R). Each
+    centre moves as the skinned surface around it does: linear blend skinning between
+    the pelvis (at rest) and the turned thigh, by the thigh's skin weight at that
+    distance from the hip (DRAPE_SKIN_W). So near the groin, where the skin is half
+    pelvis, the obstacle rises only part of the way, as the skin does, and the cloth
+    there is not lifted over a rigid thigh that isn't there."""
     ax = knee - hip
-    ln2 = float(ax @ ax)
-    t = ((q - hip) @ ax) / ln2
-    tc = np.clip(t, 0.0, 1.0)
-    d = np.linalg.norm(q - (hip + tc[..., None] * ax), axis=-1)
-    r = np.interp(tc, prof[0], prof[1]) + DRAPE_CLEAR
-    return np.where((t > 0.12) & (t < 1.08), r - d, -1.0)
+    ln = float(np.linalg.norm(ax))
+    ts = np.arange(0.0, DRAPE_LEG_EXT * ln + 1e-9, DRAPE_SPHERE_STEP)
+    c0 = hip + np.outer(ts / ln, ax)
+    d = _rot_x(ax / ln, np.zeros(3), phi)
+    if psi:
+        d = d + np.array([s * max(-d[1], 0.0) * math.tan(psi), 0.0, 0.0])
+        d = d / np.linalg.norm(d)
+    w = np.interp(ts, *zip(*DRAPE_SKIN_W))
+    c = (1.0 - w)[:, None] * c0 + w[:, None] * (hip + np.outer(ts, d))
+    r = np.interp(np.clip(ts / ln, 0.0, 1.0), prof[0], prof[1])
+    r = np.where(ts > ln, np.minimum(r, DRAPE_SHIN_R), r) + DRAPE_CLEAR
+    return c, r
+
+
+def _thigh_depth(q, spheres):
+    """How far points q (..., 3) lie inside the thigh's spheres (_thigh_spheres; <= 0 outside)."""
+    c, r = spheres
+    d = np.linalg.norm(q[..., None, :] - c, axis=-1)
+    return (r - d).max(-1)
+
+
+def _smooth_pitch(tab, i0):
+    """DRAPE_SMOOTH [1 2 1] passes along the pitch samples (axis 1), held at nought at
+    rest (sample i0); the end samples keep their values."""
+    for _ in range(DRAPE_SMOOTH):
+        sm = tab.copy()
+        sm[:, 1:-1] = 0.25 * tab[:, :-2] + 0.5 * tab[:, 1:-1] + 0.25 * tab[:, 2:]
+        sm[:, i0] = 0.0
+        tab = sm
+    return tab
 
 
 def _skirt_drape(chains, pts, cy, hip, knee, body):
     """Drape table of the skirt chains: {chain k: {'L'|'R': (nseg, len(DRAPE_PHI)) absolute
-    forward turn (rad) of each segment}} for that thigh pitched alone by each DRAPE_PHI.
+    forward turn (rad) of each segment}} for that thigh pitched alone by each DRAPE_PHI,
+    and under 'La' / 'Ra' the same for the thigh also swung out DRAPE_PSI (seen from
+    above, see _thigh_spheres; backward pitches as 'L' / 'R').
 
-    Each segment, root first, takes the smallest turn (from its rest direction, so it
-    hangs, within DRAPE_BEND of the segment above) that keeps the cloth of its sector
-    (skirt and petticoat, the innermost layer counts) DRAPE_CLEAR off the swung thigh.
-    Chains then lift their neighbours by a share falling off over DRAPE_SPREAD, as the
-    cloth between them is pulled along. Cloth already inside the thigh at rest is ignored."""
+    Each segment, root first, takes the smallest turn toward the thigh's swing (forward
+    for a raised thigh, back for one swung back, never the other way) that keeps the
+    cloth of its sector (skirt and petticoat, the innermost layer counts) DRAPE_CLEAR off
+    the swung thigh. The root may turn up to DRAPE_ROOT_MAX (seated, the front panel lies
+    on the lap), each joint below within DRAPE_BEND of the segment above, and none lifts
+    more than DRAPE_UP past the one above it (no zigzag). Cloth already inside the thigh
+    at rest is ignored.
+
+    Chains then lift their neighbours, as the cloth between them is pulled along, by
+    their own turn less DRAPE_RING_STEP per chain step (a cone round the ring). Each
+    table is made monotone in the thigh's pitch (a segment never drops back while the
+    thigh keeps rising, so a clip never reverses it), lifted early (DRAPE_EARLY) and
+    smoothed over the pitch samples; the drivers' Bezier keys then turn the cloth
+    continuously (C1)."""
     ang = np.degrees(np.arctan2(pts[:, 0], pts[:, 1] - cy))
     step = 360.0 / SKIRT_SECTORS
-    grid = np.radians(np.arange(-150.0, 150.1, 2.5))
     phis = np.radians(np.array(DRAPE_PHI, dtype=float))
+    i0 = int(np.argmin(np.abs(phis)))
+    bend, up = math.radians(DRAPE_BEND), math.radians(DRAPE_UP)
+    res = math.radians(DRAPE_RES)
+    root_max = math.radians(DRAPE_ROOT_MAX)
     out = {}
     sides = {}
     for tag, s in (('L', 1.0), ('R', -1.0)):
         h, kn = hip * np.array([s, 1, 1]), knee * np.array([s, 1, 1])
-        sides[tag] = (h, kn, _thigh_profile(body, h, kn, s))
+        prof = _thigh_profile(body, h, kn, s)
+        sides[tag] = (h, kn, prof, s, 0.0)
+        sides[tag + 'a'] = (h, kn, prof, s, math.radians(DRAPE_PSI))
+    # the thigh at every sample, shared by all chains
+    spheres = {tag: [_thigh_spheres(h, kn, prof, phi, psi, s) for phi in phis]
+               for tag, (h, kn, prof, s, psi) in sides.items()}
     raw = {tag: {} for tag in sides}
+    if len({len(j) for _, j in chains}) > 1:
+        raise ValueError('skirt drape: chains with different segment counts')
     for k, (a, joints) in enumerate(chains):
         J = np.array([tuple(j) for j in joints])
         n = len(J) - 1
@@ -765,31 +880,40 @@ def _skirt_drape(chains, pts, cy, hip, knee, body):
         keep = u > 0.35
         sel, u = sel[keep], u[keep]
         seg = np.clip(np.floor(u), 0, n - 1).astype(int)
-        for tag, (h, kn, prof) in sides.items():
-            rest_in = _thigh_depth(sel, h, kn, prof) > 0.0
+        for tag, (h, kn, prof, s, psi) in sides.items():
+            rest_in = _thigh_depth(sel, spheres[tag[0]][i0]) > 0.0
             tab = np.zeros((n, len(phis)))
             for pi, phi in enumerate(phis):
-                knee_p = _rot_x(kn, h, phi)
+                if pi == i0 or (psi and phi < 0):
+                    continue            # (an abducted table's backward half is the plain one's)
+                sg = 1.0 if phi > 0 else -1.0
+                sph = spheres[tag][pi]
                 A = []
                 q = sel.copy()
                 Jc = J.copy()
                 for j in range(n):
                     prev = A[-1] if A else 0.0
+                    lo, hi = (0.0, root_max) if j == 0 else (max(0.0, sg * prev - bend), sg * prev + bend)
+                    cand = sg * np.arange(lo, hi + 1e-9, res)
                     m = (seg == j) & ~rest_in
-                    cand = grid[np.abs(grid - prev) <= math.radians(DRAPE_BEND)]
                     if not m.any():
-                        best = min(cand, key=lambda g: (abs(g), g))
+                        best = float(cand[0])
                     else:
                         P = q[m]
-                        dep = np.stack([_thigh_depth(_rot_x(P, Jc[j], g - prev), h, knee_p, prof).max()
-                                        for g in cand])
-                        clear = dep <= 0.0
-                        if clear.any():
-                            c = cand[clear]
-                            best = c[np.argmin(np.abs(c) + 1e-6 * c)]
-                        else:
-                            best = cand[np.argmin(dep)]
-                    A.append(float(best))
+                        # every candidate at once: (G, M, 3)
+                        g = (cand - prev)[:, None]
+                        Q = P - Jc[j]
+                        ca, sa = np.cos(g), np.sin(g)
+                        R = np.stack([np.broadcast_to(Q[None, :, 0], (len(cand), len(Q))),
+                                      Q[None, :, 1] * ca + Q[None, :, 2] * sa,
+                                      -Q[None, :, 1] * sa + Q[None, :, 2] * ca], -1) + Jc[j]
+                        dep = _thigh_depth(R, sph).max(1)
+                        # the smallest turn that clears, or else that comes within DRAPE_SLACK
+                        # of the least depth any turn reaches (cloth turning barely helps
+                        # must not swing the panel to the limit)
+                        ok = np.nonzero(dep <= max(0.0, dep.min() + DRAPE_SLACK))[0]
+                        best = float(cand[ok[0]])
+                    A.append(best)
                     turn = best - prev
                     below = seg >= j
                     q[below] = _rot_x(q[below], Jc[j], turn)
@@ -797,23 +921,72 @@ def _skirt_drape(chains, pts, cy, hip, knee, body):
                 # no zigzag: a segment that must lift more than the one above it lifts that
                 # one too (within DRAPE_UP), so the cloth curves over the thigh in one
                 # direction (blended skinning cuts a zigzag's corners into the leg)
-                up = math.radians(DRAPE_UP)
                 for j in range(n - 2, -1, -1):
-                    if A[j + 1] > 0:
-                        A[j] = max(A[j], A[j + 1] - up)
-                    elif A[j + 1] < 0:
-                        A[j] = min(A[j], A[j + 1] + up)
+                    A[j] = sg * max(sg * A[j], sg * A[j + 1] - up)
                 tab[:, pi] = A
             raw[tag][k] = tab
-    angles = np.array([a for a, _ in chains])
     for tag in sides:
+        if tag.endswith('a'):
+            for k in raw[tag]:
+                raw[tag][k][:, :i0] = raw[tag[:-1]][k][:, :i0]
+
+    # spread round the ring: a cone (at most DRAPE_RING_STEP per chain step and segment)
+    # from every chain's own lift, forward and backward lifts separately
+    angles = np.array([a for a, _ in chains])
+    dist = np.abs((angles[:, None] - angles[None, :] + 180.0) % 360.0 - 180.0) / step
+    nseg = len(chains[0][1]) - 1
+    steps = [DRAPE_RING_STEP[min(j, len(DRAPE_RING_STEP) - 1)] for j in range(nseg)]
+    cone = np.radians(np.array(steps, dtype=float))[None, None, :, None]
+    early_max = math.radians(DRAPE_EARLY_MAX)
+    for tag in sides:
+        R = np.stack([raw[tag][m][:nseg] for m in range(len(chains))])          # (K, n, P)
+        pos = (np.maximum(R, 0.0)[None] - cone * dist[:, :, None, None]).max(1)
+        neg = (np.minimum(R, 0.0)[None] + cone * dist[:, :, None, None]).min(1)
+        F = np.maximum(pos, 0.0) + np.minimum(neg, 0.0)
         for k in range(len(chains)):
-            dk = np.abs((angles - angles[k] + 180.0) % 360.0 - 180.0)
-            f = np.clip(1.0 - (dk / DRAPE_SPREAD) ** DRAPE_SPREAD_POW, 0.0, 1.0)
-            f[dk < 1e-6] = 1.0
-            stack = np.stack([raw[tag][m] * f[m] for m in range(len(chains))])
-            mx, mn = stack.max(0), stack.min(0)
-            out.setdefault(k, {})[tag] = np.maximum(mx, 0.0) + np.minimum(mn, 0.0)
+            tab = F[k]
+            # monotone away from rest on both sides: a thigh rising further only ever lifts
+            # the cloth further (the round-6 greedy table flipped segments between samples,
+            # which a clip showed as one-frame reversals)
+            for pi in range(i0 + 1, len(phis)):
+                tab[:, pi] = np.maximum(tab[:, pi], tab[:, pi - 1])
+            for pi in range(i0 - 1, -1, -1):
+                tab[:, pi] = np.minimum(tab[:, pi], tab[:, pi + 1])
+            # early lift (DRAPE_EARLY): star-shaped from rest up to DRAPE_EARLY_MAX
+            for side_idx in (range(i0 + 1, len(phis)), range(i0 - 1, -1, -1)):
+                idx = [pi for pi in side_idx if abs(phis[pi]) <= early_max + 1e-9]
+                if not idx:
+                    continue
+                ratio = np.abs(tab[:, idx]) / np.abs(phis[idx])[None]
+                hull = np.maximum.accumulate(ratio[:, ::-1], axis=1)[:, ::-1]
+                sg = np.sign(phis[idx[0]])
+                early = sg * DRAPE_EARLY * np.abs(phis[idx])[None] * hull
+                tab[:, idx] = sg * np.maximum(sg * tab[:, idx], sg * early)
+            # smoothed, plus the smoothed (dilated) shortfall wherever smoothing took a lift
+            # below what the clearance needs, so the curve stays on or above the table
+            sgn = np.sign(phis)[None]
+            base, tab = tab, _smooth_pitch(tab, i0)
+            short = np.maximum(sgn * (base - tab), 0.0)
+            wide = np.zeros_like(short)
+            for half in (sgn > 0, sgn < 0):          # each side of rest on its own
+                sh = short * half
+                w = sh.copy()
+                for o in range(1, DRAPE_SMOOTH + 1):
+                    w[:, o:] = np.maximum(w[:, o:], sh[:, :-o])
+                    w[:, :-o] = np.maximum(w[:, :-o], sh[:, o:])
+                wide += w * half
+            tab = tab + sgn * _smooth_pitch(wide, i0)
+            for pi in range(i0 + 1, len(phis)):
+                tab[:, pi] = np.maximum(tab[:, pi], tab[:, pi - 1])
+            for pi in range(i0 - 1, -1, -1):
+                tab[:, pi] = np.minimum(tab[:, pi], tab[:, pi + 1])
+            # the chain again: no zigzag (DRAPE_UP), then no joint bent past DRAPE_BEND
+            sg = np.sign(phis)[None]
+            for j in range(nseg - 2, -1, -1):
+                tab[j] = sg[0] * np.maximum(sg[0] * tab[j], sg[0] * tab[j + 1] - up)
+            for j in range(1, nseg):
+                tab[j] = np.clip(tab[j], tab[j - 1] - bend, tab[j - 1] + bend)
+            out.setdefault(k, {})[tag] = tab
     return out
 
 
@@ -947,7 +1120,7 @@ def _secondary_bones(parts, core):
     pts = verts('skirt', 'petticoat')
     if len(pts):
         cy = float(pts[:, 1].mean())
-        chains = _sector_chains(pts, (0.0, cy), L['hip_z'], SKIRT_SECTORS, SKIRT_SEGMENTS, 0.08)
+        chains = _sector_chains(pts, (0.0, cy), SKIRT_ROOT_Z, SKIRT_SECTORS, SKIRT_SEGMENTS, 0.08)
         drape = {}
         if SKIRT_DRAPE and chains:
             th = byname['足.L']
@@ -974,14 +1147,10 @@ def _secondary_bones(parts, core):
                         if k in drape:
                             # the PMX gets the drape's linear part at DRAPE_SHARE_AT (physics does the
                             # rest there); Blender turns the bone by the drape table itself
-                            tab = drape[k][tag]
-                            xs = np.array(DRAPE_PHI, dtype=float)
-                            a = math.radians(DRAPE_SHARE_AT)
-                            turn = lambda r: float(np.interp(DRAPE_SHARE_AT, xs, r))  # noqa: E731
-                            lin = (turn(tab[i]) - (turn(tab[i - 1]) if i else 0.0)) / a
+                            lin = _drape_share(drape[k], tag, i)
                             meta = {'follow': (f'足.{tag}', round(lin, 4)),
-                                    'drape': {'i': i, 'L': drape[k]['L'], 'R': drape[k]['R'], 'own': tag,
-                                              'above': f'スカート{k}追従左' + (f'{i - 1}' if i > 1 else '')}}
+                                    'drape': dict(drape[k], i=i, own=tag, hub=f'スカート{min(drape)}追従右',
+                                                  above=f'スカート{k}追従左' + (f'{i - 1}' if i > 1 else ''))}
                         # a drape bone points along -X: its local Y is the forward-pitch axis, which
                         # the axis-angle rotation keeps even when a pose reset zeroes it
                         tail = head + (Vector((-0.03, 0, 0)) if k in drape else Vector((0, 0, 0.03)))
@@ -1262,8 +1431,11 @@ def _store_skin(objs):
 # ---- per-object helpers: topology, sides, smoothing, pruning
 SMOOTH_RADIUS = {     # metres of weight smoothing along the surface, per part
     'body': 0.008, 'head': 0.01, 'shoes': 0.012, 'accessories': 0.012, 'bodice': 0.035,
-    'hair_front': 0.025, 'hair_back': 0.03, 'sleeves': 0.065, 'skirt': 0.03, 'petticoat': 0.04,
+    'hair_front': 0.025, 'hair_back': 0.03, 'sleeves': 0.065, 'skirt': 0.03, 'petticoat': 0.06,
 }
+# (petticoat, round 7: 0.04 -> 0.06. Its gathered inner tiers sit ~16 cm from the axis,
+# where neighbouring skirt chains are only ~6.5 cm apart, and a draped chain turning more
+# than its neighbour stretched them x2.2-3.2; 0.08 made the layers part in cross_legged.)
 DEFAULT_SMOOTH = 0.012
 MAX_SMOOTH_ITERS = 300
 SIDE_BAND = 0.02      # a .L/.R bone fades out over this far past the midline
@@ -1610,10 +1782,15 @@ def _prune_subtract(w):
     return idx, ww / np.maximum(ww.sum(1, keepdims=True), 1e-12)
 
 
-# bodice pieces hand over to the skirt weights between these heights relative to hip_z.
-# Above the hip the skirt field is itself the 上半身/下半身 blend, so a long hand-over
-# costs nothing and lets hanging ribbons leave the waist without a kink.
-SKIRT_BAND = (0.06, -0.02)
+# bodice pieces hand over to the skirt weights between these heights relative to the
+# skirt chains' root (SKIRT_ROOT_Z). Above the root the skirt field is itself the
+# 上半身/下半身 blend, so a long hand-over costs nothing and lets hanging ribbons leave the
+# waist without a kink; it ends at the root, so the ribbon tails lying on the skirt take
+# exactly the skirt's weights where the chains take over and fold with it over a raised
+# thigh (round 6 handed over across the chains' own hand-over: two ramps in one band,
+# x2.1-2.2 stretch and up to 55% of the tails inside the thigh when the skirt lifted).
+# It starts just below waist_z, so nothing at the waist bow or above changes hands.
+SKIRT_BAND = (0.035, 0.0)
 ANKLE_BLEND = 0.03    # foot / shin blend half-width around the ankle joint height
 DRAPE_NEAR, DRAPE_FAR = 0.04, 0.13   # sleeve drape weight fades in between these from the arm axis
 
@@ -2033,7 +2210,7 @@ def _base_weights(part, co, bones):
                 w0[:, chest] += a * (1.0 - k)
                 w0[:, arm] *= k[:, None]
         if len(main) < len(sub):        # bodice ribbons hanging over the skirt ride the skirt
-            t = _smoothstep(L['hip_z'] + SKIRT_BAND[0], L['hip_z'] + SKIRT_BAND[1], co[:, 2])[:, None]
+            t = _smoothstep(SKIRT_ROOT_Z + SKIRT_BAND[0], SKIRT_ROOT_Z + SKIRT_BAND[1], co[:, 2])[:, None]
             w0 = (1.0 - t) * w0 + t * _skirt_weights(co, sub)
     w = np.zeros((len(co), len(bones)))
     w[:, plain] = w0
@@ -2415,67 +2592,128 @@ def _apply_modifiers_with_keys(obj, keep):
         bpy.data.meshes.remove(old_me)
 
 
-def _drape_prop(arm, pb, prop, tab, thigh, sgn):
-    """pb[prop] = the drape row `tab` (rad over DRAPE_PHI) at the forward pitch of
-    `thigh`: a driver reading the thigh's twist about its own X (evaluated local rotation,
-    so IK counts) through an F-curve with the table as linear keys, flat outside."""
+def _drape_prop(arm, pb, prop, tab, src):
+    """pb[prop] = the drape row `tab` (rad over DRAPE_PHI) at the thigh's forward pitch,
+    the custom property src = (pose bone, property) (_thigh_hub), through an F-curve
+    holding the table as auto-clamped Bezier keys (C1, no overshoot past the samples),
+    flat outside."""
     pb[prop] = 0.0
-    fc = pb.driver_add(f'["{prop}"]')
-    drv = fc.driver
-    drv.type = 'SCRIPTED'
-    v = drv.variables.new()
-    v.name, v.type = 'p', 'TRANSFORMS'
-    tg = v.targets[0]
-    tg.id, tg.bone_target = arm, thigh
-    tg.transform_type, tg.rotation_mode, tg.transform_space = 'ROT_X', 'SWING_TWIST_X', 'LOCAL_SPACE'
-    drv.expression = 'p'
-    for m in list(fc.modifiers):
-        fc.modifiers.remove(m)
-    pts = sorted((sgn * math.radians(x), float(y)) for x, y in zip(DRAPE_PHI, tab))
+    fc = _prop_driver(arm, pb, f'["{prop}"]', 'p', [('p',) + tuple(src)])
+    pts = sorted((math.radians(x), float(y)) for x, y in zip(DRAPE_PHI, tab))
     fc.keyframe_points.add(len(pts))
     for kp, (x, y) in zip(fc.keyframe_points, pts):
         kp.co = (x, y)
-        kp.interpolation = 'LINEAR'
+        kp.interpolation = 'BEZIER'
+        kp.handle_left_type = kp.handle_right_type = 'AUTO_CLAMPED'
     fc.extrapolation = 'CONSTANT'
     fc.update()
 
 
-def _skirt_drape_driver(arm, pb, d):
-    """Blender only: turn a skirt chain joint about the world X axis by the drape table
-    (_skirt_drape). The chain's L follow bone at joint i carries two properties, the
-    absolute turn of segment i for each thigh pitched alone (_drape_prop); the larger
-    forward and backward lifts of the two thighs combine, and the joint turns by the
-    combined turn of its segment minus the one above (read from the joint above's
-    follow bone). The R follow bones stay at rest. In the PMX the segments below the
-    chain roots are physics bodies colliding with the legs, so only the linear share
-    ('follow') is exported."""
-    if d['own'] != 'L':
-        return
-    i = d['i']
-    for t in 'LR':
-        x = arm.data.bones[f'足.{t}'].matrix_local.to_3x3().col[0]
-        sgn = 1.0 if x.dot(Vector((-1.0, 0.0, 0.0))) > 0 else -1.0   # forward pitch = + twist about X
-        _drape_prop(arm, pb, f'drape_{t}', d[t][i], f'足.{t}', sgn)
-    pb.rotation_mode = 'AXIS_ANGLE'      # about local Y (the bone points along -X): forward pitch
-    pb.rotation_axis_angle = (0.0, 0.0, 1.0, 0.0)
-    fc = pb.driver_add('rotation_axis_angle', 0)
+def _prop_driver(arm, pb, path, expr, srcs):
+    """A scripted driver on pb's `path` (a custom property or a channel) reading custom
+    properties of pose bones: srcs = [(variable, bone, property)]."""
+    fc = pb.driver_add(path, 0) if path == 'rotation_axis_angle' else pb.driver_add(path)
     drv = fc.driver
     drv.type = 'SCRIPTED'
-    srcs = [('a', pb.name, 'drape_L'), ('b', pb.name, 'drape_R')]
-    if i:
-        srcs += [('c', d['above'], 'drape_L'), ('d', d['above'], 'drape_R')]
     for name, bone, prop in srcs:
         v = drv.variables.new()
         v.name, v.type = name, 'SINGLE_PROP'
         tg = v.targets[0]
         tg.id_type, tg.id = 'OBJECT', arm
         tg.data_path = f'pose.bones["{bone}"]["{prop}"]'
-    expr = 'max(0,a,b)+min(0,a,b)'
-    if i:
-        expr += '-max(0,c,d)-min(0,c,d)'
     drv.expression = expr
     for m in list(fc.modifiers):
         fc.modifiers.remove(m)
+    return fc
+
+
+def _thigh_hub(arm, hub):
+    """Blender only: the thighs' direction, measured once for every drape driver, as
+    custom properties of the pose bone `hub` (the first chain's R follow bone, at rest):
+    per thigh t, thigh_t_x / _y / _z (its hip -> knee direction in the pelvis frame, from
+    the evaluated local quaternion, so IK counts), thigh_t_phi (its forward pitch seen
+    from the side, from rest) and thigh_t_w (0 .. 1: how far it is swung out toward
+    DRAPE_PSI seen from above, faded out unless it points forward)."""
+    pb = arm.pose.bones[hub]
+    if 'thigh_L_phi' in pb.keys():
+        return
+    for t, s in (('L', 1.0), ('R', -1.0)):
+        thigh = f'足.{t}'
+        M = arm.data.bones[thigh].matrix_local.to_3x3()
+        v = ('(2*(x*y-w*z))', '(1-2*(x*x+z*z))', '(2*(y*z+w*x))')
+        for r, c in enumerate('xyz'):
+            prop = f'thigh_{t}_{c}'
+            pb[prop] = float(M[r][1])
+            fc = pb.driver_add(f'["{prop}"]')
+            drv = fc.driver
+            drv.type = 'SCRIPTED'
+            for q in 'wxyz':
+                var = drv.variables.new()
+                var.name, var.type = q, 'TRANSFORMS'
+                tg = var.targets[0]
+                tg.id, tg.bone_target = arm, thigh
+                tg.transform_type, tg.rotation_mode, tg.transform_space = \
+                    f'ROT_{q.upper()}', 'QUATERNION', 'LOCAL_SPACE'
+            drv.expression = '+'.join(f'{M[r][k]:.6f}*{v[k]}' for k in range(3))
+            for m in list(fc.modifiers):
+                fc.modifiers.remove(m)
+        rest = math.atan2(-M[1][1], -M[2][1])
+        src = [('x', hub, f'thigh_{t}_x'), ('y', hub, f'thigh_{t}_y'), ('z', hub, f'thigh_{t}_z')]
+        pb[f'thigh_{t}_phi'] = 0.0
+        # unwrapped past straight up (a thigh pulled to the chest reads +190, not -170 deg)
+        _prop_driver(arm, pb, f'["thigh_{t}_phi"]',
+                     f'atan2(-y,-z)-{rest:.6f}+(6.283185 if atan2(-y,-z)<-2.0 else 0)', src)
+        pb[f'thigh_{t}_w'] = 0.0
+        _prop_driver(arm, pb, f'["thigh_{t}_w"]',
+                     f'min(max(atan2({s:g}*x,max(-y,1e-4))/{math.radians(DRAPE_PSI):.6f},0),1)'
+                     f'*smoothstep(0.05,0.25,-y)', src)
+
+
+def _skirt_drape_driver(arm, pb, d):
+    """Blender only: turn a skirt chain joint about the world X axis by the drape tables
+    (_skirt_drape). The chain's L follow bone at joint i carries the absolute turn of
+    segment i for each thigh alone at its pitch (_drape_prop, reading the hub's
+    thigh_t_phi, _thigh_hub), split into its forward lift (drape_tp: the plain table
+    blended to the abducted one by thigh_t_w) and its backward lift (drape_tn, both
+    >= 0); `drape` is the two thighs combined (_drape_combine_expr) and the joint turns
+    by its segment's `drape` less the one above's (read from the joint above's follow
+    bone). The R follow bones stay at rest. (Blender keeps a driver expression to 256
+    characters, hence the steps.) In the PMX the segments below the chain roots are
+    physics bodies colliding with the legs, so only the linear share ('follow') is
+    exported."""
+    if d['own'] != 'L':
+        return
+    i, hub = d['i'], d['hub']
+    _thigh_hub(arm, hub)
+    for t in 'LR':
+        tab, tab_a = np.asarray(d[t][i], dtype=float), np.asarray(d[t + 'a'][i], dtype=float)
+        phi = (hub, f'thigh_{t}_phi')
+        _drape_prop(arm, pb, f'drape_{t}p0', np.maximum(tab, 0.0), phi)
+        _drape_prop(arm, pb, f'drape_{t}p1', np.maximum(tab_a, 0.0), phi)
+        _drape_prop(arm, pb, f'drape_{t}n', np.maximum(-tab, 0.0), phi)
+        pb[f'drape_{t}p'] = 0.0
+        _prop_driver(arm, pb, f'["drape_{t}p"]', 'a+w*(b-a)',
+                     [('a', pb.name, f'drape_{t}p0'), ('b', pb.name, f'drape_{t}p1'), ('w', hub, f'thigh_{t}_w')])
+    pb['drape'] = 0.0
+    _prop_driver(arm, pb, '["drape"]', _drape_combine_expr('a', 'b') + '-' + _drape_combine_expr('c', 'd'),
+                 [('a', pb.name, 'drape_Lp'), ('b', pb.name, 'drape_Rp'),
+                  ('c', pb.name, 'drape_Ln'), ('d', pb.name, 'drape_Rn')])
+    pb.rotation_mode = 'AXIS_ANGLE'      # about local Y (the bone points along -X): forward pitch
+    pb.rotation_axis_angle = (0.0, 0.0, 1.0, 0.0)
+    srcs = [('a', pb.name, 'drape')] + ([('b', d['above'], 'drape')] if i else [])
+    _prop_driver(arm, pb, 'rotation_axis_angle', 'a-b' if i else 'a', srcs)
+
+
+def _drape_combine_expr(a, b):
+    """Driver simple expression combining both thighs' lifts a, b >= 0 (one direction) of
+    one segment: the smooth max (a + b + s) / 2 - e^2 / (2 s), s = sqrt((a - b)^2 + e^2),
+    e = DRAPE_COMBINE_EPS. It is exact when the two are equal (seated) and when they are
+    far apart (one leg raised), never more than 0.15 e below the max in between, nought
+    at rest, and has no kink where the legs cross (the round-6 plain max kinked there: a
+    one-frame pop at every crossing in walk and run)."""
+    e2 = DRAPE_COMBINE_EPS ** 2
+    s = f'sqrt(({a}-{b})*({a}-{b})+{e2:g})'
+    return f'(({a}+{b}+{s})/2-{e2 / 2:g}/{s})'
 
 
 def _quat_power_drivers(arm, pb, src, k):

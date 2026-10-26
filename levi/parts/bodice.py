@@ -200,6 +200,12 @@ TAILS = {
                 (349, 557)], 2.0, 0.5),
 }
 TAIL_THICK = 0.0011
+# Stations along a tail: Catmull-Rom samples per control span, then thinned to at most
+# this many px apart (wide, thin tails) except in the bends. Round 7: 10 samples and 5 /
+# 6.5 px left 12-22 mm between stations across the skirt chains' hand-over below the
+# waist, and a lifted skirt stretched those long edges x2.0.
+TAIL_SAMPLES = 40
+TAIL_STEP = (3.0, 4.0)
 TWIST_MAX = math.radians(50)
 # px: twist ~ the turn over this much ribbon (times 1.6 * gain); fitted to the
 # round-4 twist of these paths
@@ -869,8 +875,8 @@ def build_tails(col, mat):
     bms = []
     for name, (ctrl, width_px, gain) in TAILS.items():
         cpts = [Vector((c - FRONT_CX, 0, r)) for c, r in ctrl]
-        path = catmull_path(cpts, 10)
-        path = adaptive(path, 5.0 if width_px > 3 else 6.5, math.radians(9))
+        path = catmull_path(cpts, TAIL_SAMPLES)
+        path = adaptive(path, TAIL_STEP[0] if width_px > 3 else TAIL_STEP[1], math.radians(9))
         n = len(path)
         # twist: the ribbon turns toward edge-on where the path bends; the
         # sign follows the bend, so a zigzag twists one way and back
