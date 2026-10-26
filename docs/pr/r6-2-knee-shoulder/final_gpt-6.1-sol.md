@@ -1,0 +1,30 @@
+# Codex review: gpt-6.1-sol
+
+The body generally holds together across the turntable, with rounded limb volumes and no clearly visible tearing in the supplied poses. The main correction is the deep-squat knee: the exposed bend becomes a bulbous, abruptly folded shape rather than maintaining a continuous thigh–kneecap–shin transition. Raised shoulders also lose some deltoid fullness, while the hands read as thin, nearly parallel fingers attached to a shallow palm. Prioritize the knee helper partition and shoulder socket deformation, then refine hand volume and local skin shading; the existing joint loops make these targeted changes more appropriate than a general increase in mesh density. These scores concern the body and its visible deformation in the supplied renders; the images do not establish PMX playback or deformation beneath the clothing.
+
+Scores: naturalness 7/10, animation 6/10, fidelity 8/10
+
+## Per-pose rating
+
+clean / minor / major / broken: parts at fault, note.
+
+| pose | gpt-6.1-sol |
+|---|---|
+| walk | **clean** The visible legs and hands follow the stride without a clearly discernible collapse, tear, or skin poke-through. |
+| arms_up | **minor** (body) The exposed shoulder-to-upper-arm transitions become narrow and straight beneath the raised sleeve bands, reducing the rounded deltoid cap. |
+| squat | **major** (body) Both exposed knees form swollen lobes with abrupt turns into the lower legs, most clearly in the three-quarter view. |
+| forward_bend | **clean** The exposed neck, shoulders, hands, and legs show no clear deformation failure, although the clothing conceals most of the torso bend. |
+| head_left | **clean** The visible neck-to-shoulder region remains continuous through the head turn without an obvious skin tear or twist collapse. |
+| swing | **clean** The visible body retains its shape while the secondary parts swing, with no clear new skin intersection. |
+
+## body
+
+- **P1** [animation] *squat q34_front_left, squat front* - both knees, especially the outer and front transition from the bent thigh into the upper shin: The deep bend produces a broad rounded lobe followed by an abrupt narrowing into the shin. In three-quarter view the knee reads as a folded tube with excess volume above the bend, rather than a compact kneecap with a controlled fold behind it. This is the clearest visible body deformation failure.
+  - Fix: Adjust the knee partition in levi/rig.py::_split_joint_aux rather than adding more general subdivision to body.py. The current JOINT_HINGE outer knots of ±75 degrees with 5 cm front/side distances distribute rotation over roughly 19 cm on either side of the pivot. Keep the outer support span initially, but move the two interior transition knots toward ±15–18 degrees so more of the helper-to-helper turn occurs near the actual knee; tune the side distance separately from the front distance to reduce the lateral lobe. Use body.py's existing rows 662–735 to redistribute the bend, retaining front volume and allowing compression principally behind the knee. Verify the result at intermediate bends as well as the full squat before changing KNEE_FWD.
+- **P2** [naturalness] *q34_front_left, high, clay q34_front_left* - both hands, across the palm-to-finger transition and the four long fingers: The fingers read as a thin, almost parallel rake, with little visible knuckle mass or depth separating the palm from the finger shafts. The oblique views reveal this more than the front silhouette, weakening the sense of a small but three-dimensional hand.
+  - Fix: Refine body.py::_palm_shape and build_fingers: add roughly 0.15–0.25 cm of broad dorsal fullness over the metacarpal heads, tapering smoothly toward the wrist, and adjust individual finger-root depth by approximately 0.1–0.2 cm to establish a shallow knuckle arch. Increase FINGER_N from 8 to 12 for rounder oblique sections and redistribute the existing joint-adjacent rings closer to each bend. Preserve the separate finger components required by the current rig fitter, but bury each root sufficiently inside the palm that its capped start cannot become visible when curled.
+- **P2** [naturalness] *islands front, islands q34_front_left, islands high* - exposed hands and wrists, with additional thin skin-shade fragments near the upper chest: Small isolated skin-shade slivers interrupt otherwise broad pale surfaces. On the hands they accent individual narrow facets and intersections instead of describing a coherent palm or wrist volume. The reported skin-island counts include the separate head, but visible hand and wrist fragments belong to this body review.
+  - Fix: After rounding the finger sections, inspect body.py's wrist-to-palm rings and _palm_shape offsets for abrupt changes in slope; spread those changes across at least three neighboring rings and recalculate smooth normals across the continuous arm–palm surface. Keep intentional finger separations, but remove shallow root overlaps exposed above the palm surface. Re-render the existing island diagnostic and compare the hand regions specifically before adjusting any shared skin ramp, since a global threshold change would also affect the face.
+- **P2** [animation] *arms_up front, arms_up q34_front_left* - both exposed shoulder caps between the outer clavicle and the upper sleeve bands: Raising the arms turns the shoulder region into a relatively narrow, straight strip. The deltoid cap loses fullness instead of rolling upward around the joint, making the exposed upper arms look stretched even though the surface remains connected.
+  - Fix: In body.py, make the socket parameter distinguish the superior deltoid from the inferior armpit instead of relying solely on distance to the nearest socket-border vertex. In rig.py::_shoulder_stages, retain the current staged rotation but delay full arm influence over the superior cap by approximately 0.5–1 cm and keep the inferior fold's transition shorter. If the cap still narrows, add a broad 0.3–0.5 cm radial fullness to the superior socket transition rings, fading to zero at both ends; check that the rest pose and lowered arms remain smooth.
+

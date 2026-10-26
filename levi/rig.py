@@ -344,8 +344,20 @@ SLEEVE_COUNTER = 0.75   # round 4: 0.4 left the raised bags standing above the s
 DRAPE_SEGMENTS = 2    # bones per sleeve drape chain
 # 肩補助 carries this share of 肩's skin, by position along 肩 (inner end .. joint)
 SHRUG_SPAN = (0.1, 0.8)
+# Staged shoulder: helpers 肩補助2, 肩補助3 (children of 肩補助, at the shoulder joint) append
+# shares of 腕's rotation so their total turns sit between the shrug's SHOULDER_SHRUG and
+# 腕D's full turn, in thirds. A raised arm's skin then turns in steps across the socket
+# instead of blending the shrug and the arm directly (~110 deg apart overhead, which
+# linear skinning flattens into a narrow strip). The body's socket parameter
+# (body.SOCKET_PARAM_ATTR: signed distance from the socket border, + on the arm) places
+# them: the shrug's and arm's combined weight is handed shrug -> 肩補助2 -> 肩補助3 -> 腕D
+# at these knots (m), the same all round the socket, so no border between helper and no
+# helper crosses it (round 4's seams). (total turns, knots); None = off.
+SHOULDER_STAGES = ((SHOULDER_SHRUG + (1.0 - SHOULDER_SHRUG) / 3.0, SHOULDER_SHRUG + 2.0 * (1.0 - SHOULDER_SHRUG) / 3.0),
+                   (-0.03, -0.005, 0.015, 0.035))
+_SOCKET_S = None   # per-vertex socket parameter of the body object being skinned (_weights)
 # per helper name: (blend start before the joint, blend end after it) overriding the part's band
-JOINT_BAND_BY_AUX = {'腕補助': (0.04, 0.06), 'ひざ補助': (0.075, 0.075)}   # knee: 6 cm left the walk knee angular, 9 cm folded the squat
+JOINT_BAND_BY_AUX = {'腕補助': (0.04, 0.06)}   # the knee uses JOINT_HINGE (round 5's band: 7.5 cm)
 # per joint (first helper's name): the helpers as (share of the lower bone's rotation,
 # position along the lower bone where the skin turns with that helper alone). The band
 # turns smoothly from the upper bone (at -before) through each helper to the lower bone
@@ -354,9 +366,21 @@ JOINT_BAND_BY_AUX = {'腕補助': (0.04, 0.06), 'ひざ補助': (0.075, 0.075)} 
 JOINT_AUX_CHAIN = {'腕補助': ((0.35, 0.0),), 'ひざ補助': ((0.33, -0.025), (0.67, 0.025))}
 # per helper: (full, none) lateral distance (m) from the lower bone's axis within which the
 # split applies. The shoulder's upper bone 肩 also weights torso skin, which stays put.
-# per helper: (band scale at the front, at the back, the front direction)
-JOINT_FRONT_BACK = {'ひざ補助': (1.4, 0.85, (0.0, -1.0, 0.0))}
+# per helper: (band scale at the front, at the back, the front direction); unused while
+# JOINT_HINGE covers the knee (round 5: (1.4, 0.85, (0, -1, 0)))
+JOINT_FRONT_BACK = {}
 JOINT_REACH_BY_AUX = {'腕補助': (0.05, 0.08)}
+# per helper: hinge partition (_split_joint_aux), replacing JOINT_BAND_BY_AUX /
+# JOINT_FRONT_BACK / aux_at for that joint. A vertex at distance t along the lower bone
+# from the joint gets the angle atan2(t, d) and the knots are angles: (d at the front,
+# at the side, at the back in m, interpolated quadratically in the cosine of the
+# vertex's direction from the limb axis toward `forward`; knots in degrees from the
+# upper limb (-) to the lower (+): upper end, one per helper, lower end; forward).
+# Round 6, knee: the band reaches ~19 cm in front and at the sides, ~11 behind (d x
+# tan 75 deg), so the kneecap wraps round a long arc while the hollow folds short. The
+# round-5 band (7.5 cm x 1.4 in front, x 0.85 behind) swung thigh skin above the joint
+# out into a lobe; shorter bands here (d 3-4 cm) pinched the knee or passed x1.85.
+JOINT_HINGE = {'ひざ補助': ((0.05, 0.05, 0.03), (-75.0, -22.0, 22.0, 75.0), (0.0, -1.0, 0.0))}
 
 
 def _joint_aux(add, jp, en, joint, nxt, parent, lower, upper, s, sfx, jp_side, en_sfx, group):
@@ -460,6 +484,15 @@ def _core_bones(J=None, H=None, F=None):
             add(Bone(arm, jp_side + '腕D', 'ArmD' + en_sfx, _mx(sj, s), _mx(el, s), '肩補助' + sfx,
                      r=0.04, r_end=0.03, group='Arms',
                      meta={'follow_q': ('腕' + sfx, 1.0 - SHOULDER_SHRUG), 'helper': True}))
+            if SHOULDER_STAGES:
+                # staged shoulder helpers (SHOULDER_STAGES): total turn = the shrug's
+                # SHOULDER_SHRUG (their parent) + their own append, like 腕D's
+                for i, total in enumerate(SHOULDER_STAGES[0]):
+                    k = str(i + 2)
+                    add(Bone('肩補助' + k + sfx, jp_side + '肩補助' + k, 'ShoulderAux' + k + en_sfx, _mx(sj, s),
+                             _mx(el, s), '肩補助' + sfx, group='Arms',
+                             meta={'follow_q': ('腕' + sfx, total - SHOULDER_SHRUG), 'helper': True,
+                                   'stage': ('肩補助' + sfx, arm, (total - SHOULDER_SHRUG) / (1.0 - SHOULDER_SHRUG))}))
         else:
             add(Bone(arm, jp_side + '腕', 'Arm' + en_sfx, _mx(sj, s), _mx(el, s), '肩' + sfx, connect=True,
                      r=0.04, r_end=0.03, group='Arms'))
@@ -1162,6 +1195,19 @@ def _store_skin(objs):
     for i, r in enumerate(rows):
         for c, wv in r:
             W[i, c] = wv
+    if SHOULDER_STAGES:
+        # garments sample the skin by the plain bones only: a staged shoulder helper's
+        # weight goes to the shrug and the arm in the proportion of its turn
+        for i, total in enumerate(SHOULDER_STAGES[0]):
+            frac = (total - SHOULDER_SHRUG) / (1.0 - SHOULDER_SHRUG)
+            for t in 'LR':
+                c = names.get(f'肩補助{i + 2}.{t}')
+                if c is None:
+                    continue
+                for n, share in ((f'肩補助.{t}', 1.0 - frac), (f'腕D.{t}', frac)):
+                    if n in names:
+                        W[:, names[n]] += W[:, c] * share
+                W[:, c] = 0.0
     _SKIN = (np.concatenate(pts), names, W)
 
 
@@ -1387,6 +1433,9 @@ def _fold_targets(bones):
         for key in ('twist_of', 'shrug_of'):
             if m.get(key) in col:
                 t.append((col[m[key]], 1.0))
+        if 'stage' in m:        # a shoulder stage splits into the shrug and the arm by its share
+            lo, hi, frac = m['stage']
+            t += [(col[n], f) for n, f in ((lo, 1.0 - frac), (hi, frac)) if n in col]
         if b.group not in FOLD_CHAIN_GROUPS:
             p = _PARENTS.get(b.name, b.parent)
             while p:
@@ -1558,19 +1607,34 @@ def _split_joint_aux(w, co, bones, band):
             continue
         lb = bones[col[lower]]
         d = np.array((lb.tail - lb.head).normalized())
-        t = (co - np.array(b.head)) @ d
-        lat_d = np.linalg.norm((co - np.array(b.head)) - t[:, None] * d, axis=1)
+        t = (co - np.array(lb.head)) @ d
+        lat_d = np.linalg.norm((co - np.array(lb.head)) - t[:, None] * d, axis=1)
         scale = JOINT_FRONT_BACK.get(stem)
-        if scale is not None:
+        hinge = JOINT_HINGE.get(stem)
+        if hinge is not None:
+            # hinge partition (JOINT_HINGE): the share follows an angle around the joint,
+            # atan2(t, d), with d long in front (the kneecap's arc spreads its stretch),
+            # shorter behind (the hollow folds instead of collapsing a long band), varying
+            # smoothly round the limb so neighbouring columns don't shear
+            (d_f, d_s, d_b), deg, hfwd = hinge
+            if len(deg) != len(aux) + 2:
+                raise ValueError(f'JOINT_HINGE[{stem!r}]: {len(deg)} knots for {len(aux)} helpers')
+            lat = (co - np.array(lb.head)) - t[:, None] * d
+            c = (lat @ np.array(hfwd, dtype=float)) / np.maximum(np.linalg.norm(lat, axis=1), 1e-6)
+            dist = d_s + 0.5 * (d_f - d_b) * c + (0.5 * (d_f + d_b) - d_s) * c * c
+            t = np.degrees(np.arctan2(t, dist))
+            knots = list(deg)
+        elif scale is not None:
             # the band is wider over the front of the joint (the kneecap wraps round) and
             # narrower behind it (the hollow creases instead of pinching): t is divided by
             # the local band scale, lerped by how far round to the front the vertex is
-            lat = (co - np.array(b.head)) - t[:, None] * d
+            lat = (co - np.array(lb.head)) - t[:, None] * d
             fwd = np.array(scale[2], dtype=float)
             front = (lat @ fwd) / np.maximum(np.linalg.norm(lat, axis=1), 1e-6)
             k = scale[1] + (scale[0] - scale[1]) * _smoothstep(-1.0, 1.0, front)
             t = t / k
-        knots = [-before] + [bones[j].meta.get('aux_at', 0.0) for j in aux] + [after]
+        if hinge is None:
+            knots = [-before] + [bones[j].meta.get('aux_at', 0.0) for j in aux] + [after]
         steps = [_smoothstep(k0, k1, t) for k0, k1 in zip(knots, knots[1:])]
         f = [1.0 - steps[0]] + [s0 - s1 for s0, s1 in zip(steps, steps[1:])] + [steps[-1]]
         cols = up + lo + aux
@@ -1773,7 +1837,12 @@ SLEEVE_PARAM_SMOOTH = 0.065    # m: surface smoothing of the sleeve's arm / drap
 def _sleeve_param(obj, co):
     """The sleeve's own 0 (band) .. 1 (wrist) parameter: the part's point attribute named by
     obj['levi_sleeve_param'] (sleeves.sleeve_params), else None."""
-    name = obj.get('levi_sleeve_param')
+    return _point_param(obj, co, 'levi_sleeve_param')
+
+
+def _point_param(obj, co, prop):
+    """The float point attribute named by obj[prop], one value per vertex, else None."""
+    name = obj.get(prop)
     attr = obj.data.attributes.get(name) if name else None
     if attr is None or attr.domain != 'POINT' or len(attr.data) != len(co):
         return None
@@ -1853,7 +1922,7 @@ def _sleeve_weights(co, bones, sparam=None, edges=None):
         W[side] = (armw * (1.0 - g)[:, None] + dw * g[:, None])[side]
         done |= side
     if not done.all():
-        plain = [j for j, b in enumerate(bones) if not {'twist_of', 'joint_aux', 'shrug_of'} & set(b.meta)]
+        plain = [j for j, b in enumerate(bones) if not {'twist_of', 'joint_aux', 'shrug_of', 'stage'} & set(b.meta)]
         W[np.ix_(~done, plain)] = _envelope(co[~done], [bones[j] for j in plain])
     return W
 
@@ -1894,7 +1963,7 @@ def _shell_share(w, co, bones):
 
 def _base_weights(part, co, bones):
     """(V, B) weights before side masking / smoothing / pruning."""
-    plain = [j for j, b in enumerate(bones) if not {'twist_of', 'joint_aux', 'shrug_of'} & set(b.meta)]
+    plain = [j for j, b in enumerate(bones) if not {'twist_of', 'joint_aux', 'shrug_of', 'stage'} & set(b.meta)]
     sub = [bones[j] for j in plain]
     if part in ('skirt', 'petticoat'):
         w0 = _skirt_weights(co, sub)
@@ -1929,7 +1998,34 @@ def _base_weights(part, co, bones):
     _split_along(w, co, bones, 'twist_of', TWIST_RAMP)
     _split_along(w, co, bones, 'shrug_of', SHRUG_SPAN)
     _split_joint_aux(w, co, bones, JOINT_BAND.get(part, (JOINT_AUX_BLEND, JOINT_AUX_BLEND)))
+    if part == 'body' and SHOULDER_STAGES and any('stage' in b.meta for b in bones):
+        if _SOCKET_S is not None and len(_SOCKET_S) == len(co):
+            _shoulder_stages(w, bones, _SOCKET_S)
+        else:
+            print('rig: WARNING body has no socket parameter (body.SOCKET_PARAM_ATTR): '
+                  'the staged shoulder helpers get no weight')
     return w
+
+
+def _shoulder_stages(w, bones, sparam):
+    """Re-split each side's shrug + arm weight (肩補助, 肩補助2, 肩補助3, 腕D) by the body's
+    socket parameter: a partition of unity with knots SHOULDER_STAGES[1], shrug first."""
+    if not SHOULDER_STAGES:
+        return
+    col = {b.name: i for i, b in enumerate(bones)}
+    knots = SHOULDER_STAGES[1]
+    if len(knots) != len(SHOULDER_STAGES[0]) + 2:
+        raise ValueError(f'SHOULDER_STAGES: {len(knots)} knots for {len(SHOULDER_STAGES[0])} stages')
+    steps = [_smoothstep(k0, k1, sparam) for k0, k1 in zip(knots, knots[1:])]
+    f = [1.0 - steps[0]] + [s0 - s1 for s0, s1 in zip(steps, steps[1:])] + [steps[-1]]
+    for t in 'LR':
+        names = [f'肩補助.{t}'] + [f'肩補助{i + 2}.{t}' for i in range(len(SHOULDER_STAGES[0]))] + [f'腕D.{t}']
+        if not all(n in col for n in names):
+            continue
+        cols = [col[n] for n in names]
+        g = w[:, cols].sum(1)
+        for c, fc in zip(cols, f):
+            w[:, c] = g * fc
 
 
 RIGID_ISLAND = 0.05   # loose pieces (not skin) within this radius move rigidly ...
@@ -2080,12 +2176,14 @@ def _lock_weights(w, co, labels, bones):
 
 def _weights(obj, part, co, bones):
     """(V, k) bone indices and weights for the vertices of `obj` (world positions `co`)."""
-    global _SLEEVE_S, _SLEEVE_EDGES, _SLEEVE_N
+    global _SLEEVE_S, _SLEEVE_EDGES, _SLEEVE_N, _SOCKET_S
     edges = _topology(obj, co)
     _SLEEVE_S = _sleeve_param(obj, co) if part == 'sleeves' else None
     _SLEEVE_EDGES, _SLEEVE_N = (edges, len(co)) if part == 'sleeves' else (None, 0)
+    _SOCKET_S = _point_param(obj, co, 'levi_socket_param') if part == 'body' else None
     w = _base_weights(part, co, bones)
     _SLEEVE_S, _SLEEVE_EDGES, _SLEEVE_N = None, None, 0
+    _SOCKET_S = None
     labels = _islands(len(co), edges)
     if part == 'hair_back':
         _lock_weights(w, co, labels, bones)
