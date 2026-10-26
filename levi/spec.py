@@ -178,11 +178,11 @@ BUDGET = {
     'body': 9000,
     'head': 8000,
     'hair_front': 8000,
-    'hair_back': 15000,
+    'hair_back': 17000,
     'accessories': 3500,
     'bodice': 6000,
     'skirt': 10000,
-    'petticoat': 6500,
+    'petticoat': 8000,
     'sleeves': 8000,
     'shoes': 3500,
 }
