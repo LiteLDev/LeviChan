@@ -513,9 +513,11 @@ def flare_k(t):
     return np.clip((np.asarray(t, dtype=np.float64) - HEM_FLARE_T) / (1 - HEM_FLARE_T), 0, 1) ** 2
 
 
-def initial_folds(crests=(0, 31, 53, 92, 142, 180, 206, 231, 256, 295, 325)):
+def initial_folds(crests=(4, 44, 92, 136, 184, 212, 243, 315)):
     """Starting guess for the fit: crest / trough rows read off the view tables
-    (front/back weighted by cos^2 of the azimuth, side by sin^2)."""
+    (front/back weighted by cos^2 of the azimuth, side by sin^2). Eight folds
+    (round 6): the narrow pairs at the four quarters (~22 deg apart) were
+    merged, since a narrow lobe between two arches read as an edge-on fin."""
     front, back, side = (parse_table(s) for s in (FRONT_HEM, BACK_HEM, SIDE_HEM))
     X, Yf, Yb = (float(v) for v in section(560))
 

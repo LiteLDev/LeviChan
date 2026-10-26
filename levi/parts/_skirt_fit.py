@@ -25,7 +25,11 @@ penalty for cloth more than INSIDE_TOL px inside an earlier skirt (the layer
 the petticoat was fitted inside), e.g. after
     git show main:levi/parts/skirt.py > out/skirt_base.py
 The petticoat follows the skirt's folds, so re-run the fit once per skirt
-change rather than iterating the two to convergence.
+change rather than iterating the two to convergence. Since round 6 the
+petticoat's ruffles hang from the stored FOLDS' hem (petticoat.cluster_rows),
+so the occluders and the clearance term describe the stored table: the fit is
+biased toward it and should move the table in small steps (CREST_SLACK). A
+change of the fold count is a manual edit of FOLDS / initial_folds() first.
 """
 import os
 import re

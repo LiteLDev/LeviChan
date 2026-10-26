@@ -36,7 +36,7 @@ hanging from a fixed bowl and being tucked up in steps (the steps read as
 flat triangular flaps with vertical edges from 3/4 views). Each tier's hem is
 the skirt's built hem (skirt.hem_terms) plus an exposure that swells, with a
 cosine ease across each skirt fold, from a narrow band under the lobe to a
-rounded cluster under the trough (cluster_row(): EXPOSE_LOBE / EXPOSE, more
+rounded cluster under the trough (cluster_rows(): EXPOSE_LOBE / EXPOSE, more
 in front and back, least at the sides where the side view shows the leg),
 and never below the measured bowl. The hem is smoothed along the band and its
 rise limited (CLUSTER_SLOPE). Where the hem rises, the tier's seam rises with
@@ -155,15 +155,19 @@ CAST_TIERS = (False, False)
 # gathered panel nested inside the one around it.
 # Lift: under the middle of the skirt, front and back, the sheet shows the
 # legs from the skirt hem down, so within x0 px of the midline (front view)
-# a tier's hem rises to LIFT_ROW, behind the skirt's centre hem, easing back
-# to the measured bowl by x1.
+# a tier's hem rises to its lift row (front, back), behind the skirt's centre
+# hem, easing back to the measured bowl by x1: lift = (x0, x1, front row, back
+# row). Rows: high enough that no lifted sliver peeks out under the skirt's
+# centre lobe. The outer tier hangs lower in front (the lobe is at row ~603),
+# so it covers the lobe's inside seen from behind between the legs; the inner
+# tier stays higher there, clear of the striding thighs.
 TIERS = (
-    ('petticoat_tier0', (HALF_W, FRONT_D, BACK_D, 2.0), (55, 90), ('free', 52, 0.86), 34, 5.0, 4.0, 1),
-    ('petticoat_tier1', (0.78 * HALF_W, 0.78 * FRONT_D, 0.78 * BACK_D, 2.2), (55, 90), ('core', 22), 30, 4.4, 3.6, 2),
+    ('petticoat_tier0', (HALF_W, FRONT_D, BACK_D, 2.0), (55, 90, 596, 585), ('free', 52, 0.86), 34, 5.0, 4.0, 1),
+    ('petticoat_tier1', (0.78 * HALF_W, 0.78 * FRONT_D, 0.78 * BACK_D, 2.2), (55, 90, 585, 585), ('core', 22), 30, 3.3, 3.6, 2),
 )
 # Exposure (round 6): the tiers show as rounded ruffle clusters under the
 # skirt's raised fold troughs, and as a narrower band under its lobes (see
-# cluster_row()). Per tier, px of ruffle hanging below the skirt's built hem
+# cluster_rows()). Per tier, px of ruffle hanging below the skirt's built hem
 # at a trough and under a lobe's crest (negative: tucked up behind it), each
 # as (sides, front, back). The sheet shows a deep ruffle band front and back
 # and mostly leg under the sides; the inner tier shows a second, lower layer.
@@ -179,8 +183,11 @@ CLUSTER_U = ((0.25, 0.95), (0.15, 0.90))
 # not change abruptly round the quarters
 FRONT_DEG = (68.0, 8.0)
 CLUSTER_SMIN = 3.0     # softness (px) of the min of the bowl and the clusters
+SMIN_FINE = 1.0        # softness of the later mins (smoothed vs raw hem, seam vs hem): each smooth
+                       # min sits up to k*ln2 above both arguments, so chained ones stay tight
 CLUSTER_SMOOTH = 1.2   # the hem row is smoothed along the hem (sigma, folds)
 CLUSTER_SLOPE = 0.7    # ... then rises at most this many px per px along the band
+BAND_GUARD = 12.0      # hard floor on the seam-to-hem length (px), should BAND_MIN not be met
 BAND_MIN = 34.0        # a tier's seam stays at least this many px above its hem: where the
                        # hem tucks up the seam rises with it (hidden inside the skirt), so
                        # the band never hangs as a long panel below a raised hem
@@ -195,10 +202,6 @@ CORE_CY = L['waist_center_y'] * 0.6
 CORE_N = 96
 CORE_RINGS = 6
 CORE_TUCK = 16.0       # px the core reaches down inside the outer tier's top edge
-# (front, back): high enough that no lifted sliver peeks out under the skirt's
-# centre lobe; in front (lobe at row ~603) low enough to cover the lobe's inside
-# seen from behind between the legs
-LIFT_ROW = (596, 585)
 # The lifted parts are hidden behind the skirt's long centre lobes, front and
 # back; they are also drawn in a little towards the legs (by this fraction at
 # the midline, easing out with the lift), so those lobes can hang down and
@@ -309,9 +312,10 @@ def _clamp_ring(loop, inner, margin=None, apply_to=None):
     never below what each sample needs), so it has no sharp steps.
 
     margin: px per sample kept free beyond CLEAR (the outward reach of the
-    gathers laid on this smooth band); apply_to: the gathered ring the band's
-    radial scale is applied to instead (so the clamp moves the whole gathered
-    band in, rather than flattening the gathers' crests against the skirt)."""
+    gathers laid on this smooth band); apply_to: rings (a tuple) the band's
+    radial scale is applied to instead, returned as a tuple (so the clamp
+    moves the whole gathered band in, rather than flattening the gathers'
+    crests against the skirt)."""
     n = len(loop)
     pull = np.zeros(n)
     rad = np.zeros(n)
@@ -329,16 +333,14 @@ def _clamp_ring(loop, inner, margin=None, apply_to=None):
         # soft min(r, lim): -k log(exp(-r/k) + exp(-lim/k))
         rn = lim - k * math.log1p(math.exp(-d)) if d > 0 else r - k * math.log1p(math.exp(d))
         pull[i] = r - rn
-    target = loop if apply_to is None else apply_to
-    if not pull.any():
-        return target
-    wide = np.maximum(np.maximum(pull, np.roll(pull, 1)), np.roll(pull, -1))
-    pull = np.maximum(pull, _smooth_loop(wide, 1.0))
-    out = []
-    for p, r, d in zip(target, rad, pull):
-        s = (r - d) / r if r > 1e-6 else 1.0
-        out.append(Vector((p.x * s, p.y * s, p.z)))
-    return out
+    if pull.any():
+        wide = np.maximum(np.maximum(pull, np.roll(pull, 1)), np.roll(pull, -1))
+        pull = np.maximum(pull, _smooth_loop(wide, 1.0))
+    scale = np.where(rad > 1e-6, (rad - pull) / np.maximum(rad, 1e-6), 1.0)
+
+    def scaled(ring):
+        return [Vector((p.x * k, p.y * k, p.z)) for p, k in zip(ring, scale)]
+    return scaled(loop) if apply_to is None else tuple(scaled(r) for r in apply_to)
 
 
 # ---------------------------------------------------------------- outline
@@ -390,13 +392,13 @@ def hem_row(x, y, lift=None):
     the higher of the two (a smooth minimum, so there is no crease where they
     cross), then HEM_DROP lower for the scallops. Inner tiers reach the lower
     centre of the bowl-shaped outline, outer tiers its lifted sides. lift =
-    (x0, x1) raises the hem near the midline to LIFT_ROW (see TIERS).
+    (x0, x1, front row, back row) raises the hem near the midline (see TIERS).
     """
     ax = abs(x)
     a, b = _interp(HEM_FRONT, ax), _interp(HEM_SIDE, y)
-    row = min(a, b) - HEM_SMIN * math.log1p(math.exp(-abs(a - b) / HEM_SMIN)) + HEM_DROP
-    lift_row = LIFT_ROW[0] if y < 0 else LIFT_ROW[1]
-    if lift and row > lift_row:
+    row = float(_smin(a, b, HEM_SMIN)) + HEM_DROP
+    lift_row = (lift[2] if y < 0 else lift[3]) if lift else math.inf
+    if row > lift_row:
         row += (lift_row - row) * (1.0 - _smoothstep(lift[0], lift[1], ax))
     return row
 
@@ -407,44 +409,42 @@ def hem_z(x, y, lift=None):
 
 
 def _smin(a, b, k):
-    """Smooth minimum of a and b (softness k)."""
-    return min(a, b) - k * math.log1p(math.exp(-abs(a - b) / k))
+    """Smooth minimum of a and b (scalars or arrays, softness k)."""
+    return np.minimum(a, b) - k * np.log1p(np.exp(-np.abs(np.subtract(a, b)) / k))
 
 
-def _smin_arr(a, b, k):
-    """_smin() for arrays."""
-    return np.minimum(a, b) - k * np.log1p(np.exp(-np.abs(a - b) / k))
-
-
-def cluster_row(folds, idx, x, y, row):
-    """Hem row of tier idx at the hem-outline point (x, y) px, from its
-    untucked (measured bowl + lift) hem row: the skirt's built hem
+def cluster_rows(folds, idx, xy, rows):
+    """Hem rows of tier idx at the hem-outline points xy ((n, 2) px), from
+    their untucked (measured bowl + lift) hem rows: the skirt's built hem
     (skirt.hem_terms) plus an exposure that eases (cosine over CLUSTER_U[idx]
     of the skirt fold position) from EXPOSE_LOBE under a lobe's crest to
     EXPOSE under a trough, so each trough frames a rounded ruffle cluster;
     both blend from the sides to the front and back (FRONT_DEG). Never lower
     than the bowl (smooth min)."""
-    phi = skirt_azimuth(x, y)
+    phi = np.array([skirt_azimuth(x, y) for x, y in xy])
     _, u = skirt.fold_index(folds, phi)
-    here = float(skirt.hem_terms(folds, np.array([phi]))[0][0])
+    here = skirt.hem_terms(folds, phi)[0]
     u0, u1 = CLUSTER_U[idx]
-    e = min(1.0, max(0.0, (abs(float(u)) - u0) / (u1 - u0)))
-    e = 0.5 - 0.5 * math.cos(math.pi * e)
-    off = abs(math.degrees(math.atan2(math.sin(phi), math.cos(phi))))   # 0 front .. 180 back
-    wf = _smoothstep(FRONT_DEG[0], FRONT_DEG[1], off)
-    wb = _smoothstep(FRONT_DEG[0], FRONT_DEG[1], 180.0 - off)
+    e = np.clip((np.abs(u) - u0) / (u1 - u0), 0.0, 1.0)
+    e = 0.5 - 0.5 * np.cos(np.pi * e)
+    off = np.abs(np.degrees(np.arctan2(np.sin(phi), np.cos(phi))))   # 0 front .. 180 back
+
+    def ramp(v):
+        t = np.clip((v - FRONT_DEG[0]) / (FRONT_DEG[1] - FRONT_DEG[0]), 0.0, 1.0)
+        return t * t * (3 - 2 * t)
+    wf, wb = ramp(off), ramp(180.0 - off)
 
     def blend(v):
         return v[0] + (v[1] - v[0]) * wf + (v[2] - v[0]) * wb
     lobe, trough = blend(EXPOSE_LOBE[idx]), blend(EXPOSE[idx])
-    return _smin(row, here + lobe + (trough - lobe) * e, CLUSTER_SMIN)
+    return _smin(np.asarray(rows, dtype=np.float64), here + lobe + (trough - lobe) * e, CLUSTER_SMIN)
 
 
-def _limit_slope(rows, arc, slope, sign=1.0):
+def _limit_slope(rows, arc, slope):
     """Lower the closed sequence of hem rows (raise the hem) wherever it would
     climb faster than slope px per px of arc (arc: positions px along the
-    band, perimeter last). sign=-1 raises the rows (lowers the hem) instead."""
-    rows = sign * np.array(rows, dtype=np.float64)
+    band, perimeter last)."""
+    rows = np.array(rows, dtype=np.float64)
     n = len(rows)
     total, arc = arc[-1], arc[:n]
     for _ in range(2):
@@ -456,7 +456,7 @@ def _limit_slope(rows, arc, slope, sign=1.0):
             j = (i + 1) % n
             ds = (arc[j] - arc[i]) % total
             rows[i] = min(rows[i], rows[j] + slope * ds)
-    return sign * rows
+    return rows
 
 
 def _lift_pinch(x, lift):
@@ -537,23 +537,23 @@ def _tier(col, idx, inner, folds, name, shape, lift, top, count, depth_px, rise_
     # hem outline, drawn in near the lifted midline
     hem = [((bx * k, by * k), nrm) for (bx, by), nrm in outline for k in (_lift_pinch(bx, lift),)]
     # the hem: measured bowl + lift, raised into the ruffle clusters under the
-    # skirt (cluster_row), smoothed along the band and its rise limited to
+    # skirt (cluster_rows), smoothed along the band and its rise limited to
     # CLUSTER_SLOPE (raise-only, so the hem never sags below a lobe), then
     # smoothed once more; never below the raw clusters ramped in at the same
     # slope (a soft min, so no crease where it takes over), so no sliver shows
-    # under the skirt's lobes or past LIFT_ROW
+    # under the skirt's lobes or past the lift row
     full = [hem_z(ox, oy, lift) for (ox, oy), _ in outline]
     arc = [(f - fracs[0]) * total for f in fracs] + [total]
-    raw = [cluster_row(folds, idx, ox, oy, hem_row(ox, oy, lift)) for (ox, oy), _ in outline]
+    raw = cluster_rows(folds, idx, [p for p, _ in outline], [hem_row(ox, oy, lift) for (ox, oy), _ in outline])
     rows = _limit_slope(_smooth_loop(raw, CLUSTER_SMOOTH * SPF), arc, CLUSTER_SLOPE)
-    rows = _smin_arr(_smooth_loop(rows, 0.5 * SPF), _limit_slope(raw, arc, CLUSTER_SLOPE), CLUSTER_SMIN)
+    rows = _smin(_smooth_loop(rows, 0.5 * SPF), _limit_slope(raw, arc, CLUSTER_SLOPE), SMIN_FINE)
     hems = [spec.px_to_z(r) for r in rows]
     # top ring: free (above the untucked hem, scaled) or sewn onto the core;
     # either way at least BAND_MIN above the hem (smooth min): where the hem
     # tucks up the seam rises with it, inside the skirt, so the band keeps its
     # length and flare instead of hanging as a long panel or folding flat
     def seam_up(top_row, hem_r):
-        return top_row - _smin(top_row, hem_r - BAND_MIN, CLUSTER_SMIN)
+        return top_row - float(_smin(top_row, hem_r - BAND_MIN, SMIN_FINE))
     if top[0] == 'free':
         tops = []
         for ((bx, by), _), ((ox, oy), _), r in zip(hem, outline, rows):
@@ -564,17 +564,21 @@ def _tier(col, idx, inner, folds, name, shape, lift, top, count, depth_px, rise_
         for ((bx, by), _), r in zip(hem, rows):
             t = _core_point(bx, by, top[1])
             tops.append(_core_point(bx, by, top[1] + seam_up(_row(t.z), r)))
+    # a seam sewn onto the core cannot rise past the core's top ring; never let
+    # the band get shorter than BAND_GUARD there (nor turn inside out)
+    hems = [min(h, t.z - BAND_GUARD * PX) for h, t in zip(hems, tops)]
     amp = _per_fold(count, seed + 7, fold)
     rise = _per_fold(count, seed + 29, fold)
     # fabric per fold: a band shortened by the tuck folds less deeply
     short = [min(1.0, max(0.0, (t.z - h) / max(t.z - f, 1e-6))) ** SHORT_POW
              for t, h, f in zip(tops, hems, full)]
-    def rings(k):
-        """The tier's rings with k x the gathers and scallops (k = 0: the
-        smooth band they are laid on)."""
-        loops = []
+    def rings():
+        """The tier's rings with the gathers and scallops, and the same rings
+        without them (the smooth band they are laid on, for the shading
+        normals)."""
+        out = {1.0: [], 0.0: []}
         for s in PROFILE:
-            loop, band, reach = [], [], []
+            loops, band, reach = {1.0: [], 0.0: []}, [], []
             for i, ((bx, by), (nx, ny)) in enumerate(hem):
                 t = tops[i]
                 z = t.z + s * (hems[i] - t.z)
@@ -587,20 +591,24 @@ def _tier(col, idx, inner, folds, name, shape, lift, top, count, depth_px, rise_
                 ramp = min(1.0, s / SEAM_RAMP)
                 grow = (SEAM_FOLD + (1.0 - SEAM_FOLD) * d ** FOLD_POW) * ramp * ramp * (3 - 2 * ramp)
                 reach.append(depth_px * amp[i] * short[i] * grow)
-                gather = -k * cpos * reach[-1]
                 notch = (0.5 + 0.5 * cpos) ** NOTCH_P
                 bx0 = t.x + (belly * bx * PX - t.x) * g
                 by0 = t.y + (belly * by * PX - t.y) * g
                 band.append(Vector((bx0, by0, z)))
-                z += k * rise_px * rise[i] * notch * s ** 1.5 * PX
-                loop.append(Vector((bx0 + nx * gather * PX, by0 + ny * gather * PX, z)))
+                for k in (1.0, 0.0):
+                    gather = -k * cpos * reach[-1]
+                    zk = z + k * rise_px * rise[i] * notch * s ** 1.5 * PX
+                    loops[k].append(Vector((bx0 + nx * gather * PX, by0 + ny * gather * PX, zk)))
             # the clamp keeps the smooth band CLEAR + the gathers' reach inside
             # the skirt and moves the gathered ring with it, so the gathers keep
             # their full depth instead of being flattened against the skirt
-            loops.append(_clamp_ring(band, inner, reach, apply_to=loop))
-        return loops + _hem_roll(loops[-2], loops[-1])
+            gathered, smooth = _clamp_ring(band, inner, reach, apply_to=(loops[1.0], loops[0.0]))
+            out[1.0].append(gathered)
+            out[0.0].append(smooth)
+        return tuple(r + _hem_roll(r[-2], r[-1]) for r in (out[1.0], out[0.0]))
 
-    obj = _finish(col, common.toon_material('petticoat'), name, rings(1.0), soft=rings(0.0))
+    gathered, smooth = rings()
+    obj = _finish(col, common.toon_material('petticoat'), name, gathered, soft=smooth)
     obj['levi_cast_shadow'] = CAST_TIERS[idx]
     # the seam height by ellipse angle (sorted), for the core under the outer tier
     seam = sorted((_ellipse_angle(bx, by), t.z) for ((bx, by), _), t in zip(hem, tops))
