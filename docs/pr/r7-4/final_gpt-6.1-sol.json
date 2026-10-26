@@ -1,0 +1,275 @@
+{
+  "summary": "The three most conspicuous problems are garment intersections: high_kick, where the raised thigh emerges through the front/side of the skirt near the hip; cross_legged, where both folded legs pass across the skirt's intact front panel; and lie_back_elbows, where the extended thighs intersect the skirt at the lap, especially in the 3/4 view. Related skirt intersections occur in deep_lunge and the seated portion of sit_stand. Disabled cloth physics explains the limited draping and much of the rigid skirt silhouette, but these visible body–garment intersections still need attention for those poses. No obvious mesh explosions, tearing, or reversed joints are visible. Clip ratings cover the supplied samples; smoothness and brief intersections between samples cannot be established from these sheets.",
+  "items": [
+    {
+      "name": "sit_chair",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Lap and upper thighs, especially in the 3/4 view",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The skirt retains a standing-style flare around the seated thighs, with a small intersection at the lap rather than settling over the legs, partly expected with cloth physics disabled."
+    },
+    {
+      "name": "seiza",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Front hem around the folded knees and shins",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The folded legs emerge through the front ruffle region while the skirt remains broadly flared, producing a small garment intersection consistent with the lack of simulated draping."
+    },
+    {
+      "name": "kneel_one",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Raised thigh at the front of the skirt",
+      "parts": ["skirt"],
+      "frames": "",
+      "issue": "The raised thigh cuts into the skirt panel above the hem instead of lifting the fabric continuously, although the affected area is relatively small."
+    },
+    {
+      "name": "cross_legged",
+      "kind": "pose",
+      "rating": "major",
+      "location": "Lap, across both folded thighs and the central skirt panel",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "Both folded legs visibly pass through and lie across an otherwise intact skirt front, a prominent intersection that the absence of cloth physics explains but does not conceal."
+    },
+    {
+      "name": "deep_lunge",
+      "kind": "pose",
+      "rating": "major",
+      "location": "Leading hip and raised thigh",
+      "parts": ["skirt"],
+      "frames": "",
+      "issue": "The leading thigh visibly emerges through the skirt above its hem while the surrounding panel keeps its flared shape, creating a conspicuous body–cloth intersection."
+    },
+    {
+      "name": "run_l",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Skirt hem around the raised thigh",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The raised leg crowds the inner hem while the skirt and petticoat lift as a broad rigid flare, a small cloth-response artefact expected to some degree without physics."
+    },
+    {
+      "name": "run_r",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Skirt hem around the raised thigh",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The skirt and petticoat retain a broad rigid flare around the raised thigh rather than bending locally around it, a small artefact partly attributable to disabled physics."
+    },
+    {
+      "name": "jump_tuck",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Skirt and petticoat above the tucked knees",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The skirt forms a stiff, nearly horizontal disk over the tucked legs with little local folding, noticeable on inspection but understandable with only driven cloth chains."
+    },
+    {
+      "name": "high_kick",
+      "kind": "pose",
+      "rating": "major",
+      "location": "Raised hip and thigh at the front/side of the skirt",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The kicking thigh passes straight through the skirt near the hip while the skirt remains largely in its standing silhouette, clearly visible in both views."
+    },
+    {
+      "name": "arms_crossed",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hands_behind_head",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hands_behind_back",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hand_to_shoulder",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hands_on_hips",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "reach_up_back",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hug_self",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "twist_bend",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Waist and lower bodice",
+      "parts": ["bodice"],
+      "frames": "",
+      "issue": "The waist develops a slightly pinched, angular transition as the torso twists and bends, with the front lacing visibly shearing across that region."
+    },
+    {
+      "name": "lie_back_elbows",
+      "kind": "pose",
+      "rating": "major",
+      "location": "Lap and upper thighs, most clearly in the 3/4 view",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The extended thighs emerge through the intact front of the skirt while its lower panel hangs beneath them, producing a large intersection rather than fabric following the reclining legs."
+    },
+    {
+      "name": "look_over_shoulder",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "curtsy",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "dance_sway",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "dance_point",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "dance_heart",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "dance_clap",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "walk",
+      "kind": "clip",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "0, 5, 12, 21, 24, 36, 48, 60",
+      "issue": ""
+    },
+    {
+      "name": "run",
+      "kind": "clip",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "0, 8, 9, 16, 20, 24, 32, 40",
+      "issue": ""
+    },
+    {
+      "name": "turn",
+      "kind": "clip",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "0, 9, 18, 27, 36, 38, 41, 45",
+      "issue": ""
+    },
+    {
+      "name": "sit_stand",
+      "kind": "clip",
+      "rating": "major",
+      "location": "Lap, upper thighs, and front skirt/petticoat during sitting and rising",
+      "parts": ["skirt", "petticoat"],
+      "frames": "32, 36, 54, 65",
+      "issue": "The seated thighs visibly intersect the front skirt and ruffle region, followed by a conspicuously lifted, rigid front panel at frame 65, with disabled cloth physics contributing to the poor drape."
+    },
+    {
+      "name": "spin",
+      "kind": "clip",
+      "rating": "minor",
+      "location": "Entire skirt and petticoat hem",
+      "parts": ["skirt", "petticoat"],
+      "frames": "9, 18, 20, 26, 27, 36",
+      "issue": "The skirt and petticoat maintain an unusually uniform, rigid disk shape across the middle samples, a visible but modest limitation of the driven chains without cloth physics."
+    },
+    {
+      "name": "idol_dance",
+      "kind": "clip",
+      "rating": "minor",
+      "location": "Skirt and petticoat around the lifted thigh",
+      "parts": ["skirt", "petticoat"],
+      "frames": "72, 74, 76",
+      "issue": "The skirt lifts as a broad stiff flare around the raised leg with little local folding at the thigh, a small cloth-response artefact partly expected without physics."
+    }
+  ]
+}

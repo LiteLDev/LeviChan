@@ -1,0 +1,66 @@
+{
+ "hug_self": {
+  "X": "new",
+  "Y": "old"
+ },
+ "arms_crossed": {
+  "X": "new",
+  "Y": "old"
+ },
+ "hand_to_shoulder": {
+  "X": "old",
+  "Y": "new"
+ },
+ "dance_heart": {
+  "X": "old",
+  "Y": "new"
+ },
+ "dance_clap": {
+  "X": "new",
+  "Y": "old"
+ },
+ "hands_behind_head": {
+  "X": "new",
+  "Y": "old"
+ },
+ "reach_up_back": {
+  "X": "new",
+  "Y": "old"
+ },
+ "dance_point": {
+  "X": "old",
+  "Y": "new"
+ },
+ "hands_behind_back": {
+  "X": "new",
+  "Y": "old"
+ },
+ "dance_sway": {
+  "X": "old",
+  "Y": "new"
+ },
+ "idol_dance@74": {
+  "X": "old",
+  "Y": "new"
+ },
+ "idol_dance@81": {
+  "X": "new",
+  "Y": "old"
+ },
+ "arms_up": {
+  "X": "old",
+  "Y": "new"
+ },
+ "raise_bend": {
+  "X": "old",
+  "Y": "new"
+ },
+ "arms_forward": {
+  "X": "new",
+  "Y": "old"
+ },
+ "look_over_shoulder": {
+  "X": "new",
+  "Y": "old"
+ }
+}

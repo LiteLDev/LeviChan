@@ -427,6 +427,9 @@ STATIC_BODIES = ['頭', '首', '上半身', '上半身2', '下半身'] + \
 HAND_BODIES = [f'手首.{t}' for t in 'LR']
 HAND_GROUP, HAND_RADIUS = 4, 0.022
 CHAIN_GROUP = {'Hair': 1, 'Skirt': 2, 'Sleeve': 3}
+# the right sleeve's drapes have a group of their own, so the two sleeves collide (arms
+# folded or crossed: the bags press against each other instead of passing through)
+SLEEVE_R_GROUP = 5
 CHAIN_LIMIT = {'Hair': (20, 8, 20), 'Skirt': (30, 8, 15), 'Sleeve': (25, 8, 25)}   # degrees x, y, z
 
 
@@ -531,12 +534,17 @@ def add_physics(root, arm):
         # are clear of each other collide. Chain roots sit on the body: no collision there.
         mine = CHAIN_GROUP[grp]
         mask = {mine} | {g for g in chain_groups if (mine, g) in overlapping} | ({0, HAND_GROUP} if root_of_chain else set())
+        if grp != 'Sleeve' and CHAIN_GROUP['Sleeve'] in mask:   # a chain that ignores the sleeves ignores both
+            mask.add(SLEEVE_R_GROUP)
         if grp == 'Sleeve':
             mask |= {HAND_GROUP}
+            if b.name.endswith('.R'):
+                mask = (mask - {mine}) | {SLEEVE_R_GROUP}
+                mine = SLEEVE_R_GROUP
         # skirt chain roots follow the bone (their follow parents add the thighs' rotation);
         # everything below them is simulated
         dyn = 0 if grp == 'Skirt' and root_of_chain else 1
-        body(b.name, 'CAPSULE', (rad, max(0.01, b.length - rad), 0), dyn, CHAIN_GROUP[grp], mask, mass=0.3)
+        body(b.name, 'CAPSULE', (rad, max(0.01, b.length - rad), 0), dyn, mine, mask, mass=0.3)
         parent = b.parent
         while parent is not None and parent.name not in bodies:
             parent = parent.parent
