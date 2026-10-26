@@ -344,7 +344,7 @@ DRAPE_SEGMENTS = 2    # bones per sleeve drape chain
 # 肩補助 carries this share of 肩's skin, by position along 肩 (inner end .. joint)
 SHRUG_SPAN = (0.1, 0.8)
 # per helper name: (blend start before the joint, blend end after it) overriding the part's band
-JOINT_BAND_BY_AUX = {'腕補助': (0.04, 0.06), 'ひざ補助': (0.09, 0.09)}   # knee: round 4 had 6 cm (angular walk knee)
+JOINT_BAND_BY_AUX = {'腕補助': (0.04, 0.06), 'ひざ補助': (0.075, 0.075)}   # knee: 6 cm left the walk knee angular, 9 cm folded the squat
 # per joint (first helper's name): the helpers as (share of the lower bone's rotation,
 # position along the lower bone where the skin turns with that helper alone). The band
 # turns smoothly from the upper bone (at -before) through each helper to the lower bone
