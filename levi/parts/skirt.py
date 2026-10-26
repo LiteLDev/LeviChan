@@ -156,7 +156,7 @@ SMOOTH_ROW_PX = 7.0      # the same for the hem height: rounds the tops of the n
 FOLD_T0 = 0.05           # folds open from this t (below the hips), full depth at the hem
 FOLD_EASE = 0.15         # ... eased in over about this share of the length
 MID_RELIEF = 0.15        # extra fold depth through mid-skirt (share, peaks halfway, 0 at the hem)
-MID_CREST = 0.45        # extra crest height above the trough through mid-skirt (share; troughs stay)
+MID_CREST = 0.35        # extra crest height above the trough through mid-skirt (share; troughs stay)
 LOBE_P_RANGE = (1.5, 2.0)  # per-fold hem lobe exponent (FOLDS column 6, x10): > 1 widens the lobe bottom
 BASE_POW = 1.4           # smooth offset grows as t**BASE_POW
 STEEP_MIN = 0.7          # the falling fold face spans at least this share of the half-fold
@@ -167,7 +167,7 @@ STEEP_MIN = 0.7          # the falling fold face spans at least this share of th
 # The flare weight w rises from 0 to 1 over each fold's half-width toward
 # its trough (|u| from LIP_U0 to 1).
 LIP_U0 = 0.15
-HEM_FLARE = 1.6          # (3.5 before the rounded hem, 2.5 in round 5: the turned-out troughs read as blades edge-on)
+HEM_FLARE = 0.9          # (3.5 before the rounded hem, 2.5 in round 5: the turned-out troughs read as blades edge-on)
 HEM_FLARE_T = 0.7
 STEEP_FACE_DEG = 70.0    # orientation of the steep fold face at the hem, from the view axis
 Z_MINT = 0.6             # white -> mint height gradient reaches this at the hem
@@ -177,7 +177,7 @@ STREAK_T0 = 0.3          # streaks start at this t
 STREAK_SOFT = 0.6        # streak edge feather (in u)
 DRIFT_DEG = 4.0          # sideways wander of the folds up the skirt (deg at the waist)
 CREST_CURL_T = 0.45      # main-sheet t where the per-fold crest curl (tuck under) starts
-CURL_K = 0.5             # share of the fitted crest tuck (FOLDS column 5) that is built: the
+CURL_K = 0.3             # share of the fitted crest tuck (FOLDS column 5) that is built: the
                          # full tuck folds the crest edge back into an edge-on blade
 
 # One row per fold, sorted by azimuth; fitted by _skirt_fit.py, regenerate with
@@ -188,17 +188,14 @@ CURL_K = 0.5             # share of the fitted crest tuck (FOLDS column 5) that 
 #  half-depth px, smooth radial offset px, inward tuck of the crest at the
 #  hem px - negative flares it out over the petticoat, hem lobe exponent x10)
 FOLDS = [
-    (5, 605, 575, 12, 2, 24, 15),
-    (32, 587, 561, 16, 2, 18, 15),
-    (54, 571, 546, 16, -2, 12, 15),
-    (90, 570, 527, 10, -10, 15, 15),
-    (137, 561, 551, 12, 0, 13, 15),
-    (182, 569, 551, 10, -2, 21, 15),
-    (211, 576, 555, 16, 0, 19, 15),
-    (232, 569, 541, 16, 0, 12, 15),
-    (253, 555, 539, 12, -6, 9, 16),
-    (300, 561, 546, 18, -2, 12, 15),
-    (322, 571, 552, 14, 2, 17, 15),
+    (4, 603, 557, 10, -4, 18, 15),
+    (44, 585, 550, 16, 0, 11, 18),
+    (92, 562, 527, 10, -12, 12, 18),
+    (136, 561, 551, 12, -2, 13, 15),
+    (184, 561, 551, 14, -6, 21, 15),
+    (212, 568, 543, 14, -2, 18, 20),
+    (243, 553, 541, 16, -8, 12, 20),
+    (315, 564, 548, 20, -6, 14, 20),
 ]
 
 
