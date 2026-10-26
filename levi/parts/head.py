@@ -40,6 +40,7 @@ Local landmark corrections (spec.L is a +-3 px first pass):
   profile 1-2.5 px behind the old wedge over rows 155-161.
 """
 import math
+from functools import lru_cache
 
 import bmesh
 import bpy
@@ -107,20 +108,20 @@ TABLE = [
     (136.0, 34.0, 235.4, 287.9, 300.0),
     (140.0, 32.3, 237.1, 284.8, 296.0),
     (142.0, 31.4, 238.0, 283.0, 294.5),
-    (144.0, 30.3, 238.9, 281.0, 293.0),
-    (146.0, 28.8, 239.8, 277.8, 291.0),
-    (148.0, 26.5, 240.7, 275.0, 288.2),
-    (150.0, 23.8, 241.6, 272.0, 284.2),
-    (152.0, 20.3, 242.5, 268.9, 277.6),
-    (153.5, 17.6, 243.1, 266.5, 273.0),
-    (155.5, 13.9, 244.0, 262.4, 268.6),
-    (157.0, 10.6, 244.6, 258.8, 263.6),
-    (158.3, 8.2, 245.2, 255.2, 258.6),
-    (159.5, 5.6, 245.9, 251.5, 254.0),
+    (144.0, 30.3, 238.9, 281.0, 292.6),
+    (146.0, 28.8, 239.8, 277.8, 289.4),
+    (148.0, 26.5, 240.7, 275.0, 284.5),
+    (150.0, 23.8, 241.6, 272.0, 279.5),
+    (152.0, 20.3, 242.5, 268.9, 275.2),
+    (153.5, 17.6, 243.1, 266.5, 272.6),
+    (155.5, 13.9, 244.6, 262.4, 269.0),
+    (157.0, 10.6, 245.3, 258.8, 265.0),
+    (158.3, 8.2, 246.0, 255.2, 260.5),
+    (159.5, 5.6, 246.8, 251.7, 256.0),
     # chin tip: a little fuller just above the end ring, so it rounds off
     # instead of running into a cone point (front V kept)
-    (160.5, 3.6, 246.8, 249.6, 251.6),
-    (161.3, 1.4, 248.0, 249.0, 250.0),
+    (160.5, 3.6, 247.6, 250.2, 252.6),
+    (161.3, 1.4, 248.6, 249.6, 250.6),
 ]
 # Nose: forward protrusion of the profile at the midline [px] per row. The
 # bridge rises out of the forehead from row ~106, so forehead, bridge and tip
@@ -232,7 +233,9 @@ def lower_cheek(X, row, hw):
     return amp * across * np.exp(-((row - r0) / sig) ** 2)
 
 
+@lru_cache(maxsize=4096)
 def _ring_params(row, detail):
+    """Ring shape parameters on `row` (cached: read-only, do not modify)."""
     hw, front, mid, back = table_at(row)
     muzzle = muzzle_at(row)
     front += muzzle
@@ -570,7 +573,7 @@ def eye_texture_pixels(iris_only=False):
     q = np.sqrt(((X - (ix - 0.4)) / 1.3) ** 2 + ((R - 114.2) / 4.0) ** 2)
     paint(_soft((q - 1.0) * 1.3) * 0.8, hexrgb('#123F28'))
     # upper iris shadow band cast by the lashes
-    paint(iris * 0.55 * _soft(R - (y_up + 3.2), 1.2), hexrgb('#143F2A'))
+    paint(iris * 0.35 * _soft(R - (y_up + 3.2), 1.2), hexrgb('#143F2A'))
     hi = np.hypot(X - (ix - 1.0), R - 110.8) - 1.5
     paint(_soft(hi), hexrgb('#FFFFFF'))
     hi2 = np.hypot(X - (ix + 3.2), R - 121.2) - 0.7
@@ -753,15 +756,18 @@ def fit_eyeball(P):
     zs = zr(np.arange(EYE_PIVOT_BOX[2], EYE_PIVOT_BOX[3] + 1e-6, 0.5)) * PPM
     cx, cz = np.meshgrid(xs, zs, indexing='ij')
     best = None
+    dxz2 = (pts[None, None, :, 0] - cx[..., None]) ** 2 + (pts[None, None, :, 2] - cz[..., None]) ** 2
+    reach2 = dxz2.max(axis=2)
     for r in np.arange(EYE_R_RANGE[0], EYE_R_RANGE[1] + 1e-6, 0.5):
-        dxz2 = (pts[None, None, :, 0] - cx[..., None]) ** 2 + (pts[None, None, :, 2] - cz[..., None]) ** 2
-        ok = dxz2.max(axis=2) < (EYE_RIM_SIN * (r + g)) ** 2   # rim well inside the outline: no grazing walls
+        ok = reach2 < (EYE_RIM_SIN * (r + g)) ** 2   # rim well inside the outline: no grazing walls
         cy = (pts[None, None, :, 1] + np.sqrt(np.clip((r + g) ** 2 - dxz2, 0, None))).max(axis=2)
         dist = np.sqrt(dxz2 + (pts[None, None, :, 1] - cy[..., None]) ** 2)
         cost = np.where(ok, dist.max(axis=2) - (r + g), np.inf)
         i, j = np.unravel_index(np.argmin(cost), cost.shape)
         if np.isfinite(cost[i, j]) and (best is None or cost[i, j] < best[0] - 1e-6):
             best = (cost[i, j], Vector((cx[i, j], cy[i, j], cz[i, j])) / PPM, r / PPM)
+    if best is None:
+        raise ValueError('head: no eyeball sphere fits the eye opening; widen EYE_PIVOT_BOX / EYE_R_RANGE')
     print(f"HEAD eyeball fit: rim spread {best[0]:.2f} px")
     return best[1], best[2]
 
@@ -770,6 +776,15 @@ def sphere_y(c, r, x, z):
     """Front surface y of the sphere at (x, z), or None outside its outline."""
     d2 = r * r - (x - c.x) ** 2 - (z - c.z) ** 2
     return c.y - math.sqrt(d2) if d2 > 0 else None
+
+
+def sphere_point(c, r, x, z):
+    """Point on the sphere's front at (x, z); outside its outline, the nearest
+    outline point."""
+    d = Vector((x - c.x, 0.0, z - c.z))
+    if d.length >= r:
+        d = d.normalized() * r
+    return Vector((c.x + d.x, c.y - math.sqrt(max(0.0, r * r - d.length_squared)), c.z + d.z))
 
 
 def build_head(detail=True, eye_fit=None):
@@ -963,16 +978,12 @@ def add_pouch(bm, p, detail):
     n = len(c0)
     for m in range(n):
         m2 = (m + 1) % n
-        bm.faces.new((rim[m], rim[m2], c0[m2], c0[m]))
-        bm.faces.new((back[m], back[m2], rim[m2], rim[m]))
-        f = bm.faces.new((mid, back[m2], back[m]))
-        f.material_index = 1
+        bm.faces.new((rim[m], rim[m2], c0[m2], c0[m]))          # the lips' inner edge: skin
+        for f in (bm.faces.new((back[m], back[m2], rim[m2], rim[m])), bm.faces.new((mid, back[m2], back[m]))):
+            f.material_index = 1                                  # the pouch: 'mouth'
     _sync(bm)
     p.wall = [v.index for v in rim]
     p.pouch = [v.index for v in back] + [mid.index]
-    for f in bm.faces:
-        if all(v.index in set(p.wall) | set(p.pouch) for v in f.verts):
-            f.material_index = 1
 
 
 # ---------------------------------------------------------------- morphs
@@ -992,9 +1003,12 @@ def eye_motion(name, X, row, upper):
         # cheek under it) pushed up further at the middle
         bump = math.sin(math.pi * min(max((X - EYE_IN) / (EYE_OC - EYE_IN), 0.0), 1.0)) ** 0.9
         close -= 4.0 * bump
+    # the vertical inner edge keeps a trace of its height (in order), so its
+    # vertices close onto a short line instead of collapsing onto one point
+    spread = 0.12 * (row - float(lash_bottom(Xc) + lower_lid(Xc)) / 2) if X <= EYE_IN + 1e-6 else 0.0
     if upper:
-        return 0.0, close + 0.5 - row, LID_OVERLAP
-    return 0.0, close - row, 0.0
+        return 0.0, close + 0.5 + spread - row, LID_OVERLAP
+    return 0.0, close + spread - row, 0.0
 
 
 def mouth_motion(name, X, row, upper):
@@ -1181,10 +1195,7 @@ EYE_COVER = 0.3                  # px of face the eyeball cap must stay behind b
 def eye_axis(c, r, side):
     """Unit vector from the eyeball centre to the iris centre on the sphere
     (the rest gaze), and two unit vectors across it."""
-    x = HEAD_DX + side * IRIS[0] / PPM
-    z = zr(IRIS[1])
-    y = sphere_y(c, r, x, z)
-    ax = (Vector((x, y, z)) - c).normalized()
+    ax = (sphere_point(c, r, HEAD_DX + side * IRIS[0] / PPM, zr(IRIS[1])) - c).normalized()
     u = ax.cross(Vector((0.0, 0.0, 1.0))).normalized()
     return ax, u, u.cross(ax).normalized()
 
@@ -1258,7 +1269,7 @@ def iris_mesh(c, r, side):
 
     def at(X, row):
         x, z = HEAD_DX + side * X / PPM, zr(row)
-        return Vector((x, sphere_y(c, rr, x, z), z))
+        return sphere_point(c, rr, x, z)
     centre = bm.verts.new(at(ix, iy))
     rings = []
     for j in range(1, IRIS_RINGS + 1):
@@ -1323,7 +1334,7 @@ def ear_mesh(side):
 
 NECK_SHADE_ROW = 166.0    # the neck's shading normals turn under the jaw above this row
 NECK_SHADE_BAND = 8.0     # ... over this many rows either side (no hard edge)
-NECK_TILT = Vector((0.0, 0.6, -0.8)) * 0.4   # added to the real normal: down and back
+NECK_TILT = Vector((0.0, 0.6, -0.8)) * 0.25   # added to the real normal: down and back
 
 
 def set_neck_normals(me):
@@ -1390,7 +1401,12 @@ def build(col):
         for v, pt in morph_targets(name, patches, eyes, co).items():
             kb.data[v].co = pt
         kb.value = 0.0   # a new key is not guaranteed to start at 0
-    common.add_outline(head)
+    # no outline hull on the rims rolling into the openings and the pouch: seen
+    # from above or below it would draw a line across the iris / the mouth
+    vg = head.vertex_groups.new(name='outline_width')
+    vg.add([v.index for v in me.vertices if v.index not in own], 1.0, 'REPLACE')
+    vg.add(sorted(own), 0.0, 'REPLACE')
+    common.add_outline(head, vertex_group='outline_width', min_factor=0.0)
 
     tree = BVHTree.FromPolygons([v.co for v in me.vertices], [tuple(q.vertices) for q in me.polygons])
     for side, sfx in ((1, 'L'), (-1, 'R')):
