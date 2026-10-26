@@ -1,0 +1,26 @@
+VMD walk: 61 frames, 28 bones keyed, round trip 0.00 mm (左ひざ @ 29), Blender rig vs PMX+VMD 1.8 mm (右ひざ @ 11), least knee bend 31.2 deg
+VMD idol_dance: 91 frames, 49 bones keyed, round trip 0.00 mm (左ひざ @ 71), Blender rig vs PMX+VMD 8.0 mm (左ひざ @ 72), least knee bend 6.0 deg
+VMD turn: 46 frames, 11 bones keyed, round trip 0.00 mm (右手首 @ 10), Blender rig vs PMX+VMD 2.4 mm (左ひざ @ 9), least knee bend 37.6 deg
+# VMD round trip of the motion clips
+VMD ROUND TRIP OK
+morphs 13
+morph まばたき: 1116 vertices move, panel 2
+morph ウィンク: 558 vertices move, panel 2
+morph ウィンク右: 558 vertices move, panel 2
+morph 笑い: 1116 vertices move, panel 2
+morph あ: 2296 vertices move, panel 3
+morph い: 2193 vertices move, panel 3
+morph う: 2196 vertices move, panel 3
+morph え: 2274 vertices move, panel 3
+morph お: 2282 vertices move, panel 3
+morph 左袖寄せ: 1793 vertices move, panel 4
+morph 左袖滑り: 1549 vertices move, panel 4
+morph 右袖寄せ: 1805 vertices move, panel 4
+morph 右袖滑り: 1549 vertices move, panel 4
+Info: Saved as "reimport.blend"
+SAVED C:\Users\futri\Desktop\LeviChan\.claude\worktrees\agent-abc3db926b2255637\out/pmx/reimport.blend
+Info: Saved as "reimport_preview.blend"
+SAVED C:\Users\futri\Desktop\LeviChan\.claude\worktrees\agent-abc3db926b2255637\out/pmx/reimport_preview.blend
+Info: Saved as "reimport_walk.blend"
+SAVED C:\Users\futri\Desktop\LeviChan\.claude\worktrees\agent-abc3db926b2255637\out/pmx/reimport_walk.blend
+REIMPORT OK

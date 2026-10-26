@@ -2939,6 +2939,281 @@ def _sleeve_weights(co, bones, sparam=None, edges=None):
     return W
 
 
+# Round 8: a raised arm lets the sleeve's bag fall toward the band. The bag is tied at the
+# band and at the wrist, so gravity along the sleeve slides its cloth toward the band, where
+# it bunches, and pulls the wrist half against the forearm; skinning alone keeps the rest
+# inflation (an inflated column, round 7: "a waist and a secondary bulb above the band").
+# Two corrective shape keys per side on every sleeve object, built from the rest mesh around
+# the rest arm axis (shoulder -> elbow -> wrist) and the part's sleeve parameter s (0 band ..
+# 1 wrist):
+#   SLEEVE_GATHER_KEYS: the radius beyond r0 (the arm with a sleeve on it, ~2 cm clear of
+#   the skin) is scaled by one falling profile, 1 + swell near the band down to 1 - deflate
+#   toward the wrist (back to 1 in the cuff gather), with soft folds round the arm where it
+#   bunches: the fullness gathers above the band and the wrist half lies along the forearm;
+#   SLEEVE_SLIDE_KEYS (delta on top of the first): the arc position along the arm moves
+#   toward the band by slide * sin(pi s) (tied ends), loose cloth only ('loose' m beyond r0).
+# Blender drives the keys by the arm's rise: smoothstep(SLEEVE_GATHER_RISE) of the sine of
+# the shoulder (腕D) -> wrist chord's elevation (world Z: gravity), 0 with the arm hanging or
+# horizontal; the slide fades out as the elbow bends (SLEEVE_GATHER_STRAIGHT: the chord over
+# the arm's length), since cloth can't slide through a bent elbow (arms_forward: 67 sleeve
+# vertices up to 1.5 cm inside the arm), and the gather partly (SLEEVE_GATHER_BENT). The
+# drivers read world positions only, so nothing jumps when 腕 passes 180 deg. The PMX keeps the keys as vertex morphs ('other'
+# panel), not driven: MMD's sleeve physics hangs the drape there.
+SLEEVE_GATHER = {'slide': 0.012, 'loose': 0.03, 'swell': 0.12, 'deflate': 0.8,
+                 'r0': 0.05, 'elbow': (0.02, 0.09),
+                 'band': (0.02, 0.16), 'shift': (0.3, 0.85), 'cuff': (0.9, 1.0),
+                 'folds': (0.05, 0.035, 0.8)}
+SLEEVE_GATHER_RISE = (0.0, 0.8)
+SLEEVE_GATHER_KEYS = {'L': '左袖寄せ', 'R': '右袖寄せ'}
+SLEEVE_SLIDE_KEYS = {'L': '左袖滑り', 'R': '右袖滑り'}
+SLEEVE_GATHER_STRAIGHT = (0.55, 0.85)   # shoulder -> wrist / arm length: the slide fades out as the elbow bends
+# ... and the gather to (1 - SLEEVE_GATHER_BENT[2]) of itself with the elbow folded (hands
+# behind the head: the deflated bag compressed into the inside of the elbow, x0.118)
+SLEEVE_GATHER_BENT = (0.3, 0.6, 0.7)
+SLEEVE_RIDE_SMOOTH = 0.008   # m: the tails' sampled weights are averaged within this radius
+SLEEVE_RIDE_IN = 0.75   # share of the bag's inward pull that the pieces lying on it follow
+
+
+def _arm_arc(co, S, E, Wp):
+    """(arc length along shoulder S -> elbow E -> wrist Wp of each point's nearest point,
+    l1, l2); past the wrist it runs on along the forearm (as in _sleeve_weights)."""
+    l1, l2 = float(np.linalg.norm(E - S)), float(np.linalg.norm(Wp - E))
+    u = _polyline_u(co, np.array([S, E]), np.array([E, Wp]))
+    a = np.where(u < 1.0, u * l1, l1 + (u - 1.0) * l2)
+    past = (co - Wp) @ ((Wp - E) / l2)
+    return np.where((u >= 1.999) & (past > 0), l1 + l2 + past, a), l1, l2
+
+
+def _sleeve_gather_co(co, sp, S, E, Wp):
+    """(still, full): gathered rest positions (SLEEVE_GATHER) of points `co` with sleeve
+    parameters `sp` around the arm polyline S -> E -> Wp (one side), without and with the
+    slide along the arm."""
+    g = SLEEVE_GATHER
+    a, l1, l2 = _arm_arc(co, S, E, Wp)
+    du, df = (E - S) / l1, (Wp - E) / l2
+
+    def axis(a):
+        a = np.maximum(a, 0.0)[:, None]
+        return np.where(a <= l1, S + a * du, E + (a - l1) * df)
+    sp = np.clip(sp, 0.0, 1.0)
+    q = co - axis(a)
+    r = np.linalg.norm(q, axis=1)
+    # the floor: an arm with a sleeve on it, wider round the elbow, whose skin bulges when
+    # it bends (the point of a straight raised elbow showed through the deflated bag)
+    r0 = g['r0'] + g['elbow'][0] * (1.0 - _smoothstep(0.0, g['elbow'][1], np.abs(a - l1)))
+    # the fullness moves from the wrist half to above the band: one falling profile (no
+    # waist between a band hump and a deflated wrist), back to 1 in the gathered cuff
+    band = _smoothstep(*g['band'], sp)
+    fall = _smoothstep(*g['shift'], sp) * (1.0 - _smoothstep(*g['cuff'], sp))
+    k = 1.0 + band * (g['swell'] - (g['swell'] + g['deflate']) * fall)
+    # cloth lying on the arm (the inside of a bent elbow) stays put; loose cloth slides
+    slide = g['slide'] * np.sin(np.pi * sp) * _smoothstep(r0, r0 + g['loose'], r)
+    if g.get('folds'):
+        # soft bunching folds where the cloth gathers: ridges round the arm every `wave` m
+        # of the gathered arc, wandering with the angle round the arm (measured from the
+        # arm direction blended smoothly across the elbow, so the phase has no seam there)
+        amp, wave, wob = g['folds']
+        d = du + (df - du) * _smoothstep(l1 - 0.03, l1 + 0.03, a)[:, None]
+        d /= np.linalg.norm(d, axis=1)[:, None]
+        ref = np.array([0.0, 1.0, 0.0]) - d * d[:, 1:2]
+        ref /= np.maximum(np.linalg.norm(ref, axis=1), 1e-9)[:, None]
+        th = np.arctan2((np.cross(d, ref) * q).sum(1), (ref * q).sum(1))
+        ph = 2.0 * np.pi * (a - slide) / wave + wob * np.sin(2.0 * th + 0.7) + 0.5 * wob * np.sin(3.0 * th + 2.1)
+        k = k * (1.0 + amp * band * (1.0 - fall) * np.cos(ph))
+    q = q * (np.where(r > r0, r0 + (r - r0) * k, r) / np.maximum(r, 1e-9))[:, None]
+    return axis(a) + q, axis(a - slide) + q
+
+
+def _rigid_islands(lab, co, new):
+    """Small loose pieces (island labels `lab`; the bow's loops and knots: within
+    RIGID_ISLAND, which skinning keeps rigid too) take their mean displacement, so they
+    move, not warp."""
+    out = new.copy()
+    for k in np.unique(lab):
+        m = lab == k
+        if np.linalg.norm(co[m] - co[m].mean(0), axis=1).max() < RIGID_ISLAND:
+            out[m] = co[m] + (new[m] - co[m]).mean(0)
+    return out
+
+
+def _idw_near(tree, co, n=4):
+    """(index (V, n), weight (V, n)): the n nearest points of a KD-tree for each of `co`,
+    inverse-distance weights summing to 1."""
+    idx, w = np.zeros((len(co), n), dtype=np.int64), np.zeros((len(co), n))
+    for i, p in enumerate(co):
+        for k, (_, j, d) in enumerate(tree.find_n(p, n)):
+            idx[i, k], w[i, k] = j, 1.0 / max(d, 1e-4)
+    return idx, w / np.maximum(w.sum(1, keepdims=True), 1e-12)
+
+
+def _kd(co):
+    from mathutils import kdtree
+    tree = kdtree.KDTree(len(co))
+    for i, p in enumerate(co):
+        tree.insert(p, i)
+    tree.balance()
+    return tree
+
+
+def _loose_labels(o, co):
+    """(island label per vertex, True where the island is a long strip: >= RIGID_ISLAND)."""
+    lab = _islands(len(co), _topology(o, co))
+    long_ = np.zeros(len(co), dtype=bool)
+    for k in np.unique(lab):
+        m = lab == k
+        long_[m] = np.linalg.norm(co[m] - co[m].mean(0), axis=1).max() >= RIGID_ISLAND
+    return lab, long_
+
+
+def _sleeve_host(objs):
+    """The sleeve's bag: the sleeve object with the most vertices."""
+    return max(objs, key=lambda o: len(o.data.vertices))
+
+
+def _sleeve_ride_weights(objs):
+    """The bow's tails (the long loose strips of a part marked obj['levi_sleeve_tails']) take
+    the skin weights of the bag under them (inverse-distance blend of its 4 nearest
+    vertices, the 4 largest bones kept), so they move exactly as the cloth they lie on: with
+    their own positional weights they stood further from the arm than the bag and took a
+    larger drape share, and a raised arm swung them through the gathered bag (round 8)."""
+    if not objs:
+        return
+    host = _sleeve_host(objs)
+    hco = _world_verts([host])
+    rig_groups = set(host.get('levi_rig_groups', []))
+    names = [g.name for g in host.vertex_groups if g.name in rig_groups]
+    if not len(hco) or not names:
+        return
+    col = {g.index: names.index(g.name) for g in host.vertex_groups if g.name in rig_groups}
+    hw = np.zeros((len(hco), len(names)))
+    for v in host.data.vertices:
+        for ge in v.groups:
+            if ge.group in col:
+                hw[v.index, col[ge.group]] = ge.weight
+    tree = _kd(hco)
+    for o in objs:
+        if o is host or not o.get('levi_sleeve_tails'):
+            continue
+        co = _world_verts([o])
+        lab, tails = _loose_labels(o, co)
+        ti = np.nonzero(tails)[0]
+        if not len(ti):
+            continue
+        idx, w = _idw_near(tree, co[ti])
+        rows = np.zeros((len(co), len(names)))
+        rows[ti] = (hw[idx] * w[:, :, None]).sum(1)
+        # one set of weights across the strip's width and thickness (a strip whose corners
+        # sampled different bag vertices tore, x2.1): averaged within SLEEVE_RIDE_SMOOTH
+        own = _kd(co[ti])
+        mine = set(o.get('levi_rig_groups', []))
+        groups = {g.name: g for g in o.vertex_groups if g.name in mine}
+        for i in ti:
+            nb = [ti[k] for _, k, _ in own.find_range(co[i], SLEEVE_RIDE_SMOOTH) if lab[ti[k]] == lab[i]]
+            row = rows[nb].mean(0)
+            keep = np.argsort(row)[::-1][:4]
+            keep = keep[row[keep] > 1e-6]
+            if not len(keep):
+                continue      # nothing under it: keep its own weights
+            for g in groups.values():
+                g.remove([int(i)])
+            for j, wv in zip(keep, row[keep] / row[keep].sum()):
+                g = groups.get(names[j]) or o.vertex_groups.new(name=names[j])
+                groups[names[j]] = g
+                g.add([int(i)], float(wv), 'REPLACE')
+        o['levi_rig_groups'] = sorted(mine | set(groups))
+
+
+def _sleeve_gather(arm, objs, bones):
+    """SLEEVE_GATHER: the corrective keys on the sleeve objects and their Blender drivers."""
+    if not SLEEVE_GATHER or not objs:
+        return
+    by = {b.name: b for b in bones}
+    lo, hi = SLEEVE_GATHER_RISE
+    s0, s1 = SLEEVE_GATHER_STRAIGHT
+    b0, b1, bk = SLEEVE_GATHER_BENT
+    # the bag (the sleeve object with the most vertices) is gathered by its own sleeve
+    # parameter; the pieces lying on it (the bow's tails, the frill, the cuff) ride the bag's
+    # displacement at their 4 nearest bag vertices, so a tail standing 1-2 mm off the cloth
+    # stays on it (by their own projected parameter they sank into the deflated bag)
+    host = _sleeve_host(objs)
+    hco = _world_verts([host])
+    hsp = _sleeve_param(host, hco)
+    if hsp is None or not len(hco):
+        print(f'rig: {host.name}: no sleeve parameter, no gather keys')
+        return
+    tree = _kd(hco)
+    hmove = {}
+    for o in [host] + [o for o in objs if o is not host]:
+        co = _world_verts([o])
+        if not len(co):
+            continue
+        mw_inv = np.array(o.matrix_world.inverted())
+        near = None if o is host else _idw_near(tree, co)
+        lab = _islands(len(co), _topology(o, co))
+        for tag, sd, _ in SIDES:
+            up = deform_arm(by, tag)
+            src = [by.get(n) for n in (up, f'ひじ.{tag}', f'手首.{tag}')]
+            if None in src:
+                continue
+            S, E, Wp = (np.array(b.head) for b in src)
+            reach = float(np.linalg.norm(E - S) + np.linalg.norm(Wp - E))
+            side = co[:, 0] * sd > 0.0
+            ii = np.nonzero(side)[0]
+            still, full = co.copy(), co.copy()
+            if o is host:
+                if len(ii):
+                    still[ii], full[ii] = _sleeve_gather_co(co[ii], hsp[ii], S, E, Wp)
+                hmove[tag] = (still - co, full - co)
+            elif tag in hmove and len(ii):
+                idx, w = near[0][ii], near[1][ii]
+                a, l1, _ = _arm_arc(co[ii], S, E, Wp)
+                ax = np.where((a <= l1)[:, None], S + np.maximum(a, 0.0)[:, None] * (E - S) / l1,
+                              E + (a - l1)[:, None] * (Wp - E) / np.linalg.norm(Wp - E))
+                rd = co[ii] - ax
+                rd /= np.maximum(np.linalg.norm(rd, axis=1), 1e-9)[:, None]
+                for out, mv in ((still, hmove[tag][0]), (full, hmove[tag][1])):
+                    dlt = (mv[idx] * w[:, :, None]).sum(1)
+                    # where the bag pulls in, a piece on it follows only SLEEVE_RIDE_IN of
+                    # the way, so it stays on the outside
+                    inward = np.maximum(-(dlt * rd).sum(1), 0.0)
+                    out[ii] = co[ii] + dlt + (1.0 - SLEEVE_RIDE_IN) * inward[:, None] * rd
+            still, full = _rigid_islands(lab, co, still), _rigid_islands(lab, co, full)
+            rise = f'smoothstep({lo!r}, {hi!r}, (zw - zs) / max(d, 1e-6))'
+            keys = [(SLEEVE_GATHER_KEYS[tag], still,
+                     f'{rise} * (1.0 - {bk!r} * (1.0 - smoothstep({b0!r}, {b1!r}, d / {reach!r})))'),
+                    # the slide is a separate key (its delta on top of the first), only
+                    # with the elbow fairly straight: shoulder -> wrist over the arm's length
+                    (SLEEVE_SLIDE_KEYS[tag], co + (full - still),
+                     f'{rise} * smoothstep({s0!r}, {s1!r}, d / {reach!r})')]
+            for name, new, expr in keys:
+                old = o.data.shape_keys.key_blocks.get(name) if o.data.shape_keys else None
+                if np.abs(new - co).max() < 1e-4:
+                    if old is not None:       # left from an earlier build
+                        o.shape_key_remove(old)
+                    continue
+                if o.data.shape_keys is None:
+                    o.shape_key_add(name='Basis', from_mix=False)
+                kb = old or o.shape_key_add(name=name, from_mix=False)
+                kb.data.foreach_set('co', (new @ mw_inv[:3, :3].T + mw_inv[:3, 3]).ravel())
+                kb.value = 0.0
+                kb.driver_remove('value')
+                drv = kb.driver_add('value').driver
+                drv.type = 'SCRIPTED'
+                # the deforming arm (腕D under the shrug): the keys are built around it
+                for vn, bn in (('zw', f'手首.{tag}'), ('zs', up)):
+                    v = drv.variables.new()
+                    v.name, v.type = vn, 'TRANSFORMS'
+                    t = v.targets[0]
+                    t.id, t.bone_target = arm, bn
+                    t.transform_type, t.transform_space = 'LOC_Z', 'WORLD_SPACE'
+                v = drv.variables.new()
+                v.name, v.type = 'd', 'LOC_DIFF'
+                for t, bn in zip(v.targets, (f'手首.{tag}', up)):
+                    t.id, t.bone_target = arm, bn
+                    t.transform_space = 'WORLD_SPACE'
+                drv.expression = expr
+
+
 # Thick cloth shells (the skirt's outer face, inner face and rounded hem): vertices at the
 # same place on the cloth (angle around the body, height) get the same weights, so the two
 # faces cannot separate in a pose: weights are averaged over SHELL_CELL cells.
@@ -4359,5 +4634,7 @@ def build_rig():
         if part in ('body', '_proxy') and _SKIN is None:
             _store_skin(parts[part])
     bpy.context.view_layer.update()
+    _sleeve_ride_weights(parts.get('sleeves', []))
+    _sleeve_gather(arm, parts.get('sleeves', []), bones)
     _hair_collision(arm, bones, parts)
     return arm
