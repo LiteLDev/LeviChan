@@ -2728,6 +2728,10 @@ SKIN_FOLLOW = True
 # bodice sank 1.5 cm into the chest in jump_tuck, dance_point and dance_heart)
 SKIN_FOLLOW_ARM = ('肩', '肩補助', '肩補助2', '肩補助3', '腕D')   # shoulder bones the bodice may take from the skin
 BODICE_ARM_CAP = 0.12      # most of a bodice vertex the arm (腕D) may carry
+# round 9: bodice ornaments lying on the shell keep their own skin sample per point (as the
+# shell under them does) instead of riding one attachment point rigidly: rigid on the
+# neckline's weights, the leaf cluster sank up to 7 mm into the chest in arms_up
+BODICE_RIDE = ('bodice_leaves',)
 SKIN_K = 8                 # nearest skin vertices averaged (inverse distance) ...
 SKIN_SOFT = 0.005          # ... softened by this many m, so the sample varies smoothly
 _SKIN = None               # (points (N, 3), {bone: column}, weights (N, B)) of the skinned body (build_rig)
@@ -4485,6 +4489,8 @@ def _weights(obj, part, co, bones):
         w = _arm_cap(w, co, bones)
     if cord:
         w = _neck_cord_weights(cord, w, co, bones, edges)
+    elif part == 'bodice' and SKIN_FOLLOW and _SKIN is not None and obj.name.startswith(BODICE_RIDE):
+        pass    # the shell's own per-point weights (skin sample, arm cap): no rigid island
     elif _skin_ornament(obj, part):
         roots = np.array([tuple(obj.matrix_world @ Vector(p)) for p in obj.get('levi_attach_points', [])]).reshape(-1, 3)
         w = _skin_ornament_weights(w, co, labels, part, bones, roots)
