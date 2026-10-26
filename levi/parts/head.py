@@ -106,19 +106,19 @@ TABLE = [
     (140.0, 32.3, 235.5, 284.8, 296.0),
     (142.0, 31.4, 237.5, 283.0, 294.5),
     (144.0, 30.3, 238.7, 281.0, 293.0),
-    (146.0, 28.8, 240.0, 278.8, 291.0),
-    (148.0, 26.5, 241.3, 276.4, 288.2),
-    (150.0, 23.8, 242.0, 273.6, 284.2),
-    (152.0, 20.3, 243.0, 270.5, 278.6),
-    (153.5, 17.6, 243.5, 268.0, 274.6),
-    (155.5, 13.9, 244.3, 263.6, 271.5),
-    (157.0, 10.6, 245.2, 259.8, 267.6),
-    (158.3, 7.9, 246.2, 256.0, 262.0),
-    (159.5, 5.0, 247.3, 251.8, 255.5),
+    (146.0, 28.8, 240.0, 277.8, 291.0),
+    (148.0, 26.5, 241.3, 275.0, 288.2),
+    (150.0, 23.8, 242.0, 272.0, 284.2),
+    (152.0, 20.3, 243.0, 268.9, 278.6),
+    (153.5, 17.6, 243.5, 266.5, 274.6),
+    (155.5, 13.9, 244.0, 262.4, 271.5),
+    (157.0, 10.6, 244.6, 258.8, 267.6),
+    (158.3, 8.2, 245.2, 255.2, 262.0),
+    (159.5, 5.6, 245.9, 251.5, 255.8),
     # chin tip: a little fuller just above the end ring, so it rounds off
     # instead of running into a cone point (front V kept)
-    (160.5, 2.8, 248.4, 250.0, 252.0),
-    (161.3, 0.9, 249.2, 249.7, 250.2),
+    (160.5, 3.6, 246.8, 249.6, 252.2),
+    (161.3, 1.4, 248.0, 249.0, 250.0),
 ]
 # Nose: forward protrusion of the profile at the midline [px] per row. The
 # bridge rises out of the forehead from row ~106, so forehead, bridge and tip
@@ -132,7 +132,7 @@ NOSE = [(106.0, 0.0), (108.5, 0.4), (111.0, 1.1), (113.5, 2.0), (116.0, 3.1),
 # Below the nose it recedes steadily (not a vertical plate that bends back
 # only at the jaw), meeting the profile again at the chin.
 BASE_FRONT = ((112.0, 240.5), (118.0, 240.3), (124.0, 240.1), (130.0, 240.3), (136.0, 241.1),
-              (142.0, 242.5), (148.0, 244.2), (153.0, 245.5), (157.0, 246.4), (160.5, 248.3))
+              (142.0, 242.5), (148.0, 244.2), (153.0, 245.5), (157.0, 246.0), (160.5, 247.4))
 MUZZLE_SIGMA = 11.0              # lateral falloff of the muzzle [px]
 # lateral falloff [px] by row: a broad bridge narrowing to a small tip
 NOSE_SIGMA = ((106.0, 6.5), (116.0, 5.4), (122.0, 5.0), (126.0, 4.9), (135.5, 4.6))
@@ -215,7 +215,7 @@ def nose_sigma(row):
     return float(np.interp(row, rows, vals))
 
 
-LOWER_CHEEK = (2.0, 0.62, 145.0, 8.0)   # amplitude px, centre as share of hw, row, row sigma
+LOWER_CHEEK = (3.0, 0.62, 145.0, 11.0)   # amplitude px, centre as share of hw, row, row sigma
 
 
 def lower_cheek(X, row, hw):
@@ -1336,11 +1336,13 @@ def neck_mesh():
     """Top of the neck, from inside the head down to just above the choker."""
     # row, depth centre [col], half-width, half-depth [px]: the top flares
     # back into the base of the skull instead of meeting it as a plain tube
-    # the throat also leans forward into the jaw's underside as a soft fillet
-    rows = [(138.0, 288.5, 16.0, 16.0), (148.0, 286.0, 15.4, 16.0), (154.0, 285.6, 15.1, 15.0),
-            (158.0, 286.2, 14.9, 13.6), (162.0, 286.8, 14.8, 12.7), (168.0, 287.8, 14.8, 12.6),
-            (174.0, 289.5, 14.8, 12.6)]
-    rings = [common.ellipse_ring((HEAD_DX, yc(cy), zr(r)), w / PPM, d / PPM, 20) for r, cy, w, d in rows]
+    # the throat also leans forward into the jaw's underside as a broad fillet
+    # (it meets the underside at ~150 deg, not square), so the jaw rolls into
+    # the neck instead of sitting on a cylinder
+    rows = [(138.0, 288.5, 16.0, 16.0), (146.0, 285.0, 15.5, 18.0), (151.0, 283.6, 15.3, 18.0),
+            (155.0, 284.2, 15.1, 16.0), (158.0, 285.4, 14.95, 14.2), (161.0, 286.4, 14.85, 13.1),
+            (165.0, 287.1, 14.8, 12.65), (169.0, 288.0, 14.8, 12.6), (174.0, 289.5, 14.8, 12.6)]
+    rings = [common.ellipse_ring((HEAD_DX, yc(cy), zr(r)), w / PPM, d / PPM, 28) for r, cy, w, d in rows]
     return common.loft(rings, closed=True, cap_start=True, cap_end=False)
 
 
