@@ -344,7 +344,7 @@ DRAPE_SEGMENTS = 2    # bones per sleeve drape chain
 # 肩補助 carries this share of 肩's skin, by position along 肩 (inner end .. joint)
 SHRUG_SPAN = (0.1, 0.8)
 # per helper name: (blend start before the joint, blend end after it) overriding the part's band
-JOINT_BAND_BY_AUX = {'腕補助': (0.04, 0.06)}
+JOINT_BAND_BY_AUX = {'腕補助': (0.04, 0.06), 'ひざ補助': (0.09, 0.09)}   # knee: round 4 had 6 cm (angular walk knee)
 # per joint (first helper's name): the helpers as (share of the lower bone's rotation,
 # position along the lower bone where the skin turns with that helper alone). The band
 # turns smoothly from the upper bone (at -before) through each helper to the lower bone
@@ -353,6 +353,8 @@ JOINT_BAND_BY_AUX = {'腕補助': (0.04, 0.06)}
 JOINT_AUX_CHAIN = {'腕補助': ((0.35, 0.0),), 'ひざ補助': ((0.33, -0.025), (0.67, 0.025))}
 # per helper: (full, none) lateral distance (m) from the lower bone's axis within which the
 # split applies. The shoulder's upper bone 肩 also weights torso skin, which stays put.
+# per helper: (band scale at the front, at the back, the front direction)
+JOINT_FRONT_BACK = {'ひざ補助': (1.4, 1.0, (0.0, -1.0, 0.0))}
 JOINT_REACH_BY_AUX = {'腕補助': (0.05, 0.08)}
 
 
@@ -1552,6 +1554,16 @@ def _split_joint_aux(w, co, bones, band):
         lb = bones[col[lower]]
         d = np.array((lb.tail - lb.head).normalized())
         t = (co - np.array(b.head)) @ d
+        scale = JOINT_FRONT_BACK.get(stem)
+        if scale is not None:
+            # the band is wider over the front of the joint (the kneecap wraps round) and
+            # narrower behind it (the hollow creases instead of pinching): t is divided by
+            # the local band scale, lerped by how far round to the front the vertex is
+            lat = (co - np.array(b.head)) - t[:, None] * d
+            fwd = np.array(scale[2], dtype=float)
+            front = (lat @ fwd) / np.maximum(np.linalg.norm(lat, axis=1), 1e-6)
+            k = scale[1] + (scale[0] - scale[1]) * _smoothstep(-1.0, 1.0, front)
+            t = t / k
         knots = [-before] + [bones[j].meta.get('aux_at', 0.0) for j in aux] + [after]
         steps = [_smoothstep(k0, k1, t) for k0, k1 in zip(knots, knots[1:])]
         f = [1.0 - steps[0]] + [s0 - s1 for s0, s1 in zip(steps, steps[1:])] + [steps[-1]]
