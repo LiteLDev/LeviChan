@@ -599,6 +599,27 @@ HAIR_RING = True      # weight the back hair by angle between neighbouring chain
 HAIR_LOCK_CHAINS = True   # long back-hair locks get their own chains (_hair_locks)
 HAIR_GRAVITY = 0.5    # Blender only: share of the torso's sideways bend the hanging hair turns back
 HAIR_FOLLOW = 0.15    # share of the head's rotation the back-hair chains take (the scalp takes all of it)
+# Pitch gravity: share of the torso's forward / backward pitch (上半身 + 上半身2) that
+# each back-hair chain segment turns back, by segment index from the top. The top
+# segment rests on the back and goes with it; the lower ones peel off and hang, so a
+# forward bend no longer carries the lower hair rearward as one stiff cape. The shares
+# add up down the chain: segment i of n has turned back HAIR_PITCH_GRAVITY x
+# (i / (n - 1)) ** HAIR_PITCH_EXP of the pitch in all (0, .1, .36, .75 for 4 segments),
+# so the bend spreads over the joints below the top one and grows toward the ends
+# (with more of it higher up, the curtain's lower edge went 1.7 cm into her back in
+# forward_bend). Blender: pitch only, about the bone's rest axis nearest world X; PMX:
+# a negative 回転付与 of 上半身 (the whole turn, the only form a 付与 has), which MMD
+# physics overrides when it is on.
+HAIR_PITCH_GRAVITY = 0.75
+HAIR_PITCH_EXP = 1.8        # sector chains (the curtain lies on her back)
+HAIR_PITCH_LOCK_EXP = 1.3   # lock chains on the back: they start hanging a little higher up
+# Outer locks (lock chains whose hanging part lies at least HAIR_OUTER_ANGLE deg round
+# from straight back: beside the arms, off her back) settle fully and earlier (0, .42,
+# .72, 1 for 4 segments). On the back such a profile put the locks 3 cm into her.
+HAIR_OUTER_ANGLE = 55.0
+HAIR_PITCH_OUTER = (1.0, 0.8)   # (total, exponent)
+HAIR_LOCK_SEG = ((0.4, 5), (0.25, 4), (0.0, 3))   # lock length (m) -> chain segments
+HAIR_PITCH_SOURCES = ('上半身', '上半身2')
 # back hair is weighted to 頭 fully above the eyes, fading to the chains by just under
 # the choker: below that it hangs at the shoulders, which a head turn must not sweep it
 # into (at 0.6 follow a 45 deg turn pushed the curtain 2.5 cm into a closed shoulder)
@@ -796,6 +817,25 @@ def _hair_locks(objs):
     return locks, (np.concatenate(rest) if rest else np.zeros((0, 3)))
 
 
+def _hair_pitch_gravity(chain, byname, total=HAIR_PITCH_GRAVITY, exp=HAIR_PITCH_EXP):
+    """Give the segments of one back-hair chain their HAIR_PITCH_GRAVITY shares (meta
+    'pitch_gravity': [(torso bone, share)], read by _create_armature) and the PMX 付与
+    (meta 'append': a negative share of 上半身). Returns the chain."""
+    srcs = [n for n in HAIR_PITCH_SOURCES if n in byname]
+
+    def cum(j, n):
+        return total * (j / (n - 1)) ** exp
+    for b in chain:
+        i, n = b.meta.get('seg', 0), b.meta.get('nseg', 1)
+        if i < 1 or n < 2:
+            continue
+        k = cum(i, n) - cum(i - 1, n)
+        if k > 1e-4 and srcs:
+            b.meta['pitch_gravity'] = [(src, k) for src in srcs]
+            b.meta['append'] = (srcs[0], -k)
+    return chain
+
+
 def _secondary_bones(parts, core):
     """Hair / skirt / sleeve chains for the parts present. parts: {name: [mesh objs]}."""
     bones = []
@@ -824,16 +864,24 @@ def _secondary_bones(parts, core):
     locks, rest = _hair_locks(parts.get('hair_back', []))
     for k, (key, lp) in enumerate(locks):
         top = min(L['eye_z'], float(lp[:, 2].max()))
-        nseg = 4 if top - lp[:, 2].min() >= 0.25 else 3
+        nseg = next(s for h, s in HAIR_LOCK_SEG if top - lp[:, 2].min() >= h)
         joints = _band_chain(lp[lp[:, 2] <= top + 0.02], top, float(lp[:, 2].min()), nseg)
         if joints:
-            bones += _chain_bones(f'後髪束{k}', f'後髪束{k}', f'HairLock{k}', joints, hair_parent(), 0.03, 'Hair',
-                                  meta={'lock': key})
+            low = lp[lp[:, 2] < L['choker_z']]
+            low = low if len(low) else lp
+            ang = math.degrees(math.atan2(abs(float(low[:, 0].mean())), float(low[:, 1].mean()) - L['head_center_y']))
+            pitch = HAIR_PITCH_OUTER if ang >= HAIR_OUTER_ANGLE else (HAIR_PITCH_GRAVITY, HAIR_PITCH_LOCK_EXP)
+            print(f'rig hair lock 後髪束{k}: {nseg} segments, {ang:.0f} deg round, '
+                  f'{"outer" if ang >= HAIR_OUTER_ANGLE else "back"} pitch gravity')
+            bones += _hair_pitch_gravity(
+                _chain_bones(f'後髪束{k}', f'後髪束{k}', f'HairLock{k}', joints, hair_parent(), 0.03, 'Hair',
+                             meta={'lock': key}), byname, *pitch)
     if len(rest):
         chains = _sector_chains(rest, (0.0, L['head_center_y']), L['eye_z'], HAIR_SECTORS, 4, 0.10)
         for k, (ang, joints) in enumerate(chains):
-            bones += _chain_bones(f'後髪{k}', f'後髪{k}', f'HairBack{k}', joints, hair_parent(), 0.035, 'Hair',
-                                  meta={'chain': k, 'angle': ang, 'cy': L['head_center_y']})
+            bones += _hair_pitch_gravity(
+                _chain_bones(f'後髪{k}', f'後髪{k}', f'HairBack{k}', joints, hair_parent(), 0.035, 'Hair',
+                             meta={'chain': k, 'angle': ang, 'cy': L['head_center_y']}), byname)
 
     # side locks: hair_front strands hanging beside the face, below the eyes. Each lock
     # family (SIDE_HAIR_FAMILIES: cheek locks, the long shoulder lock, the curl, the side
@@ -2437,6 +2485,30 @@ def _create_armature(bones):
             c.use_x = c.use_y = False
             c.invert_z = True
             c.influence = k
+        pg = b.meta.get('pitch_gravity', ())
+        if pg:
+            # Blender: turn back k of each torso bone's pitch only. The source's local turn
+            # is re-expressed in this bone's rest frame, so its pitch is a turn about this
+            # bone's rest axis nearest world X. For a segment running sideways (an outer
+            # lock over the arm) that is its own length: it rolls a little and swings the
+            # segments below it down, which is the point. (One Euler component: exact
+            # for a pure bend, approximate when the torso also twists.)
+            m = data.bones[b.name].matrix_local.to_3x3()
+            ax = max(range(3), key=lambda i: abs(m.col[i].x))
+            for src, k in pg:
+                c = pb.constraints.new('COPY_ROTATION')
+                c.name = f'Pitch gravity {src}'
+                c.target, c.subtarget = arm, src
+                c.target_space, c.owner_space = 'LOCAL_OWNER_ORIENT', 'LOCAL'
+                c.mix_mode = 'BEFORE'
+                c.use_x, c.use_y, c.use_z = (ax == 0), (ax == 1), (ax == 2)
+                c.invert_x = c.invert_y = c.invert_z = True
+                c.influence = k
+        if 'append' in b.meta:
+            # PMX only: 回転付与 with a (possibly negative) share, no Blender constraint
+            src, k = b.meta['append']
+            pb['mmd_append'] = src
+            pb['mmd_append_influence'] = float(k)
         if b.name.split('.')[0] == '目' and EYE_LIMIT:
             # Blender only (PMX bones have no rotation limits): the eyes turn at most
             # EYE_LIMIT (yaw, pitch) degrees, the range in which the irises stay behind the lids
