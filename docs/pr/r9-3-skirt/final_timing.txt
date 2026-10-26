@@ -1,0 +1,5 @@
+render cel         4.3 s
+render clay        3.3 s
+compare            3.9 s
+sheets            13.4 s
+total             25.0 s
