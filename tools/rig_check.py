@@ -38,8 +38,8 @@ MAX_PEN = 0.02        # deepest new penetration of clothes / hair into the body 
 PEN_DEPTH = 0.005     # vertices deeper than this are counted in the report
 PEN_SEARCH = 0.2      # find_nearest radius; farther points are treated as outside
 PEN_BODY = ('body', '_proxy')                 # the closed skin the others must stay out of
-PEN_SKIP = ('head',)
-WINDING_CHUNK = 2e5     # points x triangles per winding-number batch                          # the head's neck sits inside the body's neck on purpose
+PEN_SKIP = ('head',)    # the head's neck sits inside the body's neck on purpose
+WINDING_CHUNK = 2e5     # points x triangles per winding-number batch
 
 CORE_PARENTS = {
     '全ての親': None, 'センター': '全ての親', 'グルーブ': 'センター', '腰': 'グルーブ',
@@ -283,9 +283,9 @@ def check_eyes(arm, errors):
         rig_pose.turn(arm, '両目', (1, 0, 0), pitch)
         bpy.context.view_layer.update()
         for o in eyes:
-            d = _signed_out(bvh, _eval_verts(o)) - rest[o.name]
+            now = _signed_out(bvh, _eval_verts(o))
             # only points near the surface matter (an eyeball's back is far behind it)
-            d = d[_signed_out(bvh, _eval_verts(o)) > -0.004]
+            d = (now - rest[o.name])[now > -0.004]
             if len(d) and d.max() > worst[0]:
                 worst = (float(d.max()), f'{o.name} gaze {yaw:+d}/{pitch:+d}')
     rig_pose.reset_pose(arm)

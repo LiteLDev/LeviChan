@@ -1100,6 +1100,7 @@ def _skirt_weights(co, bones, group='Skirt', body_names=('上半身', '下半身
 # move together (the skirt's waist in a side bend, the bodice rim at the armpit)
 SKIN_FOLLOW = True
 SKIN_FOLLOW_ARM = ('肩', '肩補助', '腕D')   # shoulder bones the bodice may take from the skin
+BODICE_ARM_CAP = 0.12      # most of a bodice vertex the arm (腕D) may carry
 SKIN_K = 8                 # nearest skin vertices averaged (inverse distance) ...
 SKIN_SOFT = 0.005          # ... softened by this many m, so the sample varies smoothly
 _SKIN = None               # (points (N, 3), {bone: column}, weights (N, B)) of the skinned body (build_rig)
@@ -1124,18 +1125,21 @@ def _skin_sample(co, names, base):
     keep = sub.sum(1) > 0.5
     if keep.sum() < SKIN_K:
         return base
+    from mathutils.kdtree import KDTree
     pts, sub = pts[keep], sub[keep] / sub[keep].sum(1, keepdims=True)
-    out = base.copy()
-    for s0 in range(0, len(co), 2048):
-        q = co[s0:s0 + 2048]
-        d2 = ((q[:, None, :] - pts[None]) ** 2).sum(2)
-        nn = np.argpartition(d2, SKIN_K - 1, axis=1)[:, :SKIN_K]
-        dd = np.sqrt(np.take_along_axis(d2, nn, 1))
-        wt = 1.0 / (dd + SKIN_SOFT)
-        sk = np.einsum('vk,vkb->vb', wt, sub[nn]) / wt.sum(1, keepdims=True)
-        f = (1.0 - _smoothstep(SKIN_REACH[0], SKIN_REACH[1], dd.min(1)))[:, None]
-        out[s0:s0 + 2048] = base[s0:s0 + 2048] * (1.0 - f) + sk * f
-    return out
+    tree = KDTree(len(pts))
+    for i, p in enumerate(pts):
+        tree.insert(p, i)
+    tree.balance()
+    nn = np.zeros((len(co), SKIN_K), dtype=np.int64)
+    dd = np.full((len(co), SKIN_K), 1e3)
+    for v, q in enumerate(co):
+        for k, (_, i, dist) in enumerate(tree.find_n(q, SKIN_K)):
+            nn[v, k], dd[v, k] = i, dist
+    wt = 1.0 / (dd + SKIN_SOFT)
+    sk = np.einsum('vk,vkb->vb', wt, sub[nn]) / wt.sum(1, keepdims=True)
+    f = (1.0 - _smoothstep(SKIN_REACH[0], SKIN_REACH[1], dd.min(1)))[:, None]
+    return base * (1.0 - f) + sk * f
 
 
 def _store_skin(objs):
@@ -1554,6 +1558,7 @@ def _split_joint_aux(w, co, bones, band):
         lb = bones[col[lower]]
         d = np.array((lb.tail - lb.head).normalized())
         t = (co - np.array(b.head)) @ d
+        lat_d = np.linalg.norm((co - np.array(b.head)) - t[:, None] * d, axis=1)
         scale = JOINT_FRONT_BACK.get(stem)
         if scale is not None:
             # the band is wider over the front of the joint (the kneecap wraps round) and
@@ -1584,8 +1589,7 @@ def _split_joint_aux(w, co, bones, band):
         if reach is not None:
             # only skin around the limb: torso skin with a little of the upper bone's
             # weight (the ribs under the armpit) must not be handed to the arm
-            lat = np.linalg.norm((co - np.array(b.head)) - t[:, None] * d, axis=1)
-            g = (1.0 - _smoothstep(reach[0], reach[1], lat))[:, None]
+            g = (1.0 - _smoothstep(reach[0], reach[1], lat_d))[:, None]
             w[:, cols] = old * (1.0 - g) + w[:, cols] * g
 
 
@@ -1809,12 +1813,14 @@ def _sleeve_weights(co, bones, sparam=None, edges=None):
         uc = np.zeros(len(co))
         if drape:
             d = np.min([_seg_dist(co, np.array(bones[c].head), np.array(bones[c].tail)) for c in (arm, el)], axis=0)
+            sel = side & (d > DRAPE_NEAR)
             if sparam is not None:
                 sp = sparam
-            else:
-                sel = side & (d > DRAPE_NEAR)
-                lo, hi = (float(a[sel].min()), float(a[sel].max())) if sel.any() else (0.0, 1.0)
+            elif sel.sum() >= 16:
+                lo, hi = float(a[sel].min()), float(a[sel].max())
                 sp = np.clip((a - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
+            else:   # a few points (an ornament's host): no span to normalize over; mid-sleeve
+                sp = np.full(len(co), 0.5)
             g = _smoothstep(DRAPE_NEAR, DRAPE_FAR, d) * _smoothstep(0.0, SLEEVE_ATTACH[0], sp) * \
                 (1.0 - _smoothstep(SLEEVE_ATTACH[1], 1.0, sp))
             uc = _polyline_u(co, np.array([bones[j].head for j in drape]), np.array([bones[j].tail for j in drape]))
@@ -1846,7 +1852,8 @@ def _sleeve_weights(co, bones, sparam=None, edges=None):
         W[side] = (armw * (1.0 - g)[:, None] + dw * g[:, None])[side]
         done |= side
     if not done.all():
-        W[~done] = _envelope(co[~done], bones)
+        plain = [j for j, b in enumerate(bones) if not {'twist_of', 'joint_aux', 'shrug_of'} & set(b.meta)]
+        W[np.ix_(~done, plain)] = _envelope(co[~done], [bones[j] for j in plain])
     return W
 
 
@@ -1864,12 +1871,14 @@ def _shell_share(w, co, bones):
     cy = next((b.meta['cy'] for b in bones if b.group == 'Skirt' and 'cy' in b.meta), None)
     if cy is None:
         return w
-    th = np.degrees(np.arctan2(co[:, 0], co[:, 1] - cy)) / SHELL_CELL[0]
+    ncell = int(round(360.0 / SHELL_CELL[0]))
+    th = (np.degrees(np.arctan2(co[:, 0], co[:, 1] - cy)) % 360.0) / (360.0 / ncell)
     zz = co[:, 2] / SHELL_CELL[1]
     i0, j0 = np.floor(th).astype(np.int64), np.floor(zz).astype(np.int64)
     fx, fz = th - i0, zz - j0
     corners = [(0, 0, (1 - fx) * (1 - fz)), (1, 0, fx * (1 - fz)), (0, 1, (1 - fx) * fz), (1, 1, fx * fz)]
-    keys = np.concatenate([np.stack([i0 + di, j0 + dj], 1) for di, dj, _ in corners])
+    # the angle wraps (cells at 359.x and 0.x deg are neighbours)
+    keys = np.concatenate([np.stack([(i0 + di) % ncell, j0 + dj], 1) for di, dj, _ in corners])
     uniq, inv = np.unique(keys, axis=0, return_inverse=True)
     inv = inv.reshape(4, -1)
     acc = np.zeros((len(uniq), w.shape[1]))
@@ -1895,6 +1904,16 @@ def _base_weights(part, co, bones):
         w0 = np.zeros((len(co), len(sub)))
         env = _envelope(co, [sub[i] for i in main])
         w0[:, main] = _skin_sample(co, [sub[i].name for i in main], env) if part == 'bodice' else env
+        if part == 'bodice':
+            # a fitted strapless bodice takes at most BODICE_ARM_CAP of the arm from the skin
+            # (its rim at the armpit rides along; the neckline and chest stay on the torso)
+            arm = [i for i in main if sub[i].name.split('.')[0] in ('腕D', '腕')]
+            chest = next((i for i in main if sub[i].name == '上半身2'), None)
+            if arm and chest is not None:
+                a = w0[:, arm].sum(1)
+                k = np.minimum(1.0, BODICE_ARM_CAP / np.maximum(a, 1e-9))
+                w0[:, chest] += a * (1.0 - k)
+                w0[:, arm] *= k[:, None]
         if len(main) < len(sub):        # bodice ribbons hanging over the skirt ride the skirt
             t = _smoothstep(L['hip_z'] + SKIRT_BAND[0], L['hip_z'] + SKIRT_BAND[1], co[:, 2])[:, None]
             w0 = (1.0 - t) * w0 + t * _skirt_weights(co, sub)
@@ -2198,6 +2217,7 @@ def _apply_modifiers_with_keys(obj, keep):
     for m in obj.modifiers:
         if m.name in keep:
             m.show_viewport = False
+    show_only = obj.show_only_shape_key
     obj.show_only_shape_key = False
     dg = bpy.context.evaluated_depsgraph_get()
 
@@ -2215,13 +2235,14 @@ def _apply_modifiers_with_keys(obj, keep):
         ev.to_mesh_clear()
         return co
     shapes = [sample(i) for i in range(len(keys))]
+    for (name, val, mute, lo, hi), kb in zip(saved, keys):
+        kb.value, kb.mute = val, mute
+    obj.show_only_shape_key = show_only
     if any(len(c) != len(shapes[0]) for c in shapes):
         print(f'rig: {obj.name}: a shape key changes the topology under its modifiers; not applied')
         for m in obj.modifiers:
             m.show_viewport = show[m.name]
         return
-    for (name, val, mute, lo, hi), kb in zip(saved, keys):
-        kb.value, kb.mute = val, mute
     for i, kb in enumerate(keys):
         if i:
             kb.value = 0.0

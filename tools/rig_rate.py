@@ -194,6 +194,9 @@ def main():
             review.blender([rig, '-P', 'render.py', '--', '--out', os.path.join(out, 'clay'), '--clay',
                             '--views', ','.join(VIEWS), '--pose', ','.join(detail)], a.blender, log)
         print('RENDERED', len(poses), 'poses', flush=True)
+    for f in os.listdir(out):           # sheets of an earlier run with other poses
+        if f.endswith('.png'):
+            os.remove(os.path.join(out, f))
     review.blender(['--factory-startup', '-P', os.path.join('tools', 'rig_rate.py'), '--', '--stage',
                     '--out', out, '--poses', ','.join(poses)], a.blender, log)
     sheets = sorted(os.path.join(out, f) for f in os.listdir(out) if f.endswith('.png'))
