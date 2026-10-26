@@ -51,16 +51,21 @@ Objects: 'hair_back' (the mass's locks), 'hair_back_side' (curled primaries
 and outer side locks) and 'hair_back_shell' (the backing curtain); see build.
 
 The scalp cap, bangs and face-framing side locks belong to hair_front (this
-part reads its CAP_PROFILE/CAP_EXP measurement data only). A backing curtain
+part reads its CAP_PROFILE/CAP_EXP measurement data only). The lock ends keep
+SKIRT_GAP off the skirt's real back surface: skirt_sx() evaluates the skirt's
+pure surface functions (skirt.profiles / skirt.fold_table, its godet folds
+included), never its objects. A backing curtain
 under the locks keeps the mass solid from the crown to the hips. The locks
 hang roughly vertically so the rig's back-hair sector chains follow them.
 """
 import math
 
 import bmesh
+import numpy as np
 from mathutils import Vector
 
 from .. import common, spec
+from . import skirt as _skirt                  # pure surface functions only (see docstring)
 from .hair_front import CAP_EXP, CAP_PROFILE   # measurement data only (see docstring)
 
 PX = spec.PX_PER_M
@@ -125,12 +130,12 @@ SECT = [(116, 68, 60, 2.3), (140, 74, 66, 2.3), (175, 84, 62, 2.2), (210, 96, 56
         (260, 112, 52, 2.0), (320, 122, 50, 2.0)]
 ENV_OFF = 3.0             # px the envelope sits over hair_front's cap
 ENV_BLEND = (100.0, 132.0)  # rows over which the cap hands over to the hanging sections
-# Skirt back surface (measured on a hair-less render of the full model):
-# row -> (centre column, half depth); the half width is SKIRT_AR x the depth.
-SKIRT = [(370, 300, 60), (400, 298, 86), (440, 306, 105), (470, 313, 120),
-         (500, 318, 142), (530, 320, 160)]
-SKIRT_AR = 1.5
-SKIRT_GAP = 3.5     # px kept between the skirt and a lock's inner face
+# Skirt back surface: the skirt's own outer cloth (skirt.profiles), sampled once on a
+# grid of back-view columns x rows (round 7; the round-2 table measured on a render
+# missed the godet fold crests by up to 1.2 cm, so the lock ends lay inside the skirt
+# at rest and any motion made them cross it).
+SKIRT_GRID = (200, 1.0)   # +-px of back-view column and px step of the lookup grid
+SKIRT_GAP = 4.0     # px kept between the skirt and a lock's inner face
 SKIRT_BLEND = 36.0  # px of spine over which a skirt push is blended
 HOOK_LAY = 2.0      # px a back-view curl sits at least above its lock's layer
 # A back lock's layer offset ('lay') places its OUTER face: a lock thicker than
@@ -232,16 +237,63 @@ def env_sx(bx, row):
     return cap + (sect - cap) * b
 
 
+_SKIRT_TAB = {}
+
+
+def _skirt_table():
+    """(rows, columns x, back y (rows, cols), NaN where the cloth's back half does not
+    reach): the rear-most y (px, +Y = behind) of the skirt's outer cloth at world x px
+    and panel row, from skirt.profiles(skirt.fold_table())."""
+    if 'tab' in _SKIRT_TAB:         # (the skirt's tables are fixed data: computed once)
+        return _SKIRT_TAB['tab']
+    folds = _skirt.fold_table()
+    pts = _skirt.profiles(folds)
+    half, step = SKIRT_GRID
+    xs = np.arange(-half, half + step / 2, step)
+    rows = np.arange(math.floor(pts[:, :, 2].min()), math.ceil(pts[:, :, 2].max()) + step / 2, step)
+    out = np.full((len(rows), len(xs)), np.nan)
+    a, b = pts[:, :-1, :], pts[:, 1:, :]
+    idx = np.arange(len(pts))
+    for ri, row in enumerate(rows):
+        hit = (a[:, :, 2] <= row) & (row <= b[:, :, 2]) & (b[:, :, 2] > a[:, :, 2])
+        f = np.where(hit, (row - a[:, :, 2]) / np.where(hit, b[:, :, 2] - a[:, :, 2], 1.0), 0.0)
+        k = np.argmax(hit, axis=1)
+        ok = hit.any(axis=1)
+        x = a[idx, k, 0] + (b[idx, k, 0] - a[idx, k, 0]) * f[idx, k]
+        y = a[idx, k, 1] + (b[idx, k, 1] - a[idx, k, 1]) * f[idx, k]
+        x1, y1, ok1 = np.roll(x, -1), np.roll(y, -1), np.roll(ok, -1)
+        seg = ok & ok1 & (x != x1) & ((y > 0) | (y1 > 0))
+        x0, y0, x1, y1 = x[seg], y[seg], x1[seg], y1[seg]
+        if not len(x0):
+            continue
+        lo, hi = np.minimum(x0, x1), np.maximum(x0, x1)
+        inside = (xs[None, :] >= lo[:, None]) & (xs[None, :] <= hi[:, None])
+        s = (xs[None, :] - x0[:, None]) / (x1 - x0)[:, None]
+        yy = np.where(inside, y0[:, None] + (y1 - y0)[:, None] * s, -np.inf)
+        best = yy.max(axis=0)
+        out[ri] = np.where(best > 0, best, np.nan)
+    tab = (rows, xs, out)
+    _SKIRT_TAB['tab'] = tab
+    return tab
+
+
 def skirt_sx(bx, row):
     """Side-view column of the skirt's back surface at back-view column bx
-    (None above or beside the skirt)."""
-    if row < SKIRT[0][0]:
+    (None above, below or beside the skirt's back half)."""
+    rows, xs, ys = _skirt_table()
+    x = CX - bx                     # world x px (bx: image-left = +X)
+    if not (rows[0] <= row <= rows[-1] and xs[0] <= x <= xs[-1]):
         return None
-    c, b = table(SKIRT, row)
-    u = abs(bx - CX) / (SKIRT_AR * b)
-    if u >= 1.0:
-        return None
-    return c + b * math.sqrt(1.0 - u * u)
+    step = SKIRT_GRID[1]            # (uniform grids: plain arithmetic, called per vertex)
+    fr, fx = (row - rows[0]) / step, (x - xs[0]) / step
+    r0, c0 = min(int(fr), len(rows) - 2), min(int(fx), len(xs) - 2)
+    u, v = fr - r0, fx - c0
+    q = ys[r0:r0 + 2, c0:c0 + 2]
+    if np.isnan(q).any():           # at the cloth's edge: the nearest known sample, if any
+        q = q[~np.isnan(q)]
+        return None if not len(q) else float(CX + q.max())
+    y = (q[0, 0] * (1 - u) + q[1, 0] * u) * (1 - v) + (q[0, 1] * (1 - u) + q[1, 1] * u) * v
+    return float(CX + y)
 
 
 def mass_sx(bx, row, lay=0.0):
@@ -921,9 +973,13 @@ def _curtain_rows():
             X = hw * math.sin(a * math.pi / 2)
             wrap = CURTAIN_WRAP * (1 - math.cos(a * math.pi / 2))
             sx = env_sx(CX - X, r) - CURTAIN_INSET - wrap
-            sk = skirt_sx(CX - X, r)
-            if sk is not None:          # keep the inner surface outside the skirt
-                sx = max(sx, sk + CURTAIN_T + 2.0)
+            # keep the inner surface outside the skirt, at its own (narrower) column
+            # and half a row step either side (the faces between rows are flat)
+            sks = [skirt_sx(CX - x, r + dr) for x in (X, X * (hw - CURTAIN_T) / hw)
+                   for dr in (-CURTAIN_ROW_STEP / 2, 0.0, CURTAIN_ROW_STEP / 2)]
+            sks = [s for s in sks if s is not None]
+            if sks:
+                sx = max(sx, max(sks) + CURTAIN_T + SKIRT_GAP)
             Y = sx - CX
             out.append((X, Y))
             inn.append((X * (hw - CURTAIN_T) / hw, Y - CURTAIN_T))
