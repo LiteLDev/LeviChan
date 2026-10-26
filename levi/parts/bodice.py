@@ -113,10 +113,14 @@ PROFILE = [
     (240, 57.0, -87.5, 8.0),
     (250, 57.0, -92.5, 8.0),
     (260, 56.5, -95.0, 8.0),
-    (270, 54.8, -94.0, 9.0),
-    (280, 51.0, -89.0, 9.0),
-    (290, 49.3, -86.6, 8.5),
-    (300, 47.0, -86.2, 6.5),
+    # rows 270-300: the under-bust draw-in spread over ~30 px (was a short
+    # shelf at 270-280, which shaded as a crease under the bust)
+    (270, 54.8, -93.2, 9.0),
+    # half widths 270-310 eased to a steady taper (was -3.8 / -1.7 px per 10
+    # rows, a kink that bent the side terminator into steps)
+    (280, 51.6, -90.6, 9.0),
+    (290, 49.0, -88.3, 8.5),
+    (300, 47.0, -86.9, 6.5),
     (310, 45.0, -86.2, 4.5),
     (320, 45.0, -86.4, 3.0),
     (330, 46.5, -86.6, 2.5),
@@ -126,12 +130,15 @@ PROFILE = [
 ROW_BOT = 352             # hidden under the skirt waistband
 # Section exponents: the front is a little fuller across the bust and rounds
 # off toward the waist; the back is close to an ellipse (a rounded rib cage).
-P_FRONT = [(236, 2.35), (268, 2.35), (292, 2.1), (320, 2.0), (352, 2.0)]
+# (one gentle monotone change: a faster change moves the side terminator in steps)
+P_FRONT = [(236, 2.18), (290, 2.09), (340, 2.0), (352, 2.0)]
 P_BACK = 2.2
 # Bust: two broad overlapping lobes centred at |x| = BUST_T * half_w; the
-# table gives their strength per row (0 below the bust: the under-bust draws in).
-BUST = [(232, 0.04), (246, 0.09), (262, 0.105), (276, 0.05), (290, 0.0)]
-BUST_T, BUST_S = 0.36, 0.22
+# table gives their strength per row. Below the bust it eases out over ~40 px
+# (a long, monotone draw-in to the waist: no short shelf above the lacing).
+BUST = [(232, 0.035), (246, 0.07), (262, 0.08), (278, 0.05), (292, 0.022), (306, 0.005),
+        (318, 0.0)]
+BUST_T, BUST_S = 0.36, 0.30
 
 # Sweetheart neckline: top row vs |x| / half_w across the front half.
 NECK_FRONT = [(0.0, 243.0), (0.10, 241.5), (0.28, 237.0), (0.50, 234.0),
@@ -141,12 +148,18 @@ NECK_BACK_DROP = 8.0      # px lower at the centre back than at the side seam
 # row above the shell's last row: a rolled lip and a short inner return.
 LIP = [(0.8, 0.5), (0.0, 0.1), (0.25, -0.55), (2.0, -0.75)]
 LIP_START = 1.8           # the shell proper ends this far below the neckline
-# Gathers below the neckline: amplitude (px), depth below the shell's top row
-# over which they fade, and their period in front columns. They grow in under
-# the turned edge (which stays smooth); fold amplitudes and lengths vary.
-GATHER_AMP = 2.1
-GATHER_FADE = 15.0
-GATHER_COLS = 6
+# Gathers below the neckline: individually placed, rounded folds (character's
+# left half; the right half mirrors them with a slight shift so the two sides
+# are not identical). (centre t = x / half_w, half width in t, crest px, length
+# px below the turned edge.) Each fold is sampled by >= 6 shell columns; the
+# folds grow in under the turned edge (which stays smooth) and fade down into
+# the bust. A broad shallow trough between them keeps the surface zero-mean.
+# A few broad, soft folds (not ribs): each spans ~10 shell columns.
+GATHERS = [(0.13, 0.085, 0.9, 26.0), (0.36, 0.095, 1.15, 34.0), (0.58, 0.075, 0.7, 22.0)]
+GATHER_SKEW = 0.015       # the right half's folds sit this much (t) further out
+GATHER_TROUGH = 0.4       # share of the local fold strength taken back between folds
+GATHER_MAX_LEN = max(g[3] for g in GATHERS)
+GATHER_CENTRE_ROUND = 0.04   # t: |t| is rounded over this much at the centre front
 # The centre front leans back toward the chest just under the sweetheart dip.
 NECK_LEAN = 3.0
 
@@ -168,8 +181,10 @@ BOW_LOOP_L = [(318, 340), (306, 332), (293, 327.5), (289, 333), (289.5, 344), (2
 BOW_Y_KNOT = -97.0        # side view: bow front edge at col ~220 incl. outline
 BOW_Y_SLOPE = 0.62        # loops sweep back around the waist
 BOW_W = 5.3               # ribbon width (px)
-BOW_TILT = math.radians(56)   # ribbon face tilted from the viewer toward the loop's outside
-BOW_RETURN = 1.6          # px the returning half of each loop sits behind the outgoing half
+BOW_TILT = math.radians(60)   # ribbon face tilted from the viewer toward the loop's outside
+BOW_TILT_OUT = math.radians(44)   # ... less on the outgoing span, which shows its broad face
+BOW_RETURN = 2.6          # px the returning half of each loop sits behind the outgoing half
+BOW_THICK = 0.0011        # ribbon thickness (m)
 BOW_HALF_DEPTH = 0.5 * BOW_W * math.sin(BOW_TILT)
 
 # Ribbon tails (front view, px). Two strands per side meet at the tip.
@@ -184,8 +199,11 @@ TAILS = {
     'R_thin': ([(323, 344), (328, 362), (335, 420), (348, 470), (358, 500), (354, 532),
                 (349, 557)], 2.0, 0.5),
 }
-TAIL_THICK = 0.0009
+TAIL_THICK = 0.0011
 TWIST_MAX = math.radians(50)
+# px: twist ~ the turn over this much ribbon (times 1.6 * gain); fitted to the
+# round-4 twist of these paths
+TWIST_SPAN = 9.2
 # Tails sit TAIL_PROUD px in front of the skirt's cloth surface, taken from
 # levi.parts.skirt.front_surface_y() (its godet folds included; tail x is
 # world x, the same frame the skirt uses), plus HIP_LIFT px around the hip,
@@ -202,10 +220,12 @@ HIP_LIFT = (6.5, 405.0, 30.0)    # extra px, centre row, half width (gaussian)
 
 # Leaf cluster at the neckline, character's left (image right in front view).
 # (base col,row) -> (tip col,row), half-width px, forward tilt px.
+# Last field: roll px - one edge forward, the other back, so the leaves sit in
+# distinct planes and overlap in depth instead of reading as one flat badge.
 LEAVES = [
-    ((356.0, 248.5), (342.5, 230.0), 5.0, -1.0),
-    ((359.5, 249.0), (361.5, 227.5), 6.5, 0.0),
-    ((362.0, 249.5), (378.5, 243.0), 5.0, -1.0),
+    ((356.0, 248.5), (342.5, 230.0), 5.0, -1.0, -0.9),
+    ((359.5, 249.0), (362.0, 225.5), 6.0, 0.0, 0.5),   # the upright, pointed centre leaf
+    ((362.0, 249.5), (378.5, 243.0), 5.0, -1.0, 1.0),
 ]
 
 OUTLINE_FINE = 0.0007     # line weight for thin trims (seams, lacing, ribbons)
@@ -241,15 +261,34 @@ def _front_raw(t, row):
 
 
 @functools.lru_cache(maxsize=None)
-def _front_norm(row_key):
+def _front_norm_at(row_key):
+    """Maximum of _front_raw over t at row row_key / 8: the best of 61 samples
+    refined by a parabola through its neighbours, so it varies smoothly with the
+    row (no stepping as the maximum moves between samples)."""
     row = row_key / 8.0
-    return max(_front_raw(i / 60.0, row) for i in range(61))
+    vals = [_front_raw(i / 60.0, row) for i in range(61)]
+    k = max(range(61), key=vals.__getitem__)
+    if 0 < k < 60:
+        a, b, c = vals[k - 1], vals[k], vals[k + 1]
+        den = a - 2 * b + c
+        if den < 0:
+            s = 0.5 * (a - c) / den
+            return b - 0.25 * (a - c) * s
+    return vals[k]
+
+
+def _front_norm(row):
+    """_front_norm_at on a 1/8 px row grid (cached), linearly interpolated: C0
+    in the row, with no steps."""
+    k = math.floor(row * 8)
+    f = row * 8 - k
+    return _front_norm_at(k) * (1 - f) + _front_norm_at(k + 1) * f
 
 
 def front_factor(t, row):
-    """Front depth factor in 0..1, whose maximum over t is exactly 1 (the
-    measured side silhouette)."""
-    return _front_raw(t, row) / _front_norm(round(row * 8))
+    """Front depth factor in 0..1, whose maximum over t is 1 (the measured side
+    silhouette)."""
+    return _front_raw(t, row) / _front_norm(row)
 
 
 def neck_row_t(t):
@@ -269,19 +308,24 @@ def lean(t, row):
 
 def gather(t, row):
     """Shallow gathers below the neckline (px toward the viewer)."""
-    a = abs(t)
-    if a >= 0.78:
+    if abs(t) >= 0.78:
         return 0.0
     depth = row - neck_row_t(t) - LIP_START
-    # unequal folds: amplitude and length vary from fold to fold (fixed pattern)
-    k = 2 * math.pi * t / (GATHER_COLS * FRONT_DT)
-    var = 0.5 + 0.5 * math.cos(0.37 * k + 0.8)
-    fade = GATHER_FADE * (0.55 + 0.6 * var)
-    if depth >= fade:
+    if depth >= GATHER_MAX_LEN:
         return 0.0
-    amp = (GATHER_AMP * (0.6 + 0.4 * var) * smoothstep(-1.0, 2.5, depth)
-           * (1.0 - smoothstep(0.0, fade, depth)) * (1.0 - smoothstep(0.55, 0.78, a)))
-    return amp * math.cos(k)
+    # a smoothed |t|: the folds mirror about the centre front without a
+    # crease down the t = 0 column
+    a = math.sqrt(t * t + GATHER_CENTRE_ROUND ** 2) - GATHER_CENTRE_ROUND
+    skew = GATHER_SKEW * smoothstep(0.0, 0.1, -t)
+    grow = smoothstep(-1.0, 2.5, depth)
+    ridge = trough = 0.0
+    for c, s, amp, length in GATHERS:
+        # a fold's crest fades out smoothly over its length (C1 at both ends)
+        f = amp * grow * (1.0 - smoothstep(0.0, length, depth))
+        d = (a - c - skew) / s
+        ridge += f * math.exp(-d * d)
+        trough += f * math.exp(-(d / 2.2) ** 2)
+    return (ridge - GATHER_TROUGH * trough) * (1.0 - smoothstep(0.62, 0.78, a))
 
 
 def section_point(psi, row, folds=True):
@@ -328,13 +372,22 @@ def neck_row(psi):
     return NECK_FRONT[-1][1] + NECK_BACK_DROP * s
 
 
-# Columns: dense across the front (gathers, bust, trims), coarser at the sides
-# and back, which the arms and hair cover.
-FRONT_T = 0.8             # front columns are uniform in x / half_w over |t| <= FRONT_T
-FRONT_SEG = 32
+# Columns: uniform in x / half_w across the front (gathers, bust, trims); round
+# the sides and back they are spread by angle, densest across the underarm /
+# side seam (where raised arms and side bends fold the cloth) and sparsest at
+# the centre back, which the hair covers.
+FRONT_T = 0.7             # front columns are uniform in x / half_w over |t| <= FRONT_T
+FRONT_SEG = 42
 FRONT_DT = 2 * FRONT_T / FRONT_SEG
-BACK_SEG = 18
-NV = 14                   # shell rows below the turned edge
+BACK_SEG = 42
+# Relative column density round the back band: 1 + SIDE_DENSE[0] on a flat-topped
+# bump of half width SIDE_DENSE[2] (rad) centred at psi = SIDE_DENSE[1] and its
+# mirror pi - SIDE_DENSE[1] (psi = 0 / pi are the sides, -pi/2 the centre front;
+# negative values move the bumps toward the front), so the band from the front
+# panel's edge round the side seam into the back is dense and the step from the
+# front spacing stays small.
+SIDE_DENSE = (2.6, -0.15, 0.85)
+NV = 24                   # shell rows below the turned edge
 
 
 def column_t(i):
@@ -342,16 +395,72 @@ def column_t(i):
     return -FRONT_T + FRONT_DT * i if i <= FRONT_SEG else None
 
 
+def _back_density(psi):
+    a, c, s = SIDE_DENSE
+    d = 1.0
+    for side in (c, math.pi - c):
+        d += a * math.exp(-((psi - side) / s) ** 4)
+    return d
+
+
+@functools.lru_cache(maxsize=None)
+def _back_angles(row_key):
+    """BACK_SEG + 1 section angles from the front band's left end round the back
+    to its right end, spaced by the inverse of _back_density."""
+    row = row_key / 8.0
+    a0 = psi_of_t(FRONT_T, row)
+    a1 = psi_of_t(-FRONT_T, row) + 2 * math.pi
+    n = 400
+    cum = [0.0]
+    for k in range(n):
+        m = a0 + (a1 - a0) * (k + 0.5) / n
+        cum.append(cum[-1] + _back_density(m))
+    out = []
+    for i in range(BACK_SEG + 1):
+        target = cum[-1] * i / BACK_SEG
+        k = min(bisect.bisect_left(cum, target), n)
+        k = max(k, 1)
+        f = (target - cum[k - 1]) / (cum[k] - cum[k - 1])
+        out.append(a0 + (a1 - a0) * (k - 1 + f) / n)
+    return tuple(out)
+
+
 def column_angle(i, row):
     """Section angle of column i at a row. Columns run counter-clockwise from
-    the front-right (t = -FRONT_T) end of the front band; the back columns are
-    spread evenly in angle from its left end (t = +FRONT_T) round the back."""
+    the front-right (t = -FRONT_T) end of the front band; the back columns run
+    from its left end (t = +FRONT_T) round the back (see _back_angles)."""
     t = column_t(i)
     if t is not None:
         return psi_of_t(t, row)
-    a0 = psi_of_t(FRONT_T, row)
-    a1 = psi_of_t(-FRONT_T, row) + 2 * math.pi
-    return a0 + (a1 - a0) * (i - FRONT_SEG) / BACK_SEG
+    return _back_angles(round(row * 8))[i - FRONT_SEG]
+
+
+# Relative row density down the shell, on nominal rows (neckline ~240 to the
+# waist): extra rings through the gathers under the turned edge and through the
+# under-bust draw-in (rows ~262-300), where the curvature changes fastest.
+ROW_DENSE = [(248.0, 9.0, 0.9), (281.0, 17.0, 0.8)]   # (row, sigma px, extra density)
+
+
+def _row_density(row):
+    return 1.0 + sum(a * math.exp(-((row - c) / s) ** 2) for c, s, a in ROW_DENSE)
+
+
+@functools.lru_cache(maxsize=None)
+def row_fractions():
+    """NV + 1 fractions (0 = waist edge, 1 = under the turned edge) spaced by the
+    inverse of _row_density on a nominal neckline row."""
+    top = NECK_FRONT[0][1] + LIP_START
+    n = 400
+    cum = [0.0]
+    for k in range(n):
+        cum.append(cum[-1] + _row_density(ROW_BOT + (top - ROW_BOT) * (k + 0.5) / n))
+    out = []
+    for j in range(NV + 1):
+        target = cum[-1] * j / NV
+        k = max(min(bisect.bisect_left(cum, target), n), 1)
+        f = (target - cum[k - 1]) / (cum[k] - cum[k - 1])
+        out.append((k - 1 + f) / n)
+    return tuple(out)
 
 
 def outward_at(psi, row):
@@ -367,16 +476,16 @@ def build_shell(col, mat):
     bm = bmesh.new()
     nu = FRONT_SEG + BACK_SEG
     grid = []
-    # Front columns keep a constant x / half_w (so the gathers, keyed to the
-    # column spacing, stay sampled at their crests and troughs on every row);
-    # their angle is solved per row. Back columns are spread evenly in angle.
+    # Front columns keep a constant x / half_w (straight columns in the front
+    # view, ~10 of them across each gather fold); their angle is solved per row.
+    # The side / back columns follow _back_angles (densest round the side seam).
+    # The outer ends of the gathers (|t| 0.7-0.78) fall on side columns; they
+    # are evaluated from the same x-based t there, so the surface is continuous.
     top_row = NECK_FRONT[-1][1]
     tops = [neck_row_t(column_t(i)) if column_t(i) is not None else neck_row(column_angle(i, top_row))
             for i in range(nu)]
 
-    for j in range(NV + 1):
-        v = j / NV
-        vv = 1 - (1 - v) ** 1.35       # denser rows toward the neckline
+    for vv in row_fractions():
         ring = []
         for i in range(nu):
             row = ROW_BOT + (tops[i] + LIP_START - ROW_BOT) * vv
@@ -405,13 +514,46 @@ def build_shell(col, mat):
 
 
 # ---------------------------------------------------------------- trims
-def band(points, width, thick, face=Vector((0, -1, 0)), widths=None, loop=False, faces=None):
-    """Closed (capped) rectangular-section strip along `points`.
+def section(w, h, sides, kind='ribbon', camber=0.0):
+    """Cross-section offsets (along width, along face normal) for half width w
+    and half thickness h, in loop order.
+
+    kind 'ribbon': a stadium - two flat faces joined by rounded edges, with
+    (sides - 4) / 2 points on each rounded edge, so smooth shading keeps the
+    flat faces flat and the edges soft (no hard sliver along the edge).
+    camber > 0: both faces also get a centre point raised by camber * w (a
+    shallow arched ribbon; it takes two of the sides).
+    kind 'round': an ellipse (cords). sides == 4: the old flat rectangle."""
+    if sides == 4:
+        return [(w, h), (-w, h), (-w, -h), (w, -h)]
+    if kind == 'round':
+        return [(w * math.cos(2 * math.pi * k / sides), h * math.sin(2 * math.pi * k / sides))
+                for k in range(sides)]
+    h = min(h, 0.8 * w)               # a tapered tip thins as well as narrows
+    c = w - h
+    m = (sides - (6 if camber else 4)) // 2
+    arc = [math.pi / 2 - math.pi * (k + 1) / (m + 1) for k in range(m)]
+    out = [(c, h)]
+    out += [(c + h * math.cos(a), h * math.sin(a)) for a in arc]
+    out.append((c, -h))
+    if camber:
+        out.append((0.0, -h + camber * w))
+    out.append((-c, -h))
+    out += [(-c - h * math.cos(a), -h * math.sin(a)) for a in arc]
+    out.append((-c, h))
+    if camber:
+        out.append((0.0, h + camber * w))
+    return out
+
+
+def band(points, width, thick, face=Vector((0, -1, 0)), widths=None, loop=False, faces=None,
+         sides=4, kind='ribbon', camber=0.0):
+    """Closed (capped) strip along `points`.
 
     `face` is the direction the strip's flat side looks toward; `width` lies in
     the plane perpendicular to it. widths: optional per-point width scale.
     loop: the path is a closed loop (no caps). faces: optional per-point face
-    direction overriding `face`.
+    direction overriding `face`. sides / kind: the cross-section (see section).
     """
     pts = [Vector(p) for p in points]
     n_pts = len(pts)
@@ -429,7 +571,7 @@ def band(points, width, thick, face=Vector((0, -1, 0)), widths=None, loop=False,
         n = t.cross(b).normalized()
         w = width * (widths[i] if widths else 1.0) / 2
         h = thick / 2
-        rings.append([p + n * w + b * h, p - n * w + b * h, p - n * w - b * h, p + n * w - b * h])
+        rings.append([p + n * a + b * c for a, c in section(w, h, sides, kind, camber)])
     if not loop:
         return common.loft(rings, closed=True, cap_start=True, cap_end=True)
     bm = common.loft(rings + [rings[0]], closed=True)
@@ -486,12 +628,15 @@ def build_seams(col, mat):
     bms = []
     for sx in (-1, 1):
         start = neck_row_at_dx(SEAM[0][1]) + 0.9     # tucked under the rolled lip
-        rows = [start + (348 - start) * s / 12 for s in range(13)]
-        pts = [on_shell(sx * smooth_interp(SEAM, r), r, 0.55) for r in rows]
-        widths = [0.5] + [1.0] * 12          # fades in under the turned edge
-        bms.append(band(pts, 0.0011, 0.0008, widths=widths,
+        n = 16
+        rows = [start + (348 - start) * s / n for s in range(n + 1)]
+        pts = [on_shell(sx * smooth_interp(SEAM, r), r, 0.4) for r in rows]
+        # fades in under the turned edge
+        widths = [0.5 + 0.5 * smoothstep(0.0, 2.5, s) for s in range(n + 1)]
+        # a low rounded welt: its broad face follows the shell, its edges are soft
+        bms.append(band(pts, 0.0011, 0.0006, widths=widths, sides=6,
                         faces=[shell_normal(sx * smooth_interp(SEAM, r), r) for r in rows]))
-    return finish(col, 'bodice_seams', bms, mat, outline=0.0010)
+    return finish(col, 'bodice_seams', bms, mat, outline=0.0010, angle=80)
 
 
 def neck_row_at_dx(dx_px):
@@ -504,7 +649,7 @@ def neck_row_at_dx(dx_px):
     return row
 
 
-def ring_bm(center, normal, r_major, r_minor, nu=6, nv=3, squash=0.6):
+def ring_bm(center, normal, r_major, r_minor, nu=8, nv=4, squash=0.6):
     """Flat ring (eyelet / grommet) lying on a surface with the given normal."""
     bm = bmesh.new()
     rot = normal.to_track_quat('Z', 'Y').to_matrix()
@@ -527,10 +672,11 @@ def ring_bm(center, normal, r_major, r_minor, nu=6, nv=3, squash=0.6):
     return bm
 
 
-def cord(a, b, lift_end, lift_mid, n=6, width=0.0021, thick=0.0010, lift_to=None):
-    """Round-ish cord between two front-view points: it leaves the cloth at the
-    ends (inside the eyelets) and bows out to lift_mid at its middle. lift_to:
-    the cord instead rises off the cloth toward its end, to this lift."""
+def cord(a, b, lift_end, lift_mid, n=10, width=0.0019, thick=0.0012, lift_to=None):
+    """Round cord (a slightly flattened oval section) between two front-view
+    points: it leaves the cloth at the ends (inside the eyelets) and bows out
+    to lift_mid at its middle. lift_to: the cord instead rises off the cloth
+    toward its end, to this lift."""
     pts, faces = [], []
     for s in range(n + 1):
         u = s / n
@@ -542,7 +688,9 @@ def cord(a, b, lift_end, lift_mid, n=6, width=0.0021, thick=0.0010, lift_to=None
             lift = lift_end + (lift_to - lift_end) * smoothstep(0.2, 1.0, u)
         pts.append(on_shell(dx, row, lift))
         faces.append(shell_normal(dx, row))
-    return band(pts, width, thick, faces=faces)
+    # taper the last few % into the eyelets, so the ends do not stop as flat cuts
+    widths = [0.75 + 0.25 * smoothstep(0.0, 0.12, min(s / n, 1 - s / n)) for s in range(n + 1)]
+    return band(pts, width, thick, faces=faces, widths=widths, sides=6, kind='round')
 
 
 def build_lacing(col, mat_green):
@@ -554,21 +702,21 @@ def build_lacing(col, mat_green):
         for sx in (-1, 1):
             over = (sx > 0) == (i % 2 == 0)
             bms.append(cord((sx * EYELET_DX, rows[i]), (-sx * EYELET_DX, rows[i + 1]),
-                            0.0, 1.45 if over else 0.75))
+                            0.0, 1.75 if over else 0.85))
     dr, dw, dh = DIAMOND
     for sx in (-1, 1):
         # top: from under the diamond's side tips out to the first eyelets
-        bms.append(cord((sx * dw * 0.4, dr + dh * 0.25), (sx * EYELET_DX, rows[0]), 0.1, 0.8, n=4))
+        bms.append(cord((sx * dw * 0.4, dr + dh * 0.25), (sx * EYELET_DX, rows[0]), 0.1, 0.8, n=8))
         # last eyelets down into the bow knot, ending inside its wrap
         end_lift = front_y(sx * LACE_END[1] * PX, LACE_END[0]) / PX - (BOW_Y_KNOT + 1.2)
-        bms.append(cord((sx * EYELET_DX, rows[-1]), (sx * LACE_END[1], LACE_END[0]), 0.0, 0.95, n=5,
+        bms.append(cord((sx * EYELET_DX, rows[-1]), (sx * LACE_END[1], LACE_END[0]), 0.0, 0.95, n=10,
                         lift_to=end_lift))
     # eyelets: flat rings seated on the facings
     for r in rows:
         for sx in (-1, 1):
             dx = sx * (EYELET_DX + 0.4)
-            bms.append(ring_bm(on_shell(dx, r, 0.8), shell_normal(dx, r), 1.5 * PX, 0.55 * PX))
-    return finish(col, 'bodice_lacing', bms, mat_green)
+            bms.append(ring_bm(on_shell(dx, r, 0.8), shell_normal(dx, r), 1.5 * PX, 0.5 * PX))
+    return finish(col, 'bodice_lacing', bms, mat_green, angle=80)
 
 
 def build_facings(col, mat):
@@ -577,34 +725,41 @@ def build_facings(col, mat):
     r0, r1 = FACING
     for sx in (-1, 1):
         dx = sx * (EYELET_DX + 0.4)
-        rows = [r0 + (r1 - r0) * s / 6 for s in range(7)]
+        n = 10
+        rows = [r0 + (r1 - r0) * s / n for s in range(n + 1)]
         pts = [on_shell(dx, r, 0.15) for r in rows]
-        widths = [0.45, 0.85] + [1.0] * 3 + [0.85, 0.45]     # rounded ends
-        bms.append(band(pts, 3.4 * PX, 0.0006, widths=widths, faces=[shell_normal(dx, r) for r in rows]))
-    return finish(col, 'bodice_facings', bms, mat, outline=0.0008)
+        # rounded ends: a quarter-ellipse width profile over the last ~2 px
+        widths = [max(0.4, math.sqrt(max(0.0, 1 - (1 - min(1.0, min(s, n - s) / 2.0)) ** 2)))
+                  for s in range(n + 1)]
+        bms.append(band(pts, 3.4 * PX, 0.0006, widths=widths, sides=6,
+                        faces=[shell_normal(dx, r) for r in rows]))
+    return finish(col, 'bodice_facings', bms, mat, outline=0.0008, angle=80)
 
 
 def build_diamond(col, mat):
     dr, dw, dh = DIAMOND
     bm = bmesh.new()
-    # 3x3 grid in diamond (u,v) space, conforming to the shell; the centre
-    # stands proud so the plate reads as a shallow bevelled stone
+    # 5x5 grid in diamond (u,v) space, conforming to the shell; the plate is a
+    # low cushion (a smooth dome, flat-ish near the rim) so it reads as a
+    # shallow rounded stone with one soft terminator instead of four facets
     vs = {}
-    for a in range(3):
-        for b in range(3):
-            u, v = a - 1, b - 1                    # -1..1
+    g = 4
+    for a in range(g + 1):
+        for b in range(g + 1):
+            u, v = 2 * a / g - 1, 2 * b / g - 1    # -1..1
             dx = (u - v) * 0.5 * dw
             row = dr + (u + v) * 0.5 * dh
-            lift = 0.4 + (0.3 if (u, v) == (0, 0) else 0.0)
+            lift = 0.4 + 0.4 * (1 - u * u) * (1 - v * v)
             vs[a, b] = bm.verts.new(on_shell(dx, row, lift))
-    for a in range(2):
-        for b in range(2):
+    for a in range(g):
+        for b in range(g):
             bm.faces.new((vs[a, b], vs[a + 1, b], vs[a + 1, b + 1], vs[a, b + 1]))
     sol = bmesh.ops.extrude_face_region(bm, geom=list(bm.faces))
     moved = [e for e in sol['geom'] if isinstance(e, bmesh.types.BMVert)]
     bmesh.ops.translate(bm, vec=(0, 0.0015, 0), verts=moved)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    return finish(col, 'bodice_diamond', [bm], mat, smooth=False, outline=0.0009)
+    # smooth over the cushion, sharp at the rim (the side walls are ~90 deg)
+    return finish(col, 'bodice_diamond', [bm], mat, outline=0.0009, angle=50)
 
 
 # ---------------------------------------------------------------- bow
@@ -639,36 +794,45 @@ def build_bow(col, mat):
     kx = (KNOT[0] - FRONT_CX)
     for sx in (-1, 1):
         ctrl = [Vector((sx * (c - FRONT_CX), 0, r)) for c, r in BOW_LOOP_L]
-        path = adaptive(catmull_path(ctrl, 10), 3.5, math.radians(15))
+        path = adaptive(catmull_path(ctrl, 12), 2.8, math.radians(11))
         n = len(path)
         cen = sum(ctrl[1:-1], Vector()) / (len(ctrl) - 2)
         # arc position of the loop's outer turn: the returning half sits behind
         far = max(range(n), key=lambda i: abs(path[i].x))
+        arc = [0.0]
+        for a, b in zip(path, path[1:]):
+            arc.append(arc[-1] + (b - a).length)
         pts, faces, widths = [], [], []
         for i, p in enumerate(path):
-            back = BOW_RETURN * smoothstep(far - 4, far + 3, i)
+            # the return drops behind over ~8 px of ribbon round the outer turn
+            back = BOW_RETURN * smoothstep(arc[far] - 5.0, arc[far] + 3.5, arc[i])
             pts.append(Vector((p.x * PX, bow_y(p.x, p.z, back) * PX, Z(p.z))))
             radial = Vector((p.x - cen.x, 0.0, -(p.z - cen.z)))
             radial = radial.normalized() if radial.length > 1e-6 else Vector((sx, 0, 0))
-            faces.append((Vector((0, -1, 0)) * math.cos(BOW_TILT) + radial * math.sin(BOW_TILT)).normalized())
+            # the outgoing span shows its broad face; the ribbon rolls over
+            # round the outer turn and the return faces out toward the waist side
+            roll = smoothstep(arc[far] - 7.0, arc[far] + 7.0, arc[i])
+            tilt = BOW_TILT_OUT + (BOW_TILT - BOW_TILT_OUT) * roll
+            faces.append((Vector((0, -1, 0)) * math.cos(tilt) + radial * math.sin(tilt)).normalized())
             # gathered into the knot: narrow at both ends of the loop
             d = math.hypot(p.x - kx, p.z - KNOT[1])
             widths.append(0.4 + 0.6 * smoothstep(2.0, 11.0, d))
-        bms.append(band(pts, BOW_W * PX, 0.0010, widths=widths, faces=faces))
+        bms.append(band(pts, BOW_W * PX, BOW_THICK, widths=widths, faces=faces, sides=10, camber=0.06))
     # knot: a short ribbon wrapped round the gathered loop roots (a flattened
     # ring in the YZ plane, its width along x)
     ky, kz = BOW_Y_KNOT + 1.2, KNOT[1]
     ring, rfaces, rw = [], [], []
-    for i in range(10):
-        a = 2 * math.pi * i / 10
+    nk = 16
+    for i in range(nk):
+        a = 2 * math.pi * i / nk
         ry, rz = 2.3, 3.2
         ring.append(Vector((kx * PX, (ky + ry * math.sin(a)) * PX, Z(kz + rz * math.cos(a)))))
         rfaces.append(Vector((0, math.sin(a) / ry, -math.cos(a) / rz)).normalized())
         # barrel-shaped: full width across the front, narrower over the top
         # and bottom, so the knot reads round from the front
-        rw.append(0.55 + 0.45 * abs(math.sin(a)))
-    bms.append(band(ring, 5.6 * PX, 0.0009, loop=True, faces=rfaces, widths=rw))
-    return finish(col, 'bodice_bow', bms, mat, outline=0.0011, angle=60)
+        rw.append(0.55 + 0.45 * abs(math.sin(a)) ** 1.5)
+    bms.append(band(ring, 5.6 * PX, 0.0010, loop=True, faces=rfaces, widths=rw, sides=8))
+    return finish(col, 'bodice_bow', bms, mat, outline=0.0011, angle=75)
 
 
 # ---------------------------------------------------------------- tails
@@ -706,7 +870,7 @@ def build_tails(col, mat):
     for name, (ctrl, width_px, gain) in TAILS.items():
         cpts = [Vector((c - FRONT_CX, 0, r)) for c, r in ctrl]
         path = catmull_path(cpts, 10)
-        path = adaptive(path, 7.0 if width_px > 3 else 9.0, math.radians(12))
+        path = adaptive(path, 5.0 if width_px > 3 else 6.5, math.radians(9))
         n = len(path)
         # twist: the ribbon turns toward edge-on where the path bends; the
         # sign follows the bend, so a zigzag twists one way and back
@@ -715,19 +879,21 @@ def build_tails(col, mat):
             a = path[i] - path[i - 1]
             b = path[i + 1] - path[i]
             turn[i] = math.atan2(a.x * b.z - a.z * b.x, a.x * b.x + a.z * b.z)
-        # spread over the neighbouring stations (weighted by arc length, as
-        # the stations crowd into the bends): turning per ~7 px of ribbon
+        # curvature (turn per px of ribbon, each station's turn over the arc
+        # it stands for), smoothed over ~7 px: independent of how densely the
+        # path is sampled
         arc = [0.0]
         for a, b in zip(path, path[1:]):
             arc.append(arc[-1] + (b - a).length)
+        ds = [0.5 * (arc[min(j + 1, n - 1)] - arc[max(j - 1, 0)]) for j in range(n)]
         sm = []
         for i in range(n):
             wsum = vsum = 0.0
             for j in range(n):
                 w = math.exp(-((arc[j] - arc[i]) / 7.0) ** 2)
-                wsum += w
+                wsum += w * ds[j]
                 vsum += w * turn[j]
-            sm.append(vsum / wsum * 2.2)
+            sm.append(vsum / max(wsum, 1e-9) * TWIST_SPAN)
         phi = [max(-TWIST_MAX, min(TWIST_MAX, 1.6 * gain * v)) for v in sm]
         total = arc[-1]
         pts, faces, widths = [], [], []
@@ -755,8 +921,9 @@ def build_tails(col, mat):
             ws = 0.7 + 0.3 * smoothstep(0.0, 14.0, arc[i])
             ws *= 0.25 + 0.75 * smoothstep(0.0, 22.0, total - arc[i])
             widths.append(ws)
-        bms.append(band(pts, width_px * PX, TAIL_THICK, widths=widths, faces=faces))
-    return finish(col, 'bodice_ribbon_tails', bms, mat, outline=OUTLINE_FINE, angle=60)
+        bms.append(band(pts, width_px * PX, TAIL_THICK, widths=widths, faces=faces,
+                        sides=8 if width_px > 3 else 6))
+    return finish(col, 'bodice_ribbon_tails', bms, mat, outline=OUTLINE_FINE, angle=75)
 
 
 # ---------------------------------------------------------------- leaves
@@ -765,7 +932,7 @@ LEAF_RIB = 0.6            # px the midrib ridge stands proud
 LEAF_ROOT = (359.5, 250.0)   # shared attachment of the cluster (front col,row)
 
 
-def leaf_bm(base, tip, half_w, tilt_px):
+def leaf_bm(base, tip, half_w, tilt_px, roll_px=0.0):
     """Pointed leaf, cupped (edges curling forward) with a raised midrib;
     base/tip are front-view (col,row)."""
     # bases drawn together into one shared attachment
@@ -775,8 +942,9 @@ def leaf_bm(base, tip, half_w, tilt_px):
     axis = t - b
     side = Vector((-axis.z, 0, axis.x)).normalized()
     bm = bmesh.new()
-    stations = 8
+    stations = 10
     rows = []
+    across = [k / 3.0 - 1.0 for k in range(7)]      # -1..1, midrib at 0
     for s in range(stations + 1):
         # cosine spacing: stations crowd into the rounded base and the tip
         u = 0.5 - 0.5 * math.cos(math.pi * s / stations)
@@ -784,9 +952,13 @@ def leaf_bm(base, tip, half_w, tilt_px):
         # narrow stalk at the base (never zero width: no degenerate faces)
         w = half_w * max(math.sin(math.pi * min(1.0, u * 1.05)) ** 0.8, 0.15)
         cup = LEAF_CUP * math.sin(math.pi * u) ** 0.7
-        across = [(-1.0, cup), (-0.5, 0.0), (0.0, LEAF_RIB), (0.5, 0.0), (1.0, cup)]
+        rib = LEAF_RIB * math.sin(math.pi * u) ** 0.5     # tapers toward both ends
         row_pts = []
-        for k, (f, fwd) in enumerate(across):
+        for f in across:
+            # U-shaped cup with a soft ridge on the midrib; roll_px turns the
+            # leaf's plane (one edge forward, the other back) so the three
+            # leaves of the cluster sit in distinct planes
+            fwd = cup * f * f + rib * (1 - f * f) ** 2 + roll_px * f * math.sin(math.pi * 0.5 * u)
             q = c + side * (w * f)
             # lie on the curved bodice surface, tips lifting by tilt_px. Depth
             # is sampled no further out than 90 % of the half width: past the
@@ -796,12 +968,13 @@ def leaf_bm(base, tip, half_w, tilt_px):
                   - tilt_px * u - 0.6 * u * u - fwd)
             row_pts.append(Vector((q.x * PX, yy * PX, Z(q.z))))
         rows.append(row_pts)
+    na = len(across)
     vs = [[bm.verts.new(p) for p in r] for r in rows[:-1]]
-    tip_v = bm.verts.new(rows[-1][2])
+    tip_v = bm.verts.new(rows[-1][na // 2])
     for s in range(stations - 1):
-        for j in range(4):
+        for j in range(na - 1):
             bm.faces.new((vs[s][j], vs[s][j + 1], vs[s + 1][j + 1], vs[s + 1][j]))
-    for j in range(4):
+    for j in range(na - 1):
         bm.faces.new((vs[-1][j], vs[-1][j + 1], tip_v))
     # a little thickness so the outline hull reads cleanly
     ext = bmesh.ops.extrude_face_region(bm, geom=list(bm.faces))
@@ -813,7 +986,7 @@ def leaf_bm(base, tip, half_w, tilt_px):
 
 def build_leaves(col, mat):
     bms = [leaf_bm(*lf) for lf in LEAVES]
-    return finish(col, 'bodice_leaves', bms, mat, outline=0.0012, angle=45)
+    return finish(col, 'bodice_leaves', bms, mat, outline=0.0012, angle=60)
 
 
 # ---------------------------------------------------------------- entry
