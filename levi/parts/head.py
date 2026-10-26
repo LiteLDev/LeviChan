@@ -126,19 +126,19 @@ TABLE = [
 # Nose: forward protrusion of the profile at the midline [px] per row. The
 # bridge rises out of the forehead from row ~106, so forehead, bridge and tip
 # read as one continuous line in profile (no spike on a flat plane).
-NOSE = [(106.0, 0.0), (108.5, 0.4), (111.0, 1.1), (113.5, 2.0), (116.0, 3.1),
-        (118.0, 4.4), (120.0, 5.5), (122.0, 6.7), (123.5, 7.6), (125.0, 7.9),
-        (126.5, 7.6), (128.0, 6.3), (129.5, 4.3), (131.0, 2.5), (132.5, 1.1),
-        (134.0, 0.3), (135.5, 0.0)]
+NOSE = [(106.0, 0.0), (108.5, 0.35), (111.0, 0.95), (113.5, 1.7), (116.0, 2.6),
+        (118.0, 3.6), (120.0, 4.5), (122.0, 5.4), (123.5, 6.0), (125.0, 6.3),
+        (126.5, 6.1), (128.0, 5.3), (129.5, 4.0), (131.0, 2.7), (132.5, 1.5),
+        (134.0, 0.6), (135.5, 0.15), (137.0, 0.0)]
 # base front surface of the face under the muzzle [col]: from the forehead it
 # recedes smoothly to the chin; TABLE's front column is the midline profile
 # Below the nose it recedes steadily (not a vertical plate that bends back
 # only at the jaw), meeting the profile again at the chin.
-BASE_FRONT = ((112.0, 240.5), (118.0, 240.3), (124.0, 240.1), (130.0, 240.3), (136.0, 241.1),
-              (142.0, 242.5), (148.0, 244.2), (153.0, 245.9), (157.0, 246.8), (160.5, 248.2))
-MUZZLE_SIGMA = 11.0              # lateral falloff of the muzzle [px]
+BASE_FRONT = ((112.0, 240.5), (118.0, 240.1), (124.0, 239.2), (130.0, 238.5), (136.0, 239.0),
+              (142.0, 240.6), (148.0, 242.6), (153.0, 244.6), (157.0, 246.3), (160.5, 248.2))
+MUZZLE_SIGMA = 13.0              # lateral falloff of the muzzle [px]
 # lateral falloff [px] by row: a broad bridge narrowing to a small tip
-NOSE_SIGMA = ((106.0, 6.5), (116.0, 5.4), (122.0, 5.0), (126.0, 4.9), (135.5, 4.6))
+NOSE_SIGMA = ((106.0, 6.5), (116.0, 5.7), (122.0, 5.5), (126.0, 5.5), (137.0, 5.3))
 # front half cross-section exponent by row: fuller than an ellipse at eye
 # level (with the widest point brought forward, see TABLE) so the face plate
 # is broad, relaxing to a plain ellipse at the chin
@@ -430,7 +430,7 @@ def relief(X, R):
     # upper lid: a soft rim that wraps over the top of the eye (carries the
     # lashes); the lower lid only a faint roll into the cheek
     lid = 0.5 * np.exp(-((R - (y_up + 1.0)) / 2.3) ** 2) * along
-    lower = 0.25 * np.exp(-((R - (y_lo + 1.0)) / 2.0) ** 2) * along
+    lower = 0.12 * np.exp(-((R - (y_lo + 1.0)) / 2.0) ** 2) * along
     cheek = 0.6 * np.exp(-((X - 25.0) / 11.0) ** 2 - ((R - 131.0) / 9.0) ** 2)
     # lips and chin: restrained upper lip, lower lip and fold (kept faint and
     # narrow: wide bands read as shelves across the lower face)
@@ -536,8 +536,8 @@ def face_texture_pixels():
     paint(0.7 * _soft(brow_d, 0.5), hexrgb('#C08A84'))
 
     # nose tip: a faint, small mark
-    nose_d = np.hypot(X / 1.0, (R - 133.0) / 0.5) - 1.0
-    paint(0.35 * _soft(nose_d * 0.6), hexrgb('#E2A49C'))
+    nose_d = np.hypot(X / 1.0, (R - 132.0) / 0.5) - 1.0
+    paint(0.25 * _soft(nose_d * 0.6), hexrgb("#E2A49C"))
     # mouth: the slit is geometry; a soft lip-line tint around it carries the
     # drawn mouth stroke's weight and fades toward the corners
     mouth_d = np.maximum(np.abs(R - mouth_row(X)) - 0.55, X - (MOUTH_HALF + 0.2))
@@ -859,7 +859,7 @@ def hug(co, eyes):
     along = _smooth(EYE_IN - 4.0, EYE_IN + 1.0, X) * (1.0 - _smooth(EYE_OUT + 0.5, EYE_OUT + 5.0, X))
     Xl = min(max(X, EYE_IN), EYE_OUT)
     rim = 0.35 * np.exp(-((R - (upper_lid(Xl) + 1.0)) / 2.3) ** 2) * along \
-        + 0.2 * np.exp(-((R - (lower_lid(Xl) + 1.0)) / 2.0) ** 2) * along
+        + 0.1 * np.exp(-((R - (lower_lid(Xl) + 1.0)) / 2.0) ** 2) * along
     out = co.copy()
     out.y += (ys - (EYE_GAP + float(rim)) / PPM - co.y) * w_near
     # a soft max(0, excess) (C1, zero below -HUG_SOFT): a hard one leaves a
