@@ -1743,8 +1743,11 @@ SLEEVE_BUILD = True
 # ('e', m) from the elbow, ('f', frac) of the forearm, ('w', m) past the wrist)
 SLEEVE_ARM_KNOTS = (('腕D', ('s', 0.0)), ('腕捩', ('e', -0.06)), ('ひじ補助', ('e', 0.0)),
                     ('ひじ', ('e', 0.06)), ('手捩', ('f', 0.85)), ('手首', ('w', 0.03)))
+SLEEVE_SMOOTH = 0.0          # m: surface smoothing of the constructed sleeve weights (already smooth)
 SLEEVE_ATTACH = (0.12, 0.85)   # sleeve parameter s: the drape fades in after the band, out before the cuff
 _SLEEVE_S = None               # per-vertex sleeve parameter of the object being skinned (_weights)
+_SLEEVE_EDGES, _SLEEVE_N = None, 0   # ... its edges and vertex count
+SLEEVE_PARAM_SMOOTH = 0.065    # m: surface smoothing of the sleeve's arm / drape parameters
 
 
 def _sleeve_param(obj, co):
@@ -1759,14 +1762,16 @@ def _sleeve_param(obj, co):
     return v
 
 
-def _sleeve_weights(co, bones, sparam=None):
+def _sleeve_weights(co, bones, sparam=None, edges=None):
     """(V, B) sleeve weights with at most 4 bones per vertex by construction. Along the
-    arm (arc length of the nearest point on shoulder -> elbow -> wrist) a hat blend of
+    arm (arc length a of the nearest point on shoulder -> elbow -> wrist) a hat blend of
     two neighbouring SLEEVE_ARM_KNOTS bones; the drape share g (fading in between
     DRAPE_NEAR and DRAPE_FAR from the arm axis, and only between the attachments
-    SLEEVE_ATTACH along the sleeve parameter) goes to a hat blend of two neighbouring drape
-    segments by the same parameter. Without a sleeve parameter s is the arm position
-    normalized over the drape's span."""
+    SLEEVE_ATTACH along the sleeve parameter s) goes to a hat blend of two neighbouring
+    drape segments by the position u along the drape chain. With `edges`, the parameters
+    a, g and u (not the weights) are smoothed along the surface (SLEEVE_PARAM_SMOOTH), so
+    the result stays smooth and still has at most 4 bones. Without a sleeve parameter s is
+    the arm position normalized over the drape's span."""
     col = {b.name: i for i, b in enumerate(bones)}
     W = np.zeros((len(co), len(bones)))
     done = np.zeros(len(co), dtype=bool)
@@ -1778,43 +1783,17 @@ def _sleeve_weights(co, bones, sparam=None):
             continue
         S, E, Wp = (np.array(bones[arm].head), np.array(bones[el].head), np.array(bones[wr].head))
         l1, l2 = float(np.linalg.norm(E - S)), float(np.linalg.norm(Wp - E))
-        A = np.array([S, E])
-        B = np.array([E, Wp])
-        u = _polyline_u(co, A, B)
+        u = _polyline_u(co, np.array([S, E]), np.array([E, Wp]))
         a = np.where(u < 1.0, u * l1, l1 + (u - 1.0) * l2)
-        # past the wrist end: extend along the forearm
-        rel = co - Wp
-        past = (rel @ ((Wp - E) / l2)) > 0
-        a = np.where(past & (u >= 1.999), l1 + l2 + rel @ ((Wp - E) / l2), a)
-        knots, cols = [], []
-        for stem, (kind, v) in SLEEVE_ARM_KNOTS:
-            n = deform_arm(col, t) if stem == '腕D' else f'{stem}.{t}'
-            if n not in col:
-                continue
-            pos = {'s': v, 'e': l1 + v, 'f': l1 + v * l2, 'w': l1 + l2 + v}[kind]
-            knots.append(pos)
-            cols.append(col[n])
-        if len(knots) < 2:
-            continue
-        knots = np.maximum.accumulate(np.array(knots))
-        ac = np.clip(a, knots[0], knots[-1])
-        hat = np.zeros((len(co), len(knots)))
-        for i in range(len(knots) - 1):
-            k0, k1 = knots[i], knots[i + 1]
-            inside = (ac >= k0) & (ac <= k1) if i == len(knots) - 2 else (ac >= k0) & (ac < k1)
-            f = np.clip((ac - k0) / max(k1 - k0, 1e-9), 0.0, 1.0)
-            hat[inside, i] += 1.0 - f[inside]
-            hat[inside, i + 1] += f[inside]
-        armw = np.zeros((len(co), len(bones)))
-        for i, c in enumerate(cols):
-            armw[:, c] += hat[:, i]
+        fd = (Wp - E) / l2
+        past = (co - Wp) @ fd
+        a = np.where((u >= 1.999) & (past > 0), l1 + l2 + past, a)      # past the wrist: along the forearm
         drape = sorted((j for j, b in enumerate(bones) if b.group == 'Sleeve' and b.name.endswith('.' + t)),
                        key=lambda j: bones[j].meta.get('seg', 0))
         g = np.zeros(len(co))
-        dw = np.zeros((len(co), len(bones)))
+        uc = np.zeros(len(co))
         if drape:
-            d = np.min([_seg_dist(co, np.array(bones[c].head), np.array(bones[c].tail))
-                        for c in (arm, el)], axis=0)
+            d = np.min([_seg_dist(co, np.array(bones[c].head), np.array(bones[c].tail)) for c in (arm, el)], axis=0)
             if sparam is not None:
                 sp = sparam
             else:
@@ -1823,11 +1802,32 @@ def _sleeve_weights(co, bones, sparam=None):
                 sp = np.clip((a - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
             g = _smoothstep(DRAPE_NEAR, DRAPE_FAR, d) * _smoothstep(0.0, SLEEVE_ATTACH[0], sp) * \
                 (1.0 - _smoothstep(SLEEVE_ATTACH[1], 1.0, sp))
-            n = len(drape)
-            uc = np.clip(_polyline_u(co, np.array([bones[j].head for j in drape]),
-                                     np.array([bones[j].tail for j in drape])), 0.5, n - 0.5)
+            uc = _polyline_u(co, np.array([bones[j].head for j in drape]), np.array([bones[j].tail for j in drape]))
+        if edges is not None and len(edges) and SLEEVE_PARAM_SMOOTH > 0:
+            sm = _smooth(np.stack([a, g, uc], 1), co, edges, SLEEVE_PARAM_SMOOTH)
+            a, g, uc = (np.where(side, sm[:, i], x) for i, x in enumerate((a, g, uc)))
+        knots, cols = [], []
+        for stem, (kind, v) in SLEEVE_ARM_KNOTS:
+            n = deform_arm(col, t) if stem == '腕D' else f'{stem}.{t}'
+            if n in col:
+                knots.append({'s': v, 'e': l1 + v, 'f': l1 + v * l2, 'w': l1 + l2 + v}[kind])
+                cols.append(col[n])
+        if len(knots) < 2:
+            continue
+        knots = np.maximum.accumulate(np.array(knots))
+        ac = np.clip(a, knots[0], knots[-1])
+        armw = np.zeros((len(co), len(bones)))
+        for i in range(len(knots) - 1):
+            k0, k1 = knots[i], knots[i + 1]
+            inside = (ac >= k0) & ((ac <= k1) if i == len(knots) - 2 else (ac < k1))
+            f = np.clip((ac - k0) / max(k1 - k0, 1e-9), 0.0, 1.0)
+            armw[inside, cols[i]] += 1.0 - f[inside]
+            armw[inside, cols[i + 1]] += f[inside]
+        dw = np.zeros((len(co), len(bones)))
+        if drape:
+            uq = np.clip(uc, 0.5, len(drape) - 0.5)
             for i, j in enumerate(drape):
-                dw[:, j] = np.maximum(0.0, 1.0 - np.abs(uc - (i + 0.5)))
+                dw[:, j] = np.maximum(0.0, 1.0 - np.abs(uq - (i + 0.5)))
         W[side] = (armw * (1.0 - g)[:, None] + dw * g[:, None])[side]
         done |= side
     if not done.all():
@@ -1886,10 +1886,8 @@ def _base_weights(part, co, bones):
     w = np.zeros((len(co), len(bones)))
     w[:, plain] = w0
     if part == 'sleeves' and SLEEVE_BUILD:
-        w = np.zeros((len(co), len(bones)))
-        w[:, :] = _sleeve_weights(co, bones, _SLEEVE_S if _SLEEVE_S is not None and len(_SLEEVE_S) == len(co)
-                                  else None)
-        return w
+        ok = lambda x: x if x is not None and len(co) > 1 and _SLEEVE_N == len(co) else None  # noqa: E731
+        return _sleeve_weights(co, bones, ok(_SLEEVE_S), ok(_SLEEVE_EDGES))
     if part == 'sleeves':
         _drape_only_away_from_arm(w, co, bones)
     _split_ankle(w, co, bones)
@@ -2047,10 +2045,12 @@ def _lock_weights(w, co, labels, bones):
 
 def _weights(obj, part, co, bones):
     """(V, k) bone indices and weights for the vertices of `obj` (world positions `co`)."""
-    global _SLEEVE_S
-    _SLEEVE_S = _sleeve_param(obj, co) if part == 'sleeves' else None
-    w = _base_weights(part, co, bones)
+    global _SLEEVE_S, _SLEEVE_EDGES, _SLEEVE_N
     edges = _topology(obj, co)
+    _SLEEVE_S = _sleeve_param(obj, co) if part == 'sleeves' else None
+    _SLEEVE_EDGES, _SLEEVE_N = (edges, len(co)) if part == 'sleeves' else (None, 0)
+    w = _base_weights(part, co, bones)
+    _SLEEVE_S, _SLEEVE_EDGES, _SLEEVE_N = None, None, 0
     labels = _islands(len(co), edges)
     if part == 'hair_back':
         _lock_weights(w, co, labels, bones)
@@ -2058,7 +2058,8 @@ def _weights(obj, part, co, bones):
     ok = masked.sum(1) > 1e-9
     w = np.where(ok[:, None], masked, w)
     w = w / w.sum(1, keepdims=True)
-    w = _smooth(w, co, edges, SMOOTH_RADIUS.get(part, DEFAULT_SMOOTH))
+    radius = SLEEVE_SMOOTH if part == 'sleeves' and SLEEVE_BUILD else SMOOTH_RADIUS.get(part, DEFAULT_SMOOTH)
+    w = _smooth(w, co, edges, radius)
     m = _crotch_mask(co, bones) if part in CROTCH_PARTS and CROTCH_SMOOTH > 0 else None
     if m is not None and m.max() > 0:
         # the crotch is pulled between both thighs in a stride: spread its L/R weight
@@ -2082,7 +2083,7 @@ def _weights(obj, part, co, bones):
         w = _island_rules(w, co, labels, bones, part)
     # which bones a vertex keeps is decided on a wider-smoothed copy of its weights, so
     # the set changes gradually along the surface instead of wherever two weak bones swap
-    guide = _smooth(w, co, edges, PRUNE_SMOOTH) if PRUNE_SMOOTH > 0 else None
+    guide = _smooth(w, co, edges, PRUNE_SMOOTH) if PRUNE_SMOOTH > 0 and radius > 0 else None
     if guide is not None and part in SHELL_PARTS:
         guide = _shell_share(guide, co, bones)
     return _prune(w, bones, guide, co)
