@@ -181,6 +181,45 @@ TWIST_AT = 0.6        # twist bones start this far down their limb segment (semi
 TWIST_RAMP = (0.1, 0.95)   # ... and take over that segment's weight between these fractions
 
 
+EYE_PIVOT_PROP = 'levi_eye_pivot'   # head objects that are eyes carry their eyeball centre (world, m)
+
+
+def eye_objects(head_objs):
+    """Head objects that are the eyes themselves (rotate with 目.L / 目.R): those carrying
+    obj['levi_eye_pivot'], else ones named *eye* that are not brows, lashes, lids or whites."""
+    out = [o for o in head_objs if o.get(EYE_PIVOT_PROP) is not None]
+    if out:
+        return out
+    return [o for o in head_objs if 'eye' in o.name.lower()
+            and not any(k in o.name.lower() for k in ('brow', 'lash', 'lid', 'white'))]
+
+
+def eye_pivots(head_objs):
+    """{'L': Vector, 'R': Vector} eyeball centres: obj['levi_eye_pivot'] (world; one per
+    object, its side by x), else the least-squares sphere centre of each side's eye
+    vertices. A side with nothing mirrors the other."""
+    piv = {}
+    for o in eye_objects(head_objs):
+        p = o.get(EYE_PIVOT_PROP)
+        if p is not None and len(p) == 3:
+            v = Vector(tuple(p))
+            piv.setdefault('L' if v.x >= 0 else 'R', v)
+    if len(piv) < 2:
+        pts = _world_verts(eye_objects(head_objs))
+        for t, s in (('L', 1.0), ('R', -1.0)):
+            side = pts[pts[:, 0] * s > 0.005] if len(pts) else pts
+            if t in piv or len(side) < 12:
+                continue
+            A = np.c_[2 * side, np.ones(len(side))]
+            c = np.linalg.lstsq(A, (side ** 2).sum(1), rcond=None)[0][:3]
+            if np.linalg.norm(c - side.mean(0)) < 0.03:   # a real sphere-ish cap, not a flat decal
+                piv[t] = Vector(c)
+    for a, b in (('L', 'R'), ('R', 'L')):
+        if a not in piv and b in piv:
+            piv[a] = Vector((-piv[b].x, piv[b].y, piv[b].z))
+    return piv
+
+
 def fit_head(head_objs):
     """Head centre depth and the left eye position from the head part's mesh.
 
@@ -194,6 +233,12 @@ def fit_head(head_objs):
     if len(skull) < 8:
         return out
     out['head_y'] = float(skull[:, 1].min() + skull[:, 1].max()) / 2
+    piv = eye_pivots(head_objs)
+    if piv:
+        out['eye'] = piv['L']
+        out['eye_R'] = piv['R']
+        out['eye_src'] = 'pivot'
+        return out
     ex, ez = L['eye_x'], L['eye_z']
     near = skull[(np.abs(np.abs(skull[:, 0]) - ex) < 0.01) & (np.abs(skull[:, 2] - ez) < 0.01)]
     if len(near):
@@ -294,7 +339,7 @@ SHOULDER_AUX = False
 # share of 腕's rotation the clavicle (肩補助) takes: a raised arm lifts the shoulder
 SHOULDER_SHRUG = 0.15
 # share of 腕's rotation the sleeve drapes turn back (袖追従): gravity-ish when the arm rises
-SLEEVE_COUNTER = 0.4
+SLEEVE_COUNTER = 0.75   # round 4: 0.4 left the raised bags standing above the shoulders
 DRAPE_SEGMENTS = 2    # bones per sleeve drape chain
 # 肩補助 carries this share of 肩's skin, by position along 肩 (inner end .. joint)
 SHRUG_SPAN = (0.1, 0.8)
@@ -305,7 +350,7 @@ JOINT_BAND_BY_AUX = {'腕補助': (0.04, 0.06)}
 # turns smoothly from the upper bone (at -before) through each helper to the lower bone
 # (at +after). The knee gets two helpers: a deep squat bends it ~120 deg, and one helper
 # leaves 50-70 deg between neighbours, which linear skinning collapses into a notch.
-JOINT_AUX_CHAIN = {'腕補助': ((0.35, 0.0),), 'ひざ補助': ((0.35, -0.015), (0.7, 0.015))}
+JOINT_AUX_CHAIN = {'腕補助': ((0.35, 0.0),), 'ひざ補助': ((0.33, -0.025), (0.67, 0.025))}
 # per helper: (full, none) lateral distance (m) from the lower bone's axis within which the
 # split applies. The shoulder's upper bone 肩 also weights torso skin, which stays put.
 JOINT_REACH_BY_AUX = {'腕補助': (0.05, 0.08)}
@@ -383,8 +428,11 @@ def _core_bones(J=None, H=None, F=None):
         sfx = '.' + tag
         en_sfx = '_' + tag
         sj, el, wr = J['shoulder_joint'], J['elbow'], wrist
-        add(Bone('目' + sfx, jp_side + '目', 'Eye' + en_sfx, _mx(eye, s),
-                 _mx(eye - Vector((0, 0.03, 0)), s), '頭', r=0.02, r_end=0.015, group='Body'))
+        # 目 turns about the eyeball centre and appends 両目 fully (MMD standard: a gaze
+        # keyed on 両目 turns both eyes)
+        e = H['eye_R'] if tag == 'R' and 'eye_R' in H else _mx(eye, s)
+        add(Bone('目' + sfx, jp_side + '目', 'Eye' + en_sfx, e, e - Vector((0, 0.03, 0)), '頭',
+                 r=0.02, r_end=0.015, group='Body', meta={'follow': ('両目', 1.0)}))
         add(Bone('肩' + sfx, jp_side + '肩', 'Shoulder' + en_sfx, _mx((L['neck_half_w'] * 1.1, sj.y, L['shoulder_z']), s),
                  _mx(sj, s), '上半身2', r=0.045, r_end=0.03, group='Arms'))
         arm = '腕' + sfx              # the bone the arm's skin and children hang from
@@ -925,10 +973,13 @@ def _candidates(part, obj, bones):
         return ['頭'] + [b.name for b in side if b.deform]
     if part == 'head':
         low = obj.name.lower()
+        if obj in eye_objects(_HEAD_OBJS or [obj]):
+            p = obj.get(EYE_PIVOT_PROP)
+            if p is not None and len(p) == 3:
+                return ['目.L' if p[0] >= 0 else '目.R']   # one eye: rigid on its own bone
+            return ['目.L', '目.R']
         if 'lid' in low and 'eye' not in low:
             return ['頭']           # eyelid sheets (blink morph) ride the head rigidly
-        if 'eye' in low and not any(k in low for k in ('brow', 'lash', 'lid', 'white')):
-            return ['目.L', '目.R']
         return ['頭', '首', '上半身2']
     if part in ('skirt', 'petticoat'):
         return ['上半身', '下半身'] + grp('Skirt')
@@ -1818,6 +1869,7 @@ def _base_weights(part, co, bones):
 
 RIGID_ISLAND = 0.05   # loose pieces (not skin) within this radius move rigidly ...
 ATTACH_REACH = 0.03   # ... with the weights of the surface they sit on, found within this distance
+_HEAD_OBJS = []       # the head part's objects (build_rig)
 _ATTACH_HOST = np.zeros((0, 3))   # every skinned vertex outside the small loose pieces (build_rig)
 WAIST_STRADDLE = 0.15  # ... unless both 上半身 and 下半身 hold at least this share of it
 
@@ -2075,11 +2127,72 @@ def _bake_modifiers(obj):
     """Apply generators (mirror, subsurf...) so weights cover the real vertices.
     The Outline hull and any armature stay live."""
     keep = ('Outline',) + tuple(m.name for m in obj.modifiers if m.type == 'ARMATURE')
-    if obj.data.shape_keys:
-        print(f'rig: {obj.name} has shape keys; skinning its base mesh without applying modifiers')
+    if not any(m.name not in keep for m in obj.modifiers):
         return
-    if any(m.name not in keep for m in obj.modifiers):
+    if obj.data.shape_keys:
+        _apply_modifiers_with_keys(obj, keep)
+    else:
         common.apply_modifiers(obj, keep=keep)
+
+
+def _apply_modifiers_with_keys(obj, keep):
+    """Apply the generator modifiers (mirror, subsurf...) of a mesh with shape keys
+    (the head's morphs), keeping every key: the mesh is evaluated once per key at full
+    value, and the keys are rebuilt on the evaluated topology. Refuses (and leaves the
+    object as it is) if a key changes the vertex count."""
+    keys = obj.data.shape_keys.key_blocks
+    saved = [(kb.name, kb.value, kb.mute, kb.slider_min, kb.slider_max) for kb in keys]
+    show = {m.name: m.show_viewport for m in obj.modifiers}
+    for m in obj.modifiers:
+        if m.name in keep:
+            m.show_viewport = False
+    obj.show_only_shape_key = False
+    dg = bpy.context.evaluated_depsgraph_get()
+
+    def sample(active):
+        for i, kb in enumerate(keys):
+            if i:
+                kb.value = 1.0 if i == active else 0.0
+                kb.mute = False
+        obj.data.update()
+        dg.update()
+        ev = obj.evaluated_get(dg)
+        me = ev.to_mesh()
+        co = np.empty(len(me.vertices) * 3)
+        me.vertices.foreach_get('co', co)
+        ev.to_mesh_clear()
+        return co
+    shapes = [sample(i) for i in range(len(keys))]
+    if any(len(c) != len(shapes[0]) for c in shapes):
+        print(f'rig: {obj.name}: a shape key changes the topology under its modifiers; not applied')
+        for m in obj.modifiers:
+            m.show_viewport = show[m.name]
+        return
+    for (name, val, mute, lo, hi), kb in zip(saved, keys):
+        kb.value, kb.mute = val, mute
+    for i, kb in enumerate(keys):
+        if i:
+            kb.value = 0.0
+    dg.update()
+    new = bpy.data.meshes.new_from_object(obj.evaluated_get(dg), preserve_all_data_layers=True, depsgraph=dg)
+    old_me = obj.data
+    obj.shape_key_clear()
+    obj.data = new
+    new.name = old_me.name
+    for m in list(obj.modifiers):
+        if m.name in keep:
+            m.show_viewport = show[m.name]
+        else:
+            obj.modifiers.remove(m)
+    base = obj.shape_key_add(name=saved[0][0], from_mix=False)
+    base.data.foreach_set('co', shapes[0])
+    for (name, val, mute, lo, hi), co in zip(saved[1:], shapes[1:]):
+        kb = obj.shape_key_add(name=name, from_mix=False)
+        kb.data.foreach_set('co', co)
+        kb.slider_min, kb.slider_max = lo, hi
+        kb.value, kb.mute = val, mute
+    if old_me.users == 0:
+        bpy.data.meshes.remove(old_me)
 
 
 def _drape_prop(arm, pb, prop, tab, thigh, sgn):
@@ -2356,6 +2469,8 @@ def build_rig():
         print(f'rig joint {k:14s} {src}  ({J[k].x:+.3f}, {J[k].y:+.3f}, {J[k].z:+.3f})')
     # eyelid sheets (head_lid, carrying the blink morph) sit in front of the eyes: leave
     # them out, or the eye depth follows the lids
+    global _HEAD_OBJS
+    _HEAD_OBJS = list(parts.get('head', []))
     H = fit_head([o for o in parts.get('head', []) if 'lid' not in o.name.lower()])
     F = fit_fingers(parts.get('body', []), J)
     print(f"rig fingers    {'mesh' if F else 'spec'}  ({len(F)} chains fitted to the body's fingers)")
@@ -2363,7 +2478,7 @@ def build_rig():
     by = {b.name: b for b in core}
     hd, ey = by['頭'].head, by['目.L'].head
     print(f"rig head  頭             {'mesh' if 'head_y' in H else 'spec'}  ({hd.x:+.3f}, {hd.y:+.3f}, {hd.z:+.3f})")
-    print(f"rig head  目.L           {'mesh' if 'eye' in H else 'spec'}  ({ey.x:+.3f}, {ey.y:+.3f}, {ey.z:+.3f})")
+    print(f"rig head  目.L           {H.get('eye_src', 'mesh') if 'eye' in H else 'spec'}  ({ey.x:+.3f}, {ey.y:+.3f}, {ey.z:+.3f})")
     bones = core + _secondary_bones(parts, core)
     arm = _create_armature(bones)
     global _ATTACH_HOST, _PARENTS, _MOTION

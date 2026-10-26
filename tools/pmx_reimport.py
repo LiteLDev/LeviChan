@@ -74,7 +74,7 @@ def check_append(arm, errors, source='左足', deg=40.0):
 
 
 
-def check_morphs(pmx, want, errors):
+def check_morphs(pmx, want, errors, panels=None):
     """Every exported vertex morph (e.g. まばたき) is in the PMX, moves some vertices, and is
     listed in a display frame so MMD's facial panel shows it."""
     got = {m.name: m for m in pmx.morphs}
@@ -91,6 +91,8 @@ def check_morphs(pmx, want, errors):
             errors.append(f'vertex morph {n} moves no vertices')
         if idx not in shown:
             errors.append(f'vertex morph {n} is in no display frame')
+        if panels and n in panels and m.category != panels[n]:
+            errors.append(f'vertex morph {n} in panel {m.category}, expected {panels[n]}')
 
 
 def check_names(pmx, errors):
@@ -431,7 +433,7 @@ def main():
         errors.append(f'{unweighted} vertices without weights after reimport')
     if arms:
         importlib.import_module(pkg.__name__ + '.core.bone').FnBone.apply_additional_transformation(arms[0])
-        for source in ('左足', '左ひざ', '左ひじ', '左腕', '頭'):
+        for source in ('左足', '左ひざ', '左ひじ', '左腕', '頭', '両目'):
             check_append(arms[0], errors, source)
     rb = [o for o in bpy.data.objects if getattr(o, 'mmd_type', '') == 'RIGID_BODY']
     same('blender rigid', len(rb), expect['rigid_bodies'])
@@ -440,7 +442,7 @@ def main():
     check_ik_limits(pmx, errors)
     check_textures(pmx, path, errors)
     print(f'morphs {len(pmx.morphs)}' + ('' if pmx.morphs else ' (none: the eyes and mouth are painted in the face texture)'))
-    check_morphs(pmx, expect.get('vertex_morphs', []), errors)
+    check_morphs(pmx, expect.get('vertex_morphs', []), errors, expect.get('morph_panels'))
 
     if args.save:
         out = os.path.join(ROOT, args.save)
