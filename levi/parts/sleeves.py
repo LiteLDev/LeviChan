@@ -93,43 +93,92 @@ SAG = 0.08
 RING_N = 48                   # vertices round each ring (~1 cm apart on the widest ring)
 RING_COUNT = 40               # rings from the band to the wrist gather
 
-# Folds. The radius is modulated by: fine pleats where the drawstring and the
-# wrist gather the cloth; a soft five-fold swell falling from the band; and a
-# few stable, unevenly spaced valleys that run down the bell, drifting a
-# little around the arm and deepening toward the wrist, where the fullness is
-# compressed into the cuff. Every fold is a broad rounded trough, several
-# ring vertices and several rings wide, so the cloth can compress along the
-# arm (a raised arm lets the bag fall back) without the folds creasing.
-GATHER_K = 8                  # pleats at the gathers (6 ring vertices each: rounded, no slivers)
-GATHER_TOP, GATHER_CUFF = 0.16, 0.05
+# Folds. The radius is modulated by: fine pleats where the drawstring gathers
+# the cloth; a soft five-fold swell falling from the band; a few stable,
+# unevenly spaced valleys that run down the bell, drifting a little around
+# the arm and deepening toward the wrist; and (round 9) the wrist gather's
+# pleats, which fan up the lower bell as lengthwise folds, growing deeper and
+# tighter as the fullness is compressed into the cuff. Every fold is a broad
+# rounded trough, several ring vertices and several rings wide, so the cloth
+# can compress along the arm (a raised arm lets the bag fall back) without
+# the folds creasing.
+GATHER_K_TOP = 8              # pleats under the drawstring (6 ring vertices each)
+GATHER_TOP = 0.16
+# Wrist pleats (round 9; round 8: 8 pleats of 0.05 over the last quarter only).
+GATHER_K = 8                  # pleats at the wrist gather (6 ring vertices each: rounded, no slivers)
+GATHER_CUFF = 0.15            # their depth at the cuff (fraction of the radius; round 8: 0.05)
+GATHER_RISE = (0.6, 0.97)     # s over which they grow from nothing (below the elbow) to full depth
+GATHER_RISE_POW = 1.6         # > 1: shallow far up, deepening fast into the gather
+GATHER_PINCH = 1.35           # > 1: narrow valleys between broad, rounded crests (cloth, not a sine)
+GATHER_IRR = 0.30             # uneven pleat widths and depths (hand-gathered, not stamped)
+GATHER_TWIST = 0.10           # rad the pleats wander round the arm up the bell (they fan, not stripes)
+# 0: the pleats swing about the fitted girth; 1: their valleys stay on it and only the
+# crests stand out.
+GATHER_BIAS = 0.5
+# Share of the folds the turned-in lip and facing take: a lip crinkled as deep as the
+# hem's pleats caught the light in bright flecks at the wrist opening.
+HEM_FOLD = 0.4
 SWELL_AMP = 0.07              # depth of the swell under the band (fraction of the radius)
 # (ring angle rad: 0 = outer edge, pi/2 = back, -pi/2 = front; relative depth)
 VALLEYS = ((-1.20, 0.9), (-0.55, 0.7), (0.70, 1.0), (2.35, 0.7), (-2.50, 0.8))
 VALLEY_W = 0.40               # angular half-width (rad): ~6 ring vertices, a rounded trough
-VALLEY_AMP = (0.07, 0.12)     # depth at the top of the bell / near the wrist
+VALLEY_AMP = (0.08, 0.22)     # depth at the top of the bell / near the wrist (round 8: 0.07, 0.12)
 VALLEY_DRIFT = 0.25           # rad of sideways wander along the sleeve
+VALLEY_RAMP = (0.55, 0.95)    # s over which they deepen (round 8: 0.3, 0.85): the elbow keeps round 8's depth
+VALLEY_INFLATE = 0.4          # share of their depth the ring is inflated by (round 8: 0.25)
+VALLEY_HANDOVER = 0.55        # share of the valleys' depth handed to the wrist pleats in the gather
+# Shading (round 9): the cel ramp sees FOLD_SHADE of each fold's own normal,
+# blended with the normal of the same cloth with the folds FOLD_SOFT as deep,
+# so the deeper folds still turn the terminator into long soft tongues
+# instead of chipping it into specks (as petticoat.FOLD_SHADE).
+FOLD_SHADE = 0.0
+FOLD_SOFT = 0.45
 
 
-def _fold(th, s):
-    """Radial factor at ring angle th and sleeve parameter s (0 band .. 1 wrist).
+def _fold(th, s, k=1.0, env=False):
+    """Radial factor at ring angle th and sleeve parameter s (0 band .. 1 wrist);
+    k scales the valleys' and the wrist pleats' depth (the soft shading surface;
+    the drawstring pleats and the swell keep theirs, as in round 8). env: the envelope over
+    the valleys' and the wrist pleats' crests instead (what a ribbon lying on the
+    cloth bridges, see _tails).
 
     Valleys pull in and the ring is inflated by a share of their depth, so the
     ridges between them stand slightly proud of the fitted stations and the
-    mean radius stays close to them."""
-    fine = GATHER_TOP * (1.0 - _smooth(0.0, 0.3, s)) + GATHER_CUFF * _smooth(0.75, 1.0, s)
-    v_fine = (1.0 - math.cos(GATHER_K * th + 0.4)) / 2.0
+    mean radius stays close to them; the wrist pleats likewise swing about the
+    fitted girth."""
+    fine = GATHER_TOP * (1.0 - _smooth(0.0, 0.3, s))
+    v_fine = (1.0 - math.cos(GATHER_K_TOP * th + 0.4)) / 2.0
     swell = SWELL_AMP * _smooth(0.06, 0.25, s) * (1.0 - _smooth(0.3, 0.6, s))
     v_swell = (1.0 - math.cos(5 * th + 0.3)) / 2.0
     # valleys fade in below the band and hand over to the wrist pleats at the gather
-    depth = ((VALLEY_AMP[0] + (VALLEY_AMP[1] - VALLEY_AMP[0]) * _smooth(0.3, 0.85, s))
-             * _smooth(0.08, 0.25, s) * (1.0 - 0.55 * _smooth(0.88, 1.0, s)))
+    depth = ((VALLEY_AMP[0] + (VALLEY_AMP[1] - VALLEY_AMP[0]) * _smooth(*VALLEY_RAMP, s))
+             * _smooth(0.08, 0.25, s) * (1.0 - VALLEY_HANDOVER * _smooth(0.88, 1.0, s)))
     v_val = 0.0
     for i, (phi, w) in enumerate(VALLEYS):
         c = phi + VALLEY_DRIFT * math.sin(math.pi * s + 1.3 * i)
         dth = (th - c + math.pi) % (2 * math.pi) - math.pi
         v_val += w * math.exp(-(dth / VALLEY_W) ** 2)
+    cuff = GATHER_CUFF * _smooth(*GATHER_RISE, s) ** GATHER_RISE_POW
+    pleat = (0.0 if env else _wrist_pleat(th, s)) - _PLEAT_MEAN - GATHER_BIAS * (_PLEAT_MAX - _PLEAT_MEAN)
+    if env:
+        v_val = 0.0
     return (1.0 - fine * v_fine - swell * v_swell + 0.4 * swell
-            - depth * v_val + 0.25 * depth)
+            - k * depth * (v_val - VALLEY_INFLATE) - k * cuff * pleat)
+
+
+def _wrist_pleat(th, s):
+    """Wrist pleat profile (0 on a crest .. ~1 in a valley) at ring angle th: a
+    periodic, monotonic warp of the angle gives uneven widths and lets the
+    pleats wander round the arm up the bell."""
+    tw = (th + GATHER_IRR * (0.09 * math.sin(2 * th + 1.1) + 0.05 * math.sin(3 * th + 2.3))
+          + GATHER_TWIST * math.sin(math.pi * s + 0.6))
+    v = ((1.0 - math.cos(GATHER_K * tw + 0.9)) / 2.0) ** GATHER_PINCH
+    return v * (1.0 + GATHER_IRR * 0.6 * math.cos(3 * th + 0.8))
+
+
+# mean of the pleat profile round the ring: the pleats swing about the fitted girth
+_PLEAT = [_wrist_pleat(2 * math.pi * j / 720, 1.0) for j in range(720)]
+_PLEAT_MEAN, _PLEAT_MAX = sum(_PLEAT) / len(_PLEAT), max(_PLEAT)
 
 
 # Gradient sleeve_dark -> sleeve (0..1) by front-sheet row. Measured on the
@@ -185,8 +234,9 @@ def _spow(v, e):
     return math.copysign(abs(v) ** e, v)
 
 
-def _ring(st, s, n=RING_N, scale=1.0, shift=None):
-    """Folded superellipse ring of station st at sleeve parameter s."""
+def _ring(st, s, n=RING_N, scale=1.0, shift=None, k=1.0, env=False):
+    """Folded superellipse ring of station st at sleeve parameter s (folds k as
+    deep; env: their crests' envelope, see _fold)."""
     oc, orow, ic, irow, sc, ry = st
     po, pi = W(oc, orow), W(ic, irow)
     mid = (po + pi) / 2 + Y * px(sc - CX) + (shift if shift is not None else Vector())
@@ -194,9 +244,9 @@ def _ring(st, s, n=RING_N, scale=1.0, shift=None):
     b = px(ry) * scale
     sag = SAG * _smooth(0.3, 0.75, s)
     pts = []
-    for k in range(n):
-        th = 2 * math.pi * k / n
-        m = _fold(th, s)
+    for j in range(n):
+        th = 2 * math.pi * j / n
+        m = _fold(th, s, k, env)
         # the hanging (inner, lower) half carries more depth than the upper half
         bb = b * (1.0 - sag * math.cos(th))
         pts.append(mid + (a * _spow(math.cos(th), SUPER) + Y * (bb * _spow(math.sin(th), SUPER))) * m)
@@ -324,11 +374,13 @@ def _write_sleeve_param(obj):
     attr.data.foreach_set('value', sleeve_params(co).astype(np.float32))
 
 
-def _balloon_bm():
+def _balloon_rings(k=1.0, env=False):
+    """(rings, sleeve parameter per ring) of the bag, its folds k as deep (env:
+    their crests' envelope)."""
     flat = FLAT
     last = len(flat) - 1
     us = _ring_params()
-    rings = [_ring(_interp_at(flat, u), u / last) for u in us]
+    rings = [_ring(_interp_at(flat, u), u / last, k=k, env=env) for u in us]
     # exact place of each ring along the centre line, for SLEEVE_PARAM_ATTR
     # (a nearest-point projection could jump between the upper and lower run
     # of the bent centre line for cloth far out on the inside of the bend)
@@ -337,15 +389,19 @@ def _balloon_bm():
 
     # Top: the cloth tucks up under the drawstring band.
     up = (_station_mid(STATIONS[1]) - _flat_mid(st0)).normalized()
-    rings.insert(0, _ring(st0, 0.0, scale=0.86, shift=up * px(3)))
+    rings.insert(0, _ring(st0, 0.0, scale=0.86, shift=up * px(3), k=k, env=env))
     # Wrist: the hem turns inward over a short interior return (a thin lip,
     # then a facing running back up inside), so the opening has depth. Both
     # step straight back up the cuff axis, so the return stays centred.
     _, cuff_ax = _frame(STATIONS[-1][0], STATIONS[-1][1])
     # (The lip ring keeps ~2 px edges to the hem: shorter edges tear under skinning.)
-    rings.append(_ring(st1, 1.0, scale=0.95, shift=-cuff_ax * px(3.0)))
-    rings.append(_ring(st1, 1.0, scale=0.89, shift=-cuff_ax * px(8.5)))
-    sp = [0.0] + sp + [1.0, 1.0]
+    rings.append(_ring(st1, 1.0, scale=0.95, shift=-cuff_ax * px(3.0), k=k * HEM_FOLD, env=env))
+    rings.append(_ring(st1, 1.0, scale=0.89, shift=-cuff_ax * px(8.5), k=k * HEM_FOLD, env=env))
+    return rings, [0.0] + sp + [1.0, 1.0]
+
+
+def _balloon_bm():
+    rings, sp = _balloon_rings()
     bm = _loft_out(rings)
     layer = bm.verts.layers.float.new(SLEEVE_PARAM_ATTR)
     n = len(rings[0])
@@ -353,6 +409,37 @@ def _balloon_bm():
     for v in bm.verts:              # common.loft creates the vertices ring by ring
         v[layer] = sp[v.index // n]
     return bm
+
+
+def _soft_normals(bm_soft, obj, keep, own_from=None):
+    """Custom normals of a mirrored object built from one side's BMesh: each
+    corner takes its vertex's own normal blended (keep) with the vertex normal
+    of bm_soft, the same lattice with shallower folds (mirrored for the right
+    side). Vertices from index own_from on (of one side: the bag's hem, lip
+    and facing, where the cloth turns inward over a sharp edge) keep their own
+    split corner normals: a blended normal there smeared the crease into
+    bright flecks at the wrist opening."""
+    bm_soft.normal_update()
+    base = [v.normal.copy() for v in bm_soft.verts]
+    bm_soft.free()
+    me = obj.data
+    n = len(base)
+    assert len(me.vertices) == 2 * n, (obj.name, len(me.vertices), n)
+    a, b = me.vertices[0].co, me.vertices[n].co
+    assert (Vector((-a.x, a.y, a.z)) - b).length < 1e-6, (obj.name, 'mirror order')
+    vn = []
+    for i, v in enumerate(me.vertices):
+        b = base[i % n]
+        if i >= n:                  # the Mirror modifier appends the mirrored copy in order
+            b = Vector((-b.x, b.y, b.z))
+        own = Vector(v.normal)
+        if b.dot(own) < 0.0:        # never blend against a flipped normal
+            b = -b
+        nv = own * keep + b * (1.0 - keep)
+        vn.append(nv.normalized() if nv.length > 1e-9 else own)
+    corner = [Vector(c.vector) if own_from is not None and lp.vertex_index % n >= own_from
+              else vn[lp.vertex_index] for lp, c in zip(me.loops, me.corner_normals)]
+    me.normals_split_custom_set(corner)
 
 
 # ---------------------------------------------------------------- band, frills
@@ -403,10 +490,11 @@ def _lobe(th, k, phase, irr=0.0, pinch=1.6):
 
 
 def _frill_ring(c, e, ra, rb, n, k=0, amp=0.0, lift_dir=None, lift=0.0, phase=0.0, irr=0.0,
-                pinch=1.6):
+                pinch=1.6, curl=0.0):
     """Ellipse (e, b) of radii ra, rb around c; k rounded lobes push the ring
     out radially by amp and along lift_dir by lift at their crests (and pull
-    it in / down in the valleys between them). b is world Y made
+    it in / down in the valleys between them); curl pushes the crests alone
+    further out (a lobe's edge turning outward). b is world Y made
     perpendicular to e and lift_dir (= Y when lift_dir lies in XZ)."""
     b = Y.copy()
     if lift_dir is not None:
@@ -416,7 +504,7 @@ def _frill_ring(c, e, ra, rb, n, k=0, amp=0.0, lift_dir=None, lift=0.0, phase=0.
     for j in range(n):
         th = 2 * math.pi * j / n
         g = _lobe(th, k, phase, irr, pinch) if k else 0.0
-        w = 1.0 + amp * g
+        w = 1.0 + amp * g + curl * max(g, 0.0) ** 2
         p = c + e * (ra * w * math.cos(th)) + b * (rb * w * math.sin(th))
         if lift_dir is not None and lift:
             p = p + lift_dir * (lift * g)
@@ -480,9 +568,11 @@ def _ruffle_bm():
 # drawn, rather than looking straight into the opening). It is a closed
 # fold of cloth -- outer face, rolled rim, inner face back up to the
 # attachment -- so the edge has thickness and an outline without a
-# solidified plate edge.
-CUFF_N = 64
-CUFF_LOBES = 8                # 8 ring vertices per lobe: soft, rounded scallops
+# solidified plate edge. Round 9: a gathered frill of 11 rounded lobes (8
+# before, nearly flat), fluting more toward the free edge, where each lobe's
+# crest turns outward and the rim rolls into a bead ~3 mm across.
+CUFF_N = 96
+CUFF_LOBES = 11               # ~9 ring vertices per lobe: soft, rounded scallops
 CUFF_IRR = 0.3                # a little unevenness between the scallops (see _lobe)
 CUFF_PINCH = 1.2              # nearly even waves: no creased valleys to break the shading
 # A mild droop only: a strongly one-sided ruffle swings round with the
@@ -490,33 +580,48 @@ CUFF_PINCH = 1.2              # nearly even waves: no creased valleys to break t
 CUFF_DROOP = 0.6              # downward tilt added to the arm axis at the rim
 CUFF_FORWARD = 0.35           # forward (-Y) tilt: the front view sees into the shaded underside
 CUFF_ROOT = -4.0              # px along the arm: attachment, inside the turned-in hem
-#   (s along the ruffle 0..1, radius front px, radius side px, lobe amp, lobe lift px)
+CUFF_LEN = 26.0               # px, attachment -> rim (round 8: 27)
+# Lobes by s along the ruffle (0 attachment .. 1 rim), the same on the outer
+# and the inner face, so the rolled rim keeps its thickness round every lobe:
+# radial amplitude CUFF_AMP s^0.7, lift (px along the ruffle) CUFF_LIFT s^0.7,
+# and the crests' outward turn CUFF_CURL from s = CUFF_CURL_FROM to the rim.
+CUFF_AMP = 0.12               # round 8: 0.07
+CUFF_LIFT = 1.2               # round 8: 0.3
+CUFF_CURL = 0.05
+CUFF_CURL_FROM = 0.55
+# shading: CUFF_SHADE of the lobes' own normal, the rest from the ruffle with
+# its lobes CUFF_SOFT as deep (see FOLD_SHADE): shaded lobe flanks, not specks
+CUFF_SHADE = 0.2
+CUFF_SOFT = 0.0
+#   (s along the ruffle 0..1, radius front px, radius side px)
 CUFF_PROFILE = (
-    (0.00, 23.0, 21.0, 0.02, 0.0),        # sewn inside the hem facing
-    (0.35, 25.6, 24.0, 0.04, 0.15),
-    (0.70, 28.6, 28.6, 0.06, 0.25),       # the flare rounds over ...
-    (0.92, 31.2, 31.6, 0.07, 0.3),
-    (1.00, 32.4, 33.0, 0.07, 0.3),        # ... to the free edge
-    (0.97, 31.5, 32.0, 0.07, 0.3),        # rolled rim: a rounded lip ~0.5 px thick ...
-    (0.88, 30.0, 30.4, 0.07, 0.3),
-    (0.70, 27.9, 27.9, 0.06, 0.25),       # ... and the inner face back up, inside the outer
-    (0.45, 24.9, 23.6, 0.04, 0.15),       # one at every s (same centre and frame there)
-    (0.05, 22.3, 20.3, 0.02, 0.0),
+    (0.00, 21.8, 19.8),           # sewn inside the hem facing (clear of its pleat valleys)
+    (0.35, 23.9, 22.4),
+    (0.70, 28.8, 28.8),           # the flare rounds over ...
+    (0.90, 31.4, 31.8),
+    (0.98, 32.6, 33.0),           # ... to the free edge
+    (1.00, 32.4, 32.8),           # rolled rim: a rounded bead ~2 px across ...
+    (0.98, 31.2, 31.6),
+    (0.92, 29.9, 30.2),
+    (0.72, 27.4, 27.3),           # ... and the inner face back up, inside the outer
+    (0.45, 23.0, 21.7),           # one at every s (same centre and frame there)
+    (0.05, 21.1, 19.1),
 )
-CUFF_LEN = 27.0               # px, attachment -> rim
 
 
-def _cuff_bm():
+def _cuff_bm(k=1.0):
+    """The cuff ruffle; k scales its lobes (the soft shading surface)."""
     e, axis = _frame(STATIONS[-1][0], STATIONS[-1][1])
     c0 = CUFF_MID + axis * px(CUFF_ROOT)
     droop = (axis + Vector((0.0, -CUFF_FORWARD, -CUFF_DROOP))).normalized()
     rings = []
-    for s, ra, rb, amp, lift in CUFF_PROFILE:
+    for s, ra, rb in CUFF_PROFILE:
         f = axis.lerp(droop, s).normalized()
         c = c0 + (axis.lerp(droop, 0.5).normalized()) * px(CUFF_LEN * s)
         rings.append(_frill_ring(c, _perp_xz(f), px(ra), px(rb), CUFF_N, CUFF_LOBES,
-                                 amp * s ** 0.7, f, px(lift), math.pi / CUFF_LOBES, CUFF_IRR,
-                                 CUFF_PINCH))
+                                 k * CUFF_AMP * s ** 0.7, f, px(k * CUFF_LIFT * s ** 0.7),
+                                 math.pi / CUFF_LOBES, CUFF_IRR, CUFF_PINCH,
+                                 k * CUFF_CURL * _smooth(CUFF_CURL_FROM, 1.0, s)))
     return _loft_out(rings)
 
 
@@ -742,13 +847,17 @@ def _tails(knot, bvh, front=True):
 
 
 # ---------------------------------------------------------------- build
-def _finish(col, name, bm, mat, grad=None, outline=None):
+def _finish(col, name, bm, mat, grad=None, outline=None, soft=None):
+    """soft: (BMesh of the same lattice with shallower folds, own-normal share
+    [, first vertex keeping its own normals]) for _soft_normals."""
     obj = common.new_object(col, name, bm, [mat])
     common.shade_smooth(obj, 50.0)
     if grad:
         common.set_gradient(obj, grad)
     common.mirror_x(obj, merge=False)
     common.apply_modifiers(obj)
+    if soft is not None:
+        _soft_normals(soft[0], obj, *soft[1:])
     common.add_outline(obj, outline)
     return obj
 
@@ -774,8 +883,13 @@ def build(col):
     cuff = common.toon_material('cuff')
 
     balloon = _balloon_bm()
-    balloon.normal_update()
-    bvh = BVHTree.FromBMesh(balloon)
+    # The bow and its tails lie on the envelope over the folds' crests: a ribbon
+    # bridges the valleys instead of dipping into each one (round 9: laid into the
+    # deeper valleys, the tails kinked and folded up in idol_dance).
+    env = _loft_out(_balloon_rings(env=True)[0])
+    env.normal_update()
+    bvh = BVHTree.FromBMesh(env)
+    env.free()
 
     knot, bow = _bow(bvh)
     back = BAND_E * math.sin(BOW_ANG) + Y * math.cos(BOW_ANG)
@@ -786,9 +900,15 @@ def build(col):
               + [_barrel(knot_b, tb, BAND_AX, px(2.6), px(2.2), px(4.0))]
               + _tails(knot_b, bvh, front=False))
 
-    objs = [_finish(col, 'sleeve_balloon', balloon, sleeve_mat, grad=_grad),
+    # the lip and the facing (the last 2 rings, after the top ring and the RING_COUNT
+    # rings ending at the hem) keep their own normals; the hem ring itself shades with
+    # the bag (own normals there too lit its pleat crests as bright flecks)
+    hem = (RING_COUNT + 1) * RING_N
+    soft = (_loft_out(_balloon_rings(FOLD_SOFT)[0]), FOLD_SHADE, hem) if FOLD_SHADE < 1.0 else None
+    objs = [_finish(col, 'sleeve_balloon', balloon, sleeve_mat, grad=_grad, soft=soft),
             _finish(col, 'sleeve_ruffle', _ruffle_bm(), ruffle_mat),
-            _finish(col, 'sleeve_cuff', _cuff_bm(), cuff),
+            _finish(col, 'sleeve_cuff', _cuff_bm(), cuff,
+                    soft=(_cuff_bm(CUFF_SOFT), CUFF_SHADE) if CUFF_SHADE < 1.0 else None),
             _finish(col, 'sleeve_ribbon', _join(ribbon), green, outline=spec.OUTLINE_WIDTH * 0.5)]
     # The white cuff ruffle doesn't cast: its scalloped rim printed small
     # hard shadow specks onto the bag and the hand that the sheet never paints.
