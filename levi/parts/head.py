@@ -536,10 +536,12 @@ def face_texture_pixels():
     return cv.pixels()
 
 
-def eye_texture_pixels():
-    """The eyeball's texture in the same front-view mapping: white, the lid's
-    soft shadow, the iris (muted dark green top -> light mint bottom, soft rim,
-    slit pupil) and its highlights. All unshaded (A = 0)."""
+def eye_texture_pixels(iris_only=False):
+    """The eyes' texture in the same front-view mapping. The white (sclera,
+    static): white with the lid's soft shadow under the upper lid. The iris
+    (turns with the eye bone, iris_only): muted dark green top -> light mint
+    bottom, soft rim, slit pupil, the lashes' shadow band and the highlights.
+    All unshaded (A = 0)."""
     X, R = _texture_grid()
     cv = _Canvas(hexrgb('#FFFFFF'))
     paint = lambda cov, colour: cv.paint(cov, colour, unshaded=True)   # noqa: E731
@@ -547,6 +549,8 @@ def eye_texture_pixels():
     y_up = upper_lid(X)
     # soft lid shadow on the white under the upper lid
     paint(0.55 * _soft(R - (y_up + 2.4), 0.8), hexrgb('#DCE3EE'))
+    if not iris_only:
+        return cv.pixels()
     ix, iy, irx, iry = IRIS
     q = np.sqrt(((X - ix) / irx) ** 2 + ((R - iy) / iry) ** 2)
     iris = _soft((q - 1.0) * irx)
@@ -639,6 +643,7 @@ MOUTH_BOX = ((139.0, 154.25), 9.0)                   # rows, half-width [px]
 MOUTH_LOOPS = (0.3, 0.62)
 EYE_GAP = 0.35                   # px between the opening's rim and the eyeball (closest point)
 EYE_WALL_IN = 0.4                # px the rim rolls back into the eyeball
+EYE_SLEEVE = 5.0                 # px deep socket sleeve behind the rim: what a turned eyeball uncovers
 POUCH_BACK = (0.7, 3.6)          # px behind the slit: the slit's back rim, the pouch back
 POUCH_SIZE = (6.2, 3.4)          # half-width, half-height [px] of the pouch back
 
@@ -682,7 +687,7 @@ class Patch:
         self.loops, self.px, self.fade = [], [], []
         self.upper = []        # per opening vertex: on the upper lid / lip
         self.wall = []         # eye: rim vertices rolled into the eyeball; mouth: slit back rim
-        self.pouch = []        # mouth: pouch back loop + centre
+        self.pouch = []        # mouth: pouch back loop + centre; eye: socket sleeve behind the rim
 
     def k(self, kl):
         return kl if self.side >= 0 else N_RING - kl
@@ -805,7 +810,8 @@ def build_head(detail=True, eye_fit=None):
     return bm, patches, eyes
 
 
-HUG_BAND = (1.0, 6.0)            # px outside the opening: lids drape on the eyeball .. own shape
+HUG_BAND = (2.0, 9.0)            # px outside the opening: lids drape on the eyeball .. own shape
+HUG_COVER = 15.0                 # px outside the opening: the skin still covers the eyeball sphere
 
 
 def hug(co, eyes):
@@ -818,9 +824,11 @@ def hug(co, eyes):
     X = (co.x - HEAD_DX) * PPM
     c, r = eyes[1 if X >= 0 else -1]
     X, R = abs(X), row_of(co.z)
-    w = 1.0 - float(_smooth(HUG_BAND[0], HUG_BAND[1], _eye_opening_d(X, R)))
+    d = _eye_opening_d(X, R)
+    w = 1.0 - float(_smooth(HUG_BAND[0], HUG_BAND[1], d))
+    w_far = 1.0 - float(_smooth(HUG_BAND[1], HUG_COVER, d))
     ys = sphere_y(c, r, co.x, co.z)
-    if w <= 0.0 or ys is None or co.y > c.y:     # (the back of the head is not the face)
+    if w_far <= 0.0 or ys is None or co.y > c.y:     # (the back of the head is not the face)
         return co
     along = _smooth(EYE_IN - 4.0, EYE_IN + 1.0, X) * (1.0 - _smooth(EYE_OUT + 0.5, EYE_OUT + 5.0, X))
     rim = 0.6 * np.exp(-((R - (upper_lid(X) + 1.0)) / 2.3) ** 2) * along \
@@ -828,6 +836,9 @@ def hug(co, eyes):
     target = ys - (EYE_GAP + float(rim)) / PPM
     out = co.copy()
     out.y += (target - co.y) * w
+    # further out the skin only has to stay in front of the sphere, where the
+    # iris can roll to
+    out.y -= max(0.0, out.y - (ys - EYE_GAP / PPM)) * w_far
     return out
 
 
@@ -905,16 +916,19 @@ def add_eye_rim(bm, p, c, r):
     """The opening's rim rolls back radially into the eyeball sphere."""
     c0 = [bm.verts[v] for v in p.loops[0]]
     rim = [_new_vert(bm, eye_rim_point(v.co, c, r)) for v in c0]
+    sleeve = [_new_vert(bm, eye_rim_point(v.co, c, r, EYE_SLEEVE)) for v in c0]
     n = len(c0)
     for m in range(n):
         m2 = (m + 1) % n
         bm.faces.new((rim[m], rim[m2], c0[m2], c0[m]))
+        bm.faces.new((sleeve[m], sleeve[m2], rim[m2], rim[m]))
     _sync(bm)
     p.wall = [v.index for v in rim]
+    p.pouch = [v.index for v in sleeve]
 
 
-def eye_rim_point(co, c, r):
-    return c + (co - c).normalized() * (r - EYE_WALL_IN / PPM)
+def eye_rim_point(co, c, r, depth=EYE_WALL_IN):
+    return c + (co - c).normalized() * (r - depth / PPM)
 
 
 def pouch_back(co):
@@ -959,16 +973,14 @@ def eye_motion(name, X, row, upper):
     """(dX, drow, forward) of an opening vertex in the eye morph `name` [px]."""
     Xc = min(max(X, EYE_IN), EYE_OC)
     close = float(lower_lid(Xc)) - 1.4            # where the lids meet
-    if name in ('まばたき', 'ウィンク', 'ウィンク右'):
-        if upper:
-            return 0.0, close + 0.5 - row, LID_OVERLAP
-        return 0.0, close - row, 0.0
-    # 笑い: the lower lid rises into an arch, the upper lid comes down a little
-    bump = math.sin(math.pi * min(max((X - EYE_IN) / (EYE_OC - EYE_IN), 0.0), 1.0)) ** 0.8
+    if name == '笑い':
+        # smiling eyes: closed along an upward arch, the lower lid (and the
+        # cheek under it) pushed up further at the middle
+        bump = math.sin(math.pi * min(max((X - EYE_IN) / (EYE_OC - EYE_IN), 0.0), 1.0)) ** 0.9
+        close -= 4.0 * bump
     if upper:
-        return 0.0, 1.6 * bump, 0.0
-    target = float(lash_bottom(Xc)) + 1.6 * bump + 1.4
-    return 0.0, min(0.0, target - row) * (0.35 + 0.65 * bump), 0.0
+        return 0.0, close + 0.5 - row, LID_OVERLAP
+    return 0.0, close - row, 0.0
 
 
 def mouth_motion(name, X, row, upper):
@@ -1025,9 +1037,10 @@ def _eye_targets(name, p, eyes, co):
             pt.y = min(pt.y, ys - gap)
         pt.y -= fwd[v]
     _clear_sphere(out, co, c, r, p)
-    for w, v in zip(p.wall, p.loops[0]):
+    for w, s, v in zip(p.wall, p.pouch, p.loops[0]):
         if v in out:
             out[w] = eye_rim_point(out[v], c, r)
+            out[s] = eye_rim_point(out[v], c, r, EYE_SLEEVE)
     return out
 
 
@@ -1047,23 +1060,25 @@ def _clear_sphere(out, co, c, r, p):
         pushed = False
         for v in list(out):
             p0, p1 = co[v], out[v]
+            nv = min(need, (p0 - c).length)
             for t in np.linspace(0.1, 1.0, 10):
                 q = p0.lerp(p1, t)
                 d = (q - c).length
-                if d < need:
-                    out[v] = c + (p1 - c).normalized() * ((p1 - c).length + (need - d) / t)
+                if d < nv - 1e-7:
+                    out[v] = c + (p1 - c).normalized() * ((p1 - c).length + min((nv - d) / t, 3.0 / PPM))
                     p1 = out[v]
                     pushed = True
         for a, b in nbrs:
             pa0, pb0 = co[a], co[b]
             pa1, pb1 = out.get(a, pa0), out.get(b, pb0)
+            nv = min(need, ((pa0 + pb0) / 2 - c).length)
             for t in np.linspace(0.1, 1.0, 10):
                 q = (pa0.lerp(pa1, t) + pb0.lerp(pb1, t)) / 2
                 d = (q - c).length
-                if d < need:
+                if d < nv - 1e-7:
                     for v, p1 in ((a, pa1), (b, pb1)):
                         if v in out:
-                            out[v] = c + (p1 - c).normalized() * ((p1 - c).length + (need - d) / t)
+                            out[v] = c + (p1 - c).normalized() * ((p1 - c).length + min((nv - d) / t, 3.0 / PPM))
                     pushed = True
                     break
         if not pushed:
@@ -1137,7 +1152,7 @@ def set_shading_normals(me, smooth, own=()):
 
 # ---------------------------------------------------------------- eyeballs
 EYE_SEG, EYE_RINGS = 32, 8
-EYE_MARGIN = math.radians(22.0)  # eyeball cap beyond the opening: room to turn
+EYE_MARGIN = math.radians(30.0)  # eyeball cap beyond the opening: room to turn
 EYE_COVER = 0.3                  # px of face the eyeball cap must stay behind beyond the opening
 
 
@@ -1207,8 +1222,41 @@ def eyeball_mesh(c, r, side, rim, tree):
     return bm
 
 
-def eye_object(col, name, mat, c, r, side, rim, tree):
-    bm = eyeball_mesh(c, r, side, rim, tree)
+IRIS_LIFT = 0.08                 # px the iris disc floats in front of the white
+IRIS_RINGS, IRIS_SEG = 5, 28
+IRIS_EDGE = 0.985                # disc edge on the painted iris outline (inside its soft rim)
+
+
+def iris_mesh(c, r, side):
+    """The iris disc: a piece of the sphere IRIS_LIFT in front of the white,
+    whose front projection is exactly the painted iris ellipse."""
+    ix, iy, irx, iry = IRIS
+    rr = r + IRIS_LIFT / PPM
+    bm = bmesh.new()
+
+    def at(X, row):
+        x, z = HEAD_DX + side * X / PPM, zr(row)
+        return Vector((x, sphere_y(c, rr, x, z), z))
+    centre = bm.verts.new(at(ix, iy))
+    rings = []
+    for j in range(1, IRIS_RINGS + 1):
+        rho = IRIS_EDGE * j / IRIS_RINGS
+        rings.append([bm.verts.new(at(ix + irx * rho * math.cos(a), iy + iry * rho * math.sin(a)))
+                      for a in (2 * math.pi * s / IRIS_SEG for s in range(IRIS_SEG))])
+    for s in range(IRIS_SEG):
+        s2 = (s + 1) % IRIS_SEG
+        bm.faces.new((centre, rings[0][s], rings[0][s2]))
+        for a, b in zip(rings, rings[1:]):
+            bm.faces.new((a[s], b[s], b[s2], a[s2]))
+    bm.normal_update()
+    if centre.link_faces[0].normal.dot(centre.co - c) < 0:
+        bmesh.ops.reverse_faces(bm, faces=bm.faces)
+    return bm
+
+
+def eye_object(col, name, mat, c, bm):
+    """Mesh object of an eye part (front-projected UVs, sphere normals, all
+    'eye' region, no outline)."""
     uv_layer = bm.loops.layers.uv.new('UVMap')
     for f in bm.faces:
         for loop in f.loops:
@@ -1221,8 +1269,6 @@ def eye_object(col, name, mat, c, r, side, rim, tree):
     for a in attr.data:
         a.value = 1.0
     obj['no_outline'] = True
-    obj['levi_eye_pivot'] = tuple(c)
-    obj['levi_eye_radius'] = r
     return obj
 
 
@@ -1290,7 +1336,8 @@ def build(col):
     mouth = common.toon_material('mouth')
     pixels = face_texture_pixels()
     face = face_material(pixels)
-    eye_mat = face_material(eye_texture_pixels(), 'toon_face_eye', 'levi_eye_tex')
+    white_mat = face_material(eye_texture_pixels(), 'toon_face_eyewhite', 'levi_eyewhite_tex')
+    iris_mat = face_material(eye_texture_pixels(iris_only=True), 'toon_face_iris', 'levi_iris_tex')
 
     bm, patches, eyes = build_head(detail=True)
     co = [v.co.copy() for v in bm.verts]
@@ -1318,9 +1365,12 @@ def build(col):
     common.add_outline(head)
 
     tree = BVHTree.FromPolygons([v.co for v in me.vertices], [tuple(q.vertices) for q in me.polygons])
-    for side, nm in ((1, 'head_eye_L'), (-1, 'head_eye_R')):
+    for side, sfx in ((1, 'L'), (-1, 'R')):
         c, r = eyes[side]
-        eye_object(col, nm, eye_mat, c, r, side, rims[side], tree)
+        eye_object(col, f'head_eye_white_{sfx}', white_mat, c, eyeball_mesh(c, r, side, rims[side], tree))
+        iris = eye_object(col, f'head_eye_{sfx}', iris_mat, c, iris_mesh(c, r, side))
+        iris['levi_eye_pivot'] = tuple(c)      # 目.L / 目.R turn the iris about this point
+        iris['levi_eye_radius'] = r
 
     for side, nm in ((1, 'head_ear_L'), (-1, 'head_ear_R')):
         ear = common.new_object(col, nm, ear_mesh(side), [skin])
