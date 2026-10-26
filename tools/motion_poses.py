@@ -29,6 +29,7 @@ import bpy
 from mathutils import Matrix, Quaternion, Vector
 
 import rig_pose
+from levi import spec
 from rig_pose import _chains, aim, bend, move, turn, twist
 
 FPS = 30
@@ -107,21 +108,47 @@ def leg_fk(arm, tag, thigh_dir, knee, flex_toward=None, ankle=0.0):
         bend(arm, f'足首.{tag}', (0, 0, -1), ankle)
 
 
+def foot_ref(arm, tag):
+    """The rest point `foot` places (armature space): where the shin axis (ひざ) passes
+    spec ankle_z, the height of the round-7 ankle pivot. Round 8 moved the pivot down into
+    the shoe (body.ANKLE_ROW); placing and turning the foot about this point keeps every
+    pose's feet within ~5 mm of round 7's (the round-7 pivot sat 4 mm off this axis). The
+    pivot itself when it is not below that height."""
+    k = arm.pose.bones[f'ひざ.{tag}'].bone
+    h, t = k.head_local, k.tail_local
+    z = spec.L['ankle_z']
+    if t.z >= z - 1e-6 or h.z <= z:
+        return t.copy()
+    return h.lerp(t, (h.z - z) / (h.z - t.z))
+
+
 def foot(arm, tag, off=(0, 0, 0), pitch=0.0, yaw=0.0, toe_dir=None):
-    """Place 足ＩＫ.tag: the ankle moved by `off` from rest (x outward), the foot pitched
-    `pitch` deg (+ = toes down, heel up), turned `yaw` deg (+ = toes out), or pointing along
-    toe_dir (ankle -> toe, world). Left-side values, mirrored for .R."""
+    """Place 足ＩＫ.tag: the foot's placement point (foot_ref) moved by `off` from rest
+    (x outward), the foot pitched `pitch` deg (+ = toes down, heel up), turned `yaw` deg
+    (+ = toes out), or pointing along toe_dir (placement point -> toe, world). The ankle
+    pivot goes wherever that rigid foot motion takes it. Left-side values, mirrored for .R."""
     ik, toe = arm.pose.bones[f'足ＩＫ.{tag}'], arm.pose.bones[f'つま先ＩＫ.{tag}']
     a0, t0 = ik.bone.head_local, toe.bone.head_local
-    d0 = t0 - a0
+    ref = foot_ref(arm, tag)
+    d0 = t0 - ref
+    # The foot's turn (it moves the pivot, which sits below the placement point): yaw
+    # about the vertical, then pitch, not the shortest arc between the toe directions,
+    # which tilts the foot in a turn and flips as the turn passes 180 deg
     if toe_dir is not None:
         d1 = _m(tag, toe_dir).normalized() * d0.length
+        h0, h1 = Vector((d0.x, d0.y, 0.0)), Vector((d1.x, d1.y, 0.0))
+        yq = Quaternion()
+        if h0.length > 1e-6 and h1.length > 1e-6:
+            yq = Quaternion((0, 0, 1), _signed(h0, h1, Vector((0, 0, 1))))
+        rq = (yq @ d0).rotation_difference(d1) @ yq
     else:
         s = 1 if tag == 'L' else -1
-        d1 = Quaternion((0, 0, 1), math.radians(yaw * s)) @ (Quaternion((1, 0, 0), math.radians(pitch)) @ d0)
-    r = d0.rotation_difference(d1).to_matrix().to_4x4()
+        rq = Quaternion((0, 0, 1), math.radians(yaw * s)) @ Quaternion((1, 0, 0), math.radians(pitch))
+        d1 = rq @ d0
+    r = rq.to_matrix().to_4x4()
+    pos = ref + _m(tag, off) + rq @ (a0 - ref)
     root = arm.pose.bones['全ての親']           # placed relative to the (possibly moved) root
-    m = (root.matrix @ root.bone.matrix_local.inverted() @ Matrix.Translation(a0 + _m(tag, off))
+    m = (root.matrix @ root.bone.matrix_local.inverted() @ Matrix.Translation(pos)
          @ r @ ik.bone.matrix_local.to_3x3().to_4x4())
     ik.matrix = m
     bpy.context.view_layer.update()
@@ -542,8 +569,7 @@ def _turn_key(u):
                     break
             # the foot turned `ang` about the vertical through the centre
             q = Quaternion((0, 0, 1), math.radians(ang))
-            ik = arm.pose.bones[f'足ＩＫ.{t}']
-            a0v = ik.bone.head_local
+            a0v = foot_ref(arm, t)
             pos = q @ (a0v - Vector((rest_c.x, rest_c.y, a0v.z))) + Vector((rest_c.x, rest_c.y, a0v.z))
             d = q @ (arm.pose.bones[f'つま先ＩＫ.{t}'].bone.head_local - a0v)
             s = 1 if t == 'L' else -1
@@ -574,8 +600,7 @@ def _spin_key(u):
         rest_c = arm.pose.bones['センター'].bone.head_local
         q = Quaternion((0, 0, 1), math.radians(ang))
         for t in 'LR':
-            ik = arm.pose.bones[f'足ＩＫ.{t}']
-            a0v = ik.bone.head_local
+            a0v = foot_ref(arm, t)
             piv = Vector((rest_c.x, rest_c.y, a0v.z))
             pos = q @ (a0v - piv) + piv
             d = q @ (arm.pose.bones[f'つま先ＩＫ.{t}'].bone.head_local - a0v)
