@@ -112,11 +112,11 @@ SEAM_RAMP = 0.3   # ... reached over this share of the band from the seam (smoot
 FOLD_POW = 0.5    # the folds open as d ** FOLD_POW down the band (visible all the way up)
 # Where the hem is tucked up, the band is shorter and has less fabric to
 # fold: the fold depth scales with (band length / full length) ** SHORT_POW.
-SHORT_POW = 0.3
+SHORT_POW = 0.15
 # The band flares out from its seam as 1 - (1 - d) ** FLARE_POW of the full
 # drop d: most of the flare happens high up, inside the skirt, and the
 # exposed lower band hangs nearly straight, turning gradually (no shelf).
-FLARE_POW = 1.6
+FLARE_POW = 1.35
 BELLY = 0.006     # how far the band bellies out between seam and hem (x hem outline)
 HEM_ROLL = 0.6    # px radius of the rolled hem
 RET_UP = 2.5      # px the turned-under hem runs back up inside
@@ -162,8 +162,8 @@ CAST_TIERS = (False, False)
 # so it covers the lobe's inside seen from behind between the legs; the inner
 # tier stays higher there, clear of the striding thighs.
 TIERS = (
-    ('petticoat_tier0', (HALF_W, FRONT_D, BACK_D, 2.0), (55, 90, 596, 585), ('free', 52, 0.86), 34, 5.0, 4.0, 1),
-    ('petticoat_tier1', (0.78 * HALF_W, 0.78 * FRONT_D, 0.78 * BACK_D, 2.2), (55, 90, 585, 585), ('core', 22), 30, 3.3, 3.6, 2),
+    ('petticoat_tier0', (HALF_W, FRONT_D, BACK_D, 2.0), (55, 90, 596, 585), ('free', 52, 0.86), 34, 6.5, 4.0, 1),
+    ('petticoat_tier1', (0.78 * HALF_W, 0.78 * FRONT_D, 0.78 * BACK_D, 2.2), (55, 90, 585, 585), ('core', 22), 30, 3.9, 3.6, 2),
 )
 # Exposure (round 6): the tiers show as rounded ruffle clusters under the
 # skirt's raised fold troughs, and as a narrower band under its lobes (see
