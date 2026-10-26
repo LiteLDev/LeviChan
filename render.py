@@ -618,7 +618,8 @@ def main():
     ap.add_argument('--turntable', type=int, default=0, metavar='N',
                     help='also render N evenly spaced turn_<AZ> views and <out>/turntable.png')
     ap.add_argument('--pose', default='',
-                    help='NAME,... or all: pose a rigged .blend with tools/rig_pose.py POSES and '
+                    help='NAME,... or all: pose a rigged .blend with tools/rig_pose.py POSES (also extended '
+                         'poses and <clip>@<frame>, tools/motion_poses.py) and '
                          'render <out>/<pose>/<view>.png for each (no regions)')
     args = ap.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
     try:
@@ -664,7 +665,7 @@ def main():
     if args.pose:
         import rig_pose
         poses = sorted(rig_pose.POSES) if args.pose == 'all' else args.pose.split(',')
-        bad = [p for p in poses if p not in rig_pose.POSES]
+        bad = [p for p in poses if not (rig_pose.known(p) if hasattr(rig_pose, 'known') else p in rig_pose.POSES)]
         if bad:
             ap.error(f'--pose: unknown pose(s) {bad}; choose from {sorted(rig_pose.POSES)}')
         arm = find_armature()

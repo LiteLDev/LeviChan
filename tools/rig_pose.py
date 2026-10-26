@@ -20,6 +20,8 @@ POSES (rig_check deforms the model with every one of them):
   reach_forward    arms swung 45 deg forward, elbows 90 deg
   forward_bend     torso bent 40 deg forward over the spine, pelvis tipped 10 deg, arms hanging
   side_bend        upper body bent 30 deg to her left, right arm raised
+Extended poses (tools/motion_poses.py EXTENDED) and motion clip frames ('<clip>@<frame>',
+motion_poses.CLIPS) are accepted wherever a pose name is (--pose, apply_pose, render.py --pose).
 --rest saves the rigged model unposed instead.
 --fixtures adds throwaway test meshes (tools/rig_fixtures.py) for whichever of
 body/hair/skirt/sleeves are missing; it is on automatically when no parts exist.
@@ -111,6 +113,8 @@ def move(arm, name, delta):
 
 
 def reset_pose(arm):
+    if arm.animation_data and arm.animation_data.action:   # a motion clip (motion_poses)
+        arm.animation_data.action = None
     for pb in arm.pose.bones:
         pb.matrix_basis.identity()
         for c in pb.constraints:
@@ -312,10 +316,36 @@ POSES = {
 }
 
 
+def extended():
+    """{name: function} of tools/motion_poses.py EXTENDED (not gated by rig_check)."""
+    import motion_poses
+    return motion_poses.EXTENDED
+
+
+def known(name):
+    """True for a core pose, an extended pose, or a clip frame '<clip>@<frame>'."""
+    if name in POSES:
+        return True
+    import motion_poses
+    if '@' in name:
+        clip, _, f = name.partition('@')
+        return clip in motion_poses.CLIPS and f.isdigit() and int(f) <= motion_poses.clip_frames(clip)
+    return name in motion_poses.EXTENDED
+
+
 def apply_pose(arm, name):
-    """Reset the armature and apply POSES[name]."""
+    """Reset the armature and apply POSES[name], an extended pose (motion_poses.EXTENDED)
+    or a motion clip frame '<clip>@<frame>' (motion_poses.CLIPS)."""
     reset_pose(arm)
-    POSES[name](arm)
+    if name in POSES:
+        POSES[name](arm)
+    else:
+        import motion_poses
+        if '@' in name:
+            clip, _, f = name.partition('@')
+            motion_poses.apply_clip_frame(arm, clip, int(f))
+        else:
+            motion_poses.EXTENDED[name](arm)
     bpy.context.view_layer.update()
 
 
@@ -330,8 +360,11 @@ def main():
     ap.add_argument('--proxy', action='store_true')
     ap.add_argument('--fixtures', action='store_true')
     ap.add_argument('--rest', action='store_true')
-    ap.add_argument('--pose', default='test', choices=sorted(POSES))
+    ap.add_argument('--pose', default='test',
+                    help='a POSES name, an extended pose (motion_poses.EXTENDED) or <clip>@<frame>')
     args = ap.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
+    if not known(args.pose):
+        ap.error(f'--pose: unknown pose {args.pose!r}')
     arm = build_scene(args.parts, args.proxy, args.fixtures)
     if not args.rest:
         apply_pose(arm, args.pose)
