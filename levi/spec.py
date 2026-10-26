@@ -175,18 +175,18 @@ PALETTE = {k: {**v, **PALETTE_TUNING.get(k, {})} for k, v in SHEET_PALETTE.items
 # Face budget per part (triangles counted as faces after triangulation is NOT
 # required; budget is in polygons as Blender reports them).
 BUDGET = {
-    'body': 4000,
-    'head': 3650,
-    'hair_front': 3400,
-    'hair_back': 6400,
-    'accessories': 1500,
-    'bodice': 2500,
-    'skirt': 4000,
-    'petticoat': 2500,
-    'sleeves': 3000,
-    'shoes': 1500,
+    'body': 9000,
+    'head': 8000,
+    'hair_front': 8000,
+    'hair_back': 15000,
+    'accessories': 3500,
+    'bodice': 6000,
+    'skirt': 10000,
+    'petticoat': 6500,
+    'sleeves': 8000,
+    'shoes': 3500,
 }
-TOTAL_BUDGET = 32500  # target ~32k (user-approved round 5)
+TOTAL_BUDGET = 80000  # user-approved round 5; per-part sum 77,500 leaves 2,500 reserve
 
 # Outline (inverted hull) thickness in metres, per part default. The sheet's
 # strokes are ~1-1.5 px at 643 px/m; the ortho renders are 1:1 with the panel,
