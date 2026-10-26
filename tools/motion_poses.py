@@ -313,8 +313,8 @@ def pose_high_kick(arm):
 def pose_arms_crossed(arm):
     """Arms crossed over the chest: upper arms at the sides, forearms folded across,
     left over right, hands at the opposite upper arms."""
-    arm_pose(arm, 'L', (0.25, -0.35, -1.0), 115, (-1.0, -0.35, 0.25), pronate=10)
-    arm_pose(arm, 'R', (0.25, -0.30, -1.0), 112, (-1.0, -0.20, 0.30), pronate=10)
+    arm_pose(arm, 'L', (0.25, -0.55, -1.0), 110, (-1.0, -0.35, 0.25), pronate=10)
+    arm_pose(arm, 'R', (0.25, -0.50, -1.0), 106, (-1.0, -0.20, 0.30), pronate=10)
 
 
 def pose_hands_behind_head(arm):
@@ -332,7 +332,7 @@ def pose_hands_behind_back(arm):
 
 def pose_hand_to_shoulder(arm):
     """Left hand on the right shoulder (arm across the chest), right arm hanging."""
-    arm_pose(arm, 'L', (-0.05, -0.85, -0.35), 135, (-1.0, 0.2, 0.6))
+    arm_pose(arm, 'L', (-0.05, -0.90, -0.30), 122, (-1.0, 0.2, 0.6))
     arm_pose(arm, 'R', (0.15, 0.05, -1.0), 10)
     head(arm, yaw=-10, pitch=8)
 
@@ -340,7 +340,7 @@ def pose_hand_to_shoulder(arm):
 def pose_hands_on_hips(arm):
     """Hands on the hips, elbows out (akimbo)."""
     for t in 'LR':
-        arm_pose(arm, t, (0.75, 0.15, -0.65), 92, (-0.8, 0.0, -0.6), pronate=20, wrist=-10)
+        arm_pose(arm, t, (0.85, 0.15, -0.60), 80, (-0.8, 0.0, -0.6), pronate=20, wrist=-10)
 
 
 def pose_reach_up_back(arm):
@@ -354,8 +354,8 @@ def pose_reach_up_back(arm):
 
 def pose_hug_self(arm):
     """Hugging herself: arms wrapped around the ribs, hands on the opposite flanks."""
-    arm_pose(arm, 'L', (-0.10, -0.80, -0.55), 125, (-1.0, 0.45, 0.05))
-    arm_pose(arm, 'R', (-0.10, -0.85, -0.45), 120, (-1.0, 0.35, 0.15))
+    arm_pose(arm, 'L', (-0.05, -0.90, -0.45), 112, (-1.0, 0.45, 0.05))
+    arm_pose(arm, 'R', (-0.05, -0.95, -0.35), 108, (-1.0, 0.35, 0.15))
     spine(arm, pitch=8)
     head(arm, pitch=10, roll=8)
 
@@ -411,7 +411,7 @@ def pose_dance_sway(arm):
     spine(arm, roll=10, lower_roll=-8)
     foot(arm, 'R', (0.0, -0.06, 0.03), pitch=30)
     arm_pose(arm, 'L', (0.25, -0.05, 1.0), 25, (-1, 0, 0), shrug=6)
-    arm_pose(arm, 'R', (0.75, -0.15, -0.65), 92, (-0.8, 0.0, -0.6), pronate=20)
+    arm_pose(arm, 'R', (0.85, -0.15, -0.60), 80, (-0.8, 0.0, -0.6), pronate=20)
     head(arm, roll=-10, yaw=10)
 
 
@@ -422,7 +422,7 @@ def pose_dance_point(arm):
     foot(arm, 'L', (-0.02, -0.10, 0.04), pitch=35)
     spine(arm, yaw=-12, roll=-4)
     arm_pose(arm, 'R', (0.25, -1.0, 0.55), 10, (0, 0, 1), pronate=30)
-    arm_pose(arm, 'L', (0.25, -0.40, -1.0), 130, (-1.0, -0.4, 0.4))
+    arm_pose(arm, 'L', (0.25, -0.60, -1.0), 118, (-1.0, -0.4, 0.4))
     fingers(arm, 'R', 0.7)
     head(arm, yaw=-15, roll=6)
 
@@ -625,10 +625,20 @@ def build_clip(arm, name):
             snap[pb.name] = (pb.location.copy(), q, pb.scale.copy())
         snaps.append((f, snap))
     rig_pose.reset_pose(arm)
+    # bones whose transform channels drivers write (follow / append helpers, skirt drape) are
+    # not keyed (drivers on custom properties or constraints do not count)
+    driven = set()
+    if arm.animation_data:
+        for fc in arm.animation_data.drivers:
+            dp = fc.data_path
+            if dp.startswith('pose.bones["') and dp.rsplit('.', 1)[-1] in (
+                    'location', 'rotation_quaternion', 'rotation_euler', 'rotation_axis_angle', 'scale'):
+                driven.add(dp.split('"')[1])
     moved = set()
     for _, snap in snaps:
         for n, (loc, q, sc) in snap.items():
-            if loc.length > 1e-7 or abs(abs(q.w) - 1.0) > 1e-7 or (sc - Vector((1, 1, 1))).length > 1e-7:
+            if n not in driven and (loc.length > 1e-7 or abs(abs(q.w) - 1.0) > 1e-7 or
+                                    (sc - Vector((1, 1, 1))).length > 1e-7):
                 moved.add(n)
     act = bpy.data.actions.get(f'clip_{name}')
     if act:
@@ -636,6 +646,8 @@ def build_clip(arm, name):
     if arm.animation_data is None:
         arm.animation_data_create()
     arm.animation_data.action = bpy.data.actions.new(f'clip_{name}')
+    arm.animation_data.action['levi_bones'] = sorted(moved)     # keyed bones (motion_vmd.py)
+    arm.animation_data.action['levi_arm'] = arm.name
     prev = {}
     sc = bpy.context.scene
     for f, snap in snaps:
@@ -649,9 +661,13 @@ def build_clip(arm, name):
             pb.location, pb.rotation_quaternion, pb.scale = loc, q, s
             pb.keyframe_insert('location', frame=f)
             pb.keyframe_insert('rotation_quaternion', frame=f)
+            pb.keyframe_insert('scale', frame=f)
     sc.render.fps = FPS
     sc.frame_start, sc.frame_end = 0, frames
     return frames
+
+
+_BUILT = set()
 
 
 def apply_clip_frame(arm, name, frame):
@@ -660,9 +676,10 @@ def apply_clip_frame(arm, name, frame):
     if act is None or act.name != f'clip_{name}':
         rig_pose.reset_pose(arm)
         built = bpy.data.actions.get(f'clip_{name}')
-        if built is None or built.get('levi_arm') != arm.name:
+        # rebuilt once per session: an action saved in a .blend may predate CLIPS or the rig
+        if built is None or (arm.name, name) not in _BUILT:
             build_clip(arm, name)
-            bpy.data.actions[f'clip_{name}']['levi_arm'] = arm.name
+            _BUILT.add((arm.name, name))
         else:
             arm.animation_data_create()
             arm.animation_data.action = built
