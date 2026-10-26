@@ -594,6 +594,7 @@ HAIR_ROOT = '髪追従'
 HAIR_SECTORS = 10     # back-hair chains around the skull
 HAIR_RING = True      # weight the back hair by angle between neighbouring chains (like the skirt)
 HAIR_LOCK_CHAINS = True   # long back-hair locks get their own chains (_hair_locks)
+HAIR_GRAVITY = 0.5    # Blender only: share of the torso's sideways bend the hanging hair turns back
 HAIR_FOLLOW = 0.15    # share of the head's rotation the back-hair chains take (the scalp takes all of it)
 # back hair is weighted to 頭 fully above the eyes, fading to the chains by just under
 # the choker: below that it hangs at the shoulders, which a head turn must not sweep it
@@ -808,6 +809,8 @@ def _secondary_bones(parts, core):
         if not any(b.name == HAIR_ROOT for b in bones):
             h = byname['頭'].head
             meta = {'follow': ('頭', HAIR_FOLLOW)} if HAIR_FOLLOW > 1e-4 else {}
+            if HAIR_GRAVITY > 1e-4:
+                meta['gravity'] = [(n, HAIR_GRAVITY) for n in ('上半身', '上半身2') if n in byname]
             bones.append(Bone(HAIR_ROOT, HAIR_ROOT, 'HairRoot', h, h + Vector((0, 0, 0.03)), '首',
                               deform=False, group='HairFollow', meta=meta))
         return HAIR_ROOT
@@ -2387,6 +2390,19 @@ def _create_armature(bones):
                 c.target_space, c.owner_space = 'LOCAL_OWNER_ORIENT', 'LOCAL'
                 c.mix_mode = 'BEFORE'
                 c.influence = infl
+        for src, k in b.meta.get('gravity', ()):
+            # Blender only (MMD physics hangs the hair itself): turn back k of the torso
+            # bone's sideways bend (about the forward axis), so the long hair keeps hanging
+            # when she leans to a side. A forward bend and her twist still carry it along:
+            # bent forward, the hair rests on her back (hanging free it went into it)
+            c = pb.constraints.new('COPY_ROTATION')
+            c.name = f'Gravity {src}'
+            c.target, c.subtarget = arm, src
+            c.target_space, c.owner_space = 'LOCAL_OWNER_ORIENT', 'LOCAL'
+            c.mix_mode = 'BEFORE'
+            c.use_x = c.use_y = False
+            c.invert_z = True
+            c.influence = k
         if b.meta.get('helper'):
             pb['mmd_helper'] = True     # driven by 付与 only: hidden, not for the animator
         if 'follow_q' in b.meta:
