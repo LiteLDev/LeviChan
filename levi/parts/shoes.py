@@ -781,6 +781,9 @@ def build(col):
     _strap_normals(rib.data)
     leaf = common.new_object(col, 'shoes_leaves', leaf_bm, [common.toon_material('leaf')])
     common.shade_smooth(leaf, 60.0)
+    # for the rig: where the leaves spring from (the knot on the ankle wrap, both feet,
+    # world m): each blade rides the wrap there and the leg skin further up (rig.SKIN_ORNAMENTS)
+    leaf['levi_attach_points'] = [tuple(root), (-root.x, root.y, root.z)]
     objs = [shell, rib, leaf]
     common.add_outline(shell)
     common.add_outline(rib, width=0.0010)

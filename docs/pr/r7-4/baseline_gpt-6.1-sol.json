@@ -1,0 +1,275 @@
+{
+  "summary": "The three most important visible problems are: (1) raised or crossed legs penetrating the skirt around the hips and upper thighs, clearest in high_kick, cross_legged, kneel_one and deep_lunge; (2) knees and thighs breaking through the skirt or petticoat in seated and reclined configurations, especially seiza, sit_chair, lie_back_elbows and sit_stand@32–54; and (3) bulky sleeves overlapping without convincing compression across the chest in arms_crossed and hug_self, a smaller issue. Disabled physics explains the floating, bell-shaped skirts and limited cloth compression, but does not remove the visible body–garment intersections. No clear mesh explosions, reversed joints or gross limb stretching are apparent. Clip judgments cover the supplied samples only; pops in unsampled frames cannot be assessed.",
+  "items": [
+    {
+      "name": "sit_chair",
+      "kind": "pose",
+      "rating": "major",
+      "location": "Lap and upper thighs, clearest in the front view",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The upper thighs visibly emerge through the front skirt surface instead of being covered by fabric over the lap; the unsupported skirt silhouette is expected without physics, but the intersection is conspicuous."
+    },
+    {
+      "name": "seiza",
+      "kind": "pose",
+      "rating": "major",
+      "location": "Knees and folded legs inside the front and side hem",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The knees and folded legs visibly break through the skirt and pink petticoat, beyond the expected lack of cloth settling in this physics-disabled pose."
+    },
+    {
+      "name": "kneel_one",
+      "kind": "pose",
+      "rating": "major",
+      "location": "Raised thigh at the front of the skirt",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The raised thigh cuts through the skirt well above its hem while the surrounding fabric retains its standing shape, producing an obvious body–cloth intersection."
+    },
+    {
+      "name": "cross_legged",
+      "kind": "pose",
+      "rating": "major",
+      "location": "Lap, crossed legs and front waist-to-skirt region",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The crossed legs and shoes occupy the front skirt volume and emerge through its surface near the lap rather than being accommodated by the garment."
+    },
+    {
+      "name": "deep_lunge",
+      "kind": "pose",
+      "rating": "major",
+      "location": "Forward upper thigh and front skirt panel",
+      "parts": ["skirt"],
+      "frames": "",
+      "issue": "The forward thigh passes through the front skirt panel above the hem, with no corresponding opening or fabric displacement around it."
+    },
+    {
+      "name": "run_l",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "run_r",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "jump_tuck",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "high_kick",
+      "kind": "pose",
+      "rating": "major",
+      "location": "Raised leg at the front hip and skirt",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The kicking leg passes through the front skirt around hip height, leaving the shoe protruding from the garment in front view and the exposed thigh cutting across it in the three-quarter view."
+    },
+    {
+      "name": "arms_crossed",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Crossed sleeves in front of the chest",
+      "parts": ["sleeves"],
+      "frames": "",
+      "issue": "The inflated sleeves overlap into a nearly continuous mass at the forearm crossing with little visible compression, a small cloth-volume artifact consistent with disabled drape physics."
+    },
+    {
+      "name": "hands_behind_head",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hands_behind_back",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hand_to_shoulder",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hands_on_hips",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "reach_up_back",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hug_self",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Sleeve crossing over the center of the chest",
+      "parts": ["sleeves"],
+      "frames": "",
+      "issue": "The two sleeves crowd together with an abrupt central overlap instead of flattening against each other and the chest, although no major body collapse is visible."
+    },
+    {
+      "name": "twist_bend",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "lie_back_elbows",
+      "kind": "pose",
+      "rating": "major",
+      "location": "Upper thighs and front skirt below the waist",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The upper thighs visibly pass through the front skirt surface while the skirt remains a bell around the reclined pelvis; absent physics explains the poor drape but not the exposed intersections."
+    },
+    {
+      "name": "look_over_shoulder",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "curtsy",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "dance_sway",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "dance_point",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "dance_heart",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "dance_clap",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "walk",
+      "kind": "clip",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "0, 5, 12, 21, 24, 36, 48, 60",
+      "issue": ""
+    },
+    {
+      "name": "run",
+      "kind": "clip",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "0, 8, 9, 16, 20, 24, 32, 40",
+      "issue": ""
+    },
+    {
+      "name": "turn",
+      "kind": "clip",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "0, 9, 18, 27, 36, 38, 41, 45",
+      "issue": ""
+    },
+    {
+      "name": "sit_stand",
+      "kind": "clip",
+      "rating": "major",
+      "location": "Lap and upper thighs during the seated phase",
+      "parts": ["skirt", "petticoat"],
+      "frames": "32, 36, 54",
+      "issue": "The thighs visibly penetrate the front skirt during the seated hold, especially in front view, while the skirt retains an unsupported flare expected from disabled physics."
+    },
+    {
+      "name": "spin",
+      "kind": "clip",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "0, 9, 18, 20, 26, 27, 36, 45",
+      "issue": ""
+    },
+    {
+      "name": "idol_dance",
+      "kind": "clip",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "0, 18, 36, 54, 72, 74, 81, 90",
+      "issue": ""
+    }
+  ]
+}

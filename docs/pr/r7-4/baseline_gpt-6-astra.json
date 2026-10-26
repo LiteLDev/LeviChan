@@ -1,0 +1,275 @@
+{
+  "summary": "The three most important visible problems are: (1) skirt/body interpenetration around the hips and upper thighs in cross_legged, high_kick and lie_back_elbows, where legs appear to emerge through the front of the garment; (2) sleeve interpenetration at the center of the chest in hug_self, where the two sleeves merge into a single pinched mass; and (3) an abrupt change in the lifted knee and lower-leg position between run frames 8 and 9, clearest in the 3/4 view. The lack of cloth and hair physics explains much of the stiff skirt silhouette and missing drape in seated or raised-leg poses, but does not remove the visible garment/body intersections. Most other poses preserve readable anatomy without obvious stretching or joint collapse. Temporal judgments are limited to the supplied samples; no item shows clear evidence of an explosion, torn mesh or reversed joint warranting a broken rating.",
+  "items": [
+    {
+      "name": "sit_chair",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Upper thighs and front skirt panel, especially in the 3/4 view",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The skirt remains a stiff bell around the seated hips and meets the exposed thighs with an abrupt intersection-like boundary; missing seated drape is partly expected without physics."
+    },
+    {
+      "name": "seiza",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Folded knees and front hem",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The front skirt and petticoat surround the folded knees as a rigid open shell instead of settling over them, with small apparent intersections at the knee edges that are partly attributable to disabled physics."
+    },
+    {
+      "name": "kneel_one",
+      "kind": "pose",
+      "rating": "major",
+      "location": "Raised thigh where it meets the front of the skirt",
+      "parts": ["skirt", "body"],
+      "frames": "",
+      "issue": "The raised thigh visibly emerges through the skirt panel above the hem rather than lifting the fabric, a clear body/cloth intersection despite the expected lack of simulated drape."
+    },
+    {
+      "name": "cross_legged",
+      "kind": "pose",
+      "rating": "major",
+      "location": "Both thighs, crossed shins and central skirt panel",
+      "parts": ["skirt", "petticoat", "body"],
+      "frames": "",
+      "issue": "The crossed legs and shoes sit through the front of the largely unchanged skirt, creating conspicuous garment/body intersections rather than cloth wrapping around the folded legs."
+    },
+    {
+      "name": "deep_lunge",
+      "kind": "pose",
+      "rating": "major",
+      "location": "Forward upper thigh and front skirt",
+      "parts": ["skirt", "body"],
+      "frames": "",
+      "issue": "The forward thigh cuts out through the skirt surface well above its hem while the skirt retains its bell shape, making the missing cloth clearance clearly visible."
+    },
+    {
+      "name": "run_l",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Lifted thigh and adjacent skirt underside",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The lifted thigh crowds the stiff skirt underside with a small apparent overlap near the hip, although the leg itself retains a plausible silhouette and the missing cloth response is expected without physics."
+    },
+    {
+      "name": "run_r",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Lifted thigh and front-side hem",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The lifted thigh meets the skirt and petticoat with a tight, slightly intersecting boundary instead of a natural displaced fold, consistent with limited cloth response in this preview."
+    },
+    {
+      "name": "jump_tuck",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Tucked knees and skirt underside",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The skirt forms a broad rigid shelf over the tucked legs and shows cramped contact around the knees, but much of this unnatural drape is expected with physics disabled."
+    },
+    {
+      "name": "high_kick",
+      "kind": "pose",
+      "rating": "major",
+      "location": "Raised hip and thigh at the front of the skirt",
+      "parts": ["skirt", "body"],
+      "frames": "",
+      "issue": "The kicking leg passes directly through the front skirt panel at hip height while the garment remains hanging below it, producing an unmistakable cloth/body intersection."
+    },
+    {
+      "name": "arms_crossed",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Overlapping sleeves across the lower chest",
+      "parts": ["sleeves"],
+      "frames": "",
+      "issue": "The inflated sleeves press together with little compression or a distinct overlap boundary, slightly merging the forearm silhouettes."
+    },
+    {
+      "name": "hands_behind_head",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hands_behind_back",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hand_to_shoulder",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hands_on_hips",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "reach_up_back",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hug_self",
+      "kind": "pose",
+      "rating": "major",
+      "location": "Crossed sleeves at the center of the chest",
+      "parts": ["sleeves"],
+      "frames": "",
+      "issue": "The two sleeves visibly merge into a single pointed, pinched mass across the chest rather than retaining separate overlapping cloth volumes."
+    },
+    {
+      "name": "twist_bend",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Waist and bodice lacing",
+      "parts": ["bodice"],
+      "frames": "",
+      "issue": "The bent and twisted waist compresses the bodice lacing into a crowded angular patch, creating a small visible pinch without clear torso collapse."
+    },
+    {
+      "name": "lie_back_elbows",
+      "kind": "pose",
+      "rating": "major",
+      "location": "Both upper thighs and front skirt panel",
+      "parts": ["skirt", "body"],
+      "frames": "",
+      "issue": "Both extended thighs emerge through the front of the skirt while it keeps a downward bell silhouette, producing obvious garment/body intersections that missing physics only partly explains."
+    },
+    {
+      "name": "look_over_shoulder",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "curtsy",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "dance_sway",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "dance_point",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "dance_heart",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Hands against the crown and fringe",
+      "parts": ["hair_front"],
+      "frames": "",
+      "issue": "The fingers crowd into the crown and fringe with a small apparent hair intersection where the hands meet above the forehead."
+    },
+    {
+      "name": "dance_clap",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "walk",
+      "kind": "clip",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "0, 5, 12, 21, 24, 36, 48, 60",
+      "issue": ""
+    },
+    {
+      "name": "run",
+      "kind": "clip",
+      "rating": "major",
+      "location": "Lifted knee, shin and shoe, clearest in the 3/4 view",
+      "parts": ["body", "rig"],
+      "frames": "8–9",
+      "issue": "The lifted leg changes from a strongly raised bent-knee position at frame 8 to a much straighter lowered position at frame 9, a conspicuous one-frame displacement suggesting a motion pop."
+    },
+    {
+      "name": "turn",
+      "kind": "clip",
+      "rating": "minor",
+      "location": "Overlapping ankles and shoes near the end of the turn",
+      "parts": ["body", "shoes"],
+      "frames": "27, 36, 38, 41, 45",
+      "issue": "The ankles and shoes crowd into a tightly overlapping silhouette during the pivot, with slight apparent interpenetration in the 3/4 view but no clear joint reversal."
+    },
+    {
+      "name": "sit_stand",
+      "kind": "clip",
+      "rating": "minor",
+      "location": "Front skirt, upper thighs and petticoat during sitting and rising",
+      "parts": ["skirt", "petticoat"],
+      "frames": "18, 32, 36, 54, 65, 72",
+      "issue": "The skirt remains a stiff shell around the bent thighs and develops abrupt thigh/cloth boundaries as the character sits and rises, largely consistent with disabled cloth physics rather than obvious body deformation."
+    },
+    {
+      "name": "spin",
+      "kind": "clip",
+      "rating": "minor",
+      "location": "Crossed ankles and shoes",
+      "parts": ["body", "shoes"],
+      "frames": "18, 20, 26, 27",
+      "issue": "The crossed feet become tightly superimposed with small apparent ankle/shoe intersections, while the flared skirt remains coherent for a preview without physics."
+    },
+    {
+      "name": "idol_dance",
+      "kind": "clip",
+      "rating": "minor",
+      "location": "Lifted thigh and skirt underside",
+      "parts": ["skirt", "petticoat"],
+      "frames": "72, 74",
+      "issue": "The raised-leg beat produces a stiff flared skirt with slight apparent thigh/underskirt intersection, but the adjacent frames remain visually consistent and the limited drape is expected without physics."
+    }
+  ]
+}
