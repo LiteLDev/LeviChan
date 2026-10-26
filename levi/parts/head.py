@@ -111,17 +111,17 @@ TABLE = [
     (144.0, 30.3, 238.9, 281.8, 292.6),
     (146.0, 28.8, 239.8, 278.8, 289.4),
     (148.0, 26.5, 240.7, 276.0, 284.5),
-    (150.0, 23.8, 241.6, 273.0, 279.5),
-    (152.0, 20.3, 242.5, 269.9, 275.2),
-    (153.5, 17.6, 243.1, 267.3, 273.4),
-    (155.5, 14.9, 244.6, 263.2, 270.0),
-    (157.0, 11.8, 245.8, 259.4, 266.0),
-    (158.3, 9.4, 246.6, 255.4, 261.5),
-    (159.5, 6.8, 247.5, 252.3, 257.0),
+    (150.0, 23.8, 242.2, 273.0, 279.5),
+    (152.0, 20.3, 243.4, 269.9, 275.2),
+    (153.5, 17.6, 244.2, 267.3, 273.4),
+    (155.5, 14.9, 245.6, 263.2, 270.0),
+    (157.0, 11.8, 246.7, 259.4, 266.0),
+    (158.3, 9.4, 247.4, 255.6, 261.5),
+    (159.5, 6.8, 248.1, 252.6, 257.0),
     # chin tip: a little fuller just above the end ring, so it rounds off
     # instead of running into a cone point (front V kept)
-    (160.5, 4.4, 248.3, 250.6, 253.0),
-    (161.3, 1.8, 249.2, 250.0, 250.9),
+    (160.5, 4.4, 248.8, 250.8, 253.0),
+    (161.3, 1.8, 249.6, 250.2, 250.9),
 ]
 # Nose: forward protrusion of the profile at the midline [px] per row. The
 # bridge rises out of the forehead from row ~106, so forehead, bridge and tip
@@ -135,7 +135,7 @@ NOSE = [(106.0, 0.0), (108.5, 0.4), (111.0, 1.1), (113.5, 2.0), (116.0, 3.1),
 # Below the nose it recedes steadily (not a vertical plate that bends back
 # only at the jaw), meeting the profile again at the chin.
 BASE_FRONT = ((112.0, 240.5), (118.0, 240.3), (124.0, 240.1), (130.0, 240.3), (136.0, 241.1),
-              (142.0, 242.5), (148.0, 244.2), (153.0, 245.5), (157.0, 246.0), (160.5, 247.4))
+              (142.0, 242.5), (148.0, 244.2), (153.0, 245.9), (157.0, 246.8), (160.5, 248.2))
 MUZZLE_SIGMA = 11.0              # lateral falloff of the muzzle [px]
 # lateral falloff [px] by row: a broad bridge narrowing to a small tip
 NOSE_SIGMA = ((106.0, 6.5), (116.0, 5.4), (122.0, 5.0), (126.0, 4.9), (135.5, 4.6))
@@ -218,7 +218,7 @@ def nose_sigma(row):
     return float(np.interp(row, rows, vals))
 
 
-LOWER_CHEEK = (2.5, 0.62, 145.0, 12.0)   # amplitude px, centre as share of hw, row, row sigma
+LOWER_CHEEK = (3.0, 0.62, 145.0, 15.0)   # amplitude px, centre as share of hw, row, row sigma
 
 
 def lower_cheek(X, row, hw):
@@ -435,8 +435,8 @@ def relief(X, R):
     # lips and chin: restrained upper lip, lower lip and fold (kept faint and
     # narrow: wide bands read as shelves across the lower face)
     lips = (0.15 * np.exp(-((R - 143.6) / 1.8) ** 2) * np.exp(-(X / 5.0) ** 2)
-            + 0.15 * np.exp(-((R - 148.3) / 1.4) ** 2) * np.exp(-(X / 4.5) ** 2)
-            - 0.12 * np.exp(-((R - 151.0) / 2.0) ** 2) * np.exp(-(X / 6.0) ** 2))
+            + 0.08 * np.exp(-((R - 148.3) / 1.4) ** 2) * np.exp(-(X / 4.5) ** 2)
+            - 0.05 * np.exp(-((R - 151.0) / 2.0) ** 2) * np.exp(-(X / 6.0) ** 2))
     return socket + lid + lower + cheek + lips
 
 
@@ -508,12 +508,12 @@ def face_texture_pixels():
     y_lo = lower_lid(X)
     inner_d = EYE_IN - X
     # inside the opening only the lid's inner rim shows (the eyeball is its
-    # own object): the lash colour under the upper lid, a darker skin under
+    # own object): the lash colour under the upper lid, plain skin under
     # the lower one
     opening = _soft(_eye_opening_d(X, R) - 0.6, 0.6)
     upper_half = R < (lash_bottom(X) + y_lo) / 2
     paint(opening * upper_half, hexrgb(LASH), unshaded=True)
-    paint(opening * ~upper_half, hexrgb('#D4A097'))
+    paint(opening * ~upper_half, hexrgb(spec.PALETTE['skin']['base']))
 
     # upper lash mass: ~2.5 px, thicker toward the outer corner, with a flick
     thick = lash_thick(X)
@@ -1334,7 +1334,7 @@ def ear_mesh(side):
 
 NECK_SHADE_ROW = 166.0    # the neck's shading normals turn under the jaw above this row
 NECK_SHADE_BAND = 8.0     # ... over this many rows either side (no hard edge)
-NECK_TILT = Vector((0.0, 0.6, -0.8)) * 0.25   # added to the real normal: down and back
+NECK_TILT = Vector((0.0, 0.6, -0.8)) * 0.15   # added to the real normal: down and back
 
 
 def set_neck_normals(me):
@@ -1359,8 +1359,8 @@ def neck_mesh():
     # (it meets the underside at ~150 deg, not square), so the jaw rolls into
     # the neck instead of sitting on a cylinder
     rows = [(138.0, 288.5, 16.0, 16.0), (146.0, 285.0, 15.5, 18.0), (151.0, 283.6, 15.3, 18.0),
-            (155.0, 284.2, 15.1, 16.0), (158.0, 285.4, 14.95, 14.2), (161.0, 286.4, 14.85, 13.1),
-            (165.0, 287.1, 14.8, 12.65), (169.0, 288.0, 14.8, 12.6), (174.0, 289.5, 14.8, 12.6)]
+            (155.0, 284.0, 15.1, 16.8), (158.0, 284.6, 14.95, 16.0), (161.0, 285.8, 14.85, 14.3),
+            (165.0, 286.9, 14.8, 13.1), (169.0, 287.9, 14.8, 12.7), (174.0, 289.5, 14.8, 12.6)]
     rings = [common.ellipse_ring((HEAD_DX, yc(cy), zr(r)), w / PPM, d / PPM, 28) for r, cy, w, d in rows]
     return common.loft(rings, closed=True, cap_start=True, cap_end=False)
 
