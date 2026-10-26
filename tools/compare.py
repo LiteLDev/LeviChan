@@ -51,9 +51,10 @@ def load(path):
     im = bpy.data.images.load(path)
     im.colorspace_settings.name = 'sRGB'
     w, h = im.size
-    a = np.array(im.pixels[:], dtype=np.float32).reshape(h, w, 4)[::-1]
+    a = np.empty(w * h * 4, dtype=np.float32)
+    im.pixels.foreach_get(a)   # no per-pixel Python list (memory and time)
     bpy.data.images.remove(im)
-    return a
+    return a.reshape(h, w, 4)[::-1]
 
 
 def save(path, rgb):
@@ -61,7 +62,7 @@ def save(path, rgb):
     rgba = np.ones((h, w, 4), dtype=np.float32)
     rgba[:, :, :3] = np.clip(rgb, 0, 1)
     im = bpy.data.images.new(os.path.basename(path), w, h, alpha=False)
-    im.pixels[:] = rgba[::-1].ravel()
+    im.pixels.foreach_set(np.ascontiguousarray(rgba[::-1]).ravel())
     im.filepath_raw = path
     im.file_format = 'PNG'
     im.save()

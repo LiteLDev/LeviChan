@@ -137,7 +137,18 @@ def stroke_mask(rgb):
 
 def components(allowed, diagonal=False):
     """4-connected (8 with diagonal=True) component ids (int32, -1 outside
-    `allowed`), pure numpy: min-label propagation with pointer jumping."""
+    `allowed`), pure numpy: min-label propagation with pointer jumping.
+    Works on the bounding box of `allowed` only (a region is a small part of
+    the panel), so ids are unique but not pixel indices of the full image."""
+    rows = np.flatnonzero(allowed.any(1))
+    if not rows.size:
+        return np.full(allowed.shape, -1, dtype=np.int32)
+    cols = np.flatnonzero(allowed.any(0))
+    y0, y1, x0, x1 = rows[0], rows[-1] + 1, cols[0], cols[-1] + 1
+    if (y1 - y0, x1 - x0) != allowed.shape:
+        out = np.full(allowed.shape, -1, dtype=np.int32)
+        out[y0:y1, x0:x1] = components(allowed[y0:y1, x0:x1], diagonal)
+        return out
     h, w = allowed.shape
     big = np.int32(h * w)
     lab = np.where(allowed, np.arange(h * w, dtype=np.int32).reshape(h, w), big)

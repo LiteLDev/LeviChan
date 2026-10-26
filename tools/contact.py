@@ -93,11 +93,56 @@ def save(path, a):
     rgba[..., :a.shape[2]] = np.clip(a, 0, 1)
     img = bpy.data.images.new(os.path.basename(path), w, h, alpha=False)
     img.pixels.foreach_set(np.ascontiguousarray(rgba[::-1]).ravel())
-    img.filepath_raw = path
+    img.filepath_raw = os.path.abspath(path)   # relative paths: from the cwd, not the .blend
     img.file_format = 'PNG'
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     img.save()
     bpy.data.images.remove(img)
+
+
+def save_jpeg(path, a, quality=85):
+    """float RGB(A) (H, W, 3|4), row 0 = top -> JPEG (alpha over white).
+    For sheets that go into docs/pr/: a fraction of the PNG's size."""
+    import bpy
+    rgb = over_white(a) if a.shape[2] == 4 else a
+    h, w = rgb.shape[:2]
+    rgba = np.ones((h, w, 4), dtype=np.float32)
+    rgba[..., :3] = np.clip(rgb, 0, 1)
+    img = bpy.data.images.new(os.path.basename(path), w, h, alpha=False)
+    img.pixels.foreach_set(np.ascontiguousarray(rgba[::-1]).ravel())
+    img.filepath_raw = os.path.abspath(path)   # relative paths: from the cwd, not the .blend
+    img.file_format = 'JPEG'
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    img.save(quality=int(quality))
+    bpy.data.images.remove(img)
+
+
+def _area_resize(a, n_out, axis):
+    """Area-average resample along `axis` to n_out samples: output i is the
+    mean of the input over [i, i + 1) * n_in / n_out (pixels are boxes), via
+    the linearly interpolated cumulative sum: O(pixels), no big matrices.
+    One channel at a time, so peak memory stays a few float64 planes."""
+    if a.ndim == 3:
+        return np.stack([_area_resize(a[..., c], n_out, axis) for c in range(a.shape[2])], -1)
+    a = np.moveaxis(a.astype(np.float64), axis, 0)
+    n_in = a.shape[0]
+    cs = np.concatenate([np.zeros((1,) + a.shape[1:]), np.cumsum(a, 0)])
+    edges = np.arange(n_out + 1) * (n_in / n_out)
+    i0 = np.minimum(np.floor(edges).astype(int), n_in - 1)
+    f = (edges - i0).reshape((-1,) + (1,) * (a.ndim - 1))
+    at = cs[i0] + f * (cs[i0 + 1] - cs[i0])
+    out = (at[1:] - at[:-1]) / (n_in / n_out)
+    return np.moveaxis(out, 0, axis).astype(np.float32)
+
+
+def resize_width(a, width):
+    """Area-average downscale to at most `width` px wide (aspect kept);
+    images already narrower are returned unchanged."""
+    h, w = a.shape[:2]
+    if w <= width:
+        return a
+    nh = max(1, int(round(h * width / w)))
+    return _area_resize(_area_resize(a, width, 1), nh, 0)
 
 
 def over_white(a):
