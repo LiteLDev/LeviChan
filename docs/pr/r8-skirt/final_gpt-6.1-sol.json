@@ -1,0 +1,275 @@
+{
+  "summary": "The three most important visible problems are: (1) cross_legged has a conspicuous angular collapse of the skirt across the lap, with cloth strips appearing to intersect the crossed thighs; (2) the skirt and petticoat retain a broad, rigid shell around the hips in sit_chair, jump_tuck, and lie_back_elbows, an expected limitation of these physics-disabled previews but still visible; (3) high_kick has an abrupt cloth-to-thigh junction around the raised leg that reads as a small intersection. The body generally holds its proportions and joint volume well at this sheet scale; I see no clearly broken limbs, mesh explosions, or unequivocal severe shoulder or forearm twists. Most other overlaps are consistent with ordinary occlusion. Clip ratings cover only the supplied samples: small pops between unshown frames cannot be assessed, and a change between widely separated samples is not sufficient evidence of a pop.",
+  "items": [
+    {
+      "name": "sit_chair",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Lap and skirt around the seated hips, especially in the 3/4 view",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The skirt and petticoat form a stiff canopy over the lap with a projecting rear hem, consistent with absent cloth physics, while the visible thighs and knees retain reasonable volume."
+    },
+    {
+      "name": "seiza",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "kneel_one",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "cross_legged",
+      "kind": "pose",
+      "rating": "major",
+      "location": "Center of the lap and inner thighs, in both views",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The skirt collapses into conspicuous angular bands across the crossed legs, with green outer cloth appearing to cut into the thigh area and the pink underskirt remaining a rigid bowl beneath it."
+    },
+    {
+      "name": "deep_lunge",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Skirt over the forward thigh and between the bent legs",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The lifted front skirt and underskirt preserve a stiff arch across the bent legs instead of settling around them, although no deep body penetration is clearly resolved at this scale."
+    },
+    {
+      "name": "run_l",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "run_r",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "jump_tuck",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Skirt and petticoat surrounding the tucked thighs",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The skirt and petticoat lift together as a broad, nearly planar shell around the tucked legs, an evident physics-disabled cloth limitation without a clearly visible major body intersection."
+    },
+    {
+      "name": "high_kick",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Raised thigh where it meets the lifted skirt, especially in the front view",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The raised thigh meets an abruptly folded skirt edge that appears to cut slightly into the leg, while the petticoat stays broadly propped open around the kick."
+    },
+    {
+      "name": "arms_crossed",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hands_behind_head",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hands_behind_back",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hand_to_shoulder",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hands_on_hips",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "reach_up_back",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hug_self",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Overlapping sleeves across the chest",
+      "parts": ["sleeves"],
+      "frames": "",
+      "issue": "The sleeve volumes merge into a flattened band across the chest with a pinched central overlap, although the underlying arms are too concealed to establish a body deformation problem."
+    },
+    {
+      "name": "twist_bend",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "lie_back_elbows",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Skirt over the extended thighs and around the reclining hips",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The skirt and petticoat remain a raised, bowl-like shell over the extended legs instead of settling onto them, which is conspicuous but consistent with the lack of cloth simulation."
+    },
+    {
+      "name": "look_over_shoulder",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "curtsy",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "dance_sway",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "dance_point",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "dance_heart",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "dance_clap",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "walk",
+      "kind": "clip",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "Reviewed: 0, 12, 24, 36, 41, 48, 60",
+      "issue": ""
+    },
+    {
+      "name": "run",
+      "kind": "clip",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "Reviewed: 0, 8, 16, 20, 24, 32, 40",
+      "issue": ""
+    },
+    {
+      "name": "turn",
+      "kind": "clip",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "Reviewed: 0, 9, 16, 18, 24, 27, 36, 45",
+      "issue": ""
+    },
+    {
+      "name": "sit_stand",
+      "kind": "clip",
+      "rating": "minor",
+      "location": "Lap and rear skirt during the seated hold, in both views",
+      "parts": ["skirt", "petticoat"],
+      "frames": "36, 54, 60",
+      "issue": "The skirt and petticoat hold a stiff, open canopy over the seated thighs with a projecting rear panel, expected without cloth physics, and the supplied samples show no unequivocal deformation pop."
+    },
+    {
+      "name": "spin",
+      "kind": "clip",
+      "rating": "minor",
+      "location": "Flared skirt and petticoat around the hips",
+      "parts": ["skirt", "petticoat"],
+      "frames": "5, 6, 9, 18, 27, 36",
+      "issue": "The flared skirt retains an unusually uniform disk-like shape through the rotation, consistent with driven cloth bones without simulation, but the adjacent samples at 5 and 6 show no obvious pop or tearing."
+    },
+    {
+      "name": "idol_dance",
+      "kind": "clip",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "Reviewed: 0, 18, 36, 40, 54, 72, 74, 90",
+      "issue": ""
+    }
+  ]
+}
