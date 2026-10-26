@@ -355,7 +355,7 @@ JOINT_AUX_CHAIN = {'腕補助': ((0.35, 0.0),), 'ひざ補助': ((0.33, -0.025),
 # per helper: (full, none) lateral distance (m) from the lower bone's axis within which the
 # split applies. The shoulder's upper bone 肩 also weights torso skin, which stays put.
 # per helper: (band scale at the front, at the back, the front direction)
-JOINT_FRONT_BACK = {'ひざ補助': (1.4, 1.0, (0.0, -1.0, 0.0))}
+JOINT_FRONT_BACK = {'ひざ補助': (1.4, 0.85, (0.0, -1.0, 0.0))}
 JOINT_REACH_BY_AUX = {'腕補助': (0.05, 0.08)}
 
 

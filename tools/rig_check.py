@@ -243,19 +243,27 @@ GAZE = ((10, 0), (-10, 0), (0, 8), (0, -8), (10, 8), (-10, -8))   # 両目 yaw (
 MAX_EYE_POKE = 0.0015    # m: an eye may come at most this much further out of the face / lids
 
 
-def _signed_out(bvh, co):
-    """Signed distance of points from the surface in `bvh`, positive on the normal side."""
-    out = np.full(len(co), -1.0)
+def _poke(bvh, co, piv):
+    """How far each point lies outside the surface in `bvh`, seen from the eyeball centre
+    `piv`: the length of the ray piv -> point beyond its first hit (0 when the ray goes
+    through the eye opening)."""
+    out = np.zeros(len(co))
+    pv = Vector(piv)
     for i, p in enumerate(co):
-        loc, nrm, _, d = bvh.find_nearest(Vector(p), 0.05)
-        if loc is not None:
-            out[i] = d if (Vector(p) - loc).dot(nrm) > 0 else -d
+        d = Vector(p) - pv
+        ln = d.length
+        if ln < 1e-6:
+            continue
+        hit = bvh.ray_cast(pv, d / ln, ln)
+        if hit[0] is not None:
+            out[i] = ln - hit[3]
     return out
 
 
 def check_eyes(arm, errors):
-    """Eyes turned by 両目 (目 appends it fully) in GAZE directions stay behind the face: no eye vertex comes out of them more than MAX_EYE_POKE beyond where it
-    sat at rest."""
+    """Eyes turned by 両目 (目 appends it fully) in GAZE directions stay behind the face:
+    seen from its eyeball centre, no eye vertex comes out through the face skin more than
+    MAX_EYE_POKE further than at rest (through the eye opening is fine)."""
     from mathutils.bvhtree import BVHTree
     eyes = [o for o in skinned_meshes(arm) if any(g.name.split('.')[0] == '目' for g in o.vertex_groups)]
     if not eyes or '両目' not in arm.pose.bones:
@@ -275,7 +283,11 @@ def check_eyes(arm, errors):
     if not polys:
         return
     bvh = BVHTree.FromPolygons(verts, polys)    # the head does not move: rest surface is enough
-    rest = {o.name: _signed_out(bvh, _eval_verts(o)) for o in eyes}
+    def pivot(o):
+        g = max(o.vertex_groups, key=lambda g: g.name.split('.')[0] == '目')
+        return arm.matrix_world @ arm.data.bones[g.name].head_local
+    piv = {o.name: pivot(o) for o in eyes}
+    rest = {o.name: _poke(bvh, _eval_verts(o), piv[o.name]) for o in eyes}
     worst = (0.0, '')
     for yaw, pitch in GAZE:
         rig_pose.reset_pose(arm)
@@ -283,15 +295,13 @@ def check_eyes(arm, errors):
         rig_pose.turn(arm, '両目', (1, 0, 0), pitch)
         bpy.context.view_layer.update()
         for o in eyes:
-            now = _signed_out(bvh, _eval_verts(o))
-            # only points near the surface matter (an eyeball's back is far behind it)
-            d = (now - rest[o.name])[now > -0.004]
+            d = _poke(bvh, _eval_verts(o), piv[o.name]) - rest[o.name]
             if len(d) and d.max() > worst[0]:
                 worst = (float(d.max()), f'{o.name} gaze {yaw:+d}/{pitch:+d}')
     rig_pose.reset_pose(arm)
-    print(f'eyes: {len(eyes)} objects on 目, worst poke out of face/lids {worst[0] * 1000:.2f} mm {worst[1]}')
+    print(f'eyes: {len(eyes)} objects on 目, worst poke through the face {worst[0] * 1000:.2f} mm {worst[1]}')
     if worst[0] > MAX_EYE_POKE:
-        errors.append(f'eyes poke out of the face/lids by {worst[0] * 1000:.1f} mm ({worst[1]})')
+        errors.append(f'eyes poke through the face by {worst[0] * 1000:.1f} mm ({worst[1]})')
 
 
 def check_mmd_names(arm, errors):
