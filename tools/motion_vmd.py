@@ -14,11 +14,12 @@ Needs mmd_tools (no --factory-startup) and a PMX exported from the same build
   3. exported as <out>/<clip>.vmd with mmd_tools, the keys cleared, the VMD imported back;
   4. compared per frame: VMD round trip (keyed PMX vs PMX + VMD, must stay within 2 mm),
      and Blender rig vs PMX + VMD (the PMX's evaluation of the same motion: IK solver, 付与);
-     knees must bend forward in every frame.
+     knees must bend forward in every frame; the shoulder helpers (SHOULDER) must not pop in
+     the PMX playback (round 8: MMD's plain 付与 shares of 腕 flipped them past 180 deg).
 MMD physics is not simulated here: the hair, skirt and sleeve chains are keyed bones in the
 VMD and would be driven by rigid bodies in MMD, so their motion in MMD is not checked.
-Writes <out>/vmd_report.md and .json. Exit code 1 if a round trip moves a bone > 2 mm or a
-knee bends backward.
+Writes <out>/vmd_report.md and .json. Exit code 1 if a round trip moves a bone > 2 mm, a
+knee bends backward or a shoulder helper pops.
 """
 import argparse
 import importlib
@@ -41,6 +42,11 @@ START = 1           # Blender frame of VMD frame 0 (as pmx_reimport.WALK_START)
 CHECK = ('頭', '上半身2', '左手首', '右手首', '左ひじ', '右ひじ', '左ひざ', '右ひざ', '左足首', '右足首',
          '左つま先', '右つま先')
 MAX_RT = 0.002      # m: VMD round trip
+# shoulder helpers whose PMX evaluation is checked for pops (round 8: MMD's plain 付与 share of
+# 腕 flipped them when 腕's turn passed 180 deg): the rest elbow carried by each one's skinning
+# matrix, its acceleration frame to frame (m / frame^2) in the PMX + VMD playback
+SHOULDER = ('左肩補助', '左肩補助2', '左肩補助3', '左腕D', '右肩補助', '右肩補助2', '右肩補助3', '右腕D')
+MAX_SHOULDER_POP = 0.012   # m / frame^2: PMX shoulder helpers (or twice the Blender rig's, if more)
 DEFAULT_CLIPS = 'walk,idol_dance,turn'
 
 
@@ -60,6 +66,7 @@ def record(arm, clip):
                                                      arm.pose.bones[n].bone.matrix_local.inverted() @
                                                      mw.inverted()).copy() for n in keyed}
         heads[f] = {j: (mw @ jp[j].head).copy() for j in CHECK if j in jp}
+        heads[f]['shoulder'] = _shoulder_points(jp, mw)
     motion_poses.clear_clip(arm)
     rig_pose.reset_pose(arm)
     return frames, mats, heads
@@ -112,6 +119,30 @@ def key_on_pmx(arm, frames, mats):
     return names, missing
 
 
+def _shoulder_points(pbs, mw):
+    """{name_j: world point}: the rest elbow of its side carried by each SHOULDER bone."""
+    out = {}
+    for j in SHOULDER:
+        el = pbs.get(j[0] + 'ひじ')
+        if j in pbs and el is not None:
+            pb = pbs[j]
+            out[j] = (mw @ pb.matrix @ pb.bone.matrix_local.inverted() @ el.bone.head_local).copy()
+    return out
+
+
+def shoulder_pop(series, frames):
+    """(worst acceleration m/frame^2, where) of the SHOULDER points over the frames."""
+    worst, where = 0.0, ''
+    for f in range(1, frames):
+        for j, p in series[f]['shoulder'].items():
+            a, c = series[f - 1]['shoulder'].get(j), series[f + 1]['shoulder'].get(j)
+            if a is not None and c is not None:
+                acc = (a - 2 * p + c).length
+                if acc > worst:
+                    worst, where = acc, f'{j} @ {f}'
+    return worst, where
+
+
 def sample(arm, frames):
     pbs = _pbs(arm)
     mw = arm.matrix_world
@@ -121,6 +152,7 @@ def sample(arm, frames):
         bpy.context.view_layer.update()
         out[f] = {j: (mw @ pbs[j].head).copy() for j in CHECK if j in pbs}
         out[f]['knee'] = [_knee(pbs, s, mw) for s in '左右']
+        out[f]['shoulder'] = _shoulder_points(pbs, mw)
     return out
 
 
@@ -198,20 +230,28 @@ def main():
         rt, rt_at = compare(keyed, got, frames)
         rg, rg_at = compare(heads, got, frames)
         knee = min(min(got[f]['knee']) for f in got)
+        sp_rig, sp_rig_at = shoulder_pop(heads, frames)
+        sp_pmx, sp_pmx_at = shoulder_pop(got, frames)
         # VMD stores bone names in 15 bytes of Shift-JIS: longer PMX names cannot be keyed
         long_names = sorted(j for j in names if len(j.encode('cp932', 'replace')) > 15)
         row = dict(clip=c, frames=frames + 1, keyed_bones=len(names), unmapped=missing, vmd_name_too_long=long_names,
                    vmd_bytes=os.path.getsize(vmd), roundtrip_mm=round(rt * 1000, 3), roundtrip_at=rt_at,
-                   rig_vs_pmx_mm=round(rg * 1000, 2), rig_vs_pmx_at=rg_at, least_knee_deg=round(knee, 1))
+                   rig_vs_pmx_mm=round(rg * 1000, 2), rig_vs_pmx_at=rg_at, least_knee_deg=round(knee, 1),
+                   shoulder_pop_rig_mm=round(sp_rig * 1000, 1), shoulder_pop_rig_at=sp_rig_at,
+                   shoulder_pop_pmx_mm=round(sp_pmx * 1000, 1), shoulder_pop_pmx_at=sp_pmx_at)
         rows.append(row)
         print(f'VMD {c}: {frames + 1} frames, {len(names)} bones keyed, round trip {rt * 1000:.2f} mm ({rt_at}), '
-              f'Blender rig vs PMX+VMD {rg * 1000:.1f} mm ({rg_at}), least knee bend {knee:.1f} deg'
+              f'Blender rig vs PMX+VMD {rg * 1000:.1f} mm ({rg_at}), least knee bend {knee:.1f} deg, '
+              f'shoulder helper accel rig {sp_rig * 1000:.1f} ({sp_rig_at}) / PMX {sp_pmx * 1000:.1f} mm/f^2 ({sp_pmx_at})'
               + (f', not in the PMX: {missing}' if missing else '')
               + (f', names too long for VMD (> 15 bytes): {long_names}' if long_names else ''))
         if rt > MAX_RT:
             errors.append(f'{c}: VMD round trip moves {rt_at} by {rt * 1000:.1f} mm')
         if knee < -0.5:
             errors.append(f'{c}: a knee bends backward ({knee:.1f} deg) after the VMD import')
+        if sp_pmx > max(MAX_SHOULDER_POP, 2.0 * sp_rig):
+            errors.append(f'{c}: a PMX shoulder helper pops ({sp_pmx_at}: {sp_pmx * 1000:.1f} mm/frame^2, '
+                          f'Blender rig {sp_rig * 1000:.1f})')
         parm.animation_data_clear()
         for pb in parm.pose.bones:
             pb.matrix_basis = Matrix.Identity(4)
@@ -220,12 +260,16 @@ def main():
              'exported PMX (every frame), exported as VMD, re-imported and compared bone by bone '
              f'({", ".join(CHECK)}). MMD physics is not simulated: hair, skirt and sleeve chains are keyed '
              'bones here, rigid bodies in MMD.', '',
-             '| clip | frames | keyed bones | VMD KB | round trip mm (where) | rig vs PMX+VMD mm (where) | least knee deg |',
-             '|---|---|---|---|---|---|---|']
+             'Shoulder: the worst frame-to-frame acceleration of the rest elbow carried by 肩補助 / 肩補助2 / '
+             '肩補助3 / 腕D (mm / frame^2), on the Blender rig and in the PMX + VMD playback (a pop is a spike).', '',
+             '| clip | frames | keyed bones | VMD KB | round trip mm (where) | rig vs PMX+VMD mm (where) | least knee deg '
+             '| shoulder accel rig (where) | shoulder accel PMX (where) |',
+             '|---|---|---|---|---|---|---|---|---|']
     for r in rows:
         lines.append(f"| {r['clip']} | {r['frames']} | {r['keyed_bones']} | {r['vmd_bytes'] // 1024} | "
                      f"{r['roundtrip_mm']:.2f} ({r['roundtrip_at']}) | {r['rig_vs_pmx_mm']:.1f} ({r['rig_vs_pmx_at']}) | "
-                     f"{r['least_knee_deg']:.1f} |")
+                     f"{r['least_knee_deg']:.1f} | {r['shoulder_pop_rig_mm']:.1f} ({r['shoulder_pop_rig_at']}) | "
+                     f"{r['shoulder_pop_pmx_mm']:.1f} ({r['shoulder_pop_pmx_at']}) |")
     longs = sorted({j for r in rows for j in r['vmd_name_too_long']})
     if longs:
         lines += ['', f'{len(longs)} keyed PMX bones have names longer than the 15 bytes (Shift-JIS) a VMD '

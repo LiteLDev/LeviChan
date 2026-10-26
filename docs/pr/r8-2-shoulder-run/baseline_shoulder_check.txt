@@ -1,0 +1,2 @@
+shoulder check 肩補助 worst step 53.3 deg (@36), 肩補助2 worst step 153.8 deg (@36), 肩補助3 worst step 105.6 deg (@36), 腕D worst step 5.3 deg (@36); 腕 steps 5.0 deg; 腕D vs 腕 5.18 deg
+shoulder check 肩補助 worst step 53.3 deg (@36), 肩補助2 worst step 153.8 deg (@36), 肩補助3 worst step 105.6 deg (@36), 腕D worst step 5.3 deg (@36); 腕 steps 5.0 deg; 腕D vs 腕 5.18 deg

@@ -491,22 +491,55 @@ def _walk_key(ph, stride=1.0):
     return key
 
 
+# Run (round 8): one leg's ankle path (IK target) over its own cycle, as control points of a
+# periodic uniform cubic B-spline (C2: no velocity or acceleration jumps, and the path stays
+# inside its control polygon, so the stance points at z 0 never dip below the ground).
+# (y forward -, z up from rest in m, foot pitch deg (+ heel up)) at phase i / 12, strike at 0:
+# stance 0 .. ~0.33 sliding back under the hip (treadmill-style, in place), toe-off, the heel
+# kicked up behind, the knee driven forward, the shin reaching out and down to strike. Stance
+# is ~35% of the cycle, so both feet are off the ground twice per cycle (a run's flight).
+# Round 7's keys (every 2.5 frames, rounded; rectified sines |sin| / max(0, ..) for lift and
+# pitch) kinked the foot path at touchdown: an 85 mm/frame^2 IK target spike at run@21 and a
+# 74 mm knee helper pop at run@20.
+RUN_FOOT = ((-0.19, 0.00, 5), (-0.10, 0.00, 5), (0.00, 0.00, 8), (0.10, 0.00, 15),
+            (0.19, 0.02, 30), (0.24, 0.10, 40), (0.21, 0.20, 40), (0.10, 0.28, 40),
+            (-0.04, 0.34, 35), (-0.15, 0.37, 25), (-0.26, 0.31, 15), (-0.26, 0.12, 8))
+RUN_FWD_PHASE = 0.4    # leg phase at which the foot is furthest back (arm swing reference)
+
+
+def _bspline_periodic(ctrl, u):
+    """Uniform cubic B-spline through the closed control polygon ctrl (tuples) at u in [0, 1)."""
+    n = len(ctrl)
+    x = (u % 1.0) * n
+    i = int(math.floor(x))
+    t = x - i
+    b = ((1 - t) ** 3 / 6, (3 * t ** 3 - 6 * t ** 2 + 4) / 6, (-3 * t ** 3 + 3 * t ** 2 + 3 * t + 1) / 6, t ** 3 / 6)
+    pts = [ctrl[(i + k - 1) % n] for k in range(4)]
+    return tuple(sum(bk * p[j] for bk, p in zip(b, pts)) for j in range(len(ctrl[0])))
+
+
 def _run_key(ph):
-    """Run cycle (in place) at phase ph: left foot forward at 0; the recovery leg tucks up
-    while it swings forward, the push-off foot leaves on its toes; arms opposite, 90 deg."""
+    """Run cycle (in place) at phase ph (0..1, smooth in ph): the left foot strikes at 0, the
+    right at 0.5 (RUN_FOOT); the swing leg tucks the heel up and drives the knee forward,
+    the push-off foot leaves on its toes. The pelvis is lowest at mid-stance and highest in
+    flight; arms swing opposite to the legs with the elbows at ~90 deg; torso and pelvis
+    counter-rotate. Every channel is a smooth periodic function of ph."""
     def key(arm):
-        a = 2 * math.pi * ph
-        c = math.cos(a)
-        for t, s in (('L', 1), ('R', -1)):
-            fwd = s * c                                   # +1: this leg forward
-            swing = max(0.0, -s * math.sin(a))
-            foot(arm, t, (0.0, -0.24 * fwd, 0.04 + 0.26 * swing), pitch=15 + 35 * max(0.0, -fwd))
-            arm_pose(arm, t, (0.15, 0.55 * fwd, -0.85 + 0.25 * abs(fwd)), 90, (0, -1, 0))
+        for t, s, off in (('L', 1, 0.0), ('R', -1, 0.5)):
+            phi = (ph + off) % 1.0
+            y, z, pitch = _bspline_periodic(RUN_FOOT, phi)
+            foot(arm, t, (0.0, y, z), pitch=pitch)
+            back = math.cos(2 * math.pi * (phi - RUN_FWD_PHASE))   # +1: this leg furthest back
+            # the same-side arm swings opposite to the leg: forward (y -) while the leg is back
+            arm_pose(arm, t, (0.15, -0.55 * back, -0.85 + 0.25 * back * back), 88 + 8 * back, (0, -1, 0))
             fingers(arm, t, 0.5)
-        centre(arm, (0.0, -0.03, -0.05 + 0.03 * abs(math.sin(a))))
-        spine(arm, pitch=8, yaw=-10 * c, lower_pitch=4)
-        turn(arm, '下半身', (0, 0, 1), 8 * c)
-        head(arm, yaw=7 * c)
+        a = 2 * math.pi * ph
+        # pelvis: lowest at each mid-stance (leg phase ~0.17), highest in the flight between
+        centre(arm, (0.0, -0.03, -0.05 - 0.015 * math.cos(2 * a - 2 * math.pi * 2 * 0.17)))
+        c = math.cos(2 * math.pi * (ph - RUN_FWD_PHASE))     # +1: left leg back, right forward
+        spine(arm, pitch=8, yaw=10 * c, lower_pitch=4)
+        turn(arm, '下半身', (0, 0, 1), -8 * c)
+        head(arm, yaw=-7 * c)
         skirt_flare(arm, 6, back=6)
         hair_swing(arm, back=8)
     return key
@@ -592,8 +625,9 @@ def _spin_key(u):
 CLIPS = {
     # 2 walk cycles of 30 frames (1 s each), keyed every 1/8 cycle
     'walk': (60, [(int(round(60 * i / 16)), _walk_key((i / 8) % 1.0)) for i in range(17)]),
-    # 2 run cycles of 20 frames, keyed every 1/8 cycle (2.5 frames -> rounded)
-    'run': (40, [(int(round(40 * i / 16)), _run_key((i / 8) % 1.0)) for i in range(17)]),
+    # 2 run cycles of 20 frames (1.5 strides/s), keyed on every frame from the smooth cycle
+    # (round 8: keys every 2.5 frames, rounded to 2 or 3, gave the Bezier curves uneven spans)
+    'run': (40, [(f, _run_key((f / 20) % 1.0)) for f in range(41)]),
     'turn': (45, [(int(round(45 * i / 9)), _turn_key(i / 9)) for i in range(10)]),
     'sit_stand': (90, [(0, _sit_key(0.0, 0.0)), (12, _sit_key(0.25, 18.0)), (24, _sit_key(0.65, 30.0)),
                        (36, _sit_key(1.0, 12.0)), (50, _sit_key(1.0, 4.0)), (58, _sit_key(1.0, 22.0)),

@@ -11,7 +11,8 @@ render.py can render.
 MMD readiness: the standard bone names motions bind to (センター ... 足ＩＫ, 捩, 親指０);
 every animator-facing bone in a display frame; the knee IK links limited to forward
 bending; texture / toon files present next to the PMX under relative paths, no sphere
-maps, a textured face; 回転付与 followers turning by their share; the morph count.
+maps, a textured face; 回転付与 followers turning by their share; the morph count; the shoulder
+helpers turning smoothly while 腕 sweeps past 180 deg (check_shoulder, round 8).
 VMD round trip: a procedural walk keyed on the standard bones is exported with
 mmd_tools, cleared, imported back and compared bone by bone, and the knees must
 bend forward in every sampled frame (<save>_walk.blend keeps it, at Blender frame 9 = VMD frame 8).
@@ -72,6 +73,74 @@ def check_append(arm, errors, source='左足', deg=40.0):
     bpy.context.view_layer.update()
 
 
+
+
+# (name, world axis for the left arm, degrees, steps): 腕 turned past 180 deg, away from the
+# swing's singular direction (the arm pointing across the front of the body to her other side)
+SHOULDER_SWEEPS = (('sideways', (-0.2, -1.0, -0.3), 210.0, 42), ('forward', (-1.0, 0.1, 0.0), 210.0, 42))
+SHOULDER_HELPERS = ('肩補助', '肩補助2', '肩補助3', '腕D')
+# deg: 腕D vs 腕 in the sweep. MMD slerps a 付与 share and the swing chain (rig.SHOULDER_PMX_SWING)
+# returns 腕 exactly; mmd_tools emulates a share by scaling the source's Euler angles, so after
+# this import 腕D drifts from 腕 by up to ~5 deg (left) / ~12 deg (right) at the top of the sweep
+# (round 7's plain shares: 5 deg, with 53-154 deg jumps of the helpers at 180 deg)
+SHOULDER_ARMD_TOL = 15.0
+
+
+def check_shoulder(arm, errors, side='左'):
+    """MMD 180-degree shoulder flip (round 8): turn 腕 steadily through 210 deg (SHOULDER_SWEEPS:
+    raised sideways or forward, overhead and beyond) and check that the shoulder helpers' world turns
+    change smoothly from step to step (a plain 回転付与 share of 腕 jumps where 腕's turn
+    passes 180 deg) and that 腕D follows 腕 (exactly in MMD; to SHOULDER_ARMD_TOL here)."""
+    import math
+    from mathutils import Quaternion, Vector
+
+    def find(jp):
+        return next((pb for pb in arm.pose.bones if not pb.is_mmd_shadow_bone and pb.mmd_bone.name_j == jp), None)
+    src = find(side + '腕')
+    hs = [(n, find(side + n)) for n in SHOULDER_HELPERS]
+    hs = [(n, pb) for n, pb in hs if pb is not None]
+    if src is None or not hs:
+        print('shoulder check no 腕 / shoulder helpers')
+        return
+    src.rotation_mode = 'QUATERNION'
+
+    def world(pb):
+        return (pb.matrix.to_3x3() @ pb.bone.matrix_local.to_3x3().inverted()).to_quaternion()
+
+    def ang(a, b):      # degrees between two rotations (q and -q are the same turn)
+        d = math.degrees(a.rotation_difference(b).angle)
+        return min(d, 360.0 - d)
+    for name, axis_w, deg, steps in SHOULDER_SWEEPS:
+        if side == '右':      # the mirrored turn: a rotation axis mirrors as (x, -y, -z)
+            axis_w = (axis_w[0], -axis_w[1], -axis_w[2])
+        ax = (src.bone.matrix_local.to_3x3().inverted() @ Vector(axis_w)).normalized()
+        prev, worst, worst_at, armd_err = None, {n: 0.0 for n, _ in hs}, {n: 0 for n, _ in hs}, 0.0
+        for i in range(steps + 1):
+            src.rotation_quaternion = Quaternion(ax, math.radians(deg * i / steps))
+            bpy.context.view_layer.update()
+            cur = {n: world(pb) for n, pb in hs}
+            if '腕D' in cur:
+                e = ang(cur['腕D'], world(src))
+                if os.environ.get('LEVI_DEBUG_SHOULDER'):
+                    print('SHDBG', side, name, i, round(e, 2), {n: round(ang(q, cur['腕D']), 1) for n, q in cur.items()})
+                armd_err = max(armd_err, e)
+            if prev is not None:
+                for n, q in cur.items():
+                    a = ang(prev[n], q)
+                    if a > worst[n]:
+                        worst[n], worst_at[n] = a, i
+            prev = cur
+        src.rotation_quaternion = Quaternion()
+        bpy.context.view_layer.update()
+        step = deg / steps
+        print(f'shoulder check {side} {name}: ' + ', '.join(f'{n} worst step {worst[n]:.1f} deg (@{worst_at[n]})'
+                                                          for n, _ in hs)
+              + f'; 腕 steps {step:.1f} deg; 腕D vs 腕 {armd_err:.2f} deg')
+        for n, _ in hs:
+            if worst[n] > 2.0 * step:
+                errors.append(f'shoulder helper {side}{n} jumps {worst[n]:.0f} deg as 腕 turns past 180 deg ({name})')
+        if armd_err > SHOULDER_ARMD_TOL:
+            errors.append(f'{side}腕D does not follow {side}腕 ({armd_err:.1f} deg, {name})')
 
 
 def check_morphs(pmx, want, errors, panels=None):
@@ -435,6 +504,8 @@ def main():
         importlib.import_module(pkg.__name__ + '.core.bone').FnBone.apply_additional_transformation(arms[0])
         for source in ('左足', '左ひざ', '左ひじ', '左腕', '頭', '両目'):
             check_append(arms[0], errors, source)
+        for side in '左右':
+            check_shoulder(arms[0], errors, side)
     rb = [o for o in bpy.data.objects if getattr(o, 'mmd_type', '') == 'RIGID_BODY']
     same('blender rigid', len(rb), expect['rigid_bodies'])
     check_names(pmx, errors)

@@ -264,6 +264,15 @@ def convert(arm, mesh, no_edge, out_dir):
             mb.enabled_local_axes = True
             mb.local_axis_x = axis.col[0].xzy
             mb.local_axis_z = axis.col[2].xzy
+        elif pb.get('mmd_local_x'):
+            # the shoulder swing followers (rig.SHOULDER_PMX_SWING): local X along the given
+            # axis, square to the bone; MMD deforms without it, mmd_tools rolls the bone by it
+            y = axis.col[1].normalized()
+            x = Vector(pb['mmd_local_x'])
+            x = (x - y * x.dot(y)).normalized()
+            mb.enabled_local_axes = True
+            mb.local_axis_x = x.xzy
+            mb.local_axis_z = x.cross(y).xzy
 
     for t in 'LR':
         # the rig locks the thigh's twist for Blender's IK solver only; in the PMX the

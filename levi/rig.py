@@ -441,6 +441,18 @@ JOINT_REACH_BY_AUX = {'腕補助': (0.05, 0.08)}
 # visible shape decided here. JOINT_HINGE_CAP keeps the angular band off the ankle and hip.
 JOINT_HINGE = {'ひざ補助': ((0.05, 0.05, 0.045), (-80.0, -27.0, 27.0, 80.0), (0.0, -1.0, 0.0))}
 JOINT_HINGE_CAP = (0.10, 0.16)   # m along the limb: beyond, the hinge band is all upper / lower limb
+# Round 8 tried, each judged by pairwise Codex A/B against this knee (9 knee poses, shuffled;
+# new / old / same per model) and kept none (docs/pr/r8-2-shoulder-run/):
+# - narrower bands: hinge d 4 / 3.5 / 3.5 cm, knots +-65 / +-22 deg: 1-2 / 7-8; along-limb
+#   band near the reference MMD models' width (front -3.5..+6 cm, back +-3 cm): 0-2 / 7-9,
+#   "pinched", "angular notch", "ring-like creases";
+# - a flatter, squarer kneecap face (body.KNEECAP): ring creases above the kneecap;
+# - the knee pivot further back (body.KNEE_FWD 3 / 10 px): the leg IK then solves seiza
+#   with the knee bent 88 deg instead of 161 (a pivot behind the hip-ankle line bends no IK);
+# - helpers turning about points 1-2.5 cm in front of the joint (translating helpers): about
+#   even (5 / 8 / 5 and 6 / 6 / 6 over two shuffles at 2 cm), squat rated minor / minor
+#   as this knee is on a re-rate, but 3x the folded faces in the hollow (seiza 54 -> 162);
+#   with back partners about the joint the squat turned "knobby" (major / major).
 
 
 def _joint_aux(add, jp, en, joint, nxt, parent, lower, upper, s, sfx, jp_side, en_sfx, group):
@@ -456,6 +468,92 @@ def _joint_aux(add, jp, en, joint, nxt, parent, lower, upper, s, sfx, jp_side, e
         add(Bone(jp + k + sfx, jp_side + jp + k, en + k + en_sfx, _mx(joint, s), _mx(tail, s), parent, group=group,
                  meta={'follow': (lower, follow), 'joint_aux': (list(upper), lower), 'aux_at': at,
                        'aux_share': follow}))
+
+
+# Round 8, PMX: the shrug, the stages and 腕D as shares of the arm's SWING, without q^k. A
+# plain 回転付与 share of 腕 (slerp from identity, shortest path) flips sides when 腕's turn
+# passes 180 deg, so in MMD the shoulder helpers popped (idol_dance@80) although Blender's
+# swing + twist drivers (_shoulder_drivers) did not. MMD can extract a swing with an IK: a
+# hidden one-link IK bone `肩スイング` (child of 肩, at the shoulder joint, pointing along
+# SHOULDER_SWING_REF) aims at a goal `肩スイングIK` riding 腕 at the elbow, so its turn is B,
+# the swing from the reference direction to the arm (continuous everywhere except with the
+# arm pointing opposite the reference, across the front of the body to her other side).
+# `肩基準`, the same IK aimed at a goal fixed on 肩 at the rest elbow, holds the constant A
+# (the swing to the rest arm). Products of shares of B and A, chained through hidden
+# parents, give each bone's total turn B^t A^-t (identity at rest, = Blender's stages
+# without their twist share):
+#   肩補助親 (+s of 肩スイング) -> 肩補助 (-s of 肩基準)                           = B^s A^-s
+#   肩補助 -> 肩補助Na (+s 肩基準) -> 肩補助Nb (+(t-s) 肩スイング) -> 肩補助N (-t 肩基準) = B^t A^-t
+#   肩補助 -> 腕Da (+s 肩基準) -> 腕Db (-s 肩スイング) -> 腕D (+1 腕)                  = 腕 exactly
+# The twist of 腕 goes to 腕D alone (the stages take none of it; 腕捩 carries the arm's
+# twist down the limb). Blender keeps its drivers: the hidden parents there have no
+# constraints and stay at rest, the PMX-only appends are custom properties (meta 'append',
+# 'pmx_append'), and the IK bones deform nothing.
+SHOULDER_PMX_SWING = True
+
+
+def _shoulder_pmx_swing(b, tag, s, jp_side, en_sfx, sj, el):
+    """Insert the PMX swing helpers (SHOULDER_PMX_SWING) for side `tag` into bone list b and
+    re-parent the shrug, the stages and 腕D through them."""
+    sfx = '.' + tag
+    byname = {x.name: x for x in b}
+    shrug, armd = byname['肩補助' + sfx], byname['腕D' + sfx]
+    a = SHOULDER_SHRUG
+    uw = Vector(SHOULDER_SWING_REF).normalized()
+    ln = (el - sj).length
+    J, E = _mx(sj, s), _mx(el, s)
+    U = _mx(sj + uw * ln, s)
+    d = (E - J).normalized() * 0.03
+    # PMX local X axis of every follower: the axis of the constant swing A (reference ->
+    # rest arm), perpendicular to the arm. MMD ignores local axes when it deforms; mmd_tools
+    # turns them into the bone roll and emulates a 付与 share by scaling the source's Euler
+    # angles in the follower's frame, which is exact for a turn about one local axis: A's
+    # shares then cancel exactly at rest, and the shares of B stay close to MMD's slerp.
+    n = tuple((U - J).normalized().cross((E - J).normalized()).normalized())
+    before = {}      # existing bone name -> new bones to insert just before it (parents first)
+
+    def nb(stem, en, head, tail, parent, meta, at, connect=False):
+        before.setdefault(at, []).append(Bone(stem + sfx, jp_side + stem, en + en_sfx, head, tail, parent,
+                                              connect=connect, deform=False, group='Arms', meta=dict(meta, helper=True)))
+    # the goals ride 腕 / 肩: inserted after 腕 (before the first bone that follows it)
+    after_arm = b[b.index(byname['腕' + sfx]) + 1].name
+    for stem, en, goal_parent in (('肩スイング', 'ShoulderSwing', '腕' + sfx), ('肩基準', 'ShoulderRef', '肩' + sfx)):
+        nb(stem, en, J, U, '肩' + sfx, {'ik_free': stem + 'IK' + sfx}, shrug.name)
+        nb(stem + '先', en + 'Tip', U, U + (U - J).normalized() * 0.03, stem + sfx, {}, shrug.name, connect=True)
+        nb(stem + 'IK', en + 'IK', E, E + d, goal_parent, {}, after_arm)
+    sw, rf = '肩スイング' + sfx, '肩基準' + sfx
+    # the hidden followers point along the reference direction (local Y), the deforming ones
+    # along the arm (Blender's drivers work in 腕's frame), all with local X = n. The swing B
+    # turns about an axis square to the reference, so in a frame whose Y is the reference
+    # its Euler Y angle stays below 90 deg (no gimbal flip in mmd_tools' emulation) short of
+    # B's own singularity; the deforming followers take only shares of A (about X) and the
+    # whole of 腕, both exact.
+    ref = (U - J).normalized() * JOINT_AUX_LEN
+    nb('肩補助親', 'ShoulderAuxP', shrug.head, shrug.head + ref, '肩' + sfx, {'append': (sw, a), 'pmx_local_x': n},
+       shrug.name)
+    shrug.parent = '肩補助親' + sfx
+    shrug.meta['pmx_append'] = (rf, -a)
+    shrug.meta['pmx_local_x'] = n
+    for st in [x for x in b if x.meta.get('shoulder', ('',))[0] == 'stage' and x.name.endswith(sfx)]:
+        stem = st.name.split('.')[0]
+        t = a + st.meta['follow_q'][1]
+        nb(stem + 'a', st.en.replace(en_sfx, 'a' + en_sfx), st.head, st.head + ref, shrug.name,
+           {'append': (rf, a), 'pmx_local_x': n}, st.name)
+        nb(stem + 'b', st.en.replace(en_sfx, 'b' + en_sfx), st.head, st.head + ref, stem + 'a' + sfx,
+           {'append': (sw, t - a), 'pmx_local_x': n}, st.name)
+        st.parent = stem + 'b' + sfx
+        st.meta['pmx_append'] = (rf, -t)
+        st.meta['pmx_local_x'] = n
+    nb('腕Da', 'ArmDa', armd.head, armd.head + ref, shrug.name, {'append': (rf, a), 'pmx_local_x': n}, armd.name)
+    nb('腕Db', 'ArmDb', armd.head, armd.head + ref, '腕Da' + sfx, {'append': (sw, -a), 'pmx_local_x': n}, armd.name)
+    armd.parent = '腕Db' + sfx
+    armd.meta['pmx_append'] = ('腕' + sfx, 1.0)
+    armd.meta['pmx_local_x'] = n
+    out = []
+    for x in b:
+        out += before.get(x.name, [])
+        out.append(x)
+    b[:] = out
 
 
 def _core_bones(J=None, H=None, F=None):
@@ -556,6 +654,8 @@ def _core_bones(J=None, H=None, F=None):
                              meta={'follow_q': ('腕' + sfx, total - SHOULDER_SHRUG), 'helper': True,
                                    'shoulder': ('stage', '肩補助' + sfx),
                                    'stage': ('肩補助' + sfx, arm, (total - SHOULDER_SHRUG) / (1.0 - SHOULDER_SHRUG))}))
+                if SHOULDER_PMX_SWING and SHOULDER_SWING_REF:
+                    _shoulder_pmx_swing(b, tag, s, jp_side, en_sfx, sj, el)
         else:
             add(Bone(arm, jp_side + '腕', 'Arm' + en_sfx, _mx(sj, s), _mx(el, s), '肩' + sfx, connect=True,
                      r=0.04, r_end=0.03, group='Arms'))
@@ -4202,6 +4302,23 @@ def _create_armature(bones):
                 _sleeve_counter(arm, pb, b.meta['sleeve_counter'], src)
             else:
                 _quat_power_drivers(arm, pb, src, infl)
+        if 'pmx_append' in b.meta:
+            # the PMX's 回転付与 differs from what Blender evaluates (SHOULDER_PMX_SWING): the
+            # drivers above stay, the export reads these properties
+            src, k = b.meta['pmx_append']
+            pb['mmd_append'] = src
+            pb['mmd_append_influence'] = float(k)
+        if 'pmx_local_x' in b.meta:
+            pb['mmd_local_x'] = list(b.meta['pmx_local_x'])   # export_pmx: PMX local axes
+        if 'ik_free' in b.meta:
+            # a one-link IK with no limits: the bone swings to aim its tail at the goal (PMX
+            # IK; in Blender it deforms nothing)
+            c = pb.constraints.new('IK')
+            c.name = 'IK'
+            c.target, c.subtarget = arm, b.meta['ik_free']
+            c.chain_count, c.iterations = 1, 40
+            c.use_tail, c.use_stretch = True, False
+            pb.ik_stretch = 0.0
         if 'conj_of' in b.meta:
             _conj_drivers(arm, pb, b.meta['conj_of'])
         if 'crowd' in b.meta:

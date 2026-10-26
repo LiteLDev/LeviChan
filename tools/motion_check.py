@@ -21,6 +21,9 @@ every motion clip (motion_poses.CLIPS), with vectorized numpy on the evaluated m
                       also catches a candy-wrapper twist
   twist               forearm / thigh / neck twist angle (information)
   knee / elbow        signed bend (deg); negative = hyperextended
+  span                bend span of the knee, elbow and wrist (SPAN_JOINTS): how long a
+                      stretch of the outer skin turns with the bent joint, in limb diameters
+                      (a hose-like bend is long, a defined joint short)
   pop / bone_pop      (clips) one-frame spikes of vertex / bone acceleration beyond both
                       neighbours two frames away (popping, IK flips, driver jumps), mm
   jitter              (clips) the same spike test on edge strain (weight-discontinuity flicker)
@@ -78,6 +81,7 @@ THRESH = {
     'jitter': (0.03, 0.08, 'hi', ''),
     'speed': (12.0, 20.0, 'hi', 'm/s'),
     'eye': (0.0008, 0.0015, 'hi', 'm'),
+    'span': (0.7, 1.0, 'hi', 'x'),
 }
 LEVELS = ('ok', 'minor', 'major')
 
@@ -120,6 +124,25 @@ JOINTS = {
               (('下半身', '下半身.tail', '下半身.head'), ('上半身', '上半身.head', '上半身2.head'))),
 }
 SIDED_JOINTS = ('shoulder', 'elbow', 'forearm', 'wrist', 'hip', 'knee', 'ankle')
+# Bend span (round 8): how long a stretch of the outer (convex) skin turns with a bent joint.
+# Along the outer skin line, the rest distance over which the line turns from 10% to 90% of
+# the joint's bend (bend_span: geometric, whatever the weights or helper pivots), in limb
+# diameters at the joint. A short span is a defined knee / elbow; a long one bends the limb
+# like a hose. Round 7: knee ~0.95 in squat / seiza, elbow ~1.7 at 120 deg (an external
+# analysis of the reference MMD models, measured differently, put their knees near 0.5-0.7).
+# Reported where the joint bends more than SPAN_MIN_BEND since rest. Not the ankle: 足首
+# runs from a pivot above the shoe to the toe, so its "outer line" is the shoe-covered
+# instep and the value is noise (2-3 diameters in any pointed foot).
+# joint: (upper bone, lower bone, pivot bone, dominant stems).
+SPAN_JOINTS = {
+    'knee': ('足', 'ひざ', 'ひざ', ('足', 'ひざ補助', 'ひざ補助2', 'ひざ')),
+    'elbow': ('腕捩', 'ひじ', 'ひじ', ('腕D', '腕捩', 'ひじ補助', 'ひじ', '手捩')),
+    'wrist': ('手捩', '手首', '手首', ('ひじ', '手捩', '手首')),
+}
+SPAN_MIN_BEND = 45.0        # deg
+SPAN_REACH = (0.15, 0.08)   # m along the limb from the pivot, m off its axis
+SPAN_OUTER = 25.0           # deg round the limb from the outer side that counts as the outer line
+SPAN_BIN = 0.005            # m: bins along the limb (points averaged per bin)
 TWISTS = {'forearm': ('ひじ', '手首'), 'thigh': ('下半身', '足'), 'neck': ('上半身2', '頭')}
 GAZE = ((0, 0), (10, 0), (-10, 0), (0, 8), (0, -8), (10, 8), (-10, -8), (10, -8), (-10, 8))
 EYE_MORPHS = (('まばたき', 1.0), ('まばたき', 0.5), ('ウィンク', 1.0), ('ウィンク右', 1.0), ('笑い', 1.0))
@@ -298,6 +321,36 @@ class Model:
                 r0 = _seg_dist(self.brest[idx], [(a, b) for _, a, b in segl])
                 good = r0 > 0.004
                 self.joints[jn + side] = dict(idx=idx[good], r0=r0[good], segs=segl)
+        self._prep_spans()
+
+    def _prep_spans(self):
+        """Rest data of the bend-span metric (SPAN_JOINTS)."""
+        self.spans = {}
+        bones = self.arm.data.bones
+        R, T = self.mw_arm[:3, :3], self.mw_arm[:3, 3]
+        for jn, (ub, lb, cb, stems) in SPAN_JOINTS.items():
+            for side in ('.L', '.R'):
+                U, Lo, C = ub + side, lb + side, cb + side
+                if U not in self.bidx or Lo not in self.bidx or C not in bones:
+                    continue
+                c = R @ np.array(bones[C].head_local) + T
+                du = R @ np.array(bones[U].tail_local - bones[U].head_local)
+                dl = R @ np.array(bones[Lo].tail_local - bones[Lo].head_local)
+                du, dl = du / np.linalg.norm(du), dl / np.linalg.norm(dl)
+                ax = du + dl
+                ax /= np.linalg.norm(ax)
+                d = self.brest - c
+                t = d @ ax
+                lat = d - t[:, None] * ax
+                r = np.linalg.norm(lat, axis=1)
+                allowed = [self.bidx[n] for n in self.deform if _stem(n) in stems and _side(n) in (side, '')]
+                keep = (np.abs(t) < SPAN_REACH[0]) & (r < SPAN_REACH[1]) & (r > 1e-4) & np.isin(self.bdom, allowed)
+                idx = np.nonzero(keep)[0]
+                mid = np.abs(t[idx]) < 0.015
+                if len(idx) < 16 or mid.sum() < 4:
+                    continue
+                self.spans[jn + side] = dict(idx=idx, t=t[idx], lat=lat[idx] / r[idx, None], U=U, Lo=Lo, du=du, dl=dl,
+                                             dia=2.0 * float(np.median(r[idx][mid])))
 
     def cross_sets(self, coords):
         out = {}
@@ -611,7 +664,7 @@ class Frame:
 
     def _joints(self):
         m = self.model
-        if not m.joints:
+        if not m.joints and not getattr(m, 'spans', None):
             return
         co = m.body_co(self.coords)
         self.joint_vals = {}
@@ -628,9 +681,67 @@ class Frame:
             self.joint_vals[jn] = (med, vol)
             self._worst('joint', med, 'body', 'joint:' + jn, jn)
             self._worst('vol', vol, 'body', 'joint:' + jn, jn)
+        for jn, j in getattr(m, 'spans', {}).items():
+            span = bend_span(j, co, self.mats[m.bidx[j['U']]], self.mats[m.bidx[j['Lo']]], m.brest)
+            if span is not None:
+                self._worst('span', span, 'body', 'span:' + jn, jn)
 
     def rows(self):
         return list(self.res.values())
+
+
+def bend_span(j, co, MU, ML, rest):
+    """Bend span (SPAN_JOINTS) of one joint in the current pose, in limb diameters, or None
+    when the joint bends less than SPAN_MIN_BEND. Geometric, whatever the weights or helper
+    pivots: the outer skin line's points are averaged per SPAN_BIN of rest distance along the
+    limb, and the line's turn between neighbouring bins (its posed direction against the upper
+    bone's, less the same angle at rest) is taken as a fraction of the joint's bend."""
+    du_p, dl_p = MU[:3, :3] @ j['du'], ML[:3, :3] @ j['dl']
+
+    def angle(a, b):
+        return math.degrees(math.acos(max(-1.0, min(1.0, float(a @ b) / max(np.linalg.norm(a) * np.linalg.norm(b), 1e-12)))))
+    # the bend since rest (the ankle's bones already meet at ~60-90 deg at rest)
+    bend = abs(angle(du_p, dl_p) - angle(j['du'], j['dl']))
+    if bend < SPAN_MIN_BEND:
+        return None
+    # the side the lower limb swings toward, in rest space: the inner (concave) side
+    v = MU[:3, :3].T @ dl_p
+    inner = v - (v @ j['du']) * j['du']
+    if np.linalg.norm(inner) < 1e-6:
+        return None
+    inner /= np.linalg.norm(inner)
+    idx = j['idx']
+    outer = j['lat'] @ -inner > math.cos(math.radians(SPAN_OUTER))
+    if outer.sum() < 6:
+        return None
+    t, p, p0 = j['t'][outer], co[idx][outer], rest[idx][outer]
+    edges = np.arange(-SPAN_REACH[0], SPAN_REACH[0] + 1e-9, SPAN_BIN)
+    cen, pts, pts0 = [], [], []
+    for a, b in zip(edges, edges[1:]):
+        k = (t >= a) & (t < b)
+        if k.any():
+            cen.append(float(t[k].mean()))
+            pts.append(p[k].mean(0))
+            pts0.append(p0[k].mean(0))
+    if len(cen) < 4:
+        return None
+    med, mid = [], []
+    for k in range(len(cen) - 1):
+        turn = angle(pts[k + 1] - pts[k], du_p) - angle(pts0[k + 1] - pts0[k], j['du'])
+        med.append(min(max(turn / bend, 0.0), 1.0))
+        mid.append(0.5 * (cen[k] + cen[k + 1]))
+    med = np.maximum.accumulate(np.array(med))     # monotone along the limb
+    cen = np.array(mid)
+
+    def cross(level):
+        i = int(np.argmax(med >= level))
+        if med[i] < level:
+            return cen[-1]
+        if i == 0:
+            return cen[0]
+        f = (level - med[i - 1]) / max(med[i] - med[i - 1], 1e-9)
+        return cen[i - 1] + f * (cen[i] - cen[i - 1])
+    return float((cross(0.9) - cross(0.1)) / max(j['dia'], 1e-3))
 
 
 def _pose_mat(model, name):
@@ -875,7 +986,7 @@ def _line(name, rows):
 
 COLS = (('stretch', 'stretch'), ('compress', 'compress'), ('flip', 'flip'), ('pen', 'pen cm'),
         ('pen_frac', 'pen %'), ('self', 'self cm'), ('contact', 'contact cm'), ('cross', 'cross'), ('joint', 'joint'), ('vol', 'vol'),
-        ('knee', 'knee'), ('elbow', 'elbow'), ('pop', 'pop mm'), ('bone_pop', 'bone pop mm'),
+        ('knee', 'knee'), ('elbow', 'elbow'), ('span', 'span'), ('pop', 'pop mm'), ('bone_pop', 'bone pop mm'),
         ('jitter', 'jitter'), ('speed', 'speed m/s'))
 
 
