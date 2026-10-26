@@ -142,7 +142,18 @@ SPAN_JOINTS = {
 SPAN_MIN_BEND = 45.0        # deg
 SPAN_REACH = (0.15, 0.08)   # m along the limb from the pivot, m off its axis
 SPAN_OUTER = 25.0           # deg round the limb from the outer side that counts as the outer line
-SPAN_BIN = 0.005            # m: bins along the limb (points averaged per bin)
+SPAN_BIN = 0.005            # m: bins along the limb (turn shares averaged per bin)
+# Round 9: the turn is measured on the mesh's own edges along the limb (the loft's columns)
+# as a turn about the bend axis in the upper bone's frame (_span_profile). Round 8 averaged
+# all outer points per bin and differenced the bins against the upper bone's direction: a
+# bin that caught another column than its neighbour made a sideways zigzag that read as a
+# turn (up to +-0.4 of the bend in one elbow bin, +-0.1 at the knee), and the running
+# maximum then locked onto the first such spike past 10% / 90%. R8-5's body moved one knee
+# bin from 0.901 to 0.895 of the bend and one elbow bin from 0.076 to 0.108, and the spans
+# jumped 0.97 -> 1.14 / 0.53 -> 0.86 with the shape the same (docs/pr/r9-7-limbs/). The
+# thresholds (THRESH['span']) stay: on round 8's mesh this reads knee 0.97-0.99 and elbow
+# 1.16-1.32 in every pose (round 8's metric: knee 0.86-1.2, elbow 0.53-1.9).
+SPAN_EDGE_ALONG = 0.7       # an edge counts if its rest run along the limb is this share of its length
 TWISTS = {'forearm': ('ひじ', '手首'), 'thigh': ('下半身', '足'), 'neck': ('上半身2', '頭')}
 GAZE = ((0, 0), (10, 0), (-10, 0), (0, 8), (0, -8), (10, 8), (-10, -8), (10, -8), (-10, 8))
 EYE_MORPHS = (('まばたき', 1.0), ('まばたき', 0.5), ('ウィンク', 1.0), ('ウィンク右', 1.0), ('笑い', 1.0),
@@ -240,11 +251,12 @@ class Model:
 
     # ---- body: one triangle soup for penetration, self-intersection and joints
     def _prep_body(self):
-        tris, offs, doms, rest = [], 0, [], []
+        tris, offs, doms, rest, edges = [], 0, [], [], []
         self.body_slices = {}
         for o in self.body:
             inf = self.info[o.name]
             tris.append(inf['tris'] + offs)
+            edges.append(inf['edges'] + offs)
             doms.append(inf['dom'])
             rest.append(inf['rest'])
             self.body_slices[o.name] = (offs, offs + len(inf['rest']))
@@ -253,6 +265,7 @@ class Model:
             self.btris = None
             return
         self.btris = np.concatenate(tris)
+        self.bedges = np.concatenate(edges)
         self.bdom = np.concatenate(doms)
         self.brest = np.concatenate(rest)
         segs = sorted({_seg(self.bone_name(i)) for i in np.unique(self.bdom)})
@@ -352,8 +365,18 @@ class Model:
                 mid = np.abs(t[idx]) < 0.015
                 if len(idx) < 16 or mid.sum() < 4:
                     continue
+                # the mesh edges running along the limb between kept points (the loft's
+                # columns), oriented down the limb, as positions in idx
+                pos = np.full(len(self.brest), -1)
+                pos[idx] = np.arange(len(idx))
+                e = pos[self.bedges]
+                e = e[(e >= 0).all(1)]
+                dt = t[idx][e[:, 1]] - t[idx][e[:, 0]]
+                ln = np.linalg.norm(self.brest[idx][e[:, 1]] - self.brest[idx][e[:, 0]], axis=1)
+                along = np.abs(dt) >= SPAN_EDGE_ALONG * np.maximum(ln, 1e-9)
+                e = np.where((dt < 0)[:, None], e[:, ::-1], e)[along]
                 self.spans[jn + side] = dict(idx=idx, t=t[idx], lat=lat[idx] / r[idx, None], U=U, Lo=Lo, du=du, dl=dl,
-                                             dia=2.0 * float(np.median(r[idx][mid])))
+                                             edges=e, dia=2.0 * float(np.median(r[idx][mid])))
 
     def cross_sets(self, coords):
         out = {}
@@ -693,12 +716,50 @@ class Frame:
         return list(self.res.values())
 
 
+def _span_profile(j, outer, co, rest, RU, inner, v, edges):
+    """Turn profile of the outer line (round 9): (turn shares, bin centres), or None.
+    Every mesh edge running along the limb (j['edges']) between two outer points turns
+    about the bend axis n; seen in the upper bone's frame (RU) and in the bend plane, its
+    turn is taken as a share of the lower bone's turn about n (v: the lower bone's posed
+    direction in that frame), and the shares are averaged per bin, weighted by the edges'
+    length along the limb."""
+    n = np.cross(j['du'], inner)
+    n /= np.linalg.norm(n)
+
+    def about_n(a, b):
+        a = a - (a @ n)[..., None] * n
+        b = b - (b @ n)[..., None] * n
+        return np.degrees(np.arctan2(np.cross(a, b) @ n, (a * b).sum(-1)))
+    plane_bend = float(about_n(j['dl'], v))
+    if abs(plane_bend) < 1e-6:
+        return None
+    e = j['edges'][outer[j['edges']].all(1)]
+    if len(e) < 4:
+        return None
+    A, B = j['idx'][e[:, 0]], j['idx'][e[:, 1]]
+    tA, tB = j['t'][e[:, 0]], j['t'][e[:, 1]]
+    s, bend = math.copysign(1.0, plane_bend), abs(plane_bend)
+    turn = s * about_n(rest[B] - rest[A], (co[B] - co[A]) @ RU)
+    # an edge turned past 180 deg (a deep bend's overshoot) reads as a large negative angle
+    turn = np.where(turn < min(-90.0, 1.5 * bend - 360.0), turn + 360.0, turn)
+    frac = np.clip(turn / bend, 0.0, 1.0)
+    dt = tB - tA
+    nb = len(edges) - 1
+    k = np.clip(np.searchsorted(edges, 0.5 * (tA + tB)) - 1, 0, nb - 1)
+    wsum = np.bincount(k, weights=dt, minlength=nb)
+    acc = np.bincount(k, weights=dt * frac, minlength=nb)
+    ok = wsum > 0
+    if ok.sum() < 4:
+        return None
+    return acc[ok] / wsum[ok], (0.5 * (edges[:-1] + edges[1:]))[ok]
+
+
 def bend_span(j, co, MU, ML, rest):
     """Bend span (SPAN_JOINTS) of one joint in the current pose, in limb diameters, or None
     when the joint bends less than SPAN_MIN_BEND. Geometric, whatever the weights or helper
-    pivots: the outer skin line's points are averaged per SPAN_BIN of rest distance along the
-    limb, and the line's turn between neighbouring bins (its posed direction against the upper
-    bone's, less the same angle at rest) is taken as a fraction of the joint's bend."""
+    pivots: the outer skin line's turn, as a fraction of the joint's bend, is profiled per
+    SPAN_BIN of rest distance along the limb (_span_profile), made monotone, and the 10%
+    and 90% crossings are measured apart."""
     du_p, dl_p = MU[:3, :3] @ j['du'], ML[:3, :3] @ j['dl']
 
     def angle(a, b):
@@ -713,28 +774,15 @@ def bend_span(j, co, MU, ML, rest):
     if np.linalg.norm(inner) < 1e-6:
         return None
     inner /= np.linalg.norm(inner)
-    idx = j['idx']
     outer = j['lat'] @ -inner > math.cos(math.radians(SPAN_OUTER))
     if outer.sum() < 6:
         return None
-    t, p, p0 = j['t'][outer], co[idx][outer], rest[idx][outer]
     edges = np.arange(-SPAN_REACH[0], SPAN_REACH[0] + 1e-9, SPAN_BIN)
-    cen, pts, pts0 = [], [], []
-    for a, b in zip(edges, edges[1:]):
-        k = (t >= a) & (t < b)
-        if k.any():
-            cen.append(float(t[k].mean()))
-            pts.append(p[k].mean(0))
-            pts0.append(p0[k].mean(0))
-    if len(cen) < 4:
+    prof = _span_profile(j, outer, co, rest, MU[:3, :3], inner, v, edges)
+    if prof is None:
         return None
-    med, mid = [], []
-    for k in range(len(cen) - 1):
-        turn = angle(pts[k + 1] - pts[k], du_p) - angle(pts0[k + 1] - pts0[k], j['du'])
-        med.append(min(max(turn / bend, 0.0), 1.0))
-        mid.append(0.5 * (cen[k] + cen[k + 1]))
-    med = np.maximum.accumulate(np.array(med))     # monotone along the limb
-    cen = np.array(mid)
+    med = np.maximum.accumulate(prof[0])     # monotone along the limb
+    cen = prof[1]
 
     def cross(level):
         i = int(np.argmax(med >= level))

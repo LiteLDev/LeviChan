@@ -477,6 +477,9 @@ ARM_R = [
     (('E', 108), (9.9, 9.5, 7.7, 7.3)),
     (('W', 0), (11.2, 11.2, 7.3, 7.3)),
 ]
+# (Round 9 tried a fuller deltoid cap, +1.5-2.5 px on the first rings fading out by
+# ('S', 75): it tied or lost the pairwise review and cost front IoU; any front fullness
+# cut a shade island off the armpit's shadow above the bodice. docs/pr/r9-7-limbs/.)
 # hand twist (0 = forearm frame, 1 = hand frame) by offset from the elbow
 ARM_TWIST = [(45, 0.0), (80, 0.45), (108, 0.8)]   # ... and 1.0 at the wrist
 # Arm loft stations: ~11 px apart along the shafts, 7 px over the elbow
@@ -813,6 +816,21 @@ GLUTE_FOLD = (493.0, 0.8, 7.0)
 # inner side) and the shin front stays straight: px radial offsets on the
 # oblique sectors only, so the measured front / side extremes are unchanged.
 CALF = ((705, 725, 775, 815), 1.3, 0.5, -0.8)   # rows (ramp in, full, full, out), back-inner, back-outer, front
+# Round 9: the inner (medial) calf head sits lower than the outer: the back-inner
+# fullness uses the CALF rows moved down by this many rows (~1.7 cm). 0 = round 8. Its
+# tail (to row 826) eases the inner hollow beside the Achilles tendon (ACHILLES, from row
+# 806) by up to ~0.3 px; fading it out by row 815 instead lost the pairwise review
+# (2 / 2 and 8 / 12 against 16 / 4 and 7 / 5 over three runs each). (A swell on the inner
+# side itself, for a low inner calf curve in the front view, left a dip between the
+# wider knee and the calf: "small inward kink".)
+CALF_INNER_DROP = 11.0
+# Round 9: the knee a little wider at the condyles (row, vertical sigma px, inner px,
+# outer px), sides only: ~4.5 mm across at z 0.40, a little more on the inner side.
+# The rounded kneecap and the knee's depth are unchanged. A broad swell (sigma 18 px,
+# ~2.8 cm) blends knee and calf into one curve; narrower ones (12-16 px, 1.8-2.2 px
+# inner) read as a knob over a waisted shin and lost the pairwise review. Inner and
+# outer 0 = round 8.
+KNEE_WIDE = (KNEE_ROW + 2.0, 18.0, 1.6, 1.3)
 # Ankle (round 8). The rig's ankle pivot (obj['levi_joints']['ankle']) is the
 # real ankle joint inside the shoe, about 4.5 cm above the heel seat (row 899),
 # not spec ankle_z (row 830, 6 cm higher, where the shin was thinnest and every
@@ -873,6 +891,10 @@ def _leg_shape(row):
     glute = _bump(GLUTE_FOLD, row)
     (c0, c1, c2, c3), bi, bo, fr = CALF
     calf = smoothstep(c0, c1, row) * (1 - smoothstep(c2, c3, row))
+    dr = CALF_INNER_DROP
+    calf_in = smoothstep(c0 + dr, c1 + dr, row) * (1 - smoothstep(c2 + dr, c3 + dr, row))
+    kw = _bump((KNEE_WIDE[0], 1.0, KNEE_WIDE[1]), row)
+    knee_in, knee_out = kw * KNEE_WIDE[2], kw * KNEE_WIDE[3]
     mal = [(_bump(m[:3], row), m[3], m[4], sgn) for m, sgn in ((MALLEOLUS_OUT, 1.0), (MALLEOLUS_IN, -1.0))]
     (a0, a1, a2, a3), adep = ACHILLES
     ach = adep * smoothstep(a0, a1, row) * (1 - smoothstep(a2, a3, row))
@@ -885,11 +907,15 @@ def _leg_shape(row):
         else:
             b += (crease + glute) * dy * dy        # toward the front: drawn in
             b -= heel * dy * dy                    # the heel swells out behind
-        if calf:
+        if calf or calf_in:
             obl = (2 * dx * dy) ** 2               # 0 on the axes, 1 at 45 deg
-            amt = calf * obl * (fr if dy > 0 else (bo if dx > 0 else bi))
+            amt = obl * (calf * fr if dy > 0 else (calf * bo if dx > 0 else calf_in * bi))
             a += amt * dx
             b += amt * dy
+        if dx < 0:
+            a -= knee_in * dx * dx                 # inner side: outward is -x
+        else:
+            a += knee_out * dx * dx
         amt = 0.0
         for m, ang0, sig, sgn in mal:
             if m > 1e-4 and dx * sgn > 0:

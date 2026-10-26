@@ -2794,12 +2794,15 @@ def _store_skin(objs):
 
 # ---- per-object helpers: topology, sides, smoothing, pruning
 SMOOTH_RADIUS = {     # metres of weight smoothing along the surface, per part
-    'body': 0.008, 'head': 0.01, 'shoes': 0.012, 'accessories': 0.012, 'bodice': 0.035,
+    'body': 0.009, 'head': 0.01, 'shoes': 0.012, 'accessories': 0.012, 'bodice': 0.035,
     'hair_front': 0.025, 'hair_back': 0.03, 'sleeves': 0.065, 'skirt': 0.03, 'petticoat': 0.06,
 }
 # (petticoat, round 7: 0.04 -> 0.06. Its gathered inner tiers sit ~16 cm from the axis,
 # where neighbouring skirt chains are only ~6.5 cm apart, and a draped chain turning more
 # than its neighbour stretched them x2.2-3.2; 0.08 made the layers part in cross_legged.)
+# (body, round 9: 0.008 -> 0.009 with the fractional steps of _diffuse: 0.008 on the body's
+# ~9.1 mm median edge rounded to 2 whole steps, which 0.009 now gives; 0.008's 1.5 steps
+# raised the body's stretch by up to 0.05 in arms_up / spin and flipped faces in the hollows.)
 DEFAULT_SMOOTH = 0.012
 MAX_SMOOTH_ITERS = 300
 SIDE_BAND = 0.02      # a .L/.R bone fades out over this far past the midline
@@ -2931,7 +2934,11 @@ def _smooth_ml(w, co, edges, radius, depth):
     ln, ref = _edge_ref(co, edges)
     if ref <= 0.0:
         return w
-    iters = int(round(2.0 * (radius / ref) ** 2))
+    # fractional (round 9): a whole number of steps made a small radius jump with the mesh's
+    # median edge (the body's 8 mm on its ~9.2 mm edges sat at 1.5 steps, and R8-5's denser
+    # hands tipped it from 1 to 2: the small weight change behind round 8's bend-span jumps,
+    # which motion_check's round-9 span measure no longer amplifies)
+    iters = 2.0 * (radius / ref) ** 2
     if iters <= SMOOTH_DIRECT or len(co) < 64 or depth >= 12:
         return _diffuse(w, co, edges, ln, ref, min(iters, MAX_SMOOTH_ITERS))
     lab, nc = _match(co, edges, ln)
@@ -2955,13 +2962,17 @@ def _smooth_ml(w, co, edges, radius, depth):
     else:
         cw = np.zeros_like(cw)
     w = w + cw[lab]
-    return _diffuse(w, co, edges, ln, ref, int(round(2.0 * (post / ref) ** 2)))
+    return _diffuse(w, co, edges, ln, ref, 2.0 * (post / ref) ** 2)
 
 
 def _diffuse(w, co, edges, ln, ref, iters):
-    """`iters` Laplacian steps of the weight rows along the mesh edges."""
-    if iters <= 0:
+    """`iters` Laplacian steps of the weight rows along the mesh edges. A fractional count
+    runs ceil(iters) equal, proportionally shorter steps (diffusion adds linearly in the
+    step size), so the smoothing varies continuously with the radius and the edge length."""
+    if iters <= 1e-6:
         return w
+    n = int(math.ceil(iters - 1e-9))
+    rate = 0.5 * iters / n
     c = np.minimum(1.0, (ref / np.maximum(ln, 1e-9)) ** 2)
     src = np.concatenate([edges[:, 0], edges[:, 1]])
     dst = np.concatenate([edges[:, 1], edges[:, 0]])
@@ -2971,9 +2982,9 @@ def _diffuse(w, co, edges, ln, ref, iters):
     verts, starts = np.unique(src, return_index=True)
     deg = np.diff(np.append(starts, len(src)))[:, None]
     w = w.copy()
-    for _ in range(iters):
+    for _ in range(n):
         pull = np.add.reduceat(cc * (w[dst] - w[src]), starts, axis=0) / deg
-        w[verts] += 0.5 * pull
+        w[verts] += rate * pull
     return w
 
 
