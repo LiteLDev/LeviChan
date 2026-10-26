@@ -21,22 +21,35 @@ to the hem and, at the fold troughs, a short turned-out edge.
   least STEEP_MIN of the half-fold wide) face into the next trough that
   looks toward +phi, away from the key light in every view. Both halves
   level out at crest and trough, so the cloth turns round everywhere.
-- Rings: T_STEPS gives 13 stations down the length, 0.1 apart through the
-  upper and middle skirt and a little closer toward the hem, so the skirt
-  chains bend the cloth in a curve, not in long straight panels. Azimuth
-  samples are spaced by arc length and packed where the hem curve bends.
+- Through mid-skirt the crests stand further out from their troughs
+  (MID_CREST), so the folds run down from the hips as channels instead of
+  appearing only at the hem; the troughs and the hem outline do not move.
+- The fold model above has curvature steps (a level crest run meets a steep
+  face that turns hard into its trough; the narrow arches rise ~50 px in
+  ~30 px of arc). The cloth is therefore evaluated on a fine azimuth grid and
+  smoothed along the circumference with a Gaussian (SMOOTH_PX for the radial
+  offsets, SMOOTH_ROW_PX for the hem height), which rounds every trough,
+  arch top and lobe junction while moving the cloth by about 1 px.
+- Rings: T_STEPS gives 22 stations down the length, 0.06 apart through the
+  upper and middle skirt and closer toward the hem, so the skirt chains bend
+  the cloth in a curve (squat, walk, forward bend), not in straight panels.
+  N_PHI azimuth samples are spaced by arc length and packed where the
+  smoothed hem curve bends.
 - Shading: the near-frontal key light only shades faces turned ~72-90 deg
   away, a few px wide on these folds, so the sheet's tapered fold shadows are
   added as faint mint streaks on each steep face (the dress -> dress_mint
   gradient attribute), feathered on both sides and faded in with height.
   White -> mint with height on top, and the turned-out edge mint inside.
-- Hem edge: a single thin sheet (THICK) with no rolled lip. Around a trough
+- Hem edge: the cloth is one closed shell (shell()): THICK thick, thickening
+  to HEM_THICK toward the hem, where it turns round in a half tube, so the
+  edge reads as soft turned fabric rather than a cut blade. Around a trough
   the last part of the sheet flares out a little (HEM_FLARE), tangent-
   continuous, so the inside of the fabric just shows in the mint tone (the
   sheet's hem turns at every trough). At a crest the hem tucks under a
-  little instead, easing in from mid-skirt (CREST_CURL_T).
-- Normals are smooth over the whole cloth; only the thin rim at the hem and
-  waist is split.
+  little instead, easing in from mid-skirt (CREST_CURL_T) and ending at half
+  its steepest slope, so the edge does not hook back.
+- Normals are smooth over the whole cloth, round the hem roll too; only the
+  waist rim (under the bodice) is split.
 - FOLDS was fitted by levi/parts/_skirt_fit.py so that the visible lower
   outline and the flare outlines match the front, side and back views at once
   (the petticoat hides what lies behind it) while the cloth stays outside the
@@ -118,18 +131,30 @@ _SECTION = [
 ]
 TOP_ROW = 326            # tucked under the bodice bottom edge
 
-N_PHI = 153
+N_PHI = 200
 CURV_DENSITY = 1.5       # extra azimuth samples where the hem curve bends (see azimuths())
-# rings down the length (waist -> hem): evenly spaced so the skirt chains bend
-# the cloth in a curve, a little denser toward the hem where the folds, the
-# hem wave, the crest tuck and the edge flare are all strongest
-T_STEPS = (0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.68, 0.76, 0.83, 0.89, 0.945, 1.0)
+# rings down the length (waist -> hem): close enough everywhere that the
+# skirt chains bend the cloth in a curve (squat, walk, forward bend), and
+# denser toward the hem where the folds, the hem wave, the crest tuck and the
+# edge flare are all strongest
+T_STEPS = (0.0, 0.06, 0.12, 0.18, 0.24, 0.30, 0.36, 0.42, 0.48, 0.54, 0.60, 0.65, 0.70,
+           0.75, 0.79, 0.83, 0.87, 0.905, 0.935, 0.96, 0.98, 1.0)
 N_RINGS = len(T_STEPS)
-THICK = 0.0018
+THICK = 0.0018           # cloth thickness (m); the shell is built inward from profiles()
+HEM_THICK = 0.0030       # thickness at the hem edge, where the cloth rolls round
+HEM_THICK_T = 0.87       # ... eased in (level start) from this t
+HEM_ROLL = 4             # segments of the rounded hem edge (a half tube)
+NF = 2880                # fine azimuth grid the cloth is evaluated and smoothed on
+SMOOTH_PX = 5.0          # Gaussian smoothing of the cloth round the skirt (px of arc at
+                         # the hem), so curvature is continuous at every crest, trough
+                         # and lobe junction (the fold model alone has curvature steps)
+SMOOTH_ROW_PX = 7.0      # the same for the hem height: rounds the tops of the narrow arches
+                         # (they rose ~50 px in ~30 px of arc to a near point)
 
 FOLD_T0 = 0.05           # folds open from this t (below the hips), full depth at the hem
 FOLD_EASE = 0.15         # ... eased in over about this share of the length
 MID_RELIEF = 0.25        # extra fold depth through mid-skirt (share, peaks halfway, 0 at the hem)
+MID_CREST = 0.6         # extra crest height above the trough through mid-skirt (share; troughs stay)
 LOBE_P_RANGE = (1.5, 2.0)  # per-fold hem lobe exponent (FOLDS column 6, x10): > 1 widens the lobe bottom
 BASE_POW = 1.4           # smooth offset grows as t**BASE_POW
 STEEP_MIN = 0.7          # the falling fold face spans at least this share of the half-fold
@@ -140,7 +165,7 @@ STEEP_MIN = 0.7          # the falling fold face spans at least this share of th
 # The flare weight w rises from 0 to 1 over each fold's half-width toward
 # its trough (|u| from LIP_U0 to 1).
 LIP_U0 = 0.15
-HEM_FLARE = 3.5
+HEM_FLARE = 2.5          # (3.5 before the rounded hem: the turned-out troughs read as blades edge-on)
 HEM_FLARE_T = 0.7
 STEEP_FACE_DEG = 70.0    # orientation of the steep fold face at the hem, from the view axis
 Z_MINT = 0.6             # white -> mint height gradient reaches this at the hem
@@ -149,7 +174,9 @@ STREAK_W = 0.7           # streak width at the hem, as a share of the steep face
 STREAK_T0 = 0.3          # streaks start at this t
 STREAK_SOFT = 0.6        # streak edge feather (in u)
 DRIFT_DEG = 4.0          # sideways wander of the folds up the skirt (deg at the waist)
-CREST_CURL_T = 0.55      # main-sheet t where the per-fold crest curl (tuck under) starts
+CREST_CURL_T = 0.45      # main-sheet t where the per-fold crest curl (tuck under) starts
+CURL_K = 0.7             # share of the fitted crest tuck (FOLDS column 5) that is built: the
+                         # full tuck folds the crest edge back into an edge-on blade
 
 # One row per fold, sorted by azimuth; fitted by _skirt_fit.py, regenerate with
 #   blender -b --factory-startup -P levi/parts/_skirt_fit.py -- --write
@@ -260,12 +287,13 @@ def azimuths(folds):
     where the hem curve bends (lobe bottoms, arch tops, the turns of narrow
     folds), so every crest-to-trough transition gets intermediate samples.
     First sample at phi = 0."""
-    fine = np.linspace(0.0, 2 * np.pi, 7201)
-    row, fold, base, lip, curl, _, _ = hem_terms(folds, fine[:-1])
-    X, Yf, Yb = (float(v) for v in section(575.0))
-    c = np.cos(fine[:-1])
-    radius = np.hypot(X * np.sin(fine[:-1]), c * np.where(c > 0, Yf, Yb))
-    rad = radius + fold + base - curl * (1 - lip) + HEM_FLARE * lip
+    d = _dense(folds)
+    if 'azimuths' in d:
+        return d['azimuths'].copy()
+    fine = np.append(d['phi'], 2 * np.pi)
+    row = d['row']
+    radius = _hem_radius(d['phi'])
+    rad = radius + d['off'][:, -1]           # the smoothed cloth at the hem
     ds = radius * (fine[1] - fine[0])
     # curvature of the hem curve in the (arc, row) and (arc, radius) planes
     d2 = np.hypot(np.roll(row, -1) - 2 * row + np.roll(row, 1),
@@ -276,12 +304,95 @@ def azimuths(folds):
     dens = np.append(dens, dens[0])
     cdf = np.concatenate([[0.0], np.cumsum(0.5 * (dens[1:] + dens[:-1]))])
     cdf /= cdf[-1]
-    return np.interp(np.arange(N_PHI) / N_PHI, cdf, fine)
+    d['azimuths'] = np.interp(np.arange(N_PHI) / N_PHI, cdf, fine)
+    return d['azimuths'].copy()
+
+
+def _hem_radius(phi):
+    """Radius (px) of the bell's section at the hem (row 575) toward azimuth phi."""
+    X, Yf, Yb = (float(v) for v in section(575.0))
+    c = np.cos(phi)
+    return np.hypot(X * np.sin(phi), c * np.where(c > 0, Yf, Yb))
+
+
+def _smooth_loop(v, sigma):
+    """Circular Gaussian smoothing along axis 0 (sigma in samples)."""
+    w = 2 * np.pi * np.fft.fftfreq(v.shape[0])
+    h = np.exp(-0.5 * (w * sigma) ** 2).reshape((-1,) + (1,) * (v.ndim - 1))
+    return np.real(np.fft.ifft(np.fft.fft(v, axis=0) * h, axis=0))
+
+
+def _trough_floor(folds, phi):
+    """The fold term's trough level (px, -trough half-depth) under phi: the
+    levels of the fold's two troughs, blended smoothly across the fold (equal
+    to each at its trough, no step at the crest)."""
+    f = np.array(folds, dtype=np.float64)
+    k, u = fold_index(folds, phi)
+    n = len(f)
+    lo = -0.5 * (f[np.mod(k - 1, n), 3] + f[k, 3])     # trough before fold k
+    hi = -0.5 * (f[k, 3] + f[np.mod(k + 1, n), 3])     # trough after it
+    return lo + (hi - lo) * _smoothstep(0.5 * (u + 1.0))
+
+
+_DENSE_CACHE = {}
+
+
+def _dense(folds):
+    """The cloth on a fine uniform azimuth grid (NF samples from phi = 0):
+    dict with 'phi', the hem 'row' (NF,) and the radial 'off'set (NF, N_RINGS)
+    of every ring, px. The fold model (hem_terms) is built from pieces that
+    meet with matching slopes but not matching curvature (a level crest run,
+    then a steep face that turns hard into the trough), which reads as a
+    pointed trough in clay and cel; a Gaussian along the circumference
+    (SMOOTH_PX of arc at the hem) makes the cloth turn round everywhere while
+    moving it by only ~1 px. Cached per fold table."""
+    key = tuple(tuple(f) for f in folds)
+    if _DENSE_CACHE.get('key') == key:
+        return _DENSE_CACHE['val']
+    phi = np.arange(NF) * (2 * np.pi / NF)
+    t = np.array(T_STEPS)[None, :]
+    # fold, smooth offset and crest curl follow the drifting folds (exact at
+    # the hem, where the drift is 0: the last column is the hem row)
+    row, fold_t, offs_t, w_t, curl_t, _, _ = _hem_terms_raw(folds, phi[:, None] + drift(phi[:, None], t))
+    row = row[:, -1]
+    # folds open gently below the hips and deepen down to the hem; the crest
+    # curl eases in (level start) from mid-skirt toward the hem
+    off = t ** BASE_POW * offs_t + fold_growth(t) * fold_t
+    # through mid-skirt the crests stand out further from their troughs
+    # (MID_CREST of the fold's height above its trough, peaking halfway, 0 at
+    # the waist and the hem): the folds carry volume down from the hips, while
+    # the troughs (the inner surface the petticoat sits under) and the hem
+    # outline stay where they were
+    s = np.clip((t - FOLD_T0) / (1.0 - FOLD_T0), 0.0, 1.0)
+    floor = _trough_floor(folds, phi[:, None] + drift(phi[:, None], t))
+    off = off + MID_CREST * np.sin(np.pi * s) ** 2 * (fold_t - floor)
+    # crests tuck under, troughs flare out a little at the edge; the tuck
+    # eases in from CREST_CURL_T and ends at half its steepest slope, so the
+    # crest's edge turns in without hooking back edge-on
+    kc = np.clip((t - CREST_CURL_T) / (1 - CREST_CURL_T), 0, 1)
+    kc = kc * kc * (2.0 - kc)
+    off = off - CURL_K * curl_t * (1 - w_t) * kc + HEM_FLARE * w_t * flare_k(t)
+    px =float(_hem_radius(phi).mean()) * (2 * np.pi / NF)       # px of arc per sample
+    val = {'phi': phi, 'row': _smooth_loop(row, SMOOTH_ROW_PX / px),
+           'off': _smooth_loop(off, SMOOTH_PX / px)}
+    _DENSE_CACHE.update(key=key, val=val)
+    return val
 
 
 def hem_terms(folds, phi):
-    """Per azimuth: hem row, fold offset at the hem (px, + = outward), smooth
-    offset (px) and lip weight (0..1)."""
+    """Per azimuth: (hem row, fold offset at the hem (px, + = outward), smooth
+    offset (px), lip weight (0..1), crest curl (px), fold position u, streak
+    start u). The hem row is the built one (smoothed, as in profiles()); the
+    other terms are the fold model's, before the smoothing along the hem."""
+    terms = _hem_terms_raw(folds, phi)
+    d = _dense(folds)
+    p = np.mod(np.asarray(phi, dtype=np.float64), 2 * np.pi)
+    row = np.interp(p.ravel(), d['phi'], d['row'], period=2 * np.pi).reshape(p.shape)
+    return (row,) + tuple(terms[1:])
+
+
+def _hem_terms_raw(folds, phi):
+    """hem_terms() of the fold model itself (hem row not smoothed)."""
     f = np.array(folds, dtype=np.float64)
     k, u = fold_index(folds, phi)
     side = np.where(u < 0, -1, 0)              # the trough on this side: k-1 or k
@@ -306,13 +417,17 @@ def hem_terms(folds, phi):
     # V) and is as wide as puts its mean slope at STEEP_FACE_DEG to the
     # front / back view axis at the hem (the cone's flare tilts its normal
     # up, so only ~72-90 deg reads as shade; past 90 it would hide).
-    phi_f = np.minimum(np.abs(np.mod(phi + np.pi, 2 * np.pi) - np.pi),
-                       np.abs(np.mod(phi, 2 * np.pi) - np.pi))
-    tilt = np.radians(np.clip(STEEP_FACE_DEG - np.degrees(phi_f), 15.0, 80.0))
+    # The width is one number per fold, taken three quarters of the way from
+    # crest to trough (u = 0.75): evaluated per azimuth, its clips put slope breaks
+    # inside the face (a kink where the tilt clip engages).
     half = np.radians(0.5 * np.mod(np.roll(f[:, 0], -1) - f[:, 0], 360.0))   # fold k: crest -> trough
-    X, Yf, Yb = (float(v) for v in section(575.0))
-    radius = np.hypot(X * np.sin(phi), np.cos(phi) * np.where(np.cos(phi) > 0, Yf, Yb))
-    steep = np.clip((amp + amp_t) / np.tan(tilt) / (half[k] * radius), STEEP_MIN, 1.0)
+    amp_n = 0.5 * (f[:, 3] + np.roll(f[:, 3], -1))                         # depth at the trough after k
+    phi_m = np.radians(f[:, 0]) + 0.75 * half
+    phi_f = np.minimum(np.abs(np.mod(phi_m + np.pi, 2 * np.pi) - np.pi),
+                       np.abs(np.mod(phi_m, 2 * np.pi) - np.pi))
+    tilt = np.radians(np.clip(STEEP_FACE_DEG - np.degrees(phi_f), 15.0, 80.0))
+    steep_k = np.clip((f[:, 3] + amp_n) / np.tan(tilt) / (half * _hem_radius(phi_m)), STEEP_MIN, 1.0)
+    steep = steep_k[k]
     # both halves level out at the crest and in the trough (zero slope), so
     # the cloth turns round at every crest and crease instead of creasing
     g = np.where(u < 0, 0.5 * (1.0 + np.cos(np.pi * a)),
@@ -371,10 +486,14 @@ def ring_terms(folds, phi=None):
 def profiles(folds):
     """Cloth points, array (N_PHI, N_RINGS, 3) of (x, y, row) in panel px.
 
-    Rings: T_STEPS (waist -> hem edge).
+    Rings: T_STEPS (waist -> hem edge). The fold offsets and hem rows are
+    the smoothed ones of _dense(), sampled at azimuths().
     """
     phi = azimuths(folds)
-    rows = hem_terms(folds, phi)[0]
+    d = _dense(folds)
+    rows = np.interp(phi, d['phi'], d['row'], period=2 * np.pi)
+    off = np.stack([np.interp(phi, d['phi'], d['off'][:, j], period=2 * np.pi)
+                    for j in range(N_RINGS)], axis=1)
     s, c = np.sin(phi), np.cos(phi)
     out = np.empty((N_PHI, N_RINGS, 3))
     t = np.array(T_STEPS)[None, :]
@@ -384,14 +503,6 @@ def profiles(folds):
     y = -c[:, None] * np.where(c[:, None] > 0, Yf, Yb)
     r = np.hypot(x, y)
     ux, uy = x / r, y / r
-    # fold, smooth offset and crest curl follow the drifting folds (exact at the hem)
-    _, fold_t, offs_t, w_t, curl_t, _, _ = ring_terms(folds, phi)
-    # folds open gently below the hips and deepen down to the hem; the crest
-    # curl eases in (level start) from mid-skirt toward the hem
-    off = t ** BASE_POW * offs_t + fold_growth(t) * fold_t
-    kc = np.clip((t - CREST_CURL_T) / (1 - CREST_CURL_T), 0, 1) ** 2
-    # crests tuck under, troughs flare out a little at the edge
-    off = off - curl_t * (1 - w_t) * kc + HEM_FLARE * w_t * flare_k(t)
     out[:, :, 0] = x + ux * off
     out[:, :, 1] = y + uy * off
     out[:, :, 2] = row
@@ -470,47 +581,104 @@ def build(col):
                       spec.px_to_z(pts[i, k, 2]))) for i in range(N_PHI)]
              for k in range(N_RINGS)]
     bm = common.loft(rings, closed=True)
-    # open sheet: make the normals point away from the body (outer cloth side)
+    # the sheet's normals point away from the body (outer cloth side)
     radial = sum(f.normal.dot(Vector((f.calc_center_median().x, f.calc_center_median().y, 0.0)))
                  for f in bm.faces)
     if radial < 0:
         bmesh.ops.reverse_faces(bm, faces=bm.faces)
-    nverts = len(bm.verts)
+    bm.normal_update()
+    P = np.array([v.co[:] for v in bm.verts]).reshape(N_RINGS, N_PHI, 3)
+    Nv = np.array([v.normal[:] for v in bm.verts]).reshape(N_RINGS, N_PHI, 3)
+    bm.free()
+    outer, inner, roll = shell(P, Nv)
+
+    # one closed cloth shell: outer sheet, the rounded hem roll, inner sheet
+    # and the waist rim, with vertex rows [outer rings 0..n-1, inner rings
+    # 0..n-1, roll rows 1..HEM_ROLL-1]
+    rows = list(outer) + list(inner) + list(roll)
+    bm = bmesh.new()
+    vs = [[bm.verts.new(p) for p in r] for r in rows]
+
+    def strip(a, b):
+        for j in range(N_PHI):
+            k = (j + 1) % N_PHI
+            bm.faces.new((a[j], a[k], b[k], b[j]))
+
+    n = N_RINGS
+    for k in range(n - 1):
+        strip(vs[k], vs[k + 1])                     # outer sheet
+        strip(vs[n + k + 1], vs[n + k])             # inner sheet
+    hem = [vs[n - 1]] + vs[2 * n:] + [vs[2 * n - 1]]
+    for a, b in zip(hem, hem[1:]):
+        strip(a, b)                                 # rounded hem: outer -> inner
+    strip(vs[n], vs[0])                             # waist rim (under the bodice)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
 
     mat = common.toon_material('dress', gradient='dress_mint')
     obj = common.new_object(col, 'skirt', bm, [mat])
-    sol = obj.modifiers.new('Thickness', 'SOLIDIFY')
-    sol.thickness = THICK
-    sol.offset = -1.0
-    sol.use_even_offset = True
-    sol.use_quality_normals = True
-    common.apply_modifiers(obj)
-    # smooth everywhere on the cloth (no angle-based splits inside a fold);
-    # only the edges around the thin rim at the hem and the waist are sharp
-    obj.data.shade_smooth()
     me = obj.data
+    nverts = n * N_PHI
+    assert len(me.vertices) == 2 * nverts + (HEM_ROLL - 1) * N_PHI, 'skirt: unexpected vertex layout'
+    # smooth everywhere on the cloth, round the hem roll too (no angle-based
+    # splits inside a fold); only the waist rim, hidden under the bodice, is sharp
+    me.shade_smooth()
     sharp = me.attributes.get('sharp_edge') or me.attributes.new('sharp_edge', 'BOOLEAN', 'EDGE')
-    end_rings = (0, N_RINGS - 1)
     for e in me.edges:
-        r0 = (e.vertices[0] % nverts) // N_PHI
-        r1 = (e.vertices[1] % nverts) // N_PHI
-        sharp.data[e.index].value = r0 == r1 and r0 in end_rings
+        a, b = e.vertices
+        sharp.data[e.index].value = (a < 2 * nverts and b < 2 * nverts and
+                                     (a % nverts) // N_PHI == 0 and (b % nverts) // N_PHI == 0)
     # white -> mint with height (up to Z_MINT), mint streaks on the folds'
     # turned-away faces, and the flared edge at the troughs (its inside shows)
     # mint by flare weight
     zg = common.z_gradient(spec.px_to_z(420), spec.px_to_z(600))
     common.set_gradient(obj, lambda co: Z_MINT * zg(co))
-    # solidify keeps the loft's vertices first, then their offset copies
-    assert len(me.vertices) == 2 * nverts, 'skirt: unexpected solidify vertex layout'
     st = streaks(folds)
     edge = ring_terms(folds)[3] * flare_k(T_STEPS)[None, :]     # the drifted flare weight
     attr = me.attributes[common.GRAD_ATTR]
     for v in me.vertices:
-        ring, i = divmod(v.index % nverts, N_PHI)
+        if v.index < 2 * nverts:
+            ring, i = divmod(v.index % nverts, N_PHI)
+            # the inner face takes the full edge mint, the outer face only a
+            # light tint right at the edge
+            s = 1.0 if v.index >= nverts else 0.0
+        else:   # the hem roll: from the outer tint round to the inner mint
+            j, i = divmod(v.index - 2 * nverts, N_PHI)
+            ring, s = n - 1, (j + 1) / HEM_ROLL
+        e = edge[i, ring]
+        e = s * e + (1 - s) * 0.5 * e * e
         g = min(1.0, attr.data[v.index].value + STREAK * st[i, ring])
-        # the inner face (solidify copies) takes the full edge mint, the outer
-        # face only a light tint right at the edge, so no flat mint band
-        e = edge[i, ring] if v.index >= nverts else 0.5 * edge[i, ring] ** 2
-        attr.data[v.index].value = max(g, e)
+        # soft union of the height / streak tint and the edge tint (no
+        # crease in the colour where one takes over from the other)
+        attr.data[v.index].value = g + e - g * e
     common.add_outline(obj)
     return obj
+
+
+def shell(P, Nv):
+    """The cloth's two faces and its rounded hem from the sheet points P and
+    their outward unit normals Nv (both (N_RINGS, N_PHI, 3), metres).
+
+    The inner face is the sheet moved THICK inward along its normals, as the
+    old solidify (offset -1) built it and as the petticoat's clearance model
+    rebuilds it. Toward the hem (from HEM_THICK_T, level start) the outer face
+    moves out until the cloth is HEM_THICK thick (under 1 px), and the edge
+    turns round in a half tube of HEM_ROLL segments, so the hem reads as a
+    soft turned edge, not a cut blade. (No even-thickness correction: the
+    folds' radii of curvature are many times the thickness.)
+    Returns (outer, inner, roll): roll is (HEM_ROLL - 1, N_PHI, 3), the
+    intermediate rows from the outer hem round to the inner one."""
+    t = np.array(T_STEPS)
+    grow = (HEM_THICK - THICK) * _smoothstep((t - HEM_THICK_T) / (1 - HEM_THICK_T))
+    outer = P + Nv * grow[:, None, None]
+    inner = P - Nv * THICK
+    o, i = outer[-1], inner[-1]
+    mid, half = 0.5 * (o + i), 0.5 * (o - i)
+    # the direction the cloth runs on past the hem (down the last segment),
+    # square to the normal
+    d = P[-1] - P[-2]
+    d -= Nv[-1] * (d * Nv[-1]).sum(axis=1)[:, None]
+    d /= np.linalg.norm(d, axis=1)[:, None]
+    r = np.linalg.norm(half, axis=1)[:, None]
+    roll = np.array([mid + half * math.cos(a) + d * r * math.sin(a)
+                     for a in np.pi * np.arange(1, HEM_ROLL) / HEM_ROLL])
+    return outer, inner, roll
