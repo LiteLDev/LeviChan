@@ -618,7 +618,7 @@ DRAPE_PHI = tuple(range(-60, 121, 10))   # deg of thigh pitch (forward +) the dr
 DRAPE_CLEAR = 0.012         # m kept between the innermost cloth layer and the thigh surface
 DRAPE_BEND = 30.0           # deg: most a joint bends against the segment above it
 DRAPE_UP = 10.0             # deg a segment may lift above the one over it
-DRAPE_SPREAD = 60.0         # deg around the body over which a lifted chain lifts its neighbours
+DRAPE_SPREAD = 100.0        # deg around the body over which a lifted chain lifts its neighbours
 DRAPE_SPREAD_SHARE = 0.85   # ... and how much of its lift the next chain gets at the least
 DRAPE_SHARE_AT = 60.0       # deg of thigh pitch at which the PMX's linear 回転付与 share is read
 
@@ -1835,6 +1835,38 @@ def _sleeve_weights(co, bones, sparam=None):
     return W
 
 
+# Thick cloth shells (the skirt's outer face, inner face and rounded hem): vertices at the
+# same place on the cloth (angle around the body, height) get the same weights, so the two
+# faces cannot separate in a pose: weights are averaged over SHELL_CELL cells.
+SHELL_PARTS = ('skirt',)
+SHELL_CELL = (1.5, 0.004)    # deg around the body, m of height
+
+
+def _shell_share(w, co, bones):
+    """Weights as a smooth function of (angle around the body, height): splatted onto a
+    SHELL_CELL grid with bilinear weights and read back the same way, so vertices of both
+    faces at one spot get equal weights and the field stays continuous."""
+    cy = next((b.meta['cy'] for b in bones if b.group == 'Skirt' and 'cy' in b.meta), None)
+    if cy is None:
+        return w
+    th = np.degrees(np.arctan2(co[:, 0], co[:, 1] - cy)) / SHELL_CELL[0]
+    zz = co[:, 2] / SHELL_CELL[1]
+    i0, j0 = np.floor(th).astype(np.int64), np.floor(zz).astype(np.int64)
+    fx, fz = th - i0, zz - j0
+    corners = [(0, 0, (1 - fx) * (1 - fz)), (1, 0, fx * (1 - fz)), (0, 1, (1 - fx) * fz), (1, 1, fx * fz)]
+    keys = np.concatenate([np.stack([i0 + di, j0 + dj], 1) for di, dj, _ in corners])
+    uniq, inv = np.unique(keys, axis=0, return_inverse=True)
+    inv = inv.reshape(4, -1)
+    acc = np.zeros((len(uniq), w.shape[1]))
+    den = np.zeros(len(uniq))
+    for (di, dj, f), ix in zip(corners, inv):
+        np.add.at(acc, ix, w * f[:, None])
+        np.add.at(den, ix, f)
+    node = acc / np.maximum(den, 1e-12)[:, None]
+    out = sum(node[ix] * f[:, None] for (di, dj, f), ix in zip(corners, inv))
+    return out
+
+
 def _base_weights(part, co, bones):
     """(V, B) weights before side masking / smoothing / pruning."""
     plain = [j for j, b in enumerate(bones) if not {'twist_of', 'joint_aux', 'shrug_of'} & set(b.meta)]
@@ -2039,6 +2071,8 @@ def _weights(obj, part, co, bones):
         w = w * (1.0 - m[:, None]) + _smooth(w, co, edges, ARMPIT_SMOOTH) * m[:, None]
     if part == 'hair_back':
         w = _hair_head_fade(w, co, bones)
+    if part in SHELL_PARTS:
+        w = _shell_share(w, co, bones)
     if part in CROTCH_PARTS and ARM_CAP:
         w = _arm_cap(w, co, bones)
     cord = _neck_cord(obj, part)
@@ -2049,6 +2083,8 @@ def _weights(obj, part, co, bones):
     # which bones a vertex keeps is decided on a wider-smoothed copy of its weights, so
     # the set changes gradually along the surface instead of wherever two weak bones swap
     guide = _smooth(w, co, edges, PRUNE_SMOOTH) if PRUNE_SMOOTH > 0 else None
+    if guide is not None and part in SHELL_PARTS:
+        guide = _shell_share(guide, co, bones)
     return _prune(w, bones, guide, co)
 
 
