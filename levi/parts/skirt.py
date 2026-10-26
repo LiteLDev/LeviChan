@@ -30,7 +30,7 @@ to the hem and, at the fold troughs, a short turned-out edge.
   smoothed along the circumference with a Gaussian (SMOOTH_PX for the radial
   offsets, SMOOTH_ROW_PX for the hem height), which rounds every trough,
   arch top and lobe junction while moving the cloth by about 1 px.
-- Rings: T_STEPS gives 22 stations down the length, 0.06 apart through the
+- Rings: T_STEPS gives 30 stations down the length, 0.04 apart through the
   upper and middle skirt and closer toward the hem, so the skirt chains bend
   the cloth in a curve (squat, walk, forward bend), not in straight panels.
   N_PHI azimuth samples are spaced by arc length and packed where the
@@ -53,7 +53,8 @@ to the hem and, at the fold troughs, a short turned-out edge.
 - FOLDS was fitted by levi/parts/_skirt_fit.py so that the visible lower
   outline and the flare outlines match the front, side and back views at once
   (the petticoat hides what lies behind it) while the cloth stays outside the
-  petticoat.
+  petticoat, with the hem's slope and curvature along the cloth bounded
+  (round 6), so the lobes end round instead of in thin edge-on fins.
 
 All reference measurements are in panel pixels (rows / columns of
 ref/<view>.png; panel centre column = 320).
@@ -131,14 +132,15 @@ _SECTION = [
 ]
 TOP_ROW = 326            # tucked under the bodice bottom edge
 
-N_PHI = 200
+N_PHI = 360
 CURV_DENSITY = 1.5       # extra azimuth samples where the hem curve bends (see azimuths())
 # rings down the length (waist -> hem): close enough everywhere that the
 # skirt chains bend the cloth in a curve (squat, walk, forward bend), and
 # denser toward the hem where the folds, the hem wave, the crest tuck and the
 # edge flare are all strongest
-T_STEPS = (0.0, 0.06, 0.12, 0.18, 0.24, 0.30, 0.36, 0.42, 0.48, 0.54, 0.60, 0.65, 0.70,
-           0.75, 0.79, 0.83, 0.87, 0.905, 0.935, 0.96, 0.98, 1.0)
+T_STEPS = (0.0, 0.04, 0.08, 0.12, 0.16, 0.20, 0.24, 0.28, 0.32, 0.36, 0.40, 0.44, 0.48,
+           0.52, 0.56, 0.60, 0.635, 0.67, 0.705, 0.74, 0.77, 0.80, 0.83, 0.86, 0.885,
+           0.91, 0.935, 0.955, 0.975, 1.0)
 N_RINGS = len(T_STEPS)
 THICK = 0.0018           # cloth thickness (m); the shell is built inward from profiles()
 HEM_THICK = 0.0030       # thickness at the hem edge, where the cloth rolls round
@@ -153,8 +155,8 @@ SMOOTH_ROW_PX = 7.0      # the same for the hem height: rounds the tops of the n
 
 FOLD_T0 = 0.05           # folds open from this t (below the hips), full depth at the hem
 FOLD_EASE = 0.15         # ... eased in over about this share of the length
-MID_RELIEF = 0.25        # extra fold depth through mid-skirt (share, peaks halfway, 0 at the hem)
-MID_CREST = 0.6         # extra crest height above the trough through mid-skirt (share; troughs stay)
+MID_RELIEF = 0.15        # extra fold depth through mid-skirt (share, peaks halfway, 0 at the hem)
+MID_CREST = 0.35        # extra crest height above the trough through mid-skirt (share; troughs stay)
 LOBE_P_RANGE = (1.5, 2.0)  # per-fold hem lobe exponent (FOLDS column 6, x10): > 1 widens the lobe bottom
 BASE_POW = 1.4           # smooth offset grows as t**BASE_POW
 STEEP_MIN = 0.7          # the falling fold face spans at least this share of the half-fold
@@ -165,7 +167,7 @@ STEEP_MIN = 0.7          # the falling fold face spans at least this share of th
 # The flare weight w rises from 0 to 1 over each fold's half-width toward
 # its trough (|u| from LIP_U0 to 1).
 LIP_U0 = 0.15
-HEM_FLARE = 2.5          # (3.5 before the rounded hem: the turned-out troughs read as blades edge-on)
+HEM_FLARE = 0.9          # (3.5 before the rounded hem, 2.5 in round 5: the turned-out troughs read as blades edge-on)
 HEM_FLARE_T = 0.7
 STEEP_FACE_DEG = 70.0    # orientation of the steep fold face at the hem, from the view axis
 Z_MINT = 0.6             # white -> mint height gradient reaches this at the hem
@@ -175,7 +177,7 @@ STREAK_T0 = 0.3          # streaks start at this t
 STREAK_SOFT = 0.6        # streak edge feather (in u)
 DRIFT_DEG = 4.0          # sideways wander of the folds up the skirt (deg at the waist)
 CREST_CURL_T = 0.45      # main-sheet t where the per-fold crest curl (tuck under) starts
-CURL_K = 0.7             # share of the fitted crest tuck (FOLDS column 5) that is built: the
+CURL_K = 0.3             # share of the fitted crest tuck (FOLDS column 5) that is built: the
                          # full tuck folds the crest edge back into an edge-on blade
 
 # One row per fold, sorted by azimuth; fitted by _skirt_fit.py, regenerate with
@@ -186,17 +188,14 @@ CURL_K = 0.7             # share of the fitted crest tuck (FOLDS column 5) that 
 #  half-depth px, smooth radial offset px, inward tuck of the crest at the
 #  hem px - negative flares it out over the petticoat, hem lobe exponent x10)
 FOLDS = [
-    (7, 594, 543, 10, 30, 17, 16),
-    (29, 583, 553, 12, 26, 14, 15),
-    (50, 575, 541, 10, 22, 14, 15),
-    (90, 552, 526, 10, 15, 11, 15),
-    (147, 568, 551, 10, 26, 2, 17),
-    (179, 606, 551, 10, 12, 15, 20),
-    (206, 593, 548, 16, 16, 14, 15),
-    (230, 565, 525, 12, 12, 14, 15),
-    (255, 539, 527, 10, 8, 11, 15),
-    (295, 554, 542, 12, 18, 14, 15),
-    (325, 582, 539, 10, 30, 20, 15),
+    (4, 603, 557, 10, -4, 18, 15),
+    (44, 585, 550, 16, 0, 11, 18),
+    (92, 562, 527, 10, -12, 12, 18),
+    (136, 561, 551, 12, -2, 13, 15),
+    (184, 561, 551, 14, -6, 21, 15),
+    (212, 568, 543, 14, -2, 18, 20),
+    (243, 553, 541, 16, -8, 12, 20),
+    (315, 564, 548, 20, -6, 14, 20),
 ]
 
 
@@ -514,9 +513,11 @@ def flare_k(t):
     return np.clip((np.asarray(t, dtype=np.float64) - HEM_FLARE_T) / (1 - HEM_FLARE_T), 0, 1) ** 2
 
 
-def initial_folds(crests=(0, 31, 53, 92, 142, 180, 206, 231, 256, 295, 325)):
+def initial_folds(crests=(4, 44, 92, 136, 184, 212, 243, 315)):
     """Starting guess for the fit: crest / trough rows read off the view tables
-    (front/back weighted by cos^2 of the azimuth, side by sin^2)."""
+    (front/back weighted by cos^2 of the azimuth, side by sin^2). Eight folds
+    (round 6): the narrow pairs at the four quarters (~22 deg apart) were
+    merged, since a narrow lobe between two arches read as an edge-on fin."""
     front, back, side = (parse_table(s) for s in (FRONT_HEM, BACK_HEM, SIDE_HEM))
     X, Yf, Yb = (float(v) for v in section(560))
 
