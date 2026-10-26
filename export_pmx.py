@@ -13,7 +13,10 @@ Needs the mmd_tools extension (installed in the user profile), so do not pass
      a generated toon ramp (white -> shade/base) for the cel shadow, edge colour
      = palette line, edge on (off for objects marked no_outline).
   4. Optional physics: static bodies on the core bones, dynamic capsules on the
-     hair / skirt / sleeve chains, joints parent -> chain -> chain.
+     hair / skirt / sleeve chains, joints parent -> chain -> chain; hair-only static
+     capsules on the real arm, torso and skirt surfaces (rig.HAIR_CAPSULES_PROP).
+The rig's Blender-only hair collision (probe bones, colliders) is removed first
+(rig.strip_blender_only): MMD's physics does that job.
   5. Export at 12.5 MMD units per metre, write <out>.json with the counts.
 --fixtures adds the throwaway rig test meshes (tools/rig_fixtures.py) for any
 missing body/hair/skirt/sleeves; it is on automatically when levi/parts is empty.
@@ -426,6 +429,16 @@ STATIC_BODIES = ['頭', '首', '上半身', '上半身2', '下半身'] + \
 # which hang right next to the wrists at rest, ignore them
 HAND_BODIES = [f'手首.{t}' for t in 'LR']
 HAND_GROUP, HAND_RADIUS = 4, 0.022
+# Hair (round 7): the head body has its own group (HEAD_GROUP; the other chains still
+# collide with it as before), so a hair body lying inside it at rest can ignore the head
+# alone; every hair body ignores the static groups it already overlaps at rest (it would
+# be shot out on the first frame). HAIR_ONLY_GROUP holds rig.HAIR_CAPSULES_PROP's capsules
+# fitted to the real surfaces (upper arms, forearms, hands with their sleeves, chest and
+# waist with the bodice, the skirt top behind the hips), which only hair collides with:
+# the hair drapes over her shoulders, back, arms and skirt instead of sinking to the thin
+# bone capsules, and nothing else changes.
+HEAD_GROUP = 5
+HAIR_ONLY_GROUP = 6
 CHAIN_GROUP = {'Hair': 1, 'Skirt': 2, 'Sleeve': 3}
 CHAIN_LIMIT = {'Hair': (20, 8, 20), 'Skirt': (30, 8, 15), 'Sleeve': (25, 8, 25)}   # degrees x, y, z
 
@@ -462,6 +475,16 @@ def chain_groups_overlapping(bones):
     return out
 
 
+def _rest_overlaps(b, rad, geo, mask):
+    """Static groups (not already in `mask`) with a body that the chain capsule of bone `b`
+    (radius rad) touches at rest: that chain body must ignore them."""
+    d = (b.tail_local - b.head_local).normalized()
+    mid = (b.head_local + b.tail_local) / 2
+    half = d * max(0.01, b.length - rad) / 2
+    p, q = np.array(mid - half), np.array(mid + half)
+    return {g for _n, a, c, r, g in geo if g not in mask and _seg_seg_dist(p, q, a, c) < rad + r}
+
+
 def add_physics(root, arm):
     m = mmd_tools()
     from importlib import import_module
@@ -475,19 +498,26 @@ def add_physics(root, arm):
     disp = FnModel.get_empty_display_size(root)
     bones = arm.data.bones
     bodies = {}
+    geo = []      # (bone, segment a, segment b, radius, group) of every static body, rest
 
-    def body(bname, shape, size, dyn, group, mask, mass=1.0, location=None):
+    def body(bname, shape, size, dyn, group, mask, mass=1.0, location=None, axis=None, name=None):
         b = bones[bname]
         mb = arm.pose.bones[bname].mmd_bone
-        rot = b.matrix_local.to_euler('YXZ')
+        m = b.matrix_local.to_3x3() if axis is None else Vector(axis).to_track_quat('Y', 'Z').to_matrix()
+        rot = m.to_euler('YXZ')
         rot.rotate_axis('X', math.pi / 2)
+        loc = location if location is not None else (b.head_local + b.tail_local) / 2
         obj = FnRigidBody.setup_rigid_body_object(
             obj=FnRigidBody.new_rigid_body_object(ctx, rgroup), shape_type=rb.shapeType(shape),
-            location=location if location is not None else (b.head_local + b.tail_local) / 2, rotation=rot, size=Vector(size), dynamics_type=dyn,
-            name=mb.name_j, name_e=mb.name_e, collision_group_number=group,
+            location=loc, rotation=rot, size=Vector(size), dynamics_type=dyn,
+            name=name[0] if name else mb.name_j, name_e=name[1] if name else mb.name_e, collision_group_number=group,
             collision_group_mask=[i in mask for i in range(16)], mass=mass, friction=0.5,
             linear_damping=0.5 if dyn else 0.0, angular_damping=0.5 if dyn else 0.0, bounce=0.0, bone=bname)
-        bodies[bname] = obj
+        if not name:
+            bodies[bname] = obj
+        if not dyn:
+            half = m.col[1] * (size[1] / 2 if shape == 'CAPSULE' else 0.0)
+            geo.append((bname, np.array(loc - half), np.array(loc + half), float(size[0]), group))
         return obj
 
     for bname in STATIC_BODIES:
@@ -500,7 +530,7 @@ def add_physics(root, arm):
         # kept inside the skin so chains hanging from the surface don't start inside them
         if bname == '頭':
             center = Vector((0.0, spec.L['head_center_y'], (spec.L['head_top_z'] + spec.L['chin_z']) / 2))
-            body(bname, 'SPHERE', (spec.L['head_half_w'] * 1.05, 0, 0), 0, 0, set(), location=center)
+            body(bname, 'SPHERE', (spec.L['head_half_w'] * 1.05, 0, 0), 0, HEAD_GROUP, set(), location=center)
         else:
             r = 0.045 if bname in ('上半身', '上半身2', '下半身') else 0.03
             body(bname, 'CAPSULE', (r, max(0.01, b.length - r), 0), 0, 0, set())
@@ -508,14 +538,25 @@ def add_physics(root, arm):
         if bname in bones:
             b = bones[bname]
             body(bname, 'CAPSULE', (HAND_RADIUS, max(0.01, b.length - HAND_RADIUS), 0), 0, HAND_GROUP, set())
+    for cap in json.loads(arm.get(rig.HAIR_CAPSULES_PROP, '[]')):
+        if cap['bone'] not in bones:
+            continue
+        a, b = Vector(cap['a']), Vector(cap['b'])
+        jp = arm.pose.bones[cap['bone']].mmd_bone.name_j
+        body(cap['bone'], 'CAPSULE', (cap['r'], max(0.005, (b - a).length), 0), 0, HAIR_ONLY_GROUP,
+             set(range(16)) - {CHAIN_GROUP['Hair']}, location=(a + b) / 2,
+             axis=(b - a) if (b - a).length > 1e-6 else Vector((0, 0, 1)),
+             name=(f'{jp}髪当{cap["name"]}', f'HairCollider_{cap["name"]}'))
     if rig.HAIR_ROOT in bones:
         # the back hair hangs from the head-follow bone (rig.HAIR_FOLLOW of the head's turn,
         # as in Blender): a small bone-following body there anchors their joints; it collides with nothing
         body(rig.HAIR_ROOT, 'SPHERE', (0.01, 0, 0), 0, 0, set(range(16)), location=bones[rig.HAIR_ROOT].head_local)
+        geo.pop()     # (collides with nothing)
 
     chain_groups = set(CHAIN_GROUP.values())
     overlapping = chain_groups_overlapping(bones)
     n_joints = 0
+    hair_ignores = {}
     for b in bones:          # parents come before children in armature order
         grp = b.collections[0].name if len(b.collections) else ''
         if grp not in CHAIN_GROUP:
@@ -530,9 +571,18 @@ def add_physics(root, arm):
         # rest (they would explode apart on the first frame); hair, skirt and sleeves that
         # are clear of each other collide. Chain roots sit on the body: no collision there.
         mine = CHAIN_GROUP[grp]
-        mask = {mine} | {g for g in chain_groups if (mine, g) in overlapping} | ({0, HAND_GROUP} if root_of_chain else set())
+        mask = {mine} | {g for g in chain_groups if (mine, g) in overlapping} | ({0, HAND_GROUP, HEAD_GROUP} if root_of_chain else set())
         if grp == 'Sleeve':
             mask |= {HAND_GROUP}
+        if grp == 'Hair':
+            # (a PMX mask is per group, so a body touching one static body at rest ignores its
+            # whole group; export prints how many do: none on the current model, the capsules
+            # are fitted inside the surfaces the hair lies on)
+            extra = _rest_overlaps(b, rad, geo, mask)
+            mask |= extra
+            for g in extra:
+                hair_ignores[g] = hair_ignores.get(g, 0) + 1
+            hair_ignores['bodies'] = hair_ignores.get('bodies', 0) + 1
         # skirt chain roots follow the bone (their follow parents add the thighs' rotation);
         # everything below them is simulated
         dyn = 0 if grp == 'Skirt' and root_of_chain else 1
@@ -553,7 +603,10 @@ def add_physics(root, arm):
             maximum_rotation=Euler(lim), minimum_rotation=Euler([-a for a in lim]),
             spring_angular=Vector((0, 0, 0)), spring_linear=Vector((0, 0, 0)))
         n_joints += 1
-    return len(bodies), n_joints
+    print(f'physics: {hair_ignores.get("bodies", 0)} hair bodies; ignoring at rest-overlap: '
+          + ', '.join(f'group {g}: {n}' for g, n in sorted((k, v) for k, v in hair_ignores.items() if k != 'bodies'))
+          + f'; {sum(1 for g in geo if g[4] == HAIR_ONLY_GROUP)} hair-only colliders')
+    return len(bodies) + sum(1 for g in geo if g[4] == HAIR_ONLY_GROUP), n_joints
 
 
 # ---------------------------------------------------------------- main
@@ -570,6 +623,9 @@ def main():
 
     from rig_pose import build_scene
     arm = build_scene(args.parts, args.proxy, args.fixtures)
+    # the hair's Blender-only collision probes and colliders: MMD physics does that job
+    n_strip = rig.strip_blender_only(arm)
+    print(f'export: removed {n_strip} Blender-only hair collision bones')
 
     out = os.path.join(ROOT, args.out)
     out_dir = os.path.dirname(out)

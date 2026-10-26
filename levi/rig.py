@@ -632,6 +632,15 @@ HAIR_RING = True      # weight the back hair by angle between neighbouring chain
 HAIR_LOCK_CHAINS = True   # long back-hair locks get their own chains (_hair_locks)
 HAIR_GRAVITY = 0.5    # Blender only: share of the torso's sideways bend the hanging hair turns back
 HAIR_FOLLOW = 0.15    # share of the head's rotation the back-hair chains take (the scalp takes all of it)
+# Blender only: share of the neck's (首) forward / backward tilt that 髪追従 turns back, so
+# the curtain keeps hanging when she nods or looks up. Hanging from the top of the neck,
+# a 2.5 deg tilt swung the lock ends 50 cm below by 2 cm, into her back and the skirt.
+HAIR_NECK_HANG = 0.85
+# Blender only: share of the torso's BACKWARD pitch (上半身 + 上半身2) that 髪追従 turns
+# back. Arched back, her back turns away from the hair, which hangs straight from the
+# head; carried with the torso, the curtain swung its ends 11 cm forward into the skirt
+# (reach_up_back). Forward bends are HAIR_PITCH_GRAVITY's (one-sided since round 7).
+HAIR_ARCH_HANG = 1.0
 # Pitch gravity: share of the torso's forward / backward pitch (上半身 + 上半身2) that
 # each back-hair chain segment turns back, by segment index from the top. The top
 # segment rests on the back and goes with it; the lower ones peel off and hang, so a
@@ -653,6 +662,21 @@ HAIR_OUTER_ANGLE = 55.0
 HAIR_PITCH_OUTER = (1.0, 0.8)   # (total, exponent)
 HAIR_LOCK_SEG = ((0.4, 5), (0.25, 4), (0.0, 3))   # lock length (m) -> chain segments
 HAIR_PITCH_SOURCES = ('上半身', '上半身2')
+# PMX pitch-only helpers. A 回転付与 copies the source's whole turn, so the round-6 export
+# (a negative 付与 of 上半身) also countered her twist and side bend when MMD physics is off.
+# HAIR_PITCH_HELPER is a hidden bone from 上半身's head to the neck base, beside the torso
+# (parent: 上半身's parent), turned by a one-link IK that may only turn it about X toward a
+# goal on 上半身2's end: it takes the torso's forward pitch alone (the IK limit allows 0 to
+# 170 deg; a twist does not move the goal, a side bend moves it off the IK's plane). The
+# hair segments append minus their pitch-gravity share of it. HAIR_ARCH_HELPER does the
+# same for a backward pitch (limit -170 to 0 deg), and HAIR_ARCH_BONE (between 首 and
+# 髪追従) appends -HAIR_ARCH_HANG of it, so an arched-back torso leaves the hair hanging.
+# Blender reads the torso bones directly (_pitch_counter); the helpers move there too but
+# nothing deforms with them. With MMD physics on, the hair bodies override all of this.
+HAIR_PITCH_HELPER = '髪ピッチ'
+HAIR_ARCH_HELPER = '髪反り'
+HAIR_ARCH_BONE = '髪反り追従'
+HAIR_PITCH_REACH = 2.0      # m: how far out along 上半身2 the helpers' IK goals lie
 # back hair is weighted to 頭 fully above the eyes, fading to the chains by just under
 # the choker: below that it hangs at the shoulders, which a head turn must not sweep it
 # into (at 0.6 follow a 45 deg turn pushed the curtain 2.5 cm into a closed shoulder)
@@ -853,8 +877,10 @@ def _hair_locks(objs):
 def _hair_pitch_gravity(chain, byname, total=HAIR_PITCH_GRAVITY, exp=HAIR_PITCH_EXP):
     """Give the segments of one back-hair chain their HAIR_PITCH_GRAVITY shares (meta
     'pitch_gravity': [(torso bone, share)], read by _create_armature) and the PMX 付与
-    (meta 'append': a negative share of 上半身). Returns the chain."""
+    (meta 'append': a negative share of HAIR_PITCH_HELPER, the torso's forward pitch alone;
+    of 上半身 without the helper). Returns the chain."""
     srcs = [n for n in HAIR_PITCH_SOURCES if n in byname]
+    helper = HAIR_PITCH_HELPER if HAIR_PITCH_HELPER and len(srcs) == len(HAIR_PITCH_SOURCES) else None
 
     def cum(j, n):
         return total * (j / (n - 1)) ** exp
@@ -865,8 +891,606 @@ def _hair_pitch_gravity(chain, byname, total=HAIR_PITCH_GRAVITY, exp=HAIR_PITCH_
         k = cum(i, n) - cum(i - 1, n)
         if k > 1e-4 and srcs:
             b.meta['pitch_gravity'] = [(src, k) for src in srcs]
-            b.meta['append'] = (srcs[0], -k)
+            b.meta['append'] = (helper or srcs[0], -k)
     return chain
+
+
+def _hair_pitch_helpers(byname, h):
+    """The PMX pitch-only helpers (see HAIR_PITCH_HELPER) and HAIR_ARCH_BONE at `h`."""
+    up, up2 = byname['上半身'], byname['上半身2']
+    out = []
+    # the goal lies far out along 上半身2 (HAIR_PITCH_REACH), so the helper's aim reads
+    # 上半身2's own orientation (the sum of both bends) rather than the chord from 上半身's
+    # head to the neck base, which turns only by about the length-weighted mean
+    far = up2.head + (up2.tail - up2.head).normalized() * HAIR_PITCH_REACH
+    d = (far - up.head).normalized()
+    for name, en, lim in ((HAIR_PITCH_HELPER, 'HairPitch', (0.0, 170.0)), (HAIR_ARCH_HELPER, 'HairArch', (-170.0, 0.0))):
+        out.append(Bone(name, name, en, up.head, far, up.parent, deform=False, group='HairFollow',
+                        meta={'helper': True, 'ik': (name + 'IK', lim)}))
+        out.append(Bone(name + '先', name + '先', en + 'Tip', far, far + d * 0.03, name, connect=True,
+                        deform=False, group='HairFollow', meta={'helper': True}))
+        out.append(Bone(name + 'IK', name + 'IK', en + 'IK', far, far + d * 0.03, '上半身2',
+                        deform=False, group='HairFollow', meta={'helper': True}))
+    meta = {'helper': True}
+    if HAIR_ARCH_HANG > 1e-4:
+        meta['append'] = (HAIR_ARCH_HELPER, -HAIR_ARCH_HANG)
+    out.append(Bone(HAIR_ARCH_BONE, HAIR_ARCH_BONE, 'HairArchFollow', h, h + Vector((0, 0, 0.03)), '首',
+                    deform=False, group='HairFollow', meta=meta))
+    return out
+
+
+def _pitch_counter(arm, pb, src, k, forward, name):
+    """Blender: a Transform constraint that turns pose bone `pb` back by k of bone `src`'s
+    forward (forward=True) or backward pitch only, about pb's rest axis nearest world X;
+    zero on the other side (clamped: no extrapolation). The source's local turn is
+    re-expressed in pb's rest frame, so the pitch reads on that axis with the sign of the
+    axis' world X. (One Euler component: exact for a pure bend, approximate when the
+    torso also twists.)"""
+    m = arm.data.bones[pb.name].matrix_local.to_3x3()
+    ax = max(range(3), key=lambda i: abs(m.col[i].x))
+    sgn = 1.0 if m.col[ax].x > 0 else -1.0
+    A = 'XYZ'[ax]
+    big = math.radians(170.0)
+    lo, hi = (0.0, big) if (sgn > 0) == forward else (-big, 0.0)
+    c = pb.constraints.new('TRANSFORM')
+    c.name = name
+    c.target, c.subtarget = arm, src
+    c.target_space, c.owner_space = 'LOCAL_OWNER_ORIENT', 'LOCAL'
+    c.map_from = c.map_to = 'ROTATION'
+    c.mix_mode_rot = 'BEFORE'
+    c.use_motion_extrapolate = False
+    for ch in 'xyz':
+        setattr(c, f'map_to_{ch}_from', A)
+        setattr(c, f'from_min_{ch}_rot', lo if ch == A.lower() else 0.0)
+        setattr(c, f'from_max_{ch}_rot', hi if ch == A.lower() else 0.0)
+        setattr(c, f'to_min_{ch}_rot', -k * lo if ch == A.lower() else 0.0)
+        setattr(c, f'to_max_{ch}_rot', -k * hi if ch == A.lower() else 0.0)
+    return c
+
+
+# ---------------------------------------------------------------- hair collision (Blender only)
+# MMD simulates the hair chains as rigid bodies that collide with the body (export_pmx);
+# Blender has no physics, so a hanging chain went wherever its bones put it: the side curls
+# into a raised shoulder, the back-hair ends into the skirt when the hips flexed or the skirt
+# flared. Each hair chain segment s gets collision probes instead:
+#   ghost   a non-deforming copy of s (same parent, rest and constraints; drivers copy s's
+#           own pose rotation), so its tail is where s's tail would be without collision;
+#   probe   a point bone on the ghost's tail with Shrinkwraps (nearest surface, outside),
+#           one per collider and pass, which push it out of any collider it has entered,
+#           and a Limit Distance (HAIR_COLLIDE_MAX_PUSH);
+#   ghost 2 the ghost aimed at the tail probe, with a mid probe half way along it, so a
+#           collider rising under the middle of a segment (not just its end) turns it too;
+#   s       Damped Track to the mid probe as its last constraint: unchanged when nothing is
+#           hit (the probe is then exactly on its axis), turned out of the collider otherwise.
+# Colliders are closed, rounded convex hulls of the rest skin / cloth around each moving body
+# part (HAIR_COLLIDERS) and radial envelopes of the skirt (its waist, and the band below the
+# hip once per skirt chain), parented rigidly to the bone that carries that part, so a
+# collider never depends on the deformed meshes (no dependency cycle). A probe keeps the hair
+# surface beside it at least HAIR_COLLIDE_CLEAR off each collider, or its rest gap if that is
+# smaller, so nothing moves at rest. strip_blender_only() removes probes, ghosts and
+# colliders before a PMX export.
+HAIR_COLLIDE = True
+HAIR_COLLIDE_CLEAR = (0.006, 0.012)   # m kept between the hair surface and a collider: side locks (squeezed
+# between shoulder, chest and head, more pushed them into the next one), back hair (on the skirt)
+HAIR_COLLIDE_GROUP = 'HairCollide'
+HAIR_COLLIDER_TAG = 'levi_hair_collider'
+HAIR_CAPSULES_PROP = 'levi_hair_capsules'   # armature: JSON capsules for export_pmx's hair-only bodies
+HAIR_COLLIDE_SKIRT_DROP = 0.32   # m below the hip that the skirt colliders reach
+HAIR_COLLIDE_GRID = 0.006        # m: collider points are thinned to this grid before the hull
+# (collider, stems of the dominant bones of its points, parent bone stem, parts sampled,
+# only points this near the parent bone's head (m) or None, Blender collider, PMX capsule).
+# The sleeves count only where an arm bone dominates them (not the hanging drape).
+_ARM_STEMS = ('肩補助2', '肩補助3', '腕D', '腕', '腕捩')
+HAIR_COLLIDERS = (
+    ('shoulder', _ARM_STEMS, '腕D', ('body', 'sleeves'), 0.08, True, False),
+    ('upperarm', _ARM_STEMS, '腕D', ('body', 'sleeves'), None, False, True),
+    ('forearm', ('ひじ補助', 'ひじ', '手捩'), 'ひじ', ('body', 'sleeves'), None, True, True),
+    ('hand', ('手首', 'Fingers'), '手首', ('body', 'sleeves'), None, True, True),
+    ('chest', ('上半身2',), '上半身2', ('body', 'bodice'), None, True, True),
+    ('waist', ('上半身',), '上半身', ('body', 'bodice'), None, True, True),
+    ('neck', ('首',), '首', ('body', 'accessories'), None, True, False),
+    ('head', ('頭',), '頭', ('head',), None, True, False),
+)
+HAIR_COLLIDE_PASSES = 2   # every probe runs its colliders twice: out of one may push into another
+# Kinematic pushes have no memory: a limb that sweeps right through the hair pushes a
+# probe out of its near side, then (past its middle) out of the far side, and the chain
+# below swings across in one frame (idol_dance, an arm swung from behind her back to
+# overhead: 0.3-0.8 m jumps; the left arm rising past the face: 0.3 m). So the arms meet
+# only the side locks: the shoulder cap (the arm's skin and sleeve within 8 cm of the
+# joint, which rises under the curls) everywhere, the forearms and hands below
+# HAIR_COLLIDE_ARM_Z (a hand on the shoulder), never the whole raised upper arm. The back
+# hair meets the trunk and the skirt but not the arms, which reach it only by sweeping
+# through it. The skirt is tested only near it, and no probe is pushed more than
+# HAIR_COLLIDE_MAX_PUSH from where it would be.
+HAIR_COLLIDE_LIMBS = ('shoulder', 'forearm', 'hand')
+HAIR_COLLIDE_ARM_Z = L['shoulder_z'] + 0.02
+HAIR_COLLIDE_CAP_ABOVE = 0.03   # m the shoulder cap reaches above that (the lock roots by the jaw: a cap
+# raised beside the head with the arm overhead swept them across her mouth)
+HAIR_COLLIDE_SKIRT_ABOVE = 0.25   # m above the hip a probe still tests the skirt
+HAIR_COLLIDE_MAX_PUSH = (0.05, 0.08)   # m: side locks (the arms reach them), back hair (the trunk and skirt only)
+# ... and no more than turns a segment HAIR_COLLIDE_MAX_TURN deg: a probe pushed most of a segment's
+# length out bent a lock end square to the rest (49 deg in look_over_shoulder, 85 in jump_tuck)
+# where hair would bend gradually; a little hair left in the cloth reads better than a hook
+HAIR_COLLIDE_MAX_TURN = 20.0   # deg per stage (tail probe, then mid probe): 40 at most
+HAIR_COLLIDE_SMOOTH = (0.6, 0.35)   # curtain: own push, each neighbour's push
+# (not normalised, on purpose: pushed alike with both neighbours a segment moves 1.3x its push,
+# which is spare clearance; normalised, an isolated push was resolved only by half)
+
+
+def _dominant_stems(obj, arm):
+    """(V,) stem of each vertex's heaviest bone ('Fingers' for finger bones, '' if none)."""
+    groups = {}
+    for vg in obj.vertex_groups:
+        b = arm.data.bones.get(vg.name)
+        if b is not None:
+            fing = b.collections and b.collections[0].name == 'Fingers'
+            groups[vg.index] = 'Fingers' if fing else vg.name
+    out = []
+    for v in obj.data.vertices:
+        best, bw = '', 0.0
+        for g in v.groups:
+            n = groups.get(g.group)
+            if n is not None and g.weight > bw:
+                best, bw = n, g.weight
+        out.append(best)
+    return np.array(out, dtype=object)
+
+
+def _hull_bm(pts):
+    """bmesh of the closed convex hull of `pts`, or None."""
+    import bmesh
+    g = np.unique(np.round(pts / HAIR_COLLIDE_GRID).astype(np.int64), axis=0)
+    if len(g) < 8:
+        return None
+    pts = g * HAIR_COLLIDE_GRID
+    bm = bmesh.new()
+    for p in pts:
+        bm.verts.new(p.tolist())
+    res = bmesh.ops.convex_hull(bm, input=list(bm.verts), use_existing_faces=False)
+    junk = {v for v in res['geom_interior'] + res['geom_unused'] if isinstance(v, bmesh.types.BMVert)}
+    junk |= {v for v in bm.verts if not v.link_faces}
+    bmesh.ops.delete(bm, geom=list(junk), context='VERTS')
+    if len(bm.faces) < 4:
+        bm.free()
+        return None
+    return bm
+
+
+def _radial_bm(pts, cy, z0, z1, n_ang=72, dz=0.015):
+    """bmesh of a closed surface round the vertical axis through (0, cy) that follows the
+    outermost of `pts` per angle and height between z0 and z1 (star-shaped, not convex:
+    it keeps the skirt's fold troughs, where the lock ends hang), capped at both ends."""
+    import bmesh
+    nz = max(2, int(round((z1 - z0) / dz)) + 1)
+    zs = np.linspace(z0, z1, nz)
+    ang = np.arctan2(pts[:, 0], pts[:, 1] - cy)
+    rad = np.hypot(pts[:, 0], pts[:, 1] - cy)
+    bins = ((ang + np.pi) / (2 * np.pi) * n_ang).astype(int) % n_ang
+    rings = []
+    for z in zs:
+        sel = np.abs(pts[:, 2] - z) <= dz
+        r = np.full(n_ang, np.nan)
+        for k in np.unique(bins[sel]):
+            r[k] = float(np.percentile(rad[sel & (bins == k)], 95))
+        if np.isnan(r).all():
+            return None
+        ok = ~np.isnan(r)
+        idx = np.arange(n_ang)
+        r = np.interp(idx, idx[ok], r[ok], period=n_ang)
+        r = (np.roll(r, 1) + 2 * r + np.roll(r, -1)) / 4      # a light circular smoothing
+        rings.append(r)
+    th = (np.arange(n_ang) + 0.5) / n_ang * 2 * np.pi - np.pi
+    bm = bmesh.new()
+    vs = [[bm.verts.new((float(r[k] * math.sin(th[k])), float(cy + r[k] * math.cos(th[k])), float(z)))
+           for k in range(n_ang)] for r, z in zip(rings, zs)]
+    for a, b in zip(vs, vs[1:]):
+        for k in range(n_ang):
+            bm.faces.new((a[k], a[(k + 1) % n_ang], b[(k + 1) % n_ang], b[k]))
+    for ring, z in ((vs[0], zs[0]), (vs[-1], zs[-1])):
+        c = bm.verts.new((0.0, cy, float(z)))
+        for k in range(n_ang):
+            bm.faces.new((ring[k], ring[(k + 1) % n_ang], c))
+    return bm
+
+
+def _hull_collider(name, pts, arm, parent_bone, col, bm=None):
+    """A closed collider object, parented rigidly to `parent_bone`: the convex hull of
+    `pts` (world, rest), or the bmesh `bm` given."""
+    bm = bm if bm is not None else _hull_bm(pts)
+    if bm is None:
+        return None
+    bmesh_ops = __import__('bmesh').ops
+    bmesh_ops.recalc_face_normals(bm, faces=list(bm.faces))
+    for f in bm.faces:
+        f.smooth = True
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    obj = bpy.data.objects.new(name, me)
+    col.objects.link(obj)
+    obj[HAIR_COLLIDER_TAG] = True
+    # rounded: at a hull's sharp corner the nearest face's normal can face away from a point
+    # that is outside, and the Shrinkwrap would then pull it onto the hull
+    sub = obj.modifiers.new('Round', 'SUBSURF')
+    sub.levels = sub.render_levels = 2
+    obj.parent = arm
+    obj.parent_type = 'BONE'
+    obj.parent_bone = parent_bone
+    obj.matrix_world = arm.matrix_world.copy()    # rest pose: the hull stays where it was built
+    obj.hide_render = True
+    obj.visible_shadow = False
+    obj.display_type = 'WIRE'
+    return obj
+
+
+def _hair_colliders(arm, parts, bones, want=(), blender=True):
+    """{name: (collider object, its rest BVH, info)} for every body part the hair may hit
+    (none with blender=False), and the PMX hair-only capsules (arm[HAIR_CAPSULES_PROP]).
+    info: (chain angle, axis y) for the per-chain skirt rings (made for the chains in
+    `want` only), else None."""
+    from mathutils.bvhtree import BVHTree
+    col = bpy.data.collections[RIG_COLLECTION]
+    names = set(arm.data.bones.keys())
+    samples = {}
+    capsules = []     # the same parts as MMD rigid bodies (export_pmx: hair-only colliders)
+    for part in ('body', 'sleeves', 'bodice', 'accessories', 'head'):
+        for o in parts.get(part, []):
+            samples.setdefault(part, []).append((_world_verts([o]), _dominant_stems(o, arm)))
+    out = {}
+
+    def add(name, pts, parent, info=None, bm=None):
+        if not blender:
+            return
+        if parent not in names or len(pts) < 8:
+            print(f'rig hair collider {name}: skipped ({len(pts)} points, parent {parent})')
+            return
+        obj = _hull_collider(f'_hair_collider_{name}', pts, arm, parent, col, bm)
+        if obj is None:
+            return
+        bpy.context.view_layer.update()
+        ev = obj.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        me = ev.to_mesh()
+        mw = np.array(obj.matrix_world)
+        co = np.array([tuple(v.co) for v in me.vertices]) @ mw[:3, :3].T + mw[:3, 3]
+        tris = [tuple(p.vertices) for p in me.polygons]
+        ev.to_mesh_clear()
+        out[name] = (obj, BVHTree.FromPolygons(co.tolist(), tris), info)
+
+    for cname, stems, parent, use, within, blender, pmx in HAIR_COLLIDERS:
+        for tag, s, _jp in (SIDES if parent not in ('上半身', '上半身2', '首', '頭') else (('', 0.0, ''),)):
+            sfx = '.' + tag if tag else ''
+            full = {st + sfx for st in stems} | ({'Fingers'} if 'Fingers' in stems else set())
+            pts = []
+            for part in use:
+                for co, dom in samples.get(part, []):
+                    m = np.isin(dom, list(full))
+                    if 'Fingers' in full and tag:     # finger groups carry no side: keep this hand's
+                        m &= ~((dom == 'Fingers') & (co[:, 0] * s <= 0))
+                    pts.append(co[m])
+            pts = np.concatenate(pts) if pts else np.zeros((0, 3))
+            pname = deform_arm(names, tag) if parent == '腕D' else parent + sfx
+            if within is not None and pname in names:
+                pts = pts[np.linalg.norm(pts - np.array(arm.data.bones[pname].head_local), axis=1) <= within]
+            if blender:
+                add(cname + sfx, pts, pname)
+            if pmx and pname in names and len(pts) >= 8:
+                bn = arm.data.bones[pname]
+                a, b = np.array(bn.head_local), np.array(bn.tail_local)
+                if tag:          # a limb: along its bone
+                    cap = _fit_capsule(pts, a, b)
+                else:            # the torso: across her at mid-bone height, front to back, from
+                    # all its skin and cloth there (the back is not all this bone's), arms excluded
+                    allp = np.concatenate([co for part in use for co, _d in samples.get(part, [])])
+                    cap = _fit_slab_capsule(allp[np.abs(allp[:, 0]) < 0.11], float(a[2] + b[2]) / 2)
+                if cap:
+                    capsules.append(dict(name=cname + sfx, bone=pname, **cap))
+    # the skirt: its waist (above the chain roots, where the cloth rides the skin) on
+    # 下半身, and below the hip one whole ring per skirt chain riding that chain's root,
+    # so a flare or a drape lift carries it like the cloth there. A probe tests the ring
+    # of the chain nearest it at rest; whole rings (not wedges) have no side faces to be
+    # pushed out through when the torso twists the hair round the skirt.
+    sk = _world_verts(parts.get('skirt', []))
+    roots = [b for b in bones if b.group == 'Skirt' and b.meta.get('seg') == 0 and 'chain' in b.meta]
+    if len(sk):
+        cy = roots[0].meta['cy'] if roots else float(sk[:, 1].mean())
+        # (radial envelopes, not hulls: a hull bridges the fold troughs the lock ends hang in,
+        # so those probes started inside it and were never tested)
+        top = sk[sk[:, 2] >= L['hip_z'] - 0.01]
+        if blender:
+            add('skirt_waist', top, '下半身', bm=_radial_bm(top, cy, L['hip_z'] - 0.01, float(top[:, 2].max())))
+        # PMX: the skirt top behind her as two hair-only capsules across the hips on 下半身
+        for i, zc in enumerate((L['hip_z'] + 0.02, L['hip_z'] - 0.1)):
+            band = sk[(np.abs(sk[:, 2] - zc) < 0.02) & (sk[:, 1] > cy)]
+            if len(band) < 8:
+                continue
+            r = float(np.percentile(band[:, 1] - cy, 40)) - 0.005
+            w = max(0.02, float(np.percentile(np.abs(band[:, 0]), 90)) - r)
+            if r > 0.02:
+                capsules.append(dict(name=f'skirt{i}', bone='下半身', a=(-w, cy, zc), b=(w, cy, zc), r=r))
+    if len(sk) and roots:
+        cy = roots[0].meta['cy']
+        z0 = L['hip_z'] - HAIR_COLLIDE_SKIRT_DROP
+        z1 = L['hip_z'] + 0.03
+        ring = sk[(sk[:, 2] >= z0 - 0.02) & (sk[:, 2] <= z1 + 0.02)]
+        ring_bm = _radial_bm(ring, cy, z0, z1) if blender and want else None
+        for b in roots:
+            if ring_bm is not None and b.meta['chain'] in want:
+                add(f'skirt{b.meta["chain"]}', ring, b.name, (b.meta['angle'], cy), bm=ring_bm.copy())
+        if ring_bm is not None:
+            ring_bm.free()
+    import json
+    arm[HAIR_CAPSULES_PROP] = json.dumps(capsules, ensure_ascii=False)
+    return out
+
+
+def _fit_slab_capsule(pts, z, dz=0.03, margin=0.008):
+    """A capsule across X at height z through the points' slab |z - pz| < dz: its round
+    section spans their depth (3-97 %, less `margin`), its ends their width."""
+    sl = pts[np.abs(pts[:, 2] - z) < dz]
+    if len(sl) < 8:
+        return None
+    yf, yb = (float(v) for v in np.percentile(sl[:, 1], (3, 97)))
+    r = (yb - yf) / 2 - margin
+    w = float(np.percentile(np.abs(sl[:, 0]), 90)) - r
+    if r < 0.01:
+        return None
+    w = max(w, 0.0)
+    yc = (yb + yf) / 2
+    return dict(a=(-w, yc, z), b=(w, yc, z), r=r)
+
+
+def _fit_capsule(pts, a, b, q=40.0, margin=0.005):
+    """A capsule along the bone a -> b inside the points' surface: the q-th percentile of
+    their distance from the axis, less `margin`, over the 5-95 % of their span along it.
+    {'a', 'b', 'r'} (world, rest) or None."""
+    ax = b - a
+    ln = float(np.linalg.norm(ax))
+    if ln < 1e-6:
+        return None
+    ax = ax / ln
+    t = (pts - a) @ ax
+    lat = np.linalg.norm(pts - a - np.outer(t, ax), axis=1)
+    r = float(np.percentile(lat, q)) - margin
+    t0, t1 = (float(v) for v in np.percentile(t, (5, 95)))
+    if r < 0.01 or t1 - t0 < 1e-3:
+        return None
+    t0, t1 = t0 + r, t1 - r          # the round ends stay within the span
+    if t1 < t0:
+        t0 = t1 = (t0 + t1) / 2
+    return dict(a=tuple((a + ax * t0).tolist()), b=tuple((a + ax * t1).tolist()), r=r)
+
+
+def _signed(bvh, p):
+    """Signed distance of p from a closed hull (+ outside), or None."""
+    loc, nrm, _i, dist = bvh.find_nearest(Vector(p))
+    if loc is None:
+        return None
+    return dist if (Vector(p) - loc).dot(nrm) >= 0.0 else -dist
+
+
+def _hair_collision(arm, bones, parts):
+    """Probes, ghosts and colliders for every deforming hair chain segment (see above)."""
+    _remove_colliders()                       # an earlier rig's
+    segs = [b for b in bones if b.group == 'Hair' and b.deform and 'seg' in b.meta]
+    if not segs:
+        return
+    if not HAIR_COLLIDE:     # (the PMX's hair-only capsules all the same)
+        _hair_colliders(arm, parts, bones, blender=False)
+        return
+    # each probe's skirt chain: the one nearest round the skirt axis at rest
+    roots = [b for b in bones if b.group == 'Skirt' and b.meta.get('seg') == 0 and 'chain' in b.meta]
+    near_chain = {}
+    for b in segs:
+        if roots:
+            a = math.degrees(math.atan2(b.tail.x, b.tail.y - roots[0].meta['cy']))
+            near_chain[b.name] = min(roots, key=lambda r: abs((a - r.meta['angle'] + 180.0) % 360.0 - 180.0)).meta['chain']
+    colliders = _hair_colliders(arm, parts, bones, set(near_chain.values()))
+    if not colliders:
+        return
+    # hair vertices by the segment that dominates them (rest, world)
+    hv = {}
+    for part in ('hair_back', 'hair_front'):
+        for o in parts.get(part, []):
+            co, dom = _world_verts([o]), _dominant_stems(o, arm)
+            for n in set(dom.tolist()):
+                if n:
+                    hv.setdefault(n, []).append(co[dom == n])
+    hv = {k: np.concatenate(v) for k, v in hv.items()}
+    by = {b.name: b for b in bones}
+    child = {}
+    for b in segs:
+        if b.parent in by:
+            child[b.parent] = b.name
+    def tests(b, at):
+        """[(collider, Shrinkwrap distance)] for a probe at point `at` of segment b."""
+        # the hair this point carries: the segment's own vertices and the next one's
+        near = [hv[n] for n in (b.name, child.get(b.name)) if n in hv]
+        near = np.concatenate(near) if near else at[None]
+        rad = max(0.02, 0.6 * float((b.tail - b.head).length))
+        near = near[np.linalg.norm(near - at, axis=1) <= rad]
+        if not len(near):
+            near = at[None]
+        out = []
+        mine = f'skirt{near_chain[b.name]}' if b.name in near_chain else None
+        low = at[2] < L['shoulder_z'] - 0.10     # far below the neck: the head and neck are out of reach
+        # the limbs first, the trunk last: squeezed between a raised arm and the chest, the
+        # hair ends outside the trunk (the larger, slower surface) rather than inside it
+        order = ('hand', 'forearm', 'shoulder', 'skirt', 'waist', 'chest', 'neck', 'head')
+        for cname, (obj, bvh, info) in sorted(colliders.items(), key=lambda kv: (
+                next((i for i, p in enumerate(order) if kv[0].startswith(p)), len(order)), kv[0])):
+            if info is not None and cname != mine:
+                continue
+            if cname.startswith(HAIR_COLLIDE_LIMBS) and (b.name.startswith('後髪') or (
+                    at[2] > HAIR_COLLIDE_ARM_Z + (HAIR_COLLIDE_CAP_ABOVE if cname.startswith('shoulder') else 0.0))):
+                continue           # (see HAIR_COLLIDE_LIMBS)
+            if cname.startswith('skirt') and at[2] > L['hip_z'] + HAIR_COLLIDE_SKIRT_ABOVE:
+                continue
+            if low and cname in ('head', 'neck'):
+                continue
+            g0 = _signed(bvh, at)
+            if g0 is None or g0 <= 1e-4:
+                continue           # the probe is in (or on) this collider at rest: no test
+            surf = min((s for s in (_signed(bvh, p) for p in near[:: max(1, len(near) // 64)]) if s is not None),
+                       default=g0)
+            # keep the hair surface HAIR_COLLIDE_CLEAR off, or at its rest gap if closer
+            dist = g0 - max(0.0, surf - HAIR_COLLIDE_CLEAR[b.name.startswith('後髪')])
+            out.append((obj, max(0.0, min(dist, g0 - 1e-4))))
+        return out
+
+    plan = []
+    for b in segs:
+        tail = np.array(b.tail)
+        mid = (np.array(b.head) + tail) / 2
+        ct, cm = tests(b, tail), tests(b, mid)
+        if ct or cm:
+            plan.append((b, ct, cm))
+    if not plan:
+        return
+    # bones: ghost (copy of s), tail probe; ghost 2 (the ghost aimed at the tail probe),
+    # mid probe (half way along ghost 2). s aims at the mid probe, which is ghost 2's
+    # middle unless that is in a collider: a shoulder rising right under the segment
+    # (not just under its end) turns it out too.
+    names = lambda b: (f'{b.name}_hc', f'{b.name}_hcp', f'{b.name}_hc2', f'{b.name}_hcm')  # noqa: E731
+    # The curtain is one sheet weighted between neighbouring sector chains: pushed one by one,
+    # a chain whose end met the skirt pulled the sheet away from its neighbours (x1.7 at
+    # the curtain's edge when she twisted). So a curtain segment aims at its probes' push
+    # averaged with the same segment's pushes on the neighbouring chains (weights
+    # HAIR_COLLIDE_SMOOTH): smoothing bones (_hcs / _hcn) add the probes' local offsets.
+    planned = {b.name for b, _t, _m in plan}
+    curtain = sorted((b for b, _t, _m in plan if 'chain' in b.meta), key=lambda b: (b.meta['seg'], b.meta['angle']))
+    ring = {}
+    for b in curtain:
+        ring.setdefault(b.meta['seg'], []).append(b)
+    nbrs = {}
+    gap = RING_MAX_GAP * 360.0 / HAIR_SECTORS
+    for seg, lst in ring.items():
+        for i, b in enumerate(lst):
+            nbrs[b.name] = [o.name for o in (lst[i - 1] if i else None, lst[i + 1] if i + 1 < len(lst) else None)
+                            if o is not None and abs(o.meta['angle'] - b.meta['angle']) <= gap]
+    bpy.context.view_layer.objects.active = arm
+    for o in bpy.context.view_layer.objects:
+        o.select_set(o == arm)
+    bpy.ops.object.mode_set(mode='EDIT')
+    eb = arm.data.edit_bones
+    for b, _t, _m in plan:     # (parents first: bones are in hierarchy order)
+        e = eb[b.name]
+        gname, pname, g2name, mname = names(b)
+        d = (e.tail - e.head).normalized()
+        # a ghost hangs from the real (corrected) parent, so the chain stays one smooth curve:
+        # hanging it from the parent's ghost instead (not inheriting the parent's push) bent
+        # every pushed joint into a kink the blended skin creased at (x2.1 in jump_tuck)
+        made = [(gname, e.head, e.tail, e.parent), (pname, e.tail, e.tail + d * 0.005, gname),
+                (g2name, e.head, e.tail, gname), (mname, (e.head + e.tail) / 2, (e.head + e.tail) / 2 + d * 0.005, g2name)]
+        if b.name in nbrs:
+            made += [(f'{b.name}_hcs', e.tail, e.tail + d * 0.005, gname),
+                     (f'{b.name}_hcn', (e.head + e.tail) / 2, (e.head + e.tail) / 2 + d * 0.005, g2name)]
+        for n, head, tail, parent in made:
+            k = eb.new(n)
+            k.head, k.tail, k.roll = head.copy(), tail.copy(), e.roll
+            k.parent = parent if not isinstance(parent, str) else eb[parent]
+            k.use_deform = False
+    bpy.ops.object.mode_set(mode='OBJECT')
+    coll = arm.data.collections.get(HAIR_COLLIDE_GROUP) or arm.data.collections.new(HAIR_COLLIDE_GROUP)
+    coll.is_visible = False
+    for b, cons, mcons in plan:
+        gname, pname, g2name, mname = names(b)
+        for n, jp, en in ((gname, b.jp + '衝', b.en + '_hc'), (pname, b.jp + '衝先', b.en + '_hcp'),
+                          (g2name, b.jp + '衝2', b.en + '_hc2'), (mname, b.jp + '衝中', b.en + '_hcm'),
+                          (f'{b.name}_hcs', b.jp + '衝先均', b.en + '_hcs'), (f'{b.name}_hcn', b.jp + '衝中均', b.en + '_hcn')):
+            if n not in arm.data.bones:
+                continue
+            coll.assign(arm.data.bones[n])
+            pbn = arm.pose.bones[n]
+            pbn['mmd_name_j'], pbn['mmd_name_e'] = jp, en
+            pbn['levi_blender_only'] = True
+        src, gpb = arm.pose.bones[b.name], arm.pose.bones[gname]
+        src.rotation_mode = gpb.rotation_mode = 'QUATERNION'
+        for i in range(4):        # the ghost turns as s's own pose does (its input, not its result)
+            fc = gpb.driver_add('rotation_quaternion', i)
+            drv = fc.driver
+            drv.type = 'AVERAGE'
+            v = drv.variables.new()
+            v.name, v.type = 'q', 'SINGLE_PROP'
+            v.targets[0].id_type, v.targets[0].id = 'OBJECT', arm
+            v.targets[0].data_path = f'pose.bones["{b.name}"].rotation_quaternion[{i}]'
+            for m in list(fc.modifiers):
+                fc.modifiers.remove(m)
+        for c in src.constraints:     # ... and takes s's own constraints (pitch gravity)
+            k = gpb.constraints.new(c.type)
+            k.target, k.subtarget = c.target, c.subtarget     # first: the spaces it allows depend on it
+            for prop in c.bl_rna.properties:
+                if not prop.is_readonly and prop.identifier not in ('rna_type', 'type', 'target', 'subtarget'):
+                    setattr(k, prop.identifier, getattr(c, prop.identifier))
+        for probe, tl, ghost, at in ((pname, cons, gname, 1.0), (mname, mcons, g2name, 0.5)):
+            ppb = arm.pose.bones[probe]
+            for (obj, dist), npass in ((t, i) for i in range(HAIR_COLLIDE_PASSES) for t in tl):
+                k = ppb.constraints.new('SHRINKWRAP')
+                k.name = f'{obj.name} {npass + 1}'
+                k.target = obj
+                k.shrinkwrap_type = 'NEAREST_SURFACE'
+                k.wrap_mode = 'OUTSIDE'
+                k.distance = dist
+            if tl:
+                k = ppb.constraints.new('LIMIT_DISTANCE')
+                k.name = 'Max push'
+                k.target, k.subtarget, k.head_tail = arm, ghost, at
+                k.limit_mode = 'LIMITDIST_INSIDE'
+                seg_len = float((b.tail - b.head).length) * at
+                k.distance = min(HAIR_COLLIDE_MAX_PUSH[b.name.startswith('後髪')],
+                                 seg_len * math.tan(math.radians(HAIR_COLLIDE_MAX_TURN)))
+        tail_aim, mid_aim = pname, mname
+        if b.name in nbrs:
+            # the smoothed targets: own push x HAIR_COLLIDE_SMOOTH[0] + each neighbour's x [1]
+            tail_aim, mid_aim = f'{b.name}_hcs', f'{b.name}_hcn'
+            for aim, sfx in ((tail_aim, '_hcp'), (mid_aim, '_hcm')):
+                apb = arm.pose.bones[aim]
+                for n, w in [(b.name, HAIR_COLLIDE_SMOOTH[0])] + [(o, HAIR_COLLIDE_SMOOTH[1]) for o in nbrs[b.name]]:
+                    if n + sfx not in arm.pose.bones:
+                        continue        # a neighbour without probes there: no push to share
+                    k = apb.constraints.new('COPY_LOCATION')
+                    k.name = f'Push {n}'
+                    k.target, k.subtarget = arm, n + sfx
+                    k.target_space = k.owner_space = 'LOCAL'
+                    k.use_offset = True
+                    k.influence = w
+        k = arm.pose.bones[g2name].constraints.new('DAMPED_TRACK')
+        k.name = 'Tail probe'
+        k.target, k.subtarget = arm, tail_aim
+        k = src.constraints.new('DAMPED_TRACK')
+        k.name = 'Hair collision'
+        k.target, k.subtarget = arm, mid_aim
+    bpy.context.view_layer.update()
+    print(f'rig hair collision: {len(plan)} segments, {sum(len(t) + len(m) for _b, t, m in plan)} tests, '
+          f'{len(colliders)} colliders')
+
+
+def strip_blender_only(arm):
+    """Remove the Blender-only hair collision (probes, ghosts, their Damped Tracks and the
+    colliders) before a PMX export: MMD's physics does that job there."""
+    for pb in arm.pose.bones:
+        for c in [c for c in pb.constraints if c.name == 'Hair collision']:
+            pb.constraints.remove(c)
+    gone = [pb.name for pb in arm.pose.bones if pb.get('levi_blender_only')]
+    for n in gone:
+        arm.pose.bones[n].driver_remove('rotation_quaternion')
+    if gone:
+        bpy.context.view_layer.objects.active = arm
+        for o in bpy.context.view_layer.objects:
+            o.select_set(o == arm)
+        bpy.ops.object.mode_set(mode='EDIT')
+        for n in gone:
+            arm.data.edit_bones.remove(arm.data.edit_bones[n])
+        bpy.ops.object.mode_set(mode='OBJECT')
+    _remove_colliders()
+    return len(gone)
+
+
+def _remove_colliders():
+    for o in [o for o in bpy.data.objects if o.get(HAIR_COLLIDER_TAG)]:
+        me = o.data
+        bpy.data.objects.remove(o, do_unlink=True)
+        if me is not None and me.users == 0:
+            bpy.data.meshes.remove(me)
 
 
 def _secondary_bones(parts, core):
@@ -884,10 +1508,18 @@ def _secondary_bones(parts, core):
         # so a turned head doesn't swing the whole curtain through the body
         if not any(b.name == HAIR_ROOT for b in bones):
             h = byname['頭'].head
+            parent = '首'
+            if HAIR_PITCH_HELPER and all(n in byname for n in HAIR_PITCH_SOURCES):
+                bones.extend(_hair_pitch_helpers(byname, h))
+                parent = HAIR_ARCH_BONE
             meta = {'follow': ('頭', HAIR_FOLLOW)} if HAIR_FOLLOW > 1e-4 else {}
             if HAIR_GRAVITY > 1e-4:
                 meta['gravity'] = [(n, HAIR_GRAVITY) for n in ('上半身', '上半身2') if n in byname]
-            bones.append(Bone(HAIR_ROOT, HAIR_ROOT, 'HairRoot', h, h + Vector((0, 0, 0.03)), '首',
+            if HAIR_NECK_HANG > 1e-4 and '首' in byname:
+                meta['pitch_hang'] = [('首', HAIR_NECK_HANG)]
+            if HAIR_ARCH_HANG > 1e-4:
+                meta['arch_hang'] = [(n, HAIR_ARCH_HANG) for n in HAIR_PITCH_SOURCES if n in byname]
+            bones.append(Bone(HAIR_ROOT, HAIR_ROOT, 'HairRoot', h, h + Vector((0, 0, 0.03)), parent,
                               deform=False, group='HairFollow', meta=meta))
         return HAIR_ROOT
 
@@ -2583,25 +3215,41 @@ def _create_armature(bones):
             c.use_x = c.use_y = False
             c.invert_z = True
             c.influence = k
-        pg = b.meta.get('pitch_gravity', ())
-        if pg:
-            # Blender: turn back k of each torso bone's pitch only. The source's local turn
-            # is re-expressed in this bone's rest frame, so its pitch is a turn about this
-            # bone's rest axis nearest world X. For a segment running sideways (an outer
-            # lock over the arm) that is its own length: it rolls a little and swings the
-            # segments below it down, which is the point. (One Euler component: exact
-            # for a pure bend, approximate when the torso also twists.)
-            m = data.bones[b.name].matrix_local.to_3x3()
-            ax = max(range(3), key=lambda i: abs(m.col[i].x))
-            for src, k in pg:
-                c = pb.constraints.new('COPY_ROTATION')
-                c.name = f'Pitch gravity {src}'
-                c.target, c.subtarget = arm, src
-                c.target_space, c.owner_space = 'LOCAL_OWNER_ORIENT', 'LOCAL'
-                c.mix_mode = 'BEFORE'
-                c.use_x, c.use_y, c.use_z = (ax == 0), (ax == 1), (ax == 2)
-                c.invert_x = c.invert_y = c.invert_z = True
-                c.influence = k
+        for src, k in b.meta.get('pitch_hang', ()):
+            # Blender only, like the sideways gravity: turn back k of the source's pitch
+            # (about this bone's local X, world X for 髪追従, which points up)
+            c = pb.constraints.new('COPY_ROTATION')
+            c.name = f'Hang {src}'
+            c.target, c.subtarget = arm, src
+            c.target_space, c.owner_space = 'LOCAL_OWNER_ORIENT', 'LOCAL'
+            c.mix_mode = 'BEFORE'
+            c.use_y = c.use_z = False
+            c.invert_x = True
+            c.influence = k
+        for src, k in b.meta.get('arch_hang', ()):
+            # Blender only: a torso bent BACK leaves the hair hanging from the head (her back
+            # turns away from it), so the root turns back k of that pitch; a forward bend
+            # is left to the lower segments' pitch gravity (the top rests on her back)
+            _pitch_counter(arm, pb, src, k, forward=False, name=f'Arch hang {src}')
+        for src, k in b.meta.get('pitch_gravity', ()):
+            # Blender: turn back k of each torso bone's FORWARD pitch, about this bone's rest
+            # axis nearest world X. For a segment running sideways (an outer lock over the
+            # arm) that is its own length: it rolls a little and swings the segments below
+            # it down, which is the point. Bent back, the root hangs instead (arch_hang).
+            _pitch_counter(arm, pb, src, k, forward=True, name=f'Pitch gravity {src}')
+        if 'ik' in b.meta:
+            # a one-link IK turning this bone about its local X only, within (lo, hi) deg
+            # (the hair's pitch-only helpers; exported as a PMX IK with that link limit)
+            goal, (lo, hi) = b.meta['ik']
+            c = pb.constraints.new('IK')
+            c.name = 'IK'
+            c.target, c.subtarget = arm, goal
+            c.chain_count, c.iterations = 1, 40
+            c.use_tail, c.use_stretch = True, False
+            pb.lock_ik_y = pb.lock_ik_z = True
+            pb.use_ik_limit_x = True
+            pb.ik_min_x, pb.ik_max_x = math.radians(lo), math.radians(hi)
+            pb.ik_stretch = 0.0
         if 'append' in b.meta:
             # PMX only: 回転付与 with a (possibly negative) share, no Blender constraint
             src, k = b.meta['append']
@@ -2774,4 +3422,5 @@ def build_rig():
         if part in ('body', '_proxy') and _SKIN is None:
             _store_skin(parts[part])
     bpy.context.view_layer.update()
+    _hair_collision(arm, bones, parts)
     return arm
