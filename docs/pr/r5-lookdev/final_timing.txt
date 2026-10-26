@@ -1,0 +1,7 @@
+render cel         8.5 s
+render clay        5.3 s
+render poses       7.1 s
+compare            5.3 s
+sheets            17.6 s
+codex            128.5 s
+total            172.3 s

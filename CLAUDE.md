@@ -109,7 +109,17 @@ The body part may store fitted limb joints for the rig as `obj["levi_joints"] = 
   - `--thin-casters` restores the old behaviour for comparison.
   - Round 4 tested the shadow map itself (`--shadow FILTER,ANGLE,MAXRES`): filter 0.5–10 texels, sun angle 0–8°, max resolution 1 or 0.5 mm. None of them cleaned the cel shading. A wide filter (6) rounds the cast-shadow contours on the thighs, but thresholding the filtered edge leaves more specks on the dress (front islands 29 → 42), so the filter stays 0.5. The resolution and the angle change nothing measurable. There is no shadow acne.
   - Most remaining small shade islands come from N·L, not from cast shadows: with `--no-shadows` round 4 still counts most of them. They are coarse or noisy normals at the terminator, so fix them in the part (`05_islands.png` shows where they are).
-  - The scalloped skirt and petticoat shadow on the thighs comes from the ruffle geometry. Stopping the petticoat from casting brings skin shade near the sheet's (back 0.31 → 0.26, sheet 0.18), but the petticoat then loses the tier-on-tier shade the sheet has (side 0.47 → 0.31, sheet 0.44). So a fix belongs in the petticoat: for example, ruffles with `levi_cast_shadow = False` plus a smooth caster.
+  - The scalloped skirt and petticoat shadow on the thighs comes from the ruffle geometry. Round 5 fixes it in the renderer with the caster policy below, so parts need no shadow-only casters of their own.
+- Caster policy (round 5, `render.CASTER_POLICY`): which casters each surface receives. The sheet paints a few big contact shadows and never a hand or sleeve print on the skirt. EEVEE light + shadow linking does this per receiver: the key light is split into identical suns, one per receiver group. Each sun lights only its group (receiver collection) and is shadowed only by that group's casters (blocker collection). Groups and casters are part collections.
+  - `skirt`: shadowed by skirt + petticoat only. No hand, sleeve, hair or bodice-ribbon prints.
+  - `petticoat`: its own tiers plus `+skirt_hem`, a smooth stand-in for the skirt hem, so the under-skirt shadow is one soft band rather than a print of every lobe.
+  - `skin` (body): every caster except the skirt and petticoat, which are replaced by `+hem`, a smooth stand-in for both. That gives one even band across the thighs.
+  - `rest`: everything else, every caster (as before).
+  - The stand-ins (`render.HEM_PROXIES`) are surfaces of revolution through the lowest skirt point in 96 sectors, smoothed circularly (20°), with a cap under the hem. They are visible to shadow rays only, and are rebuilt from the evaluated mesh at render time and for every pose. Their lift (m above the smoothed hem) sets the band length: `hem` 0.04 and `skirt_hem` 0.02 put skin and petticoat shade near the sheet's.
+  - `obj['levi_cast_shadow']` and `NO_CAST_OBJECTS` still apply in every group.
+  - Clay renders (`--clay`) skip the policy: every real contact shadow shows there. With `--freestyle` the real skirt and petticoat cast in place of the stand-ins, because Freestyle would treat an invisible stand-in as an occluder and drop lines.
+  - `--caster-policy off` goes back to one sun and all casters. `--hem-lift hem=0.03,...` overrides the lifts for experiments.
+  - A new part receives in the `rest` group and casts on `skin` and `rest`, but never on the skirt or petticoat unless its collection is added to those groups' blockers.
 - `render.py` re-applies the current ramp and palette to the materials in the `.blend` (`toon.sync_materials()`), so look-dev changes need no rebuild. These flags override settings for experiments:
   - `--sun AZ,EL`: the key light.
   - `--ramp T` and `--ramp-key KEY=T,...`: the ramp thresholds.
@@ -148,8 +158,14 @@ python tools/review.py [--blend out/levi.blend] [--rig out/levi_rig.blend] [--bu
 - Codex: `gpt-6.1-sol` and `gpt-6-astra` (`--models`) run concurrently as child processes, `codex exec -s read-only` in the repo, with every sheet attached and a JSON schema for the reply. The tool waits for both (`--timeout` seconds, default 900).
   - The prompt ranks naturalness in 3D first, animation-readiness second and fidelity third, and asks for findings per part with priority, view, location, issue and a concrete fix. `--focus <part>` makes it review that part in most detail.
   - Replies go to `out/review/<model>.md` (and `.json`, `.log`); `summary.md` merges them by part, with every priority-1 finding listed first. `prompt.md` keeps the exact prompt.
-- A single run takes about 25 s of rendering plus a few minutes per model. `--no-codex` stops after the sheets; `--no-render` reuses the renders already in `--out`.
-- `docs/pr/r3-review/` holds the round-3 baseline sheets and summary. `docs/pr/r4-lookdev/` holds the round-4 look-dev baseline and final, with the islands sheets and `metrics_delta.md`.
+- Per-pose rating: each model also rates every pose in `04_poses.png` as clean / minor / major / broken, names the parts at fault and adds a one-line note. `summary.md` has the table (pose × model), which is the rig's per-pose table.
+- `timing.txt` has the seconds per step.
+  - Round 5 scale test: the model with one Catmull-Clark level on every mesh (62k → 248k evaluated faces with hulls, 4×) rendered in 15 s cel / 9 s clay / 13 s poses. Compare took 5 s, sheets 19 s, 60 s in total without Codex.
+  - The 31k model with the same code takes about 45 s, plus ~2 min of Codex. The sheets step dominates. It is image-bound, not face-bound: `regions.components` now works on each region's bounding box, which made it 74 s → 19 s.
+  - Blender output goes to temporary files, not pipes.
+- `--no-codex` stops after the sheets; `--no-render` reuses the renders already in `--out`.
+- Docs for a PR: `--docs docs/pr/<unit> --docs-prefix final_` copies the run there. The sheets go as JPEG (quality 85) at most 1200 px wide (`--docs-width`, `--docs-quality`), with the summary, model replies, metrics and timing. `--docs-sheets 01,02,05` picks sheets, so baseline + final stay under ~1.5 MB. `--export-only` exports an existing `--out` without rendering.
+- `docs/pr/r3-review/` holds the round-3 baseline sheets and summary. `docs/pr/r4-lookdev/` holds the round-4 look-dev baseline and final, with the islands sheets and `metrics_delta.md`. `docs/pr/r5-lookdev/` holds round 5 (caster policy), with the first per-pose table in `final_summary.md`.
 
 ## Part rules
 - A part only adds objects to the `col` passed to `build(col)`. It must not read or modify other parts' objects; align to `spec.L` landmarks instead.
@@ -159,5 +175,5 @@ python tools/review.py [--blend out/levi.blend] [--rig out/levi_rig.blend] [--bu
 - Builds must be deterministic and repeatable. No randomness without a fixed seed.
 - Don't edit `spec.py`, `common.py`, `toon.py` or another part from a part PR. If a landmark is off, put a local correction in your part and explain it in the PR.
 - Never commit `.blend` files or `out/`. PR screenshots go under `docs/pr/<part>/`.
-  - Keep PR images small: JPEG (quality ~85) or downscaled PNG, at most ~1.5 MB per PR in total. Contact sheets can be downscaled to ~1200 px wide.
+  - Keep PR images small: JPEG (quality ~85) or downscaled PNG, at most ~1.5 MB per PR in total. Contact sheets can be downscaled to ~1200 px wide; `tools/review.py --docs` does this for you.
 - No Claude/AI attribution in commits or PRs.

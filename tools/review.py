@@ -4,6 +4,7 @@
                            [--out out/review] [--focus hair_back] [--turntable 8]
                            [--poses walk,arms_up,...] [--models gpt-6.1-sol,gpt-6-astra]
                            [--no-codex] [--timeout 900] [--baseline out/review_main]
+                           [--docs docs/pr/<unit> --docs-prefix final_ [--export-only]]
 
 Runs in any Python 3.9+ (stdlib only), including Blender's bundled one. Steps:
   1. (--build) build.py -> --blend, and build.py --rig -> --rig
@@ -26,9 +27,16 @@ Runs in any Python 3.9+ (stdlib only), including Blender's bundled one. Steps:
      against an earlier review dir, also appended to summary.md
   5. Codex: every --models model reviews the sheets concurrently (real child
      processes, waited on, --timeout s each), read-only, structured JSON output
-     (--output-schema), prioritised naturalness > animation > fidelity, per part.
-Writes <out>/<model>.md (+ .json, .log), <out>/summary.md (merged by part) and
-<out>/prompt.md. Paths may be relative to the repo root.
+     (--output-schema), prioritised naturalness > animation > fidelity, per part,
+     plus a rating of every pose in 04_poses.png (clean / minor / major / broken,
+     parts at fault, note).
+Writes <out>/<model>.md (+ .json, .log), <out>/summary.md (merged by part, with
+the per-pose table of every model), <out>/prompt.md and <out>/timing.txt
+(seconds per step). Paths may be relative to the repo root.
+  6. (--docs DIR [--docs-prefix final_] [--docs-sheets 01,02,05]) copy the run
+     into DIR for a PR: the sheets as JPEG (quality 85) at most 1200 px wide,
+     summary, model replies and metrics. --export-only does just this for an
+     existing --out dir.
 
 Environment: LEVI_BLENDER (default: Blender 5.2 under Program Files), LEVI_CODEX
 (default: %LOCALAPPDATA%/Programs/OpenAI/Codex/bin/codex.exe).
@@ -54,6 +62,13 @@ SHEET_VIEWS = ('front', 'side', 'back')
 REVIEW_VIEWS = ('q34_front_left', 'q34_back_right', 'high')
 POSE_VIEWS = ('front', 'q34_front_left')
 CATEGORIES = ('naturalness', 'animation', 'fidelity')
+# Per-pose rating (the rig's per-pose table): clean = no visible problem;
+# minor = small stretch/clip only a close look finds; major = clearly visible
+# deformation or clipping that needs a fix; broken = collapse, tearing,
+# inverted joints or pieces left behind.
+POSE_RATINGS = ('clean', 'minor', 'major', 'broken')
+DOC_SHEET_WIDTH = 1200   # --docs: contact sheets are downscaled to this width
+DOC_JPEG_QUALITY = 85    # ... and saved as JPEG (CLAUDE.md: PR images small)
 
 
 def parts():
@@ -192,9 +207,18 @@ def shade_island_stats(cel, views):
 # --------------------------------------------------------------- Codex
 SCHEMA = {
     'type': 'object', 'additionalProperties': False,
-    'required': ['summary', 'scores', 'findings'],
+    'required': ['summary', 'scores', 'poses', 'findings'],
     'properties': {
         'summary': {'type': 'string'},
+        'poses': {'type': 'array', 'items': {
+            'type': 'object', 'additionalProperties': False,
+            'required': ['pose', 'rating', 'parts', 'note'],
+            'properties': {
+                'pose': {'type': 'string'},
+                'rating': {'type': 'string', 'enum': list(POSE_RATINGS)},
+                'parts': {'type': 'string'},
+                'note': {'type': 'string'},
+            }}},
         'scores': {'type': 'object', 'additionalProperties': False,
                    'required': list(CATEGORIES),
                    'properties': {c: {'type': 'integer'} for c in CATEGORIES}},
@@ -249,6 +273,7 @@ outlines, anything global to the shading), "rig" (bones, weights, deformation) a
 Return JSON matching the schema:
 - summary: 3-6 sentences, overall state and the most important next steps.
 - scores: 1-10 per category (10 = production-ready).
+- poses: {poses_txt}
 - findings: at most {max_findings}, most important first. priority 1 = clearly visible or breaks
   animation, fix this round; 2 = noticeable; 3 = polish. category is naturalness / animation /
   fidelity. view names the image tile (e.g. "q34_front_left", "clay high", "walk front").
@@ -272,7 +297,7 @@ IMAGE_DESC = {
 }
 
 
-def build_prompt(sheets, metrics, focus, max_findings):
+def build_prompt(sheets, metrics, focus, max_findings, poses=()):
     images = '\n'.join(f'  {i + 1}. {os.path.basename(s)}: {IMAGE_DESC.get(os.path.basename(s), "")}'
                        for i, s in enumerate(sheets))
     focus_txt = ''
@@ -280,8 +305,52 @@ def build_prompt(sheets, metrics, focus, max_findings):
         focus_txt = (f'\nFOCUS: this review is for the part(s) "{focus}". Report findings for it '
                      f'first and in the most detail (all priorities); for other parts report only '
                      f'priority-1 problems that interact with it.\n')
+    if poses:
+        poses_txt = (f'one entry per pose in 04_poses.png, in this order: {", ".join(poses)}. rating is '
+                     f'clean (no visible problem), minor (small stretch or clip only a close look finds), '
+                     f'major (clearly visible deformation or clipping that needs a fix) or broken (collapse, '
+                     f'tearing, inverted joint, pieces left behind). parts names the parts at fault '
+                     f'(comma-separated, "" if clean); note says what and where in one sentence. Judge '
+                     f'deformation, not the rest-pose look. Give each major/broken pose a finding too.')
+    else:
+        poses_txt = 'no pose sheet this run: return an empty array.'
     return PROMPT.format(images=images, metrics=metrics.strip() or '(none)', parts=', '.join(parts()),
-                         focus=focus_txt, max_findings=max_findings)
+                         focus=focus_txt, max_findings=max_findings, poses_txt=poses_txt)
+
+
+def pose_table(replies, poses):
+    """Markdown table pose x model of the per-pose ratings ('' if none)."""
+    models = [m for m, (data, _raw, _rc) in replies.items() if data and data.get('poses')]
+    if not models:
+        return ''
+    def norm(name):
+        # 'Walk', 'walk front', 'walk (q34_front_left)' -> 'walk' when that is a pose
+        n = str(name or '').strip().lower()
+        for p in poses:
+            if n == p or n.startswith(p + ' ') or n.startswith(p + '('):
+                return p
+        return n
+
+    rated = {m: {norm(p.get('pose')): p for p in replies[m][0]['poses']} for m in models}
+    names = list(poses) + sorted({n for r in rated.values() for n in r if n not in poses})
+    lines = ['## Per-pose rating', '',
+             f'{" / ".join(POSE_RATINGS)}: parts at fault, note.', '',
+             '| pose | ' + ' | '.join(models) + ' |', '|---|' + '---|' * len(models)]
+    for n in names:
+        cells = []
+        for m in models:
+            p = rated[m].get(n)
+            if p is None:
+                cells.append('-')
+                continue
+            txt = f'**{p.get("rating", "?")}**'
+            if p.get('parts'):
+                txt += f' ({p["parts"]})'
+            if p.get('note'):
+                txt += ' ' + p['note'].replace('|', '/').replace('\n', ' ')
+            cells.append(txt)
+        lines.append(f'| {n} | ' + ' | '.join(cells) + ' |')
+    return '\n'.join(lines) + '\n'
 
 
 def run_codex(models, prompt_path, sheets, out, codex, timeout):
@@ -358,7 +427,7 @@ def finding_key(f):
     return (f.get('priority', 9), CATEGORIES.index(cat) if cat in CATEGORIES else 9)
 
 
-def write_model_md(m, data, raw, rc, out):
+def write_model_md(m, data, raw, rc, out, poses=()):
     lines = [f'# Codex review: {m}', '']
     if data is None:
         lines += [f'No structured reply (exit {rc}). Raw output:', '', '```', raw.strip(), '```']
@@ -366,6 +435,9 @@ def write_model_md(m, data, raw, rc, out):
         sc = data.get('scores', {})
         lines += [data.get('summary', ''), '',
                   'Scores: ' + ', '.join(f'{c} {sc.get(c, "?")}/10' for c in CATEGORIES), '']
+        table = pose_table({m: (data, raw, rc)}, poses)
+        if table:
+            lines += [table]
         by_part = {}
         for f in data.get('findings', []):
             by_part.setdefault(f.get('part', 'global'), []).append(f)
@@ -380,8 +452,9 @@ def write_model_md(m, data, raw, rc, out):
     return path
 
 
-def write_summary(replies, out, focus, delta=''):
-    """Merge every model's findings by part (priority, then category order);
+def write_summary(replies, out, focus, delta='', poses=()):
+    """Merge every model's findings by part (priority, then category order),
+    with the per-pose ratings of every model (`poses`: the pose order);
     `delta` (metrics_delta() markdown) is appended."""
     lines = ['# Review summary', '']
     if focus:
@@ -412,6 +485,9 @@ def write_summary(replies, out, focus, delta=''):
         lines += [f'- **{f.get("part")}** ({m}) [{f.get("category")}] {f.get("location")}: {f.get("issue")}'
                   for m, f in p1]
         lines.append('')
+    table = pose_table(replies, poses)
+    if table:
+        lines += [table]
     order = sorted(merged, key=lambda p: (min(key(x) for x in merged[p]), p))
     lines += ['## By part', '']
     for part in order:
@@ -515,16 +591,91 @@ def metrics_delta(base_dir, out):
 
 
 # ------------------------------------------------------------ orchestration
-def blender(args, exe, log_path):
-    """Run Blender in the background; returns stdout text, raises on failure."""
-    r = subprocess.run([exe, "-b", "--python-exit-code", "1"] + args, cwd=ROOT,
-                       capture_output=True, text=True,
-                       encoding='utf-8', errors='replace')
+TIMES = []   # (step, seconds) of this run, printed and written to timing.txt
+
+
+def blender(args, exe, log_path, step=''):
+    """Run Blender in the background; returns stdout text, raises on failure.
+    Output goes to a temporary file, not a pipe, so a large log (a big model,
+    many poses) never sits in memory twice; only the text is returned."""
+    t0 = time.time()
+    tmp_out, tmp_err = log_path + '.out', log_path + '.err'
+    with open(tmp_out, 'wb') as fo, open(tmp_err, 'wb') as fe:
+        # stderr apart: parsed stdout lines (IOU/REGION/SHEET) never get
+        # interleaved with warnings
+        r = subprocess.run([exe, "-b", "--python-exit-code", "1"] + args, cwd=ROOT,
+                           stdout=fo, stderr=fe)
+    texts = []
+    for p in (tmp_out, tmp_err):
+        with open(p, encoding='utf-8', errors='replace') as f:
+            texts.append(f.read())
+        os.remove(p)
+    txt, err = texts
     with open(log_path, 'a', encoding='utf-8') as f:
-        f.write(f'$ blender -b {" ".join(args)}\n{r.stdout}\n{r.stderr}\n')
+        f.write(f'$ blender -b {" ".join(args)}\n{txt}\n{err}\n')
+    dt = time.time() - t0
+    TIMES.append((step or ' '.join(args[:3]), dt))
+    print(f'  {step or "blender"}: {dt:.0f}s', flush=True)
     if r.returncode != 0:
         raise SystemExit(f'blender failed ({r.returncode}): {" ".join(args)}; see {log_path}')
-    return r.stdout
+    return txt
+
+
+DOC_TEXT = ('summary.md', 'metrics_delta.md', 'metrics.txt', 'shade_stats.txt', 'shade_islands.txt',
+            'timing.txt')
+
+
+def stage_docs(argv):
+    """Inside Blender: downscaled JPEG copies of a review dir's contact sheets."""
+    sys.path.insert(0, os.path.join(ROOT, 'tools'))
+    import contact
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--src', required=True)
+    ap.add_argument('--dst', required=True)
+    ap.add_argument('--prefix', default='')
+    ap.add_argument('--width', type=int, default=DOC_SHEET_WIDTH)
+    ap.add_argument('--quality', type=int, default=DOC_JPEG_QUALITY)
+    ap.add_argument('--sheets', default='')
+    a = ap.parse_args(argv)
+    for n in filter(None, a.sheets.split(',')):
+        src = os.path.join(a.src, n)
+        if not os.path.isfile(src):
+            continue
+        img = contact.resize_width(contact.load(src), a.width)
+        dst = os.path.join(a.dst, a.prefix + os.path.splitext(n)[0] + '.jpg')
+        contact.save_jpeg(dst, img, a.quality)
+        print('DOC', dst, f'{img.shape[1]}x{img.shape[0]}', f'{os.path.getsize(dst) // 1024} KB')
+
+
+def export_docs(src, dst, prefix, exe, log, width=DOC_SHEET_WIDTH, quality=DOC_JPEG_QUALITY, pick=''):
+    """Copy a review dir into docs/pr/<unit>/: the contact sheets (all, or
+    those whose name starts with an entry of the comma-separated `pick`) as
+    JPEG at most `width` px wide, plus the summary, the model replies and the
+    metrics (text), all with `prefix` (e.g. 'baseline_'). Returns total bytes."""
+    os.makedirs(dst, exist_ok=True)
+    keys = [k for k in pick.split(',') if k]
+    sheets = [n for n in SHEET_NAMES if os.path.isfile(os.path.join(src, n))
+              and (not keys or any(n.startswith(k) for k in keys))]
+    txt = blender(['--factory-startup', '-P', os.path.join('tools', 'review.py'), '--', '--stage', 'docs',
+                   '--src', src, '--dst', dst, '--prefix', prefix, '--width', str(width),
+                   '--quality', str(quality), '--sheets', ','.join(sheets)], exe, log, 'docs')
+    print(''.join(l + '\n' for l in txt.splitlines() if l.startswith('DOC')), end='')
+    texts = list(DOC_TEXT) + sorted(os.path.basename(p) for p in glob.glob(os.path.join(src, '*.md'))
+                                    if os.path.basename(p) not in DOC_TEXT + ('prompt.md',))
+    written = [os.path.join(dst, prefix + os.path.splitext(n)[0] + '.jpg') for n in sheets]
+    for n in texts:
+        if os.path.isfile(os.path.join(src, n)):
+            shutil.copyfile(os.path.join(src, n), os.path.join(dst, prefix + n))
+            written.append(os.path.join(dst, prefix + n))
+    total = sum(os.path.getsize(p) for p in written if os.path.isfile(p))
+    every = sum(os.path.getsize(os.path.join(dst, f)) for f in os.listdir(dst)
+                if os.path.isfile(os.path.join(dst, f)))
+    print(f'DOCS {dst}: this export {total / 1e6:.2f} MB, the whole dir {every / 1e6:.2f} MB')
+    return total
+
+
+SHEET_NAMES = ('01_ortho_sbs.png', '02_angles_cel.png', '03_clay.png', '04_poses.png', '05_islands.png',
+               'turntable.png')
 
 
 def main():
@@ -532,9 +683,11 @@ def main():
         argv = sys.argv[sys.argv.index('--') + 1:]
         argv.remove('--stage')
         stage = argv.pop(0)
-        if stage != 'sheets':
-            raise SystemExit(f'unknown stage {stage}')
-        return stage_sheets(argv)
+        if stage == 'sheets':
+            return stage_sheets(argv)
+        if stage == 'docs':
+            return stage_docs(argv)
+        raise SystemExit(f'unknown stage {stage}')
 
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('--blend', default='out/levi.blend')
@@ -555,7 +708,26 @@ def main():
     ap.add_argument('--max-findings', type=int, default=25)
     ap.add_argument('--blender', default=DEFAULT_BLENDER)
     ap.add_argument('--codex', default=DEFAULT_CODEX)
+    ap.add_argument('--docs', default='', metavar='DIR',
+                    help='also export the run to DIR (e.g. docs/pr/r5-x): contact sheets as JPEG at most '
+                         f'{DOC_SHEET_WIDTH} px wide, summary, model replies and metrics')
+    ap.add_argument('--docs-prefix', default='', help='file name prefix for --docs (e.g. baseline_)')
+    ap.add_argument('--docs-sheets', default='',
+                    help='comma-separated sheet numbers/names for --docs (e.g. 01,02,05; default all)')
+    ap.add_argument('--docs-width', type=int, default=DOC_SHEET_WIDTH)
+    ap.add_argument('--docs-quality', type=int, default=DOC_JPEG_QUALITY)
+    ap.add_argument('--export-only', action='store_true',
+                    help='with --docs: only export the existing --out dir (no render, no Codex)')
     a = ap.parse_args()
+    if a.export_only:
+        if not a.docs:
+            ap.error('--export-only needs --docs DIR')
+        out = abspath(a.out)
+        if not os.path.isdir(out):
+            ap.error(f'{out} not found')
+        export_docs(out, abspath(a.docs), a.docs_prefix, a.blender, os.path.join(out, 'blender.log'),
+                    a.docs_width, a.docs_quality, a.docs_sheets)
+        return
 
     if a.focus:
         bad = [p for p in a.focus.split(',') if p not in parts() + ['lookdev', 'rig', 'global']]
@@ -567,11 +739,12 @@ def main():
     blend = abspath(a.blend)
     rig_blend = abspath(a.rig) if a.rig else ''
 
+    t_start = time.time()
     if a.build:
         open(log, 'w').close()
-        blender(['-P', 'build.py', '--', '--out', blend], a.blender, log)
+        blender(['-P', 'build.py', '--', '--out', blend], a.blender, log, 'build')
         if rig_blend:
-            blender(['-P', 'build.py', '--', '--rig', '--out', rig_blend], a.blender, log)
+            blender(['-P', 'build.py', '--', '--rig', '--out', rig_blend], a.blender, log, 'build rig')
     if not os.path.isfile(blend):
         ap.error(f'{blend} not found (build it, or pass --build)')
     poses = a.poses if rig_blend and os.path.isfile(rig_blend) else ''
@@ -585,30 +758,31 @@ def main():
         cmd = ['-P', 'render.py', '--', '--out', os.path.join(out, 'cel'), '--views', 'review']
         if a.turntable:
             cmd += ['--turntable', str(a.turntable)]
-        blender([blend] + cmd, a.blender, log)
+        blender([blend] + cmd, a.blender, log, 'render cel')
         print('RENDER clay', flush=True)
         blender([blend, '-P', 'render.py', '--', '--out', os.path.join(out, 'clay'),
-                 '--views', 'review', '--clay'], a.blender, log)
+                 '--views', 'review', '--clay'], a.blender, log, 'render clay')
         if poses:
             print('RENDER poses', poses, flush=True)
             blender([rig_blend, '-P', 'render.py', '--', '--out', os.path.join(out, 'poses'),
-                     '--views', ','.join(POSE_VIEWS), '--pose', poses], a.blender, log)
+                     '--views', ','.join(POSE_VIEWS), '--pose', poses], a.blender, log, 'render poses')
         print('COMPARE', flush=True)
         txt = blender(['--factory-startup', '-P', 'tools/compare.py', '--',
                        '--render', os.path.join(out, 'cel'), '--out', os.path.join(out, 'cmp')],
-                      a.blender, log)
+                      a.blender, log, 'compare')
         with open(os.path.join(out, 'metrics.txt'), 'w', encoding='utf-8') as f:
             f.write(''.join(l + '\n' for l in txt.splitlines() if l.startswith(('IOU', 'REGION'))))
     print('SHEETS', flush=True)
-    names = ['01_ortho_sbs.png', '02_angles_cel.png', '03_clay.png', '04_poses.png', '05_islands.png',
-             'turntable.png']
-    for n in names + ['shade_stats.txt', 'shade_islands.txt', 'metrics_delta.md']:
+    names = list(SHEET_NAMES)
+    for n in names + ['shade_stats.txt', 'shade_islands.txt', 'metrics_delta.md', 'timing.txt']:
         # never send a stale sheet from an earlier run
         if os.path.isfile(os.path.join(out, n)):
             os.remove(os.path.join(out, n))
     txt = blender(['--factory-startup', '-P', os.path.join('tools', 'review.py'), '--',
-                   '--stage', 'sheets', '--out', out, '--poses', poses], a.blender, log)
+                   '--stage', 'sheets', '--out', out, '--poses', poses], a.blender, log, 'sheets')
     print(''.join(l + '\n' for l in txt.splitlines() if l.startswith('SHEET')), end='')
+    pose_names = [p for p in poses.split(',') if p and
+                  all(os.path.isfile(os.path.join(out, 'poses', p, f'{v}.png')) for v in POSE_VIEWS)]
 
     sheets = [os.path.join(out, n) for n in names if os.path.isfile(os.path.join(out, n))]
     if not a.turntable:
@@ -628,23 +802,37 @@ def main():
             print('DELTA', os.path.join(out, 'metrics_delta.md'))
         else:
             print('DELTA skipped: no metrics in', a.baseline)
-    prompt = build_prompt(sheets, metrics, a.focus, a.max_findings)
+    prompt = build_prompt(sheets, metrics, a.focus, a.max_findings, pose_names)
     prompt_path = os.path.join(out, 'prompt.md')
     with open(prompt_path, 'w', encoding='utf-8') as f:
         f.write(prompt)
+
+    def finish():
+        TIMES.append(('total', time.time() - t_start))
+        with open(os.path.join(out, 'timing.txt'), 'w', encoding='utf-8') as f:
+            f.write(''.join(f'{s:14s} {t:7.1f} s\n' for s, t in TIMES))
+        print('TIMING', ', '.join(f'{s} {t:.0f}s' for s, t in TIMES))
+        if a.docs:
+            export_docs(out, abspath(a.docs), a.docs_prefix, a.blender, log,
+                        a.docs_width, a.docs_quality, a.docs_sheets)
+
     if a.no_codex:
         print('PROMPT', prompt_path)
+        finish()
         return
     if not os.path.isfile(a.codex):
         raise SystemExit(f'codex not found at {a.codex} (set LEVI_CODEX or --codex)')
     models = [m for m in a.models.split(',') if m]
+    t0 = time.time()
     rcs = run_codex(models, prompt_path, sheets, out, a.codex, a.timeout)
+    TIMES.append(('codex', time.time() - t0))
     replies = {}
     for m in models:
         data, raw = load_reply(os.path.join(out, f'{m}.json'))
         replies[m] = (data, raw, rcs[m])
-        print('REVIEW', write_model_md(m, data, raw, rcs[m], out))
-    print('SUMMARY', write_summary(replies, out, a.focus, delta))
+        print('REVIEW', write_model_md(m, data, raw, rcs[m], out, pose_names))
+    print('SUMMARY', write_summary(replies, out, a.focus, delta, pose_names))
+    finish()
     if not any(d for d, _, _ in replies.values()):
         raise SystemExit('no model returned a review; see the <model>.log files')
 

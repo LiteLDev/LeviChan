@@ -6,6 +6,7 @@
                                               [--sun AZ,EL] [--ramp T] [--ramp-key KEY=T,...]
                                               [--clay] [--turntable N] [--pose NAME,...|all]
                                               [--thin-casters] [--shadow FILTER,ANGLE,MAXRES]
+                                              [--caster-policy on|off] [--hem-lift NAME=M,...]
                                               [--palette KEY.TONE=#RRGGBB,...]
 
 Review views (no reference; same ortho scale and frame centre, key light
@@ -192,6 +193,229 @@ def set_shadow_casters(thin=False):
     return sorted(off)
 
 
+# Round 5: which casters each surface receives (EEVEE light + shadow linking).
+# The sheet is flat anime cel: it paints a few large contact shadows (the
+# skirt onto the petticoat and thighs, the chin onto the neck, the hair and
+# sleeves onto what is right behind them) and never the shadow of a hand or
+# a sleeve on the pale skirt. One sun cannot pick casters per receiver, so
+# the key light is split into identical suns, one per receiver group: each
+# lights only its group's objects (receiver collection) and is shadowed only
+# by that group's casters (blocker collection). Groups are part collections
+# ('*' = every mesh not claimed by an earlier group). Blockers name part
+# collections ('*' = all of them, '-name' removes one) and hem proxies
+# ('+name', HEM_PROXIES). Per-object opt-outs (obj['levi_cast_shadow'],
+# NO_CAST_OBJECTS) still apply to every group.
+#   skirt:     shades only from the skirt family itself (folds, lobes), not
+#              from the hands, the sleeve balloons, the hair or the bodice
+#              ribbons hanging over it (the round-4 finger prints).
+#   petticoat: its own tiers plus a smooth stand-in for the skirt hem, so the
+#              under-skirt shadow is one soft-edged band, not a print of
+#              every skirt lobe.
+#   skin:      the body takes the skirt's shadow from a smooth stand-in for
+#              skirt + petticoat (one even band across the thighs, not the
+#              scalloped print of every ruffle); everything else that casts
+#              on it still does (hair, head, sleeves, bodice).
+#   rest:      every other object, every caster (as before round 5).
+# Measured (round 5, review shade_stats): skin shade front/side/back
+# 0.21/0.30/0.28 -> ~0.18/0.27/0.21 (sheet 0.17/0.19/0.18); the finger and
+# sleeve prints on the skirt are gone. Light linking costs one shadow map per
+# group (4 suns); see CLAUDE.md for timings.
+# `render.py --caster-policy off` goes back to one sun and all casters.
+CASTER_POLICY = (
+    ('skirt', ('skirt',), ('skirt', 'petticoat')),
+    ('petticoat', ('petticoat',), ('petticoat', '+skirt_hem')),
+    ('skin', ('body',), ('*', '-skirt', '-petticoat', '+hem')),
+    ('rest', ('*',), ('*',)),
+)
+# Skirt hem shadow proxy (shadow rays only, never seen by the camera): a
+# surface of revolution through the lowest skirt/petticoat point in each of
+# HEM_PROXY_SECTORS sectors around the skirt's axis, smoothed circularly
+# (gaussian, HEM_PROXY_SMOOTH_DEG), with a wall up to the waist and a cap
+# under the hem. Its shadow edge on the legs is one smooth curve.
+# name -> (source part collections, lift in metres: raises the proxy hem
+# above the smoothed lowest point, so the band is no longer than the real
+# hem's average shadow). Blockers refer to them as '+name'.
+HEM_PROXIES = {
+    'hem': (('skirt', 'petticoat'), 0.04),
+    'skirt_hem': (('skirt',), 0.02),
+}
+PROXY_PREFIX = '_shadow_'
+HEM_PROXY_SECTORS = 96
+HEM_PROXY_SMOOTH_DEG = 20.0
+
+
+def _part_meshes(name):
+    col = bpy.data.collections.get(name)
+    return [o for o in col.all_objects if o.type == 'MESH'] if col and not col.hide_render else []
+
+
+def _world_verts(objs):
+    """Evaluated world-space vertices of `objs` as an (N, 3) array."""
+    import numpy as np
+    dg = bpy.context.evaluated_depsgraph_get()
+    chunks = []
+    for o in objs:
+        ev = o.evaluated_get(dg)
+        me = ev.to_mesh()
+        try:
+            co = np.empty(len(me.vertices) * 3, dtype=np.float64)
+            me.vertices.foreach_get('co', co)
+        finally:
+            ev.to_mesh_clear()
+        co = co.reshape(-1, 3)
+        m = np.array(ev.matrix_world)
+        chunks.append(co @ m[:3, :3].T + m[:3, 3])
+    return np.concatenate(chunks) if chunks else np.zeros((0, 3))
+
+
+def remove_proxies():
+    for o in [o for o in bpy.data.objects if o.name.startswith(PROXY_PREFIX)]:
+        me = o.data
+        bpy.data.objects.remove(o, do_unlink=True)
+        if me is not None and me.users == 0:
+            bpy.data.meshes.remove(me)
+
+
+def build_hem_proxy(name, sources, lift=0.0):
+    """Build the hem shadow proxy PROXY_PREFIX + name from the evaluated
+    `sources` part collections (so a posed skirt gets a posed proxy).
+    Returns the object, or None when the sources are missing."""
+    import numpy as np
+    v = _world_verts([o for n in sources for o in _part_meshes(n)])
+    if len(v) < 16:
+        return None
+    n = HEM_PROXY_SECTORS
+    c = v[:, :2].mean(0)
+    d = v[:, :2] - c
+    r = np.hypot(d[:, 0], d[:, 1])
+    sec = (np.floor((np.arctan2(d[:, 1], d[:, 0]) + np.pi) / (2 * np.pi) * n).astype(int)) % n
+    z_top = float(v[:, 2].max())
+    z_hem = np.full(n, np.nan)
+    r_hem = np.full(n, np.nan)
+    r_top = np.full(n, np.nan)
+    for i in range(n):
+        m = sec == i
+        if not m.any():
+            continue
+        z_hem[i] = v[m, 2].min()
+        r_hem[i] = r[m].max()
+        top = m & (v[:, 2] > z_top - 0.03)
+        r_top[i] = np.median(r[top]) if top.any() else np.nan
+    for a in (z_hem, r_hem, r_top):   # fill empty sectors from their neighbours
+        ok = ~np.isnan(a)
+        if not ok.any():
+            return None
+        idx = np.arange(n)
+        a[~ok] = np.interp(idx[~ok], idx[ok], a[ok], period=n)
+    # circular gaussian smoothing
+    sig = max(1e-6, HEM_PROXY_SMOOTH_DEG / 360.0 * n)
+    k = np.arange(-n // 2, n // 2)
+    w = np.exp(-0.5 * (k / sig) ** 2)
+    w /= w.sum()
+
+    def smooth(a):
+        return np.array([np.dot(w, a[(i + k) % n]) for i in range(n)])
+    z_hem, r_hem, r_top = smooth(z_hem) + lift, smooth(r_hem), smooth(r_top)
+    ang = (np.arange(n) + 0.5) / n * 2 * np.pi - np.pi
+    cs, sn = np.cos(ang), np.sin(ang)
+    verts = [(c[0] + r_hem[i] * cs[i], c[1] + r_hem[i] * sn[i], z_hem[i]) for i in range(n)]
+    verts += [(c[0] + r_top[i] * cs[i], c[1] + r_top[i] * sn[i], z_top) for i in range(n)]
+    verts.append((c[0], c[1], float(z_hem.mean())))
+    ctr = 2 * n
+    faces = [(i, (i + 1) % n, n + (i + 1) % n, n + i) for i in range(n)]
+    faces += [((i + 1) % n, i, ctr) for i in range(n)]
+    me = bpy.data.meshes.new(PROXY_PREFIX + name)
+    me.from_pydata([tuple(map(float, p)) for p in verts], [], faces)
+    me.validate()
+    obj = bpy.data.objects.new(PROXY_PREFIX + name, me)
+    bpy.context.scene.collection.objects.link(obj)
+    obj.visible_camera = False
+    obj.visible_diffuse = False
+    obj.visible_glossy = False
+    obj.visible_transmission = False
+    obj.visible_volume_scatter = False
+    obj.visible_shadow = True
+    obj['levi_cast_shadow'] = True
+    obj['no_outline'] = True
+    return obj
+
+
+def _policy_collection(name, objs):
+    col = bpy.data.collections.get(name)
+    if col is None:
+        col = bpy.data.collections.new(name)   # not linked to the scene: a set only
+    for o in list(col.objects):
+        col.objects.unlink(o)
+    for o in objs:
+        col.objects.link(o)
+    return col
+
+
+def setup_caster_policy(sun, policy=CASTER_POLICY, use_proxies=True):
+    """Split the key light into one sun per receiver group (light linking)
+    with that group's blockers (shadow linking). Returns the suns (the first
+    is `sun`); all must be aimed alike (place_sun). An empty or None policy
+    clears any linking and returns [sun]. With use_proxies=False a '+name'
+    blocker stands for the proxy's source collections instead (Freestyle
+    would treat the invisible proxy as an occluder and drop lines)."""
+    if not use_proxies and policy:
+        policy = [(g, r, tuple(x for b in block for x in
+                               (HEM_PROXIES[b[1:]][0] if b.startswith('+') and b[1:] in HEM_PROXIES
+                                else (b,))))
+                  for g, r, block in policy]
+    for o in [o for o in bpy.data.objects if o.name.startswith('RenderSun.')]:
+        bpy.data.objects.remove(o, do_unlink=True)
+    sun.light_linking.receiver_collection = None
+    sun.light_linking.blocker_collection = None
+    remove_proxies()
+    if not policy:
+        return [sun]
+    meshes = [o for o in bpy.context.scene.objects if o.type == 'MESH']
+    part_names = [c.name for c in bpy.context.scene.collection.children]
+    wanted = {b[1:] for _g, _r, block in policy for b in block if b.startswith('+')}
+    unknown = wanted - set(HEM_PROXIES)
+    if unknown:
+        raise ValueError(f'CASTER_POLICY: unknown proxies {sorted(unknown)}')
+    proxies = {}
+    for name in sorted(wanted):
+        obj = build_hem_proxy(name, *HEM_PROXIES[name])
+        if obj is not None:
+            proxies[name] = obj
+    in_parts = {o.name for n in part_names for o in _part_meshes(n)}
+    claimed = set()
+    suns = []
+    for group, recv, block in policy:
+        if '*' in recv:
+            rx = [o for o in meshes if o.name not in claimed]
+        else:
+            rx = [o for n in recv for o in _part_meshes(n) if o.name not in claimed]
+        claimed |= {o.name for o in rx}
+        names = set()
+        for b in block:
+            if b == '*':
+                names |= set(part_names)
+            elif b.startswith('-'):
+                names.discard(b[1:])
+            elif not b.startswith('+'):
+                names.add(b)
+        bk = [o for n in sorted(names) for o in _part_meshes(n)]
+        if '*' in block:   # meshes outside any part collection (e.g. _proxy) too
+            bk += [o for o in meshes if o.name not in in_parts]
+        bk += [proxies[b[1:]] for b in block if b.startswith('+') and b[1:] in proxies]
+        if not rx:
+            continue
+        s = sun if not suns else bpy.data.objects.new(f'RenderSun.{group}', sun.data)
+        if s is not sun:
+            bpy.context.scene.collection.objects.link(s)
+        s.light_linking.receiver_collection = _policy_collection(f'_rx_{group}', rx)
+        if not bk:   # no blocker collection = every object casts
+            print('WARNING caster group', group, 'has no blockers; every object casts on it')
+        s.light_linking.blocker_collection = _policy_collection(f'_bk_{group}', bk) if bk else None
+        suns.append(s)
+        print('CASTERS', group, 'receivers', len(rx), 'blockers', len(bk))
+    return suns or [sun]
+
+
 def view_angles(view):
     """(azimuth, elevation) degrees of a review view, or None for the
     calibrated sheet views (spec.CAMERAS). Azimuth is measured from the front
@@ -374,6 +598,10 @@ def main():
     ap.add_argument('--freestyle', action='store_true', help='add Freestyle crease/open-border lines')
     ap.add_argument('--shadows', action=argparse.BooleanOptionalAction, default=CAST_SHADOWS,
                     help=f'sun cast shadows (default: {"on" if CAST_SHADOWS else "off"})')
+    ap.add_argument('--caster-policy', choices=('on', 'off'), default='on',
+                    help='per-receiver caster groups (CASTER_POLICY); off = one sun, every caster')
+    ap.add_argument('--hem-lift', default='',
+                    help='NAME=M,...: override HEM_PROXIES lifts in metres (look-dev experiments)')
     ap.add_argument('--thin-casters', action='store_true',
                     help='let thin strips (NO_CAST_OBJECTS) cast shadows too')
     ap.add_argument('--sun', default='', help='AZ,EL degrees: override the key light (look-dev experiments)')
@@ -464,8 +692,25 @@ def main():
     # look-dev changes take effect without rebuilding the model.
     print('SYNCED', toon.sync_materials(), 'materials')
     sc, cam, sun = setup_scene(args.scale, shadows=args.shadows)
+    for item in filter(None, args.hem_lift.split(',')):
+        try:
+            k, m = item.split('=')
+            HEM_PROXIES[k] = (HEM_PROXIES[k][0], float(m))
+        except (ValueError, KeyError):
+            ap.error(f'--hem-lift: bad entry {item!r} (NAME=M, NAME in {sorted(HEM_PROXIES)})')
+    # Clay shows form with every real contact shadow: no caster policy there.
+    policy = (CASTER_POLICY if args.shadows and args.caster_policy == 'on' and not args.clay
+              else None)
+    if args.hem_lift and not policy:
+        print('WARNING --hem-lift has no effect without the caster policy '
+              '(--caster-policy off, --no-shadows or --clay)')
     if args.shadows:
         print('NO_CAST', ','.join(set_shadow_casters(thin=args.thin_casters)) or '-')
+    # --pose builds the policy per pose (the proxies follow the posed skirt)
+    # (Freestyle would draw and occlude with the invisible hem proxies: there
+    # the real skirt and petticoat cast instead.)
+    use_proxies = not args.freestyle
+    suns = setup_caster_policy(sun, None if poses else policy, use_proxies)
     if args.freestyle:
         setup_freestyle(sc)
     if args.clay:
@@ -479,7 +724,8 @@ def main():
         os.makedirs(folder, exist_ok=True)
         for view in views:
             place_camera(cam, view)
-            place_sun(sun, cam, az, el)
+            for s in suns:
+                place_sun(s, cam, az, el)
             sc.render.filepath = os.path.join(folder, f'{view}{suffix}.png')
             bpy.ops.render.render(write_still=True)
             print('RENDERED', sc.render.filepath)
@@ -488,6 +734,8 @@ def main():
         # Pose sheet input: <out>/<pose>/<view>.png per pose (rigged .blend).
         for name in poses:
             rig_pose.apply_pose(arm, name)
+            if policy:   # the hem proxy follows the posed skirt
+                suns[:] = setup_caster_policy(sun, policy, use_proxies)
             render_views(os.path.join(out, name), views)
         rig_pose.reset_pose(arm)
         return
