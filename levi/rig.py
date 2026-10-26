@@ -619,7 +619,7 @@ DRAPE_CLEAR = 0.012         # m kept between the innermost cloth layer and the t
 DRAPE_BEND = 30.0           # deg: most a joint bends against the segment above it
 DRAPE_UP = 10.0             # deg a segment may lift above the one over it
 DRAPE_SPREAD = 100.0        # deg around the body over which a lifted chain lifts its neighbours
-DRAPE_SPREAD_SHARE = 0.85   # ... and how much of its lift the next chain gets at the least
+DRAPE_SPREAD_POW = 2.0      # ... falling off as 1 - (angle / spread) ** this (flat next to the lifted chain)
 DRAPE_SHARE_AT = 60.0       # deg of thigh pitch at which the PMX's linear 回転付与 share is read
 
 
@@ -751,7 +751,7 @@ def _skirt_drape(chains, pts, cy, hip, knee, body):
     for tag in sides:
         for k in range(len(chains)):
             dk = np.abs((angles - angles[k] + 180.0) % 360.0 - 180.0)
-            f = np.where(dk < 1e-6, 1.0, DRAPE_SPREAD_SHARE * np.clip(1.0 - (dk - step) / DRAPE_SPREAD, 0.0, 1.0))
+            f = np.clip(1.0 - (dk / DRAPE_SPREAD) ** DRAPE_SPREAD_POW, 0.0, 1.0)
             f[dk < 1e-6] = 1.0
             stack = np.stack([raw[tag][m] * f[m] for m in range(len(chains))])
             mx, mn = stack.max(0), stack.min(0)
@@ -1157,7 +1157,7 @@ def _store_skin(objs):
 
 # ---- per-object helpers: topology, sides, smoothing, pruning
 SMOOTH_RADIUS = {     # metres of weight smoothing along the surface, per part
-    'body': 0.008, 'head': 0.01, 'shoes': 0.012, 'accessories': 0.012, 'bodice': 0.02,
+    'body': 0.008, 'head': 0.01, 'shoes': 0.012, 'accessories': 0.012, 'bodice': 0.035,
     'hair_front': 0.025, 'hair_back': 0.03, 'sleeves': 0.065, 'skirt': 0.03, 'petticoat': 0.04,
 }
 DEFAULT_SMOOTH = 0.012
