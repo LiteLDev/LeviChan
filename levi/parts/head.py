@@ -21,21 +21,23 @@ at the cheeks.
 Eyes and mouth are real openings with face-like topology: around each one
 the ring grid is replaced by a patch of concentric loops (edge loops around
 the opening, as in a hand-built face), see `Patch`.
-* Each eye opening shows an eyeball cap behind it (head_eye_L / head_eye_R):
-  a piece of a sphere around the eye pivot (obj['levi_eye_pivot']) that
-  carries the white, iris, pupil and highlights in its own texture, so the
-  MMD eye bones (目.L / 目.R) turn the gaze. The lid rim rolls back into the
-  sphere, so the eyeball can turn any way without showing an edge.
+* Behind each eye opening sits an eyeball sphere (fit_eyeball), seen as a
+  static white cap (head_eye_white_L / _R, rides 頭) and an iris disc on it
+  (head_eye_L / _R: iris, pupil, highlights). The iris turns with the MMD
+  eye bones (目.L / 目.R) about the sphere centre, obj['levi_eye_pivot'],
+  so it slides over the white. The lids drape on the sphere (hug()) and
+  their rim rolls back into it, with a short socket sleeve behind.
 * The mouth is a narrow slit into a small pouch (palette 'mouth').
 * MMD morphs are shape keys on head_face (value 0): まばたき, ウィンク,
-  ウィンク右, 笑い (eyes) and あ, い, う (mouth). The lids slide over the
+  ウィンク右, 笑い (eyes) and あ, い, う, え, お (mouth). The lids slide over the
   eyeball and stay in front of it along the whole linear morph.
 
 Local landmark corrections (spec.L is a +-3 px first pass):
 * the face, eyes and neck on ref/front.png are centred on panel column ~321.5,
   not 320, so the whole head is shifted by HEAD_DX (+1.5 px, character's left);
 * chin_z: the sheet's front view puts the chin point on row ~162, the side view
-  on row ~158; the model ends the (now rounded) chin at row 160.5.
+  on row ~158; the model ends the (now rounded) chin at row 161.3, its
+  profile 1-2.5 px behind the old wedge over rows 155-161.
 """
 import math
 
@@ -100,24 +102,24 @@ TABLE = [
     # view and only eases the jaw corner under the ear. Below it the underside
     # runs back nearly level from the chin, like the sheet's under-jaw line
     # (which rises only ~5 rows over ~25 columns), not as a steep wedge.
-    (128.0, 36.8, 235.5, 291.5, 317.0),
-    (132.0, 35.1, 234.4, 290.5, 309.0),
-    (136.0, 34.0, 234.0, 287.9, 300.0),
-    (140.0, 32.3, 235.5, 284.8, 296.0),
-    (142.0, 31.4, 237.5, 283.0, 294.5),
-    (144.0, 30.3, 238.7, 281.0, 293.0),
-    (146.0, 28.8, 240.0, 277.8, 291.0),
-    (148.0, 26.5, 241.3, 275.0, 288.2),
-    (150.0, 23.8, 242.0, 272.0, 284.2),
-    (152.0, 20.3, 243.0, 268.9, 278.6),
-    (153.5, 17.6, 243.5, 266.5, 274.6),
-    (155.5, 13.9, 244.0, 262.4, 271.5),
-    (157.0, 10.6, 244.6, 258.8, 267.6),
-    (158.3, 8.2, 245.2, 255.2, 262.0),
-    (159.5, 5.6, 245.9, 251.5, 255.8),
+    (128.0, 36.8, 234.6, 291.5, 317.0),
+    (132.0, 35.1, 234.2, 290.5, 309.0),
+    (136.0, 34.0, 235.4, 287.9, 300.0),
+    (140.0, 32.3, 237.1, 284.8, 296.0),
+    (142.0, 31.4, 238.0, 283.0, 294.5),
+    (144.0, 30.3, 238.9, 281.0, 293.0),
+    (146.0, 28.8, 239.8, 277.8, 291.0),
+    (148.0, 26.5, 240.7, 275.0, 288.2),
+    (150.0, 23.8, 241.6, 272.0, 284.2),
+    (152.0, 20.3, 242.5, 268.9, 277.6),
+    (153.5, 17.6, 243.1, 266.5, 273.0),
+    (155.5, 13.9, 244.0, 262.4, 268.6),
+    (157.0, 10.6, 244.6, 258.8, 263.6),
+    (158.3, 8.2, 245.2, 255.2, 258.6),
+    (159.5, 5.6, 245.9, 251.5, 254.0),
     # chin tip: a little fuller just above the end ring, so it rounds off
     # instead of running into a cone point (front V kept)
-    (160.5, 3.6, 246.8, 249.6, 252.2),
+    (160.5, 3.6, 246.8, 249.6, 251.6),
     (161.3, 1.4, 248.0, 249.0, 250.0),
 ]
 # Nose: forward protrusion of the profile at the midline [px] per row. The
@@ -215,7 +217,7 @@ def nose_sigma(row):
     return float(np.interp(row, rows, vals))
 
 
-LOWER_CHEEK = (3.0, 0.62, 145.0, 11.0)   # amplitude px, centre as share of hw, row, row sigma
+LOWER_CHEEK = (1.8, 0.62, 145.0, 14.0)   # amplitude px, centre as share of hw, row, row sigma
 
 
 def lower_cheek(X, row, hw):
@@ -296,7 +298,6 @@ def face_point(X, row, detail=True):
 EYE_IN, EYE_OUT = 14.0, 41.0     # inner / outer corner X of the painted eye
 EYE_TOP_X, EYE_TOP_ROW = 24.0, 107.0   # flattest point of the upper lid
 IRIS = (24.5, 116.8, 8.4, 8.8)   # centre X, centre row, radius X, radius rows
-EYE_PIVOT = (25.0, 116.5)        # eyeball centre (X, row): the iris centre, spec eye_x / eye_z
 
 
 def hexrgb(h):
@@ -425,12 +426,12 @@ def relief(X, R):
     socket = -0.55 * _smooth(4.0, -1.0, e_d)
     # upper lid: a soft rim that wraps over the top of the eye (carries the
     # lashes); the lower lid only a faint roll into the cheek
-    lid = 0.8 * np.exp(-((R - (y_up + 1.0)) / 2.3) ** 2) * along
+    lid = 0.5 * np.exp(-((R - (y_up + 1.0)) / 2.3) ** 2) * along
     lower = 0.25 * np.exp(-((R - (y_lo + 1.0)) / 2.0) ** 2) * along
-    cheek = 0.9 * np.exp(-((X - 25.0) / 10.0) ** 2 - ((R - 130.0) / 7.0) ** 2)
+    cheek = 0.6 * np.exp(-((X - 25.0) / 11.0) ** 2 - ((R - 131.0) / 9.0) ** 2)
     # lips and chin: restrained upper lip, lower lip and fold (kept faint and
     # narrow: wide bands read as shelves across the lower face)
-    lips = (0.25 * np.exp(-((R - 143.6) / 1.8) ** 2) * np.exp(-(X / 5.0) ** 2)
+    lips = (0.15 * np.exp(-((R - 143.6) / 1.8) ** 2) * np.exp(-(X / 5.0) ** 2)
             + 0.15 * np.exp(-((R - 148.3) / 1.4) ** 2) * np.exp(-(X / 4.5) ** 2)
             - 0.12 * np.exp(-((R - 151.0) / 2.0) ** 2) * np.exp(-(X / 6.0) ** 2))
     return socket + lid + lower + cheek + lips
@@ -719,9 +720,6 @@ class Patch:
         loop += [(i0, kl) for kl in range(a, start_kl)]
         return loop
 
-    def world_x(self, X):
-        return X * self.sign() if self.side != 0 else X
-
 
 def make_patches(angles, rows):
     half = N_RING // 2
@@ -738,9 +736,9 @@ def make_patches(angles, rows):
     return out
 
 
-EYE_R_RANGE = (14.0, 40.0)      # eyeball radius search range [px]
+EYE_R_RANGE = (14.0, 36.0)      # eyeball radius search range [px]
 EYE_RIM_SIN = 0.88               # the rim stays within ~62 deg of the eyeball's front (seen from the front)
-EYE_PIVOT_BOX = (8.0, 40.0, 106.0, 126.0)   # eyeball centre search box: X, X, row, row [px]
+EYE_PIVOT_BOX = (4.0, 40.0, 106.0, 126.0)   # eyeball centre search box: X, X, row, row [px]
 
 
 def fit_eyeball(P):
@@ -821,7 +819,7 @@ def build_head(detail=True, eye_fit=None):
 HUG_BAND = (0.5, 5.0)            # px outside the opening: lids drape on the eyeball .. own shape
 IRIS_REACH = (11.0, 19.0)        # px from the iris centre: where a turned iris can roll (fading)
 HUG_DISC = (0.72, 0.9)           # share of the eyeball radius (seen from the front) the cover fades over
-HUG_SOFT = 1.5                   # px: softness of the cover push
+HUG_SOFT = 1.0                   # px: softness of the cover push
 
 
 def hug(co, eyes):
@@ -845,14 +843,16 @@ def hug(co, eyes):
         return co
     along = _smooth(EYE_IN - 4.0, EYE_IN + 1.0, X) * (1.0 - _smooth(EYE_OUT + 0.5, EYE_OUT + 5.0, X))
     Xl = min(max(X, EYE_IN), EYE_OUT)
-    rim = 0.6 * np.exp(-((R - (upper_lid(Xl) + 1.0)) / 2.3) ** 2) * along \
+    rim = 0.35 * np.exp(-((R - (upper_lid(Xl) + 1.0)) / 2.3) ** 2) * along \
         + 0.2 * np.exp(-((R - (lower_lid(Xl) + 1.0)) / 2.0) ** 2) * along
     out = co.copy()
     out.y += (ys - (EYE_GAP + float(rim)) / PPM - co.y) * w_near
-    # a soft max(0, excess): a hard one leaves a crease where the skin meets the sphere
-    k = HUG_SOFT / PPM
-    excess = out.y - (ys - EYE_GAP / PPM)
-    out.y -= k * math.log1p(math.exp(min(excess / k, 50.0))) * w_far
+    # a soft max(0, excess) (C1, zero below -HUG_SOFT): a hard one leaves a
+    # crease where the skin meets the sphere
+    h = HUG_SOFT / PPM
+    e = out.y - (ys - EYE_GAP / PPM)
+    push = 0.0 if e <= -h else (e if e >= h else (e + h) ** 2 / (4 * h))
+    out.y -= push * w_far * (1.0 - w_near)
     return out
 
 
@@ -977,8 +977,8 @@ def add_pouch(bm, p, detail):
 
 # ---------------------------------------------------------------- morphs
 BLINK_KEY = 'まばたき'
-EYE_MORPHS = ('まばたき', 'ウィンク', 'ウィンク右', '笑い')
-MOUTH_MORPHS = ('あ', 'い', 'う')
+EYE_MORPHS = (BLINK_KEY, 'ウィンク', 'ウィンク右', '笑い')
+MOUTH_MORPHS = ('あ', 'い', 'う', 'え', 'お')
 LID_OVERLAP = 0.25               # px the closed upper lid sits in front of the lower lid
 LID_PATH = 0.2                   # px the lids keep in front of the eyeball along a morph
 
@@ -1004,6 +1004,10 @@ def mouth_motion(name, X, row, upper):
         return -0.1 * X, (-0.5 if upper else 3.4) * w, 0.0
     if name == 'い':
         return 0.2 * X, (-0.35 if upper else 0.9) * w - 0.5 * (1 - w), 0.0
+    if name == 'え':
+        return 0.06 * X, (-0.45 if upper else 2.0) * w, 0.0
+    if name == 'お':
+        return -0.28 * X, (-0.6 if upper else 2.8) * w, 0.5 * (1.0 - 0.3 * abs(X) / MOUTH_HALF)
     # う: a small, round, pursed mouth
     return -0.4 * X, (-0.5 if upper else 0.9) * w, 0.9 * (1.0 - 0.3 * abs(X) / MOUTH_HALF)
 
@@ -1136,7 +1140,7 @@ def set_eye_region(me, pixels, skip=()):
         attr.data[v.index].value = val
 
 
-SHADE_KEEP = (0.12, 0.3)         # share of the real normal: at the features .. on the broad face
+SHADE_KEEP = (0.05, 0.18)        # share of the real normal: at the features .. on the broad face
 
 
 def shade_keep(co):
@@ -1151,15 +1155,19 @@ def shade_keep(co):
     return SHADE_KEEP[1] + (SHADE_KEEP[0] - SHADE_KEEP[1]) * f
 
 
-def set_shading_normals(me, smooth, own=()):
+def set_shading_normals(me, smooth, own=(), rim_of=None):
     """Custom normals: mostly the smooth face form (no nose / lid / lip detail,
     so the two-tone shading stays clean), blended with some of the real normal
     so the lids and cheeks still turn the light a little. `own`: vertices that
-    keep their real normal (rims, pouch)."""
+    keep their real normal (the mouth pouch). `rim_of`: {vertex: opening
+    vertex} for the rims rolling into the openings, which take their opening
+    vertex's normal, so the lid edge never turns dark in a sliver."""
     normals = []
     for v, n in zip(me.vertices, smooth):
         k = 1.0 if v.index in own else shade_keep(v.co)
         normals.append((n * (1 - k) + v.normal * k).normalized())
+    for v, src in (rim_of or {}).items():
+        normals[v] = normals[src]
     me.normals_split_custom_set_from_vertices(normals)
     return normals
 
@@ -1314,8 +1322,8 @@ def ear_mesh(side):
 
 
 NECK_SHADE_ROW = 166.0    # the neck's shading normals turn under the jaw above this row
-NECK_SHADE_BAND = 5.0     # ... over this many rows either side (no hard edge)
-NECK_TILT = Vector((0.0, 0.6, -0.8)) * 0.7   # added to the real normal: down and back
+NECK_SHADE_BAND = 8.0     # ... over this many rows either side (no hard edge)
+NECK_TILT = Vector((0.0, 0.6, -0.8)) * 0.4   # added to the real normal: down and back
 
 
 def set_neck_normals(me):
@@ -1363,15 +1371,19 @@ def build(col):
     smooth_bm.free()
     rims = {p.side: [co[v] for v in p.loops[0]] for p in patches if p.kind == 'eye'}
     own = set()
+    rim_of = {}           # rim / sleeve vertex -> its opening vertex (shares its shading normal)
     for p in patches:
         own |= set(p.wall) | set(p.pouch)
+        rim_of.update(zip(p.wall, p.loops[0]))
+        if p.kind == 'eye':
+            rim_of.update(zip(p.pouch, p.loops[0]))
 
     head = common.new_object(col, 'head_face', bm, [face, mouth])
     me = head.data
     me.shade_smooth()
     set_face_uv(me)
     set_eye_region(me, pixels, skip=own)
-    set_shading_normals(me, smooth, own)
+    set_shading_normals(me, smooth, own - set(rim_of), rim_of)
     head.shape_key_add(name='Basis', from_mix=False)
     for name in EYE_MORPHS + MOUTH_MORPHS:
         kb = head.shape_key_add(name=name, from_mix=False)
