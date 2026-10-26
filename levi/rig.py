@@ -3767,6 +3767,22 @@ def _rigid_islands(lab, co, new):
     return out
 
 
+def _ride_smooth(lab, co, ii, new):
+    """The bow tails' ridden key displacement (rows ii of `new`) averaged within
+    SLEEVE_RIDE_SMOOTH over the same strip (island label `lab`), as their weights are
+    (_sleeve_ride_weights): the corners of the 0.5 mm thin strip sampled different bag
+    vertices and folded it up as the bag gathered (round 9, idol_dance@81)."""
+    if SLEEVE_RIDE_SMOOTH <= 0.0:
+        return new
+    out = new.copy()
+    d = new[ii] - co[ii]
+    tree = _kd(co[ii])
+    for i in ii:
+        nb = [k for _, k, _ in tree.find_range(co[i], SLEEVE_RIDE_SMOOTH) if lab[ii[k]] == lab[i]]
+        out[i] = co[i] + d[nb].mean(0)
+    return out
+
+
 def _idw_near(tree, co, n=4):
     """(index (V, n), weight (V, n)): the n nearest points of a KD-tree for each of `co`,
     inverse-distance weights summing to 1."""
@@ -3909,6 +3925,8 @@ def _sleeve_gather(arm, objs, bones):
                     inward = np.maximum(-(dlt * rd).sum(1), 0.0)
                     out[ii] = co[ii] + dlt + (1.0 - SLEEVE_RIDE_IN) * inward[:, None] * rd
             still, full = _rigid_islands(lab, co, still), _rigid_islands(lab, co, full)
+            if o is not host and o.get('levi_sleeve_tails') and len(ii):
+                still, full = _ride_smooth(lab, co, ii, still), _ride_smooth(lab, co, ii, full)
             rise = f'smoothstep({lo!r}, {hi!r}, (zw - zs) / max(d, 1e-6))'
             keys = [(SLEEVE_GATHER_KEYS[tag], still,
                      f'{rise} * (1.0 - {bk!r} * (1.0 - smoothstep({b0!r}, {b1!r}, d / {reach!r})))'),

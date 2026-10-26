@@ -1,0 +1,12 @@
+append check   49 bones follow 左足, worst error 0.00 deg
+append check   2 bones follow 左ひざ, worst error 0.00 deg
+append check   1 bones follow 左ひじ, worst error 0.20 deg
+append check   2 bones follow 左腕, worst error 0.05 deg
+append check   1 bones follow 頭, worst error 0.00 deg
+append check   2 bones follow 両目, worst error 0.00 deg
+morph 左袖寄せ: 2026 vertices move, panel 4
+morph 左袖滑り: 1595 vertices move, panel 4
+morph 右袖寄せ: 2108 vertices move, panel 4
+morph 右袖滑り: 1595 vertices move, panel 4
+VMD round trip walk_test.vmd: 8 frames, worst bone offset 0.00 mm (左手首 @ frame 20), least knee bend 23.7 deg
+REIMPORT OK
