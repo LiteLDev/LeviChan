@@ -2,9 +2,13 @@
 
 Built from scratch as swept locks: every lock is a Catmull-Rom spine carrying
 a lens cross-section - a convex outer face, a flatter inner face and soft
-edges - that tapers in width and thickness into a rounded point. A few broad
-primary masses (ring 12) make up the back, smaller locks overlap and break
-their edges, and every lock waves root to tip sideways and through depth.
+edges - that tapers in width and thickness into a rounded point. Round 9: the
+back is a row of big primary locks (primaries(), PRIM_*: 3.5-5 cm apart, overlapping, alternately
+over and under their neighbours so grooves open between them from the shoulder
+blades down, each in an S-wave out of phase with the next), the three sheet-fitted
+curled primaries of MAIN among them (PRIMARY_LOCKS = False: the round-8 back,
+broad primaries with narrower wave locks over their edges), and every lock
+waves root to tip sideways and through depth.
 Locks are authored in reference panel pixels so they can be fitted directly
 against ref/back.png and ref/side.png:
 
@@ -135,7 +139,10 @@ ENV_BLEND = (100.0, 132.0)  # rows over which the cap hands over to the hanging 
 # missed the godet fold crests by up to 1.2 cm, so the lock ends lay inside the skirt
 # at rest and any motion made them cross it).
 SKIRT_GRID = (200, 1.0)   # +-px of back-view column and px step of the lookup grid
-SKIRT_GAP = 4.0     # px kept between the skirt and a lock's inner face
+# Round 9 (PRIMARY_LOCKS): the big locks lie on the skirt over a wider band, so they keep
+# 7 px off it (4 px crossed it more in jump_tuck / spin / run; 7 px halved the majors).
+PRIMARY_LOCKS = True    # round 9's big locks (primaries()); False goes back to MAIN + WAVES
+SKIRT_GAP = 7.0 if PRIMARY_LOCKS else 4.0   # px kept between the skirt and a lock's inner face
 SKIRT_BLEND = 36.0  # px of spine over which a skirt push is blended
 HOOK_LAY = 2.0      # px a back-view curl sits at least above its lock's layer
 # A back lock's layer offset ('lay') places its OUTER face: a lock thicker than
@@ -411,11 +418,12 @@ def _wave(spine, d, on_mass):
     Points on the mass re-follow its surface after the sideways shift.
     """
     amp, lam, ph, dep = d['wave']
+    w0, w1 = d.get('wave_rows', WAVE_ROWS)
     r_end = to_px(spine[-1])[2]
     snap_row = min((p[1] for p in d['pts'] if p[0] != 's' and len(p) == 2), default=1e9)
     for i, p in enumerate(spine):
         bx, sx, row = to_px(p)
-        env = smooth01((row - WAVE_ROWS[0]) / (WAVE_ROWS[1] - WAVE_ROWS[0]))
+        env = smooth01((row - w0) / (w1 - w0))
         env *= 1.0 - 0.6 * smooth01((row - (r_end - 60.0)) / 60.0)
         if env <= 0.0:
             continue
@@ -506,6 +514,7 @@ def hook(p0, d0, curl, opts, on_mass):
         axis.negate()
     T = math.radians(turn)
     ease = opts.get('ease', CURL_EASE)
+    shrink = opts.get('shrink', CURL_SHRINK)
     pitch = opts.get('pitch', CURL_PITCH) * R / PX
     n = max(12, round(turn / 3.0))
     out = []
@@ -517,7 +526,7 @@ def hook(p0, d0, curl, opts, on_mass):
     for k in range(n):
         th = T * (k + 0.5) / n
         f = th / T
-        r = R * (1.0 - CURL_SHRINK * f) * (1.0 + (ease - 1.0) * (1.0 - smooth01(f / 0.45))) / PX
+        r = R * (1.0 - shrink * f) * (1.0 + (ease - 1.0) * (1.0 - smooth01(f / 0.45))) / PX
         p = p + (d * math.cos(th) + e * math.sin(th)) * (r * T / n) + axis * (pitch / n)
         if on_mass and iy == 0:
             bx, sx, row = to_px(p)
@@ -562,7 +571,9 @@ def clump(bm, layer, d):
     share), seg (ring spacing px), tuck_px (depth px of a tucked end, see _layer),
     ctaper / cth (width taper exponent / thickness ratio through the curl), inner
     (inner face bulge), frame ('transport': parallel-transported section frames
-    from the first hint, for curl-less locks that turn through depth).
+    from the first hint, for curl-less locks that turn through depth), wave_rows
+    (rows over which the wave fades in; default WAVE_ROWS), keep_rows (rows over
+    which the own-normal share grows from VOL_KEEP to keep), shrink (CURL_SHRINK).
 
     The cross-section is a lens with a convex outer face and a flatter inner
     one (LENS_INNER): rounded in the middle, thinning to soft edges. Width and
@@ -613,8 +624,13 @@ def clump(bm, layer, d):
         if rooted:
             ww *= ROOT_W + (1.0 - ROOT_W) * smooth01(s / ROOT_LEN)
         low = smooth01((row - LOW_ROWS[0]) / (LOW_ROWS[1] - LOW_ROWS[0]))
+        k0 = keep0
+        if 'keep_rows' in d:        # the own form fades in down the lock (a smooth crown)
+            kr = d['keep_rows']
+            k0 = VOL_KEEP + (keep0 - VOL_KEEP) * smooth01((row - kr[0]) / (kr[1] - kr[0]))
+        lk = low_keep if 'curl' in d else k0    # (curl-less locks: the keep_rows ramp alone)
         attrs.append((ww, th * (TOP_FLAT + (1.0 - TOP_FLAT) * f), lerp_list(tw, u), lerp_list(hints, u),
-                      keep0 + max(0.0, low_keep - keep0) * low))
+                      k0 + max(0.0, lk - k0) * low))
     if n == 'radial' and on_mass:
         # outer face on the layer (FACE_REF): sink by the extra outer half thickness,
         # faded in like the layer offset so the root stays on the scalp envelope, and
@@ -857,6 +873,116 @@ WAVES = [
          w=[12, 18, 22, 24, 26, 28, 22, 12, 4], lay=6, ring=14),
 ]
 
+# Round 9: the back as a few BIG locks (PRIMARY_LOCKS; False goes back to MAIN + WAVES).
+# Rounds 2-8 built the back from 7 broad primaries laid flush (FACE_REF) plus narrow
+# wave locks on top: in cel it read as one smooth sheet with thin strand lines, about
+# 22-24 small crests across a 30 cm strip at the shoulder blades. Here the back is
+# len(PRIM_LOCKS) primaries side by side across the mass, spaced 3.5-5 cm apart (the mass
+# width / their number), each PRIM_OVERLAP times that wide so neighbours overlap (about
+# 3.5-5 cm of each shows), thicker (PRIM_TH), alternately over and under their
+# neighbours (each lock's 'lay'), so a groove 1-2 cm deep opens between them from the
+# shoulder blades down. Each waves in an S (PRIM_WAVE, a quarter period out of phase
+# with its neighbour) and a few end in big open curls (shrink PRIM_SHRINK), the others
+# in soft points tucked under them, at staggered heights. (The switch, PRIMARY_LOCKS, is
+# next to SKIRT_GAP above.)
+# Edges of the back mass in the back view: (row, left bx, right bx) (the measured
+# targets above; left = the character's left).
+PRIM_EDGES = [(150, 254, 386), (200, 254, 386), (250, 248, 392), (300, 230, 410),
+              (350, 214, 421), (400, 213, 423), (440, 218, 424)]
+PRIM_ROWS = (150, 200, 250, 300, 345, 390)   # rows of the hanging control points
+PRIM_SPREAD = (0.07, 0.93)   # share of the mass width the outer locks' centres sit at
+PRIM_OVERLAP = 2.0          # lock width / (mass width / len(PRIM_LOCKS))
+PRIM_TOP_OVERLAP = 2.3      # ... above row 200, easing to PRIM_OVERLAP by row 300
+PRIM_ROOT_W = (18.0, 24.0, 30.0)   # widths at the three scalp points
+PRIM_TH = 0.5                # outer half thickness / half width
+PRIM_WAVE = (14.0, 128.0, 2.0)   # sideways amp px, wavelength rows, depth amp px (below half the
+                                 # layer step between neighbours, or they pass through each other)
+PRIM_WAVE_ROWS = (150.0, 230.0)  # the waves start at the shoulder blades (WAVE_ROWS 175-260)
+PRIM_PHASE = 90.0            # wave phase step between neighbours (deg)
+PRIM_KEEP = 0.42             # own-normal share of the over-locks (VOL_KEEP 0.25): their form reads in cel
+PRIM_KEEP_ROWS = (200.0, 290.0)  # ... growing from VOL_KEEP over these rows (a smooth crown)
+PRIM_EDGE_AMP = 0.6          # wave amplitude share of the two outer locks (the mass's edges)
+PRIM_CURL_TAPER = 1.1        # width taper exponent through a curl
+PRIM_END_W = (0.5, 0.12)    # width share at the last two points of a lock without a curl
+PRIM_CURL_START = 0.45       # lock width share where the curl begins (open hooks, not lumps)
+PRIM_CURL_TIP = 4.0          # px width at a curl's tip
+PRIM_TILT = 24.0             # deg the curls turn out of the back-view plane (CURL_TILT 30): they stay
+                             # close to the mass in the side view
+PRIM_SHRINK = 0.08           # curls tighten only this much: big open hooks
+# One entry per lock, the character's left to right (image left to right in the back
+# view): (end row, layer px, curl (radius px, turn deg, image-x direction) or None,
+# width factor, shift of its place across the mass) - uneven, so the back does not
+# read as a row of equal tubes.
+PRIM_LOCKS = [
+    (444, 2.0, (40, 215, 1), 1.15, 0.0),     # outer left: the sheet's big C hook
+    (398, -2.0, None, 0.85, 0.01),
+    (408, 3.0, None, 1.0, -0.015),
+    (392, -6.0, None, 0.7, 0.01),            # along the parting, deep under its neighbours (a filler:
+                                             # seen as a narrow strip, it printed the lobe shade as a stripe)
+    (456, 2.0, (30, 200, -1), 1.2, 0.0),     # right lobe: the long open curl (as MAIN D)
+    (402, -1.5, None, 0.85, 0.02),
+    (410, 1.0, None, 1.0, -0.01),
+    (432, 3.0, (22, 190, -1), 1.1, 0.0),     # outer right: curls back in (as MAIN F)
+]
+# The three curled primaries keep the sheet-fitted MAIN locks A, D and F (their curls were
+# tuned against the back and side views over rounds 2-8); the generated curls (PRIM_LOCKS'
+# curl entries) are used with this off.
+PRIM_FITTED_CURLS = True
+PRIM_FITTED_DEPTH = None     # px cap on the fitted curled locks' depth wave (None: their own)
+PRIM_CURTAIN_SHORT = False   # end the backing curtain above the shortest primary (CURTAIN_HW_SHORT)
+PRIM_SWEEP_LAY = -8.0        # px the lower SWEEP lock sinks under the primaries
+PRIM_SECONDARY = False       # the narrow wave locks (WAVES) lie over the primaries' edges
+
+
+def primaries():
+    """Lock definitions (see clump) of the round-9 big back locks."""
+    n = len(PRIM_LOCKS)
+    out = []
+    for i, (end, lay, curl, wf, df) in enumerate(PRIM_LOCKS):
+        f = PRIM_SPREAD[0] + (PRIM_SPREAD[1] - PRIM_SPREAD[0]) * i / (n - 1) + df
+        az = 62.0 - 124.0 * f                       # scalp azimuth: + = her left
+        pol = 24.0 + 8.0 * abs(f - 0.5) * 2         # outer roots a little lower on the skull
+        rows = [r for r in PRIM_ROWS if r < end - 24] + [end]
+        pts = [('s', az, pol), ('s', az * 1.03, 62), ('s', az * 1.02, 93)]
+        w = list(PRIM_ROOT_W)
+        for k, r in enumerate(rows):
+            lo, hi = stable(PRIM_EDGES, r)
+            span = hi - lo
+            pts.append((lo + span * f, r))
+            # wider (more overlap) high up, so the crown stays one smooth mass
+            ov = PRIM_TOP_OVERLAP + (PRIM_OVERLAP - PRIM_TOP_OVERLAP) * smooth01((r - 200.0) / 100.0)
+            ww = span / n * ov * wf
+            # taper over the last two points: into the curl, or to a soft point
+            if k == len(rows) - 1:
+                ww *= PRIM_CURL_START if curl else PRIM_END_W[1]
+            elif k == len(rows) - 2:
+                ww *= 0.75 if curl else PRIM_END_W[0]
+            w.append(ww)
+        amp = PRIM_WAVE[0] * (PRIM_EDGE_AMP if i in (0, n - 1) else 1.0)
+        d = dict(pts=pts, w=w, ring=20, th=PRIM_TH, lay=lay,
+                 keep=PRIM_KEEP if lay > 0 else VOL_KEEP, keep_rows=PRIM_KEEP_ROWS,
+                 wave=(amp, PRIM_WAVE[1], PRIM_PHASE * i, PRIM_WAVE[2]), wave_rows=PRIM_WAVE_ROWS)
+        if curl and PRIM_FITTED_CURLS:
+            continue        # the fitted curled primaries of MAIN take this place (below)
+        if curl:
+            R, turn, ix = curl
+            d.update(curl=(R, turn, (ix, 0)), tilt=PRIM_TILT, tip=PRIM_CURL_TIP, ctw=30 * ix,
+                     ctaper=PRIM_CURL_TAPER, cth=0.62, shrink=PRIM_SHRINK, pitch=0.35)
+        out.append(d)
+    if PRIM_FITTED_CURLS:
+        # a little over their neighbours. They keep their own (fitted) wave: the curl turns
+        # from the spine's end direction, depth wave included, and with the primaries'
+        # 2 px depth wave the right lobe's curl closed into an angular notch in the 3/4
+        # view (pairwise A/B, posed). PRIM_FITTED_DEPTH clamps it instead.
+        for m in MAIN:
+            if 'curl' in m:
+                amp, lam, ph, dep = m['wave']
+                if PRIM_FITTED_DEPTH is not None:
+                    dep = min(dep, PRIM_FITTED_DEPTH)
+                out.append(dict(m, lay=m.get('lay', 0.0) + 1.0, wave=(amp, lam, ph, dep)))
+    return out
+
+
 # Inner sheet: closer to the back, so the side view reads as a thick mass and
 # no body shows through between the back locks.
 INNER_LEFT = [
@@ -938,6 +1064,9 @@ CURTAIN_WRAP = 24.0  # px the arc curls forward at its side edges
 # with air between them instead of over one continuous mantle.
 CURTAIN_HW = [(175, 62), (200, 62), (240, 64), (280, 72), (320, 80), (360, 80),
               (385, 72), (402, 54), (414, 28)]
+# PRIM_CURTAIN_SHORT: ends above the shortest round-9 primary (row 392) instead
+CURTAIN_HW_SHORT = [(175, 62), (200, 62), (240, 64), (280, 72), (320, 80), (350, 78),
+                    (368, 64), (380, 42), (388, 20)]
 CURTAIN_ROW_STEP = 10.0  # px between the curtain's rows (slope-continuous resample)
 
 
@@ -962,11 +1091,12 @@ def _curtain_rows():
         rows.append((r, arc(SKULL_R[0] * lift * s, SKULL_R[1] * lift * s, cy, 92.0)))
     rows.append((130, arc(68, 70, -30, 95)))
     rows.append((150, arc(60, 60, -15, 90)))
-    r0, r1 = CURTAIN_HW[0][0], CURTAIN_HW[-1][0]
+    hw_tab = CURTAIN_HW_SHORT if (PRIMARY_LOCKS and PRIM_CURTAIN_SHORT) else CURTAIN_HW
+    r0, r1 = hw_tab[0][0], hw_tab[-1][0]
     nrow = max(1, round((r1 - r0) / CURTAIN_ROW_STEP))
     for i in range(nrow + 1):
         r = r0 + (r1 - r0) * i / nrow
-        hw = max(stable(CURTAIN_HW, r)[0], CURTAIN_T + 4.0)   # no inside-out arc
+        hw = max(stable(hw_tab, r)[0], CURTAIN_T + 4.0)   # no inside-out arc
         out, inn = [], []
         for k in range(m):
             a = -1.0 + 2.0 * k / (m - 1)            # -1..1 across the arc
@@ -1178,10 +1308,16 @@ def outline_weights(meshes, vols):
 # lock slivers where those primaries overlap the mass.
 def build(col):
     mat = common.toon_material('hair', gradient='hair_tip')
+    back = primaries() if PRIMARY_LOCKS else MAIN
+    waves = WAVES if (PRIM_SECONDARY or not PRIMARY_LOCKS) else []
+    # the lower side-view lock faces sideways: between the primaries it printed a
+    # long shade stripe beside the parting, so it lies under them (PRIM_SWEEP_LAY)
+    sweep = [d if ('curl' in d or not PRIMARY_LOCKS) else dict(d, lay=d.get('lay', 0.0) + PRIM_SWEEP_LAY)
+             for d in SWEEP]
     groups = (('hair_back_shell', None, True),
               ('hair_back', INNER_LEFT + [mirror(d) for d in INNER_LEFT]
-               + [d for d in MAIN if 'curl' not in d] + SWEEP + WAVES, False),
-              ('hair_back_side', [d for d in MAIN if 'curl' in d] + OUTER_LEFT + [mirror(d) for d in OUTER_LEFT], True))
+               + [d for d in back if 'curl' not in d] + sweep + waves, False),
+              ('hair_back_side', [d for d in back if 'curl' in d] + OUTER_LEFT + [mirror(d) for d in OUTER_LEFT], True))
     objs = []
     pid = 0                             # loose part id (shell 0, then one per lock)
     for name, defs, cast in groups:
