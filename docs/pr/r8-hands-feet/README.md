@@ -111,6 +111,11 @@ sol's four "old" votes are both orders of the raised-toe foot (`flex`) and both 
 - **Ankle band volume** (`vol ankle`) reads lower in 20 poses, because the band is now measured round a pivot inside the shoe: it holds the heel and instep, not a slice of shin. The wrist and forearm bands are unchanged.
 - **Fist:** stretch ×1.68 → 1.84 on 手首 (the thicker palm heel under the curled fingers), still minor.
 
+**Motion review** (`motion_review.md`: both Codex models, every extended pose and clip):
+- Worst rating per pose or clip: 17 clean, 12 minor, 1 major. The main baseline (52e5a67, `docs/pr/r8-2-shoulder-run/baseline_motion_review.md` in #64) had 11 / 13 / 6.
+- The one major is the cross-legged lap: skirt and sleeves.
+- No hand, wrist, ankle or foot finding is rated major. The body findings are the trailing knee in deep_lunge and the run clip's folded knees, both minor.
+
 ## Not done / notes
 
 - **Toe-box flex bone** (guide §B.4): not added. It is low priority in an 8 cm heel.
