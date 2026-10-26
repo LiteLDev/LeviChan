@@ -1528,7 +1528,7 @@ def add_pouch(bm, p, detail):
 # inside the head and move into place. Panels: export_pmx.MORPH_INFO.
 BLINK_KEY = 'まばたき'
 EYE_CLOSE = (BLINK_KEY, 'ウィンク', 'ウィンク右', '笑い', 'はぅ')   # the lids meet
-EYE_OPEN = ('なごみ', 'びっくり', 'じと目', 'ｷﾘｯ')                  # the lids move, the eye stays open
+EYE_OPEN = ('なごみ', 'びっくり', 'じと目', 'キリッ')                  # the lids move, the eye stays open
 EYE_MORPHS = EYE_CLOSE + EYE_OPEN
 IRIS_MORPHS = ('瞳小',)
 HILITE_MORPHS = ('ハイライト消',)
@@ -1540,7 +1540,7 @@ FACE_MORPHS = EYE_MORPHS + BROW_MORPHS + MOUTH_MORPHS          # the keys on hea
 ALL_MORPHS = EYE_MORPHS + IRIS_MORPHS + HILITE_MORPHS + BROW_MORPHS + MOUTH_MORPHS + FX_MORPHS
 LID_OVERLAP = 0.25               # px the closed upper lid sits in front of the lower lid
 LID_PATH = 0.2                   # px the lids keep in front of the eyeball along a morph
-HAU_LINE = (118.5, 7.5)          # はぅ: the lids meet on a line from the inner corner (row) rising this much outward
+HAU_LINE = (120.0, 7.0)          # はぅ: the lids meet on a line from the inner corner (row) rising this much outward
 JITO_ROW = 113.8                 # じと目: the flat upper lid's row
 SMILE_ARCH = 2.5                 # 笑い: px the closed lids' middle rises over the corners' line
 
@@ -1562,7 +1562,7 @@ def eye_open_shift(name, Xc):
         return -1.8 * mid, 1.1 * mid
     if name == 'じと目':      # half-lidded: a flat upper lid across the iris
         return min(max(JITO_ROW - top, 0.0), 0.8 * h), -0.6 * mid
-    # ｷﾘｯ (determined): the inner upper lid comes down, the lower lid rises
+    # キリッ (determined): the inner upper lid comes down, the lower lid rises
     return 2.6 * (1.0 - u) ** 1.5 + 0.5 * mid, -1.2 * mid
 
 
@@ -1624,7 +1624,7 @@ def mouth_motion(name, X, row, upper):
     if name == 'ω':      # cat mouth: corners and middle up, dips between
         return -0.08 * X, shut - 0.55 * math.cos(2.0 * math.pi * X / MOUTH_HALF), 0.35 * pull
     if name == '▲':      # open triangle: the upper lip peaks at the middle
-        return -0.1 * X, (-2.3 * (1.0 - abs(X) / MOUTH_HALF) if upper else 0.7 * w ** 0.3), 0.0
+        return 0.06 * X, (-2.3 * (1.0 - abs(X) / MOUTH_HALF) if upper else 0.9 * w ** 0.12), 0.0
     if name == 'にやり':  # grin: wide, corners up, the upper teeth just show
         return 0.18 * X, (-0.8 if upper else 0.1) * w - 1.0 * c, 0.0
     if name == '口角上げ':
@@ -2012,26 +2012,43 @@ def eyeball_mesh(c, r, side, rim, tree):
 
 
 IRIS_LIFT = 0.08                 # px the iris disc floats in front of the white
-IRIS_RINGS, IRIS_SEG = 7, 28
+IRIS_RINGS, IRIS_SEG = 8, 28
 IRIS_EDGE = 0.985                # disc edge on the painted iris outline (inside its soft rim)
-IRIS_SMALL = 0.72                # 瞳小: the iris (and pupil) shrink to this share
+# 瞳小: the painted pupil shrinks to this share about its centre (X, row);
+# the iris around it is drawn in over PUPIL_ZONE (half-widths X, rows, as
+# share: full shrink inside the first, none beyond the second), the disc's
+# rim stays
+PUPIL_SMALL = 0.5
+PUPIL_CENTRE = (IRIS[0] - 0.4, 114.2)
+PUPIL_ZONE = ((2.6, 5.5), (0.5, 1.15))
 
 
-def iris_mesh(c, r, side, scale=1.0):
+def pupil_squeeze(X, row, k):
+    """(X, row) of an iris point with the pupil shrunk to share k."""
+    px, pr = PUPIL_CENTRE
+    (ax, ar), (q0, q1) = PUPIL_ZONE
+    q = math.hypot((X - px) / ax, (row - pr) / ar)
+    s = k + (1.0 - k) * float(_smooth(q0, q1, q))
+    return px + (X - px) * s, pr + (row - pr) * s
+
+
+def iris_mesh(c, r, side, pupil=1.0):
     """The iris disc: a piece of the sphere IRIS_LIFT in front of the white,
-    whose front projection is exactly the painted iris ellipse (scale: the
-    same disc shrunk about its centre, 瞳小)."""
+    whose front projection is exactly the painted iris ellipse (pupil < 1:
+    the same disc with the pupil drawn in, 瞳小)."""
     ix, iy, irx, iry = IRIS
     rr = r + IRIS_LIFT / PPM
     bm = bmesh.new()
 
     def at(X, row):
+        if pupil != 1.0:
+            X, row = pupil_squeeze(X, row, pupil)
         x, z = HEAD_DX + side * X / PPM, zr(row)
         return sphere_point(c, rr, x, z)
     centre = bm.verts.new(at(ix, iy))
     rings = []
     for j in range(1, IRIS_RINGS + 1):
-        rho = IRIS_EDGE * j / IRIS_RINGS * scale
+        rho = IRIS_EDGE * j / IRIS_RINGS
         rings.append([bm.verts.new(at(ix + irx * rho * math.cos(a), iy + iry * rho * math.sin(a)))
                       for a in (2 * math.pi * s / IRIS_SEG for s in range(IRIS_SEG))])
     for s in range(IRIS_SEG):
@@ -2249,7 +2266,8 @@ LASH_E = (0.4, 1.2)              # px the lash's lower edge stands forward: inne
 LASH_LIFT = 0.05                 # px the lash floats off the skin
 LASH_NS, LASH_NT = 48, 4
 FLICK = (0.8, 2.2, 8)            # the flick runs from EYE_OUT - a to EYE_OUT + b (stations)
-FLICK_LIFT = (0.1, 0.9)          # px off the skin along its normal: root .. tip
+FLICK_LIFT = (0.1, 0.9)  
+FLICK_CLOSED = 0.45               # the flick's length share while the lids are closed        # px off the skin along its normal: root .. tip
 
 
 def lash_decal(p, co):
@@ -2346,7 +2364,7 @@ TEETH_GAP = 0.55                 # px the band's lower edge stays above the mout
 TEETH_DEPTH = (1.9, 0.17, 0.55)  # px behind the face surface: middle, + per px^2 to the sides; thickness
 TEETH_HIDE = (1.6, 0.6)          # 歯無し上: px up, px back
 TONGUE = (148.5, 3.8, 3.3, 0.85, 1.8)   # centre row, depth [px]; half-width, half-height, half-depth
-TONGUE_OUT = 7.0                 # ぺろっ: px the tip comes forward ...
+TONGUE_OUT = 8.5                 # ぺろっ: px the tip comes forward ...
 TONGUE_OUT_JAW = 0.5             # ... taking this share of the jaw's turn (it rises over the lower lip)
 
 
@@ -2411,7 +2429,7 @@ def tongue_points(out=0.0):
             f = min(max((hd - D) / (2.0 * hd), 0.0), 1.0)            # 1 at the tip, 0 at the root
             D -= out * TONGUE_OUT * f ** 1.5
             X *= 1.0 - 0.15 * out * f
-            Z += out * (-2.4 * min(1.0, 1.6 * f) + 3.6 * max(0.0, (f - 0.7) / 0.3) ** 2)   # lifted; the tip hangs over the lower lip
+            Z += out * (-2.4 * min(1.0, 1.6 * f) + 5.0 * max(0.0, (f - 0.7) / 0.3) ** 2)   # lifted; the tip hangs over the lower lip
         res.append(origin + Vector((X / PPM, D / PPM, -Z / PPM)))
     return res
 
@@ -2837,7 +2855,7 @@ def build(col):
         iris = eye_object(col, f'head_eye_{sfx}', iris_mat, c, iris_mesh(c, r, side))
         iris['levi_eye_pivot'] = tuple(c)      # 目.L / 目.R turn the iris about this point
         iris['levi_eye_radius'] = r
-        small = iris_mesh(c, r, side, IRIS_SMALL)
+        small = iris_mesh(c, r, side, PUPIL_SMALL)
         add_keys(iris, {'瞳小': [v.co.copy() for v in small.verts]})
         small.free()
         # the lid shadow: static, but it rides the upper lid in the eye morphs
@@ -2859,7 +2877,14 @@ def build(col):
         for f in faces:
             lbm.faces.new([vs[i] for i in f])
         lash = atlas_object(col, f'head_eye_lash_{sfx}', lbm, atlas_mat, 'lash')
-        add_keys(lash, {n: decal.positions(co, targets[n]) for n in EYE_MORPHS + BROW_MORPHS if targets.get(n)})
+        lash_keys = {n: decal.positions(co, targets[n]) for n in EYE_MORPHS + BROW_MORPHS if targets.get(n)}
+        fl0 = LASH_NS * (LASH_NT + 2)          # the flick's first vertex
+        for n in EYE_CLOSE:                     # closed lids: the flick folds in toward its root
+            if n in lash_keys:
+                pts = lash_keys[n]
+                root = (pts[fl0] + pts[fl0 + 1]) / 2.0
+                pts[fl0:] = root + (pts[fl0:] - root) * FLICK_CLOSED
+        add_keys(lash, lash_keys)
         hau.append(hau_stroke(p, co, targets.get('はぅ', {})))
 
     # the mouth: upper teeth and tongue inside the cavity

@@ -2,8 +2,8 @@
 
 Files: `levi/parts/head.py`; the morph table in `export_pmx.py` (`MORPH_INFO` only); the morph checks in `tools/pmx_reimport.py`; the eye-check morph list in `tools/motion_check.py`. No other part, `spec`, `common`, `toon` or `rig` changes.
 
-- Head budget: 8,757 → 11,965 faces (of 18,000).
-- Model total: 102,218 faces (of 200,000).
+- Head budget: 8,757 → 12,021 faces (of 18,000).
+- Model total: 102,274 faces (of 200,000).
 
 ## What changed
 
@@ -44,7 +44,7 @@ Files: `levi/parts/head.py`; the morph table in `export_pmx.py` (`MORPH_INFO` on
 ### Expression set: 9 → 36 morphs, all in their PMX panels
 | panel | morphs |
 |---|---|
-| eye (11) | まばたき, ウィンク, ウィンク右, 笑い, はぅ, なごみ, びっくり, じと目, ｷﾘｯ, 瞳小, ハイライト消 |
+| eye (11) | まばたき, ウィンク, ウィンク右, 笑い, はぅ, なごみ, びっくり, じと目, キリッ, 瞳小, ハイライト消 |
 | brow (6) | 真面目, 困る, にこり, 怒り, 上, 下 |
 | mouth (16) | あ, い, う, え, お, ワ, ん, ∧, ω, ▲, にやり, 口角上げ, 口角下げ, 口横広げ, ぺろっ, 歯無し上 |
 | other (3) | 照れ, 涙, 汗 |
@@ -52,7 +52,7 @@ Files: `levi/parts/head.py`; the morph table in `export_pmx.py` (`MORPH_INFO` on
 - **Eye morphs:**
   - 笑い now closes on an upward arch (the middle above both corners).
   - はぅ closes the lids on a line rising from the inner corner, which forms the upper stroke of `>` / `<`. The lower stroke is an overlay.
-  - The open-eye morphs (なごみ, びっくり, じと目, ｷﾘｯ) shift the upper and lower lid edges. The inner edge is interpolated in order, so the lids never cross.
+  - The open-eye morphs (なごみ, びっくり, じと目, キリッ) shift the upper and lower lid edges. The inner edge is interpolated in order, so the lids never cross.
 - **Brows:**
   - The painted brow moves with the skin: the front-view shift is fully applied on the brow line, fades over the forehead, and reaches nothing at the lash band, so the eye keeps its shape.
   - The shifted points go back on the face.
@@ -68,7 +68,7 @@ Files: `levi/parts/head.py`; the morph table in `export_pmx.py` (`MORPH_INFO` on
 ## Verification
 | check | result |
 |---|---|
-| `tools/check.py` | OK (head 11,965 / 18,000; total 102,218), repeatable |
+| `tools/check.py` | OK (head 12,021 / 18,000; total 102,274), repeatable |
 | `tools/rig_check.py` (core gate) | RIG CHECK OK. Eye poke at the gaze limits 1.36 mm (main: 1.36). Four objects on 目: the irises and the highlights. |
 | weights | Lashes, lid shadow, overlays and ears: 頭 100%. Teeth and tongue: 頭 ≥ 98% (the cavity around them has the same small 上半身2 share). |
 | motion eye check (gaze limits × eye + brow morphs, now including 瞳小 / ハイライト消) | see below |
@@ -80,15 +80,16 @@ Motion eye check (`rig_check --extended`; mm the eyes come further out of the fa
 
 | case | main | this PR |
 |---|---|---|
-| gaze alone, ウィンク, ウィンク右, every brow morph, ハイライト消 | 1.36 | 1.36 |
+| gaze alone, ウィンク, ウィンク右, every brow morph, 瞳小, ハイライト消 | 1.36 | 1.36 |
 | まばたき | 0.00 | 0.00 |
 | まばたき=0.5 | 1.34 | 1.46 (a highlight disc, 0.015 px in front of the iris) |
 | 笑い | 0.00 | 0.42 |
-| はぅ / はぅ=0.5 | – | 0.16 / **1.59** |
-| なごみ, びっくり, じと目, ｷﾘｯ | – | 0.00 |
-| 瞳小 | – | 0.10 |
+| はぅ / はぅ=0.5 | – | 0.01 / 1.48 |
+| なごみ, びっくり, じと目, キリッ | – | 0.00 |
 
-はぅ=0.5 is the only case over 1.5 mm. Halfway through the long lower-lid travel, the rim that rolls into the eyeball crosses the iris's ray from the pivot. The fully squeezed state is 0.16 mm.
+Every case is under the 1.5 mm major level.
+- はぅ=0.5 was 1.59 before the follow-up. The lids now meet lower (`HAU_LINE` 120 / 7 px rise, was 118.5 / 7.5), which shortens the lower lid's travel.
+- A denser iris disc (10 rings) for 瞳小 made the metric sample the closed lids' inner rim and report 6.7 mm in 笑い, although nothing changed on screen. The disc uses 8 rings.
 
 ### Codex
 - **Pairwise A/B** of face close-ups (A = main, B = this PR; front / 30° / 45° / side / high / low / 3/4 low, cel and clay, plus with the hair against the sheet; `ab_face_*.jpg`). Both models prefer **B, 4/5**, in both rounds:
@@ -111,8 +112,19 @@ Motion eye check (`rig_check --extended`; mm the eyes come further out of the fa
   - the lash ends (tapered, no end caps);
   - the highlights moved closer to the iris (0.095 px in front of the white; the iris is at 0.08 px).
 
+### Follow-up (coordinator review)
+- **キリッ:** renamed from the half-width ｷﾘｯ to the full-width spelling most VMD motions key. The change covers `head.EYE_OPEN`, `MORPH_INFO` and the eye check list.
+- **はぅ=0.5:** 1.59 → 1.48 mm, by having the lids meet lower (see the eye check above).
+- **瞳小:** only the painted pupil shrinks now (to 50% about its own centre, `pupil_squeeze`). The iris disc and its rim stay.
+- **ぺろっ:** the tongue (now lighter than the cavity) hangs out over the lower lip.
+- **▲:** wider base, flatter lower lip, 3° of jaw.
+- **笑い / はぅ:** the lash flick folds in to 45% of its length while the lids are closed.
+- **Codex round 3** on the final build (all 36 morphs; `codex_morphs_round3_*.md`):
+  - No morph is broken, and neither model reports penetration.
+  - ぺろっ and 瞳小 are no longer flagged.
+  - Still rated unnatural: はぅ (both: the strokes are long and separate in 3/4 and side), 笑い (astra: pinched outer corner), ▲ (astra: still not clearly triangular) and キリッ (astra: reads like another half-lidded state).
+
 ### Remaining (not addressed here)
 - The head review's P1 is the lower cheek → jaw bevel in 3/4 and clay. That is lower-face construction from round 6, outside this unit.
 - In clay, the lash solid reads as a separate strip over the lid. In cel it is the dark lash and reads correctly.
-- The はぅ strokes separate in depth in 3/4, and ぺろっ is still small from the front.
-- The tongue was made lighter than the cavity (the 'tongue' decal swatch) after the final Codex round. `morphs_*.jpg` show the final build; the replies judged the build just before.
+- The はぅ strokes separate in depth in 3/4. ▲ and キリッ read weakly.
