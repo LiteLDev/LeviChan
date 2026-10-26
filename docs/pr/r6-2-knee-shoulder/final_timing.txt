@@ -1,0 +1,9 @@
+build              8.6 s
+build rig         17.6 s
+render cel         5.9 s
+render clay        3.5 s
+render poses       5.2 s
+compare            4.0 s
+sheets            14.0 s
+codex             90.8 s
+total            149.4 s

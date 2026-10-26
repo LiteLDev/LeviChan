@@ -45,6 +45,7 @@ import math
 
 import bmesh
 from mathutils import Matrix, Vector
+from mathutils.kdtree import KDTree
 
 from .. import common, spec
 
@@ -864,6 +865,34 @@ def build_foot(bm):
 
 
 # ---------------------------------------------------------------- build
+# Point attribute for the rig (obj['levi_socket_param'] names it): the signed distance
+# (m) from the shoulder socket border, + on the arm (transition rings, arm, hand,
+# fingers), - on the torso of the same side, 0 on the border. The rig's staged shoulder
+# helpers (rig.SHOULDER_STAGES) hand the arm's turn over across it, the same at the cap
+# and in the armpit, so no border between helper and no helper crosses the socket.
+SOCKET_PARAM_ATTR = 'levi_socket_s'
+SOCKET_PARAM_FAR = 0.3   # m: the parameter is clamped to +-this (far beyond any knot)
+
+
+def _socket_param(bm, arms):
+    # plain data first: a new layer invalidates the BMVert references held in `arms`
+    bm.verts.index_update()
+    sides = []
+    for loop, arm_verts, side in arms:
+        tree = KDTree(len(loop))
+        for i, v in enumerate(loop):
+            tree.insert(v.co, i)
+        tree.balance()
+        sides.append((tree, {v.index for v in arm_verts}, side))
+    layer = bm.verts.layers.float.new(SOCKET_PARAM_ATTR)
+    for v in bm.verts:
+        v[layer] = -SOCKET_PARAM_FAR      # the midline
+        for tree, arm_idx, side in sides:
+            if v.co.x * side > 0.0:
+                d = min(tree.find(v.co)[2], SOCKET_PARAM_FAR)
+                v[layer] = d if v.index in arm_idx else -d
+
+
 def _mirror_x(bm_src):
     """Append a mirrored (x -> -x) copy of all geometry in bm_src."""
     geom = bm_src.verts[:] + bm_src.edges[:] + bm_src.faces[:]
@@ -879,10 +908,15 @@ def build(col):
     _mirror_x(bm)
     rings = build_torso(bm)
     sockets = [(cut_socket(bm, rings, s), s) for s in (1, -1)]
+    arms = []
     for (loop, tans), s in sockets:
+        before = set(bm.verts)
         build_arm(bm, loop, tans, s)
+        arms.append((loop, set(bm.verts) - before, s))
+    _socket_param(bm, arms)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     obj = common.new_object(col, 'body', bm, [common.toon_material('skin')])
+    obj['levi_socket_param'] = SOCKET_PARAM_ATTR
     joints = {'knee': tuple(knee_joint())}
     if SHOULDER_JOINT is not None:
         joints['shoulder_joint'] = tuple(P(*SHOULDER_JOINT))
