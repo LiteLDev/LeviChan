@@ -62,7 +62,7 @@ LEAVES = (
     dict(base=(61, -32, 76), tip=(90, -4, 38), wdir=(0.66, 0.68, 0.3), width=30.0,
          face=(0.7, -0.55, 0.45), fold=0.22, bend=-0.08, curl=-0.06, twist=-14, arch=0.07),
 )
-LEAF_NU = 13          # rings along the leaf (incl. base/tip points), cosine-spaced
+LEAF_NU = 19          # rings along the leaf (incl. base/tip points), cosine-spaced
 LEAF_NV = 5           # samples across the top surface (odd: midrib vertex)
 LEAF_THICK = 0.0011   # half thickness at the midrib (m)
 LEAF_RIDGE = 0.0009   # midrib ridge raised on the upper surface (m)
@@ -86,17 +86,29 @@ def _leaf_width(u):
 FLOWER = dict(center=(61, -49, 69), normal=(0.78, -0.5, 0.3), radius=13.5)
 FLOWER_LIFT = 0.0015  # petals held this far off the hair (no petal edge dips into it)
 FLOWER_MOUNT = 0.0035  # the centre's underside runs this deep: a concealed stalk into the hair
-FLOWER_SEG = 30
 FLOWER_PETALS = 5
-PETAL_CUP = 0.12      # per-petal cup: notch sides raised by this share of the radius
+PETAL_CUP = 0.10      # per-petal cup: the petal's edges rise by this share of the radius
+PETAL_W = 0.5         # widest petal half width, share of the radius (neighbours overlap)
+PETAL_WIDEST = 0.62   # radial position of the widest point
+# m: each petal's leading edge up, trailing edge down (pinwheel overlap), times
+# sqrt(s): where neighbours overlap (v ~ +/-0.66, s >= 0.25) the gap between
+# their mid-surfaces exceeds their two half thicknesses, so they never cross
+PETAL_LEAN = 0.0011
+PETAL_S0 = 0.1        # petals start this far out (under the centre dome)
+PETAL_NS = 9          # stations along a petal (incl. the base and tip points)
+PETAL_NV = 5          # samples across the top surface
 
 # Choker: tilted elliptical loop (front lower than back), beaded tube. The
 # loop below is only the initial guess (centre y -31, rows 166-178): every
 # point is refitted to the current neck surface (see _choker_point), with the
 # bead tops resting on the skin.
+# 24 small round beads (period 6 samples each) on a thin core cord; the bead
+# profile (see _choker_radius) is a rounded bulge with a short waist between
+# beads, so they read as separate beads rather than a serrated tube.
 CHOKER = dict(center=(0, -31.0, 172.0), rx=16.6, ry=17.2, tilt=6.0,
-              r=1.4, bead=1.0, seg=80, period=4, sides=5)
+              r=0.9, bead=1.3, seg=144, period=6, sides=7)
 CHOKER_GAP = 0.0002   # skin -> bead top (m)
+CHOKER_FIT_STEP = 2 * math.pi / 80   # angle between the 5 neck samples averaged per point
 CHOKER_LINE = 0.0008  # outline width: a fine vine, not a serrated band
 
 # Halter strap (character-left): it leaves the choker tube on its side-back
@@ -117,6 +129,8 @@ CROSS = tuple((x, y, 193 + (24.9 - x) * 40.0 / 66.4) for x, y in (
     (24.9, -48.1), (12, -48.3), (0, -52.5), (-14, -56.5), (-28, -59.4), (-41.5, -58.8)))
 STRING_R = 0.0014
 STRING_LINE = 0.0006
+STRING_SIDES = 8          # round cords
+STRING_PER_SEG = 3        # Catmull-Rom samples per control span
 STRING_GAP = 0.0010     # skin -> string surface: centreline ~2.4 mm outside the skin
 # Crossing (x = 0): the under strand drops to touch the skin and the over strand
 # rides on top of it, both along the surface normal, fading out over CROSS_SIGMA.
@@ -130,6 +144,8 @@ STRING_TUCK_GAP = 0.0002
 VEIN_R = 0.00055
 PETIOLE_R = 0.0009      # leaf stalk radius where it leaves the hair
 PETIOLE_IN = 2.5        # px the stalk starts inside the hair, behind the blade base
+PETIOLE_SEG = 4         # stalk samples (tapering) before the blade base
+VEIN_SIDES = 6
 
 
 # ------------------------------------------------------------------ helpers
@@ -231,35 +247,58 @@ def _basis(normal):
     return a, normal.cross(a)
 
 
-def _flower(bm, center, normal, radius, cup=0.22, thick=0.0012):
-    """Five-petal flat flower (front, rim and back), petals notched to the centre."""
+def _petal_width(s):
+    """Petal half width (share of PETAL_W * R) at radial position s (0 centre,
+    1 tip): a narrow claw at the centre widening to a broad, rounded
+    (elliptical) tip."""
+    s = min(max(s, 0.0), 1.0)
+    if s < PETAL_WIDEST:
+        return 0.25 + 0.75 * math.sin(0.5 * math.pi * s / PETAL_WIDEST)
+    return math.sqrt(max(0.0, 1.0 - ((s - PETAL_WIDEST) / (1.0 - PETAL_WIDEST)) ** 2))
+
+
+def _flower(bm, center, normal, radius, cup=0.22, thick=0.0008):
+    """Five separate, softly cupped petals (each a closed lens-section blade)
+    radiating from the centre, overlapping their neighbours like a pinwheel:
+    each petal's leading edge lies over the next petal's trailing edge."""
     a, b = _basis(normal)
     R = radius * PX
+    vs = [k / (PETAL_NV - 1) * 2 - 1 for k in range(PETAL_NV)]
+    for i in range(FLOWER_PETALS):
+        phi = 2 * math.pi * i / FLOWER_PETALS + math.pi / 2
+        ax = a * math.cos(phi) + b * math.sin(phi)
+        perp = normal.cross(ax)
 
-    def rad(phi):
-        return R * (0.42 + 0.58 * abs(math.cos(FLOWER_PETALS * phi / 2)) ** 0.55)
+        def surf(s, v):
+            hw = PETAL_W * R * _petal_width(s)
+            # the flower as a whole is a shallow bowl; each petal cups (its
+            # edges rise) and leans: its +v edge up, its -v edge down, so it
+            # overlaps the neighbour without touching it
+            lift = (cup * R * s * s + PETAL_CUP * R * v * v * s ** 1.2
+                    + PETAL_LEAN * v * math.sqrt(s))
+            return center + ax * (R * s) + perp * (hw * v) + normal * lift, hw
 
-    def pt(phi, f, z):
-        r = rad(phi) * f
-        # each petal cups slightly: its sides rise toward the notches
-        side = 1.0 - abs(math.cos(FLOWER_PETALS * phi / 2))
-        lift = cup * R * f * f + PETAL_CUP * R * f ** 1.5 * side
-        return center + (a * math.cos(phi) + b * math.sin(phi)) * r + normal * (lift + z)
-
-    fracs = (0.35, 0.7, 1.0)
-    phis = [2 * math.pi * k / FLOWER_SEG for k in range(FLOWER_SEG)]
-    rings = [[bm.verts.new(pt(p, f, 0.0)) for p in phis] for f in fracs]
-    back = [bm.verts.new(pt(p, 1.0, -thick)) for p in phis]
-    c_front = bm.verts.new(center + normal * 0.0002)
-    c_back = bm.verts.new(center - normal * (thick + 0.0004))
-    n = FLOWER_SEG
-    for j in range(n):
-        k = (j + 1) % n
-        bm.faces.new((c_front, rings[0][j], rings[0][k]))
+        rings = []
+        for k in range(1, PETAL_NS - 1):
+            s = PETAL_S0 + (1 - PETAL_S0) * (0.5 - 0.5 * math.cos(math.pi * k / (PETAL_NS - 1)))
+            top, bot = [], []
+            for v in vs:
+                p, hw = surf(s, v)
+                th = 0.5 * thick * (1 - v * v) ** 0.5 * (1 - 0.5 * s)
+                top.append(p + normal * th)
+                bot.append(p - normal * th)
+            rings.append([bm.verts.new(p) for p in top + bot[-2:0:-1]])
+        vb = bm.verts.new(surf(PETAL_S0, 0.0)[0])
+        vt = bm.verts.new(surf(1.0, 0.0)[0])
+        nr = len(rings[0])
         for r0, r1 in zip(rings, rings[1:]):
-            bm.faces.new((r0[j], r1[j], r1[k], r0[k]))
-        bm.faces.new((rings[-1][j], back[j], back[k], rings[-1][k]))
-        bm.faces.new((c_back, back[k], back[j]))
+            for j in range(nr):
+                k = (j + 1) % nr
+                bm.faces.new((r0[j], r0[k], r1[k], r1[j]))
+        for j in range(nr):
+            k = (j + 1) % nr
+            bm.faces.new((vb, rings[0][k], rings[0][j]))
+            bm.faces.new((vt, rings[-1][j], rings[-1][k]))
 
 
 def _dome(bm, center, normal, radius, height, seg=8, depth=None):
@@ -338,10 +377,15 @@ def _build_side(col, sx):
     for mr, t in midribs:
         # a short stalk from inside the hair into the blade base (so the leaf
         # is attached, not resting on the hair), then the midrib vein
-        stalk = [mr[0] - t * (PETIOLE_IN * PX), mr[0]]
-        pts = stalk + mr[2:-1:2]
-        radii = [PETIOLE_R, PETIOLE_R * 0.8] + [VEIN_R] * (len(pts) - 2)
-        _tube(bm, pts, radii, 4)
+        # The stalk tapers from PETIOLE_R at the hair to the vein's radius
+        # where it meets the blade; the vein then thins toward the tip.
+        stalk = [mr[0] - t * (PETIOLE_IN * PX * (1 - k / PETIOLE_SEG)) for k in range(PETIOLE_SEG)]
+        vein = [mr[0]] + mr[2:-1:2]
+        pts = stalk + vein
+        radii = [PETIOLE_R + (VEIN_R * 1.3 - PETIOLE_R) * _body.smoothstep(0.0, 1.0, k / PETIOLE_SEG)
+                 for k in range(PETIOLE_SEG)]
+        radii += [VEIN_R * (1.3 - 0.75 * k / max(1, len(vein) - 1)) for k in range(len(vein))]
+        _tube(bm, pts, radii, VEIN_SIDES)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     veins = new_object(col, f'acc_leaf_veins_{tag}', bm, [toon_material('green')])
     shade_smooth(veins, 80)
@@ -355,7 +399,8 @@ def _build_side(col, sx):
     _flower(bm, c, nrm, FLOWER['radius'])
     npet = len(bm.faces)
     dc = c + nrm * (0.06 * FLOWER['radius'] * PX)
-    _dome(bm, dc, nrm, FLOWER['radius'] * PX * 0.3, 0.002, depth=(dc - c0).dot(nrm) + FLOWER_MOUNT)
+    _dome(bm, dc, nrm, FLOWER['radius'] * PX * 0.3, 0.002, seg=12,
+          depth=(dc - c0).dot(nrm) + FLOWER_MOUNT)
     for i, f in enumerate(bm.faces):
         f.material_index = 0 if i < npet else 1
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
@@ -415,7 +460,9 @@ def _choker_radius(i):
     """Tube radius (px) at loop sample i: smooth bead bulges, one per period."""
     ch = CHOKER
     c = math.cos(2 * math.pi * i / ch['period'])
-    return ch['r'] + ch['bead'] * (0.5 + 0.5 * c) ** 1.5
+    # a rounder bulge than a raised cosine: full over most of the bead, a
+    # quick neck at the joint
+    return ch['r'] + ch['bead'] * (0.5 + 0.5 * c) ** 0.7
 
 
 def _choker_point(skin, theta):
@@ -427,7 +474,7 @@ def _choker_point(skin, theta):
     p = P(x, y, row)
     axis = P(0, ch['center'][1], row)
     off = (ch['r'] + ch['bead']) * PX + CHOKER_GAP
-    step = 2 * math.pi / ch['seg']
+    step = CHOKER_FIT_STEP   # a fixed angular window (+/- 9 deg), whatever 'seg' is
     rs = []
     for k in (-2, -1, 0, 1, 2):
         xk, yk, _ = _choker_ring(theta + k * step)
@@ -525,7 +572,7 @@ def _fit_string(skin, path, cross=0, keep_first=False, rounds=3):
 
 
 def _add_string(bm, pts):
-    _tube(bm, pts, [STRING_R] * len(pts), 4)
+    _tube(bm, pts, [STRING_R] * len(pts), STRING_SIDES)
 
 
 def _strings(col, skin):
@@ -533,11 +580,11 @@ def _strings(col, skin):
     for sx in (1, -1):
         # the strap starts inside the choker tube, on its side-back
         start = _choker_point(skin, STRAP_THETA if sx > 0 else math.pi - STRAP_THETA)
-        strap = _catmull([start] + [_mirror(P(*p), sx) for p in STRAP], 2)
+        strap = _catmull([start] + [_mirror(P(*p), sx) for p in STRAP], STRING_PER_SEG)
         # fitted first, then cut, so the end lands BODICE_TUCK px under the rim
         _add_string(bm, _tucked(_fit_string(skin, strap, keep_first=True)))
         # the character-left strand passes over the other one where they cross
-        cross = _catmull([_mirror(P(*p), sx) for p in CROSS], 2)
+        cross = _catmull([_mirror(P(*p), sx) for p in CROSS], STRING_PER_SEG)
         _add_string(bm, _fit_string(skin, cross, cross=1 if sx > 0 else -1))
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     obj = new_object(col, 'acc_halter', bm, [toon_material('green')])
