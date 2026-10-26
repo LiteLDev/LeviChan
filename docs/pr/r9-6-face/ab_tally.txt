@@ -1,0 +1,30 @@
+== rim+narrow (fin) vs main
+gpt-6.1-sol {'new': 3, 'base': 3, 'tie': 18}
+    hair:front=tie(new/T) hair:q34=base(base/base) hair:high=tie(T/base) hair:back=tie(T/T) hair:side=tie(base/new) cel:front=tie(new/T) cel:q34=base(base/base) cel:side=new(new/new) cel:high=tie(T/new) cel:low=tie(base/T) clay:front=tie(new/T) clay:q34=base(base/base) clay:side=new(new/new) clay:low=tie(base/T) pose1:nod_down_front=new(new/new) pose1:nod_down_q34=tie(T/new) pose1:nod_ufront=tie(base/T) pose1:nod_uq34=tie(T/new) pose1:turn_l_front=tie(T/T) pose2:turn_l_q34=tie(new/base) pose2:turn_nod_front=tie(T/base) pose2:turn_nod_q34=tie(new/base) pose2:tilt_l_front=tie(base/new) pose2:tilt_l_q34=tie(T/T)
+gpt-6-astra {'new': 2, 'base': 0, 'tie': 22}
+    hair:front=tie(T/T) hair:q34=new(new/new) hair:high=tie(T/new) hair:back=tie(T/T) hair:side=tie(T/base) cel:front=tie(T/T) cel:q34=new(new/new) cel:side=tie(new/base) cel:high=tie(T/new) cel:low=tie(new/base) clay:front=tie(T/base) clay:q34=tie(base/new) clay:side=tie(new/base) clay:low=tie(T/base) pose1:nod_down_front=tie(T/base) pose1:nod_down_q34=tie(base/new) pose1:nod_ufront=tie(new/T) pose1:nod_uq34=tie(T/base) pose1:turn_l_front=tie(T/T) pose2:turn_l_q34=tie(T/base) pose2:turn_nod_front=tie(T/base) pose2:turn_nod_q34=tie(new/base) pose2:tilt_l_front=tie(T/T) pose2:tilt_l_q34=tie(T/T)
+== narrow only, no rim (g) vs main
+gpt-6.1-sol {'new': 0, 'base': 0, 'tie': 24}
+    hair:front=tie(T/T) hair:q34=tie(new/base) hair:high=tie(T/T) hair:back=tie(T/T) hair:side=tie(T/new) cel:front=tie(T/new) cel:q34=tie(new/base) cel:side=tie(T/new) cel:high=tie(T/T) cel:low=tie(T/base) clay:front=tie(T/T) clay:q34=tie(T/base) clay:side=tie(T/new) clay:low=tie(T/T) pose1:nod_down_front=tie(T/base) pose1:nod_down_q34=tie(new/T) pose1:nod_ufront=tie(T/T) pose1:nod_uq34=tie(T/T) pose1:turn_l_front=tie(T/T) pose2:turn_l_q34=tie(T/T) pose2:turn_nod_front=tie(T/new) pose2:turn_nod_q34=tie(T/T) pose2:tilt_l_front=tie(new/base) pose2:tilt_l_q34=tie(T/T)
+gpt-6-astra {'new': 2, 'base': 6, 'tie': 16}
+    hair:front=tie(base/new) hair:q34=base(base/base) hair:high=tie(base/T) hair:back=tie(T/T) hair:side=tie(T/new) cel:front=tie(base/new) cel:q34=base(base/base) cel:side=tie(base/new) cel:high=tie(T/T) cel:low=base(base/base) clay:front=tie(base/T) clay:q34=base(base/base) clay:side=tie(base/new) clay:low=new(new/new) pose1:nod_down_front=tie(T/new) pose1:nod_down_q34=base(base/base) pose1:nod_ufront=base(base/base) pose1:nod_uq34=tie(new/T) pose1:turn_l_front=tie(T/T) pose2:turn_l_q34=tie(base/new) pose2:turn_nod_front=tie(T/T) pose2:turn_nod_q34=new(new/new) pose2:tilt_l_front=tie(new/base) pose2:tilt_l_q34=tie(T/T)
+== rest, outline only (fin3) vs main
+gpt-6.1-sol {'new': 0, 'base': 0, 'tie': 24}
+    hair:front=tie(base/T) hair:q34=tie(new/base) hair:high=tie(base/new) hair:back=tie(T/T) hair:side=tie(T/T) cel:front=tie(T/T) cel:q34=tie(new/base) cel:side=tie(new/base) cel:high=tie(new/T) cel:low=tie(T/base) clay:front=tie(T/T) clay:q34=tie(new/base) clay:side=tie(T/T) clay:low=tie(base/T) pose1:nod_down_front=tie(new/base) pose1:nod_down_q34=tie(new/T) pose1:nod_ufront=tie(T/T) pose1:nod_uq34=tie(T/base) pose1:turn_l_front=tie(new/T) pose2:turn_l_q34=tie(base/T) pose2:turn_nod_front=tie(base/new) pose2:turn_nod_q34=tie(new/T) pose2:tilt_l_front=tie(T/new) pose2:tilt_l_q34=tie(T/T)
+gpt-6-astra {'new': 4, 'base': 0, 'tie': 20}
+    hair:front=tie(T/T) hair:q34=new(new/new) hair:high=tie(T/T) hair:back=tie(T/T) hair:side=tie(base/new) cel:front=tie(T/T) cel:q34=new(new/new) cel:side=new(new/new) cel:high=tie(T/T) cel:low=tie(T/base) clay:front=tie(T/T) clay:q34=new(new/new) clay:side=tie(new/T) clay:low=tie(T/base) pose1:nod_down_front=tie(T/base) pose1:nod_down_q34=tie(new/T) pose1:nod_ufront=tie(T/T) pose1:nod_uq34=tie(T/T) pose1:turn_l_front=tie(T/T) pose2:turn_l_q34=tie(T/T) pose2:turn_nod_front=tie(T/new) pose2:turn_nod_q34=tie(T/T) pose2:tilt_l_front=tie(T/base) pose2:tilt_l_q34=tie(T/T)
+== morphs (fin3) vs main
+gpt-6.1-sol {'new': 7, 'base': 0, 'tie': 5}
+    eyes:front_1=tie(T/T) eyes:q34_1=new(new/new) eyes:side_1=new(new/new) eyes:front_2=new(new/new) eyes:q34_2=new(new/new) eyes:side_2=new(new/new) eyes:front_3=tie(T/T) eyes:q34_3=tie(base/T) eyes:side_3=tie(T/new) mouth:front_1=new(new/new) mouth:q34_1=new(new/new) mouth:side_1=tie(base/new)
+gpt-6-astra {'new': 7, 'base': 0, 'tie': 5}
+    eyes:front_1=tie(T/T) eyes:q34_1=new(new/new) eyes:side_1=new(new/new) eyes:front_2=new(new/new) eyes:q34_2=new(new/new) eyes:side_2=new(new/new) eyes:front_3=tie(T/T) eyes:q34_3=tie(T/base) eyes:side_3=tie(T/new) mouth:front_1=new(new/new) mouth:q34_1=new(new/new) mouth:side_1=tie(base/new)
+== kiri straight lid (k2) vs main
+gpt-6.1-sol {'new': 0, 'base': 0, 'tie': 4}
+    k:front_1=tie(base/None) k:q34_1=tie(new/None) k:side_1=tie(base/None) k:high_1=tie(base/None)
+gpt-6-astra {'new': 0, 'base': 0, 'tie': 0}
+    
+== morphs (fin5) vs main
+gpt-6.1-sol {'new': 5, 'base': 1, 'tie': 3}
+    eyes:front_1=tie(T/T) eyes:q34_1=new(new/new) eyes:side_1=new(new/new) eyes:front_2=new(new/new) eyes:q34_2=tie(base/new) eyes:side_2=base(base/base) mouth:front_1=new(new/new) mouth:q34_1=new(new/new) mouth:side_1=tie(new/base)
+gpt-6-astra {'new': 7, 'base': 0, 'tie': 2}
+    eyes:front_1=tie(T/new) eyes:q34_1=new(new/new) eyes:side_1=new(new/new) eyes:front_2=new(new/new) eyes:q34_2=new(new/new) eyes:side_2=tie(new/base) mouth:front_1=new(new/new) mouth:q34_1=new(new/new) mouth:side_1=new(new/new)

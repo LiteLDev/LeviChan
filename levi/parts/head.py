@@ -152,6 +152,53 @@ NOSE_SIGMA = ((106.0, 6.5), (116.0, 5.7), (122.0, 5.5), (126.0, 5.5), (137.0, 5.
 # is broad, relaxing to a plain ellipse at the chin
 FRONT_EXP = ((80.0, 2.2), (98.0, 2.8), (118.0, 2.8), (132.0, 2.55), (146.0, 2.5), (155.0, 2.35), (161.3, 2.1))
 
+# Round 9 chin (off by default, see below): a longer, narrower chin (the sheet's front view ends
+# the chin on row ~162; the blurred lower face ended it on ~160). Below
+# CHIN_FROM (the mouth line, so nothing above it moves) the measured rows
+# stretch so the table's tip moves CHIN_DROP px lower, and over the last
+# CHIN_NARROW[1] rows above the new tip the half-width narrows by up to
+# CHIN_NARROW[0] px per side (in proportion where the chin is narrower than
+# CHIN_NARROW[2] px), so the front view's V tapers more. 0 / (0, ...) = round 8.
+# Neither won the shuffled pairwise Codex A/B against round 8 (docs/pr/r9-6-face):
+# a 3.5 px (5 mm) lower tip with 0.5 px narrowing lost ("stretched", "a hanging
+# point" in 3/4 and nods); 1.3 px of narrowing alone (with the rim below) tied
+# over both orderings (sol 9-6 for it, astra 13-20 against). So both stay off.
+CHIN_DROP = 0.0                   # px (tried 3.5)
+CHIN_FROM = 146.0                 # row
+CHIN_NARROW = (0.0, 13.0, 8.0)    # px per side (tried 0.5, 1.3), rows above the tip, half-width [px]
+CHIN_TIP0 = TABLE[-1][0]          # the measured table's last row
+
+
+def chin_row(row):
+    """Measured (round 8) row -> row of the lengthened chin."""
+    if row <= CHIN_FROM:
+        return row
+    return CHIN_FROM + (row - CHIN_FROM) * (CHIN_TIP0 + CHIN_DROP - CHIN_FROM) / (CHIN_TIP0 - CHIN_FROM)
+
+
+def chin_narrow(row, hw):
+    """Half-width [px] the chin loses on (new) `row` with measured half-width hw."""
+    amt, span, ref = CHIN_NARROW
+    tip = CHIN_TIP0 + CHIN_DROP
+    return amt * float(_smooth(tip - span, tip - 0.35 * span, row)) * min(1.0, hw / ref)
+
+
+def _chin_rows(table, k=0):
+    """`table` with its row (entry k) moved by chin_row."""
+    return tuple(tuple(chin_row(v) if i == k else v for i, v in enumerate(e)) for e in table)
+
+
+def _smooth(e0, e1, x):
+    t = np.clip((x - e0) / (e1 - e0), 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
+
+# (CHIN_DROP != 0 is an experiment: the neck table, LOWER_W_ROWS, LOWER_CHEEK_FILL and NECK_SHADE_ROW
+# keep their rows)
+TABLE = [(r, hw - chin_narrow(r, hw), f, m, b) for r, hw, f, m, b in _chin_rows(TABLE)]
+BASE_FRONT = _chin_rows(BASE_FRONT)
+FRONT_EXP = _chin_rows(FRONT_EXP)
+
 # Horizontal rings of the upper head (skull, eyes, nose). Below the last one
 # (LOWER_TOP) the lower face, jaw, under-jaw and neck are one surface of
 # tilted loops (see lower_loops).
@@ -331,11 +378,6 @@ def _soft(d, w=0.35):
     return np.clip(0.5 - d / (2 * w), 0.0, 1.0)
 
 
-def _smooth(e0, e1, x):
-    t = np.clip((x - e0) / (e1 - e0), 0.0, 1.0)
-    return t * t * (3.0 - 2.0 * t)
-
-
 def upper_lid(X):
     """Row of the upper lid line at distance X from the midline: a flat, heavy
     lid that drops to a low outer corner."""
@@ -427,6 +469,24 @@ def mouth_polygon(step=0.1, grow=0.0):
     return pts, [(xm, float(mouth_row(xm))), (-xm, float(mouth_row(-xm)))]
 
 
+# Upper lid rim (round 9): near the opening the lid stands UPPER_RIM[0] px in
+# front of the eyeball (hug) over the relief's lid roll of UPPER_RIM[1] px, so
+# the upper lid reads as a ~1.5 mm thick rim in profile and 3/4 (round 8:
+# 0.35 / 0.5 px). It tapers in from the inner corner and down to RIM_TAPER[2]
+# of itself at the outer corner (X ranges [px]).
+# The 1.0 / 1.2 px rim (tapered: ((EYE_IN - 2, EYE_IN + 6), (EYE_OC - 9,
+# EYE_OUT + 2), 0.55)) did not win the pairwise A/B: gpt-6.1-sol preferred
+# round 8's outer upper lid in 3/4 in both orderings ("terminates more
+# cleanly", "less like a projecting strip"). The defaults are round 8's.
+UPPER_RIM = (0.35, 0.5)
+RIM_TAPER = ((EYE_IN - 9.0, EYE_IN - 8.0), (100.0, 101.0), 1.0)   # (no taper)
+
+
+def rim_along(X):
+    (a0, a1), (b0, b1), out = RIM_TAPER
+    return _smooth(a0, a1, X) * (1.0 - (1.0 - out) * _smooth(b0, b1, X))
+
+
 def relief(X, R):
     """Forward offset [px, + toward the viewer] of the face surface at (X, row):
     a shallow hollow around the eye with the upper and lower lid rims, soft
@@ -442,7 +502,7 @@ def relief(X, R):
     socket = -0.55 * _smooth(4.0, -1.0, e_d)
     # upper lid: a soft rim that wraps over the top of the eye (carries the
     # lashes); the lower lid only a faint roll into the cheek
-    lid = 0.5 * np.exp(-((R - (y_up + 1.0)) / 2.3) ** 2) * along
+    lid = UPPER_RIM[1] * np.exp(-((R - (y_up + 1.0)) / 2.3) ** 2) * along * rim_along(X)
     lower = 0.12 * np.exp(-((R - (y_lo + 1.0)) / 2.0) ** 2) * along
     cheek = 0.6 * np.exp(-((X - 25.0) / 11.0) ** 2 - ((R - 131.0) / 9.0) ** 2)
     # lips and chin: restrained upper lip, lower lip and fold (kept faint and
@@ -898,7 +958,7 @@ LOWER_W_NOSE = (7.0, 134.0, 141.0)  # ... and in below the nose: X sigma, rows
 # the surface back by several px): rounder toward the jaw, so the plan
 # sections are U-shaped (narrowing to the chin) instead of boxes with a flat
 # front and square corners
-LOWER_FRONT_EXP = ((131.5, 2.55), (140.0, 2.25), (148.0, 2.08), (156.0, 2.0), (161.3, 2.0))
+LOWER_FRONT_EXP = _chin_rows(((131.5, 2.55), (140.0, 2.25), (148.0, 2.08), (156.0, 2.0), (161.3, 2.0)))
 LOWER_RAMP = (LOWER_TOP, 146.0)
 LOWER_MUZZLE = 0.45               # share of the muzzle kept below the nose; the rest goes into the base front
 # neck: row, front col, back col, half-width [px] (surface). The back is the
@@ -922,7 +982,7 @@ LOWER_CHEEK_FILL = (0.9, 0.5, 146.0, 6.0)
 # surfaces facing forward): the shallow fold under the lower lip and the chin
 # pad below it, so the mouth-to-chin profile is not one straight line.
 # (amplitude px (+ forward), row, row sigma, X sigma)
-LOWER_RELIEF = ((-0.45, 150.4, 1.9, 7.0), (0.35, 155.6, 2.6, 6.0))
+LOWER_RELIEF = _chin_rows(((-0.45, 150.4, 1.9, 7.0), (0.35, 155.6, 2.6, 6.0)), k=1)
 
 
 def lower_relief(X, row):
@@ -1356,7 +1416,7 @@ def hug(co, eyes):
         return co
     along = _smooth(EYE_IN - 4.0, EYE_IN + 1.0, X) * (1.0 - _smooth(EYE_OUT + 0.5, EYE_OUT + 5.0, X))
     Xl = min(max(X, EYE_IN), EYE_OUT)
-    rim = 0.35 * np.exp(-((R - (upper_lid(Xl) + 1.0)) / 2.3) ** 2) * along \
+    rim = UPPER_RIM[0] * np.exp(-((R - (upper_lid(Xl) + 1.0)) / 2.3) ** 2) * along * float(rim_along(X)) \
         + 0.1 * np.exp(-((R - (lower_lid(Xl) + 1.0)) / 2.0) ** 2) * along
     out = co.copy()
     out.y += (ys - (EYE_GAP + float(rim)) / PPM - co.y) * w_near
@@ -1541,8 +1601,21 @@ ALL_MORPHS = EYE_MORPHS + IRIS_MORPHS + HILITE_MORPHS + BROW_MORPHS + MOUTH_MORP
 LID_OVERLAP = 0.25               # px the closed upper lid sits in front of the lower lid
 LID_PATH = 0.2                   # px the lids keep in front of the eyeball along a morph
 HAU_LINE = (120.0, 7.0)          # はぅ: the lids meet on a line from the inner corner (row) rising this much outward
+# はぅ: px the closed lids' outer corner draws in toward the inner one. 4.5 px (with HAU_LINE 120.5 / 9)
+# read best, but half way the lids' rim (rolled into the eyeball) then swept over an iris turned to the
+# gaze limit: the eye check's poke at はぅ = 0.5 went 1.48 -> 1.83 mm (limit 1.5). So it stays 0.
+HAU_SQUEEZE = 0.0
 JITO_ROW = 113.8                 # じと目: the flat upper lid's row
 SMILE_ARCH = 2.5                 # 笑い: px the closed lids' middle rises over the corners' line
+SMILE_CORNER = (1.4, 0.4)        # 笑い: px the inner / outer corner rises (round 8: 1.4 both; the outer one pinched)
+# キリッ (determined): the upper lid comes down KIRI_UP[0] px at the inner end, by (1 - u)^KIRI_UP[1],
+# KIRI_MID across the middle, and lifts KIRI_UP[2] toward the outer end; the lower lid rises KIRI_LO[0]
+# across the middle and KIRI_LO[1] more toward the inner end. The defaults are round 8's: a slanted,
+# narrowed variant (3.4 / 1.6 / 1.4, mid 0.3, lower 2.2 / 0.6) only tied it in the shuffled pairwise
+# Codex A/B, and a straight slanted upper lid lost to both ("a kinked peak" in profile).
+KIRI_UP = (2.6, 1.5, 0.0)
+KIRI_MID = 0.5
+KIRI_LO = (1.2, 0.0)
 
 
 def eye_affects(name, side):
@@ -1562,8 +1635,12 @@ def eye_open_shift(name, Xc):
         return -1.8 * mid, 1.1 * mid
     if name == 'じと目':      # half-lidded: a flat upper lid across the iris
         return min(max(JITO_ROW - top, 0.0), 0.8 * h), -0.6 * mid
-    # キリッ (determined): the inner upper lid comes down, the lower lid rises
-    return 2.6 * (1.0 - u) ** 1.5 + 0.5 * mid, -1.2 * mid
+    # キリッ (determined): the inner upper lid comes down, the outer end lifts a
+    # little, the lower lid rises (more toward the inner end): a slanted eye
+    lo = -KIRI_LO[0] * mid - KIRI_LO[1] * (1.0 - u) * mid ** 0.3
+    a, e, b = KIRI_UP
+    # (the outer lift is 0 at the corner itself, where the lids meet)
+    return a * (1.0 - u) ** e + KIRI_MID * mid - b * u * math.sin(math.pi * u) ** 0.5, lo
 
 
 def eye_motion(name, X, row, upper):
@@ -1581,7 +1658,7 @@ def eye_motion(name, X, row, upper):
         # smiling eyes: closed along an upward arch (the middle above both
         # corners), the lower lid and the cheek under it pushed up to meet it
         u = min(max((X - EYE_IN) / (EYE_OC - EYE_IN), 0.0), 1.0)
-        c_in, c_out = float(lower_lid(EYE_IN)) - 1.4, float(lower_lid(EYE_OC)) - 1.4
+        c_in, c_out = float(lower_lid(EYE_IN)) - SMILE_CORNER[0], float(lower_lid(EYE_OC)) - SMILE_CORNER[1]
         close = c_in + (c_out - c_in) * u - SMILE_ARCH * math.sin(math.pi * u) ** 0.9
     elif name == 'はぅ':
         # squeezed shut: the lids meet on a line rising from the inner corner
@@ -1591,9 +1668,11 @@ def eye_motion(name, X, row, upper):
     # the vertical inner edge keeps a trace of its height (in order), so its
     # vertices close onto a short line instead of collapsing onto one point
     spread = 0.12 * (row - float(lash_bottom(Xc) + lower_lid(Xc)) / 2) if X <= EYE_IN + 1e-6 else 0.0
+    # はぅ squeezes: the outer part of the closed eye draws in toward the inner corner
+    dX = -HAU_SQUEEZE * min(max((X - EYE_IN) / (EYE_OC - EYE_IN), 0.0), 1.0) if name == 'はぅ' else 0.0
     if upper:
-        return 0.0, close + 0.5 + spread - row, LID_OVERLAP
-    return 0.0, close + spread - row, 0.0
+        return dX, close + 0.5 + spread - row, LID_OVERLAP
+    return dX, close + spread - row, 0.0
 
 
 # The vowels open the jaw: everything below the mouth line (lower lip, chin,
@@ -1602,7 +1681,11 @@ def eye_motion(name, X, row, upper):
 # the opening (mouth_motion). The throat and neck stay (the share fades out
 # over the first neck loops), and the cheeks stretch between.
 JAW_OPEN = {'あ': 9.0, 'い': 2.2, 'う': 2.2, 'え': 5.2, 'お': 6.5,       # degrees
-            'ワ': 11.0, '▲': 3.0, 'にやり': 1.2, 'ぺろっ': 6.0}
+            'ワ': 11.0, '▲': 0.0, 'にやり': 1.2, 'ぺろっ': 6.0}
+# ▲ (round 9): apex and base rows of the opening [px, + down] and its widening per px of X. The jaw stays
+# (round 8 turned it 3 deg: the lower lip dropped as a rounded box, the corners half way) and the
+# upper teeth go back into the gum (TEETH_TRI), so the opening reads as a clean triangle.
+TRI_MOUTH = (-2.7, 1.3, 0.08)
 JAW_HINGE = (287.0, 133.0)        # side-view col, row of the hinge axis (along X)
 JAW_LINE = (0.45, 4.0, 0.35)      # the jaw's moving part ends along a line rising from the mouth
 #                                   corners toward the hinge: rise per px of X, band half-width + growth per px
@@ -1623,8 +1706,10 @@ def mouth_motion(name, X, row, upper):
         return -0.04 * X, shut - 0.5 + 1.5 * (abs(X) / MOUTH_HALF) ** 1.2, 0.0
     if name == 'ω':      # cat mouth: corners and middle up, dips between
         return -0.08 * X, shut - 0.55 * math.cos(2.0 * math.pi * X / MOUTH_HALF), 0.35 * pull
-    if name == '▲':      # open triangle: the upper lip peaks at the middle
-        return 0.06 * X, (-2.3 * (1.0 - abs(X) / MOUTH_HALF) if upper else 0.9 * w ** 0.12), 0.0
+    if name == '▲':      # open triangle: straight sides from the corners (on the flat base) to the apex
+        apex, base, wide = TRI_MOUTH
+        side = 1.0 - min(abs(X) / MOUTH_HALF, 1.0)
+        return wide * X, (base + (apex - base) * side if upper else base), 0.0
     if name == 'にやり':  # grin: wide, corners up, the upper teeth just show
         return 0.18 * X, (-0.8 if upper else 0.1) * w - 1.0 * c, 0.0
     if name == '口角上げ':
@@ -2102,9 +2187,10 @@ def _sphere_at(c, rr, side, X, row):
 
 
 def upper_shift(name, X):
-    """Row shift of the upper lid's edge at X in the eye morph `name`."""
+    """(X, row) shift of the upper lid's edge at X in the eye morph `name`."""
     Xc = min(max(X, EYE_IN + 1e-3), EYE_OC)
-    return eye_motion(name, Xc, float(lash_bottom(Xc)), True)[1]
+    dX, dr, _ = eye_motion(name, Xc, float(lash_bottom(Xc)), True)
+    return dX, dr
 
 
 class EyeShade:
@@ -2121,8 +2207,11 @@ class EyeShade:
 
     def positions(self, name=None):
         moves = name is not None and eye_affects(name, self.side)
-        return [_sphere_at(self.c, self.rr, self.side, X, row + (upper_shift(name, X) if moves else 0.0))
-                for X, row in self.px]
+        out = []
+        for X, row in self.px:
+            dX, dr = upper_shift(name, X) if moves else (0.0, 0.0)
+            out.append(_sphere_at(self.c, self.rr, self.side, X + dX, row + dr))
+        return out
 
     def mesh(self):
         bm = bmesh.new()
@@ -2256,6 +2345,31 @@ class SkinDecal:
         return root + np.einsum('nij,nj->ni', R, self.off)
 
 
+# ---------------------------------------------------------------- eye outline
+# Outline hull on the eye patches (round 9). The lid rim (the opening and its
+# partner loop) keeps it, except at the outer corner (X range [px]), where a
+# closed lid folds the band and the hull drew the fold as a brown spike beyond
+# the lashes in 3/4 and profile. The patch loops further out (an expression
+# bunches them: 笑い, はぅ, a blink) have none inside EYE_HULL[1] (X: it comes
+# back well before the patch reaches the temple's silhouette); round 8 drew
+# those bunches as long spikes and a line across the cheek.
+EYE_HULL = ((EYE_OC - 4.0, EYE_OC + 0.5), (EYE_OUT + 3.0, EYE_OUT + 7.0))
+# ... and thinner at the inner corner (share, X range): closed, the lids' ends bunch there into a brown
+# knot at the apex of はぅ
+EYE_HULL_INNER = (0.3, EYE_IN + 0.5, EYE_IN + 3.5)
+EYE_HULL_NOSE = (EYE_IN - 3.0, EYE_IN)    # X range over which the outer loops' hull fades out
+
+
+def eye_hull_weight(j, X):
+    """Outline width share on eye patch loop j (0: the opening) at X [px]."""
+    (a, b), (c, d) = EYE_HULL
+    if j <= 1:
+        inner = EYE_HULL_INNER[0] + (1.0 - EYE_HULL_INNER[0]) * float(_smooth(*EYE_HULL_INNER[1:], X))
+        return (1.0 - float(_smooth(a, b, X)) * (1.0 - float(_smooth(c, d, X)))) * inner
+    # (the hull stays on the nose side of the patch, where it can be a silhouette in near profile)
+    return 1.0 - float(_smooth(*EYE_HULL_NOSE, X)) * (1.0 - float(_smooth(c, d, X)))
+
+
 # Lashes: the upper lash line as a thin solid over the painted lash mass (whose
 # front view it covers exactly: it stands forward along -y only), so it reads
 # in profile and 3/4. Its top edge lies on the lid; toward its lower edge (the
@@ -2266,8 +2380,9 @@ LASH_E = (0.4, 1.2)              # px the lash's lower edge stands forward: inne
 LASH_LIFT = 0.05                 # px the lash floats off the skin
 LASH_NS, LASH_NT = 48, 4
 FLICK = (0.8, 2.2, 8)            # the flick runs from EYE_OUT - a to EYE_OUT + b (stations)
-FLICK_LIFT = (0.1, 0.9)  
-FLICK_CLOSED = 0.45               # the flick's length share while the lids are closed        # px off the skin along its normal: root .. tip
+FLICK_LIFT = (0.1, 0.9)          # px off the skin along its normal: root .. tip
+FLICK_CLOSED = {'笑い': 0.15, 'はぅ': 0.15}   # the flick's length share while the lids are closed
+FLICK_CLOSED_DEFAULT = 0.45       # (other closing morphs; round 8 used this for all)
 
 
 def lash_decal(p, co):
@@ -2317,8 +2432,14 @@ def lash_decal(p, co):
 
 # はぅ: the lower stroke of '>' / '<' (the closed lids' lash band is the upper
 # one): hidden inside the head at rest; in はぅ it lies on the closed lids.
-HAU_STROKE = (2.4, 1.5, 24)      # px width at the apex, at the outer end; stations
-HAU_BOW = 0.8                    # px the stroke bows down at its middle (tapered at its end)
+HAU_STROKE = (2.3, 1.0, 24)      # px width at the apex, at the outer end; stations
+HAU_APEX_LIFT = 0.9              # px the stroke stands off the skin at the apex (0.3 along the rest)
+HAU_BOW = 0.5                    # px the stroke bows down at its middle (tapered at its end)
+# round 9: the stroke runs from the shared apex at the inner corner over HAU_ARM of the squeezed
+# eye's width, dropping HAU_DROP rows (round 8: to EYE_OC - 3 px, 0.85 * HAU_LINE[1]), so the two
+# strokes read as one short '>' instead of two long separate lines
+HAU_ARM = 0.42
+HAU_DROP = 7.5
 FX_LIFT = 0.15                   # px the overlays float off the skin when in place
 FX_HIDE = 10.0                   # px the overlays wait inside the head at rest ...
 FX_CENTRE = (292.0, 118.0)       # ... toward this point on the midline (side-view col, row)
@@ -2334,8 +2455,8 @@ def hau_stroke(p, co, targets):
     """(rest, in place) world points and faces of one eye's はぅ stroke."""
     surf = PatchSurface(p)
     w0, w1, K = HAU_STROKE
-    x0, r0 = EYE_IN - 1.2, HAU_LINE[0] + 0.1
-    x1, r1 = EYE_OC - 3.0, HAU_LINE[0] + 0.85 * HAU_LINE[1]
+    x0, r0 = EYE_IN - 1.8, HAU_LINE[0] - 0.6      # (over the apex: no white peeks between the strokes)
+    x1, r1 = EYE_IN + HAU_ARM * (EYE_OC - HAU_SQUEEZE - EYE_IN), HAU_LINE[0] + HAU_DROP
     Q, faces = [], []
     for k in range(K):
         s = k / (K - 1)
@@ -2346,7 +2467,11 @@ def hau_stroke(p, co, targets):
             faces.append((2 * k - 2, 2 * k, 2 * k + 1, 2 * k - 1))
     pos = surf.pos(co, targets)
     t, b = surf.locate(Q, surf.px_of(pos), pos)
-    placed = surf.points(t, b, pos) + np.array([0.0, -2.0 * FX_LIFT / PPM, 0.0])
+    # off the skin: more at the apex, so the stroke lies over the closed lids'
+    # inner corner (their rim and outline bunch there) like the lash beside it
+    st = np.repeat(np.linspace(0.0, 1.0, K), 2)
+    lift = 2.0 * FX_LIFT + (HAU_APEX_LIFT - 2.0 * FX_LIFT) * (1.0 - _smooth(0.0, 0.35, st))
+    placed = surf.points(t, b, pos) - np.outer(lift / PPM, [0.0, 1.0, 0.0])
     # (at rest those points lie over the open eye: it waits behind where it goes)
     rest = np.array([tuple(fx_hidden(Vector(tuple(q)))) for q in placed])
     return rest, placed, faces
@@ -2363,12 +2488,14 @@ TEETH_TOP = 144.6                # row of the band's top at the middle (rises 0.
 TEETH_GAP = 0.55                 # px the band's lower edge stays above the mouth line
 TEETH_DEPTH = (1.9, 0.17, 0.55)  # px behind the face surface: middle, + per px^2 to the sides; thickness
 TEETH_HIDE = (1.6, 0.6)          # 歯無し上: px up, px back
+TEETH_TRI = (0.7, 1.6)           # ▲: px up, px back (mostly back: added to 歯無し上 it stays inside)
 TONGUE = (148.5, 3.8, 3.3, 0.85, 1.8)   # centre row, depth [px]; half-width, half-height, half-depth
 TONGUE_OUT = 8.5                 # ぺろっ: px the tip comes forward ...
 TONGUE_OUT_JAW = 0.5             # ... taking this share of the jaw's turn (it rises over the lower lip)
 
 
-def teeth_mesh(hidden=False):
+def teeth_mesh(hidden=None):
+    """The upper teeth band; hidden: (px up, px back) moved into the gum (TEETH_HIDE, TEETH_TRI)."""
     bm = bmesh.new()
     ns = 20
     rows = []
@@ -2382,7 +2509,7 @@ def teeth_mesh(hidden=False):
                      (top, dep + TEETH_DEPTH[2])):
             pt = pouch_point(X, R, d)
             if hidden:
-                pt += Vector((0.0, TEETH_HIDE[1] / PPM, TEETH_HIDE[0] / PPM))
+                pt += Vector((0.0, hidden[1] / PPM, hidden[0] / PPM))
             ring.append(bm.verts.new(pt))
         rows.append(ring)
     m = len(rows[0])
@@ -2844,6 +2971,18 @@ def build(col):
     mp = next(p for p in patches if p.kind == 'mouth')
     for lp, wgt in zip(mp.loops, MOUTH_OUTLINE):
         vg.add(lp, wgt, 'REPLACE')
+    # ... and on the eye patches (see EYE_HULL)
+    for p in patches:
+        if p.kind != 'eye':
+            continue
+        by_w = {}
+        for j, (lp, pxl) in enumerate(zip(p.loops[:-1], p.px)):
+            for v, (X, _r) in zip(lp, pxl):
+                w = round(eye_hull_weight(j, X), 4)
+                if w < 1.0:
+                    by_w.setdefault(w, []).append(v)
+        for w, vs in sorted(by_w.items()):
+            vg.add(vs, w, 'REPLACE')
     common.add_outline(head, vertex_group='outline_width', min_factor=0.0)
 
     tree = BVHTree.FromPolygons([v.co for v in me.vertices], [tuple(q.vertices) for q in me.polygons])
@@ -2883,15 +3022,18 @@ def build(col):
             if n in lash_keys:
                 pts = lash_keys[n]
                 root = (pts[fl0] + pts[fl0 + 1]) / 2.0
-                pts[fl0:] = root + (pts[fl0:] - root) * FLICK_CLOSED
+                pts[fl0:] = root + (pts[fl0:] - root) * FLICK_CLOSED.get(n, FLICK_CLOSED_DEFAULT)
         add_keys(lash, lash_keys)
         hau.append(hau_stroke(p, co, targets.get('はぅ', {})))
 
     # the mouth: upper teeth and tongue inside the cavity
     teeth = common.new_object(col, 'head_mouth_teeth', teeth_mesh(), [teeth_mat])
-    hidden = teeth_mesh(hidden=True)
-    add_keys(teeth, {'歯無し上': [v.co.copy() for v in hidden.verts]})
-    hidden.free()
+    tkeys = {}
+    for n, off in (('歯無し上', TEETH_HIDE), ('▲', TEETH_TRI)):
+        moved = teeth_mesh(off)
+        tkeys[n] = [v.co.copy() for v in moved.verts]
+        moved.free()
+    add_keys(teeth, tkeys)
     tongue = atlas_object(col, 'head_mouth_tongue', tongue_mesh(), atlas_mat, 'tongue')
     add_keys(tongue, {n: tongue_targets(n) for n in MOUTH_MORPHS})
     teeth.data.shade_smooth()
