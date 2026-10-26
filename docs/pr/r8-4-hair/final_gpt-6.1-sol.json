@@ -1,0 +1,275 @@
+{
+  "summary": "The three most important visible problems are: (1) hands and cuffs intersecting the skirt/petticoat over the lap in sit_stand, especially frames 36 and 54; (2) raised skirt edges intersecting the wrists and sleeve cuffs in cross_legged, visible in both views; and (3) the skirt/petticoat retaining a rigid, open bell shape around bent legs in seated, reclining, and tucked poses, especially sit_chair, lie_back_elbows, jump_tuck, and high_kick. The third problem is substantially explained by the disabled cloth physics and is rated minor where no clear penetration is visible. No item shows an unequivocal limb inversion, mesh explosion, or tearing, and the sampled clip frames do not establish a definite temporal pop.",
+  "items": [
+    {
+      "name": "sit_chair",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Skirt and petticoat around the lap, knees, and rear hem",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The skirt and petticoat hold a broad, open bell around the seated thighs instead of settling over the lap, which is conspicuous but largely expected without cloth physics."
+    },
+    {
+      "name": "seiza",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Skirt opening around the folded knees and lower legs",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The hem remains propped open around the folded legs rather than settling around them, an expected limitation of the driven skirt chains without cloth physics."
+    },
+    {
+      "name": "kneel_one",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Skirt and petticoat over the raised thigh",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The lifted side of the skirt forms a broad, stiff canopy over the thigh with little local folding, consistent with the absence of cloth physics."
+    },
+    {
+      "name": "cross_legged",
+      "kind": "pose",
+      "rating": "major",
+      "location": "Both wrists and sleeve cuffs beside the raised skirt edges",
+      "parts": ["skirt", "petticoat", "sleeves"],
+      "frames": "",
+      "issue": "The raised skirt and petticoat edges visibly cross the wrist and cuff regions in both views, producing cloth intersections beyond the expected lack of draping."
+    },
+    {
+      "name": "deep_lunge",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Skirt above the forward thigh and between the legs",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The skirt lifts as a relatively rigid shell over the forward thigh instead of folding locally around the lunge, as expected to some degree without cloth physics."
+    },
+    {
+      "name": "run_l",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "run_r",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "jump_tuck",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Skirt and petticoat surrounding the tucked thighs and knees",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The skirt and lining form a nearly continuous rigid bowl around the tucked legs rather than compressing into folds, although this is largely attributable to the disabled cloth physics."
+    },
+    {
+      "name": "high_kick",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Skirt and petticoat around the raised thigh",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "A large section of skirt and lining rises as a stiff panel with the kicking leg instead of folding around the thigh, an expected driven-chain limitation without an unambiguous deep body intersection at this scale."
+    },
+    {
+      "name": "arms_crossed",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hands_behind_head",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hands_behind_back",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hand_to_shoulder",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hands_on_hips",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "reach_up_back",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "hug_self",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "twist_bend",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "lie_back_elbows",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Skirt and petticoat over the hips and extended thighs",
+      "parts": ["skirt", "petticoat"],
+      "frames": "",
+      "issue": "The skirt retains an upright, open shell around the hips and thighs while the torso reclines, which looks rigid but is substantially explained by the absence of cloth physics."
+    },
+    {
+      "name": "look_over_shoulder",
+      "kind": "pose",
+      "rating": "minor",
+      "location": "Lower back-hair strands on the turned-head side",
+      "parts": ["hair_back"],
+      "frames": "",
+      "issue": "A lower hair strand projects sideways in a stiff, angular shape in the front view, consistent with keyed hair chains lacking secondary physics."
+    },
+    {
+      "name": "curtsy",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "dance_sway",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "dance_point",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "dance_heart",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "dance_clap",
+      "kind": "pose",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "",
+      "issue": ""
+    },
+    {
+      "name": "walk",
+      "kind": "clip",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "0, 12, 24, 35, 36, 41, 48, 60",
+      "issue": ""
+    },
+    {
+      "name": "run",
+      "kind": "clip",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "0, 8, 16, 20, 24, 32, 40",
+      "issue": ""
+    },
+    {
+      "name": "turn",
+      "kind": "clip",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "0, 9, 18, 24, 27, 30, 36, 45",
+      "issue": ""
+    },
+    {
+      "name": "sit_stand",
+      "kind": "clip",
+      "rating": "major",
+      "location": "Hands and sleeve cuffs against the skirt and petticoat over the lap",
+      "parts": ["body", "sleeves", "skirt", "petticoat"],
+      "frames": "36, 54; residual intersections at 60, 61",
+      "issue": "The hands and cuffs appear buried in the lap fabric at frames 36 and 54, leaving small cuff fragments visible through the pink lining, and remain partly intersecting as the hands become visible at frames 60 and 61."
+    },
+    {
+      "name": "spin",
+      "kind": "clip",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "0, 4, 9, 18, 27, 36, 40, 45",
+      "issue": ""
+    },
+    {
+      "name": "idol_dance",
+      "kind": "clip",
+      "rating": "clean",
+      "location": "",
+      "parts": [],
+      "frames": "0, 15, 18, 36, 54, 72, 74, 90",
+      "issue": ""
+    }
+  ]
+}
