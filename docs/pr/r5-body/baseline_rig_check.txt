@@ -1,0 +1,60 @@
+Blender 5.2.3 LTS (hash e13b728c6880 built 2026-10-22 01:37:16)
+rig: head_lid has shape keys; skinning its base mesh without applying modifiers
+rig joint shoulder_joint mesh  (+0.115, -0.041, +1.143)
+rig joint elbow          mesh  (+0.182, -0.029, +0.945)
+rig joint wrist          mesh  (+0.336, -0.037, +0.803)
+rig joint fingertip      mesh  (+0.449, -0.027, +0.723)
+rig joint hip            mesh  (+0.072, -0.021, +0.829)
+rig joint knee           mesh  (+0.070, -0.025, +0.390)
+rig joint ankle          mesh  (+0.055, -0.012, +0.188)
+rig joint toe            mesh  (+0.028, -0.132, +0.012)
+rig fingers    mesh  (5 chains fitted to the body's fingers)
+rig head  頭             mesh  (+0.000, -0.049, +1.220)
+rig head  目.L           mesh  (+0.039, -0.100, +1.299)
+rig: head_lid has shape keys; skinning its base mesh without applying modifiers
+rig joint shoulder_joint mesh  (+0.115, -0.041, +1.143)
+rig joint elbow          mesh  (+0.182, -0.029, +0.945)
+rig joint wrist          mesh  (+0.336, -0.037, +0.803)
+rig joint fingertip      mesh  (+0.449, -0.027, +0.723)
+rig joint hip            mesh  (+0.072, -0.021, +0.829)
+rig joint knee           mesh  (+0.070, -0.025, +0.390)
+rig joint ankle          mesh  (+0.055, -0.012, +0.188)
+rig joint toe            mesh  (+0.028, -0.132, +0.012)
+rig fingers    mesh  (5 chains fitted to the body's fingers)
+rig head  頭             mesh  (+0.000, -0.049, +1.220)
+rig head  目.L           mesh  (+0.039, -0.100, +1.299)
+rig: head_lid has shape keys; skinning its base mesh without applying modifiers
+rig joint shoulder_joint mesh  (+0.115, -0.041, +1.143)
+rig joint elbow          mesh  (+0.182, -0.029, +0.945)
+rig joint wrist          mesh  (+0.336, -0.037, +0.803)
+rig joint fingertip      mesh  (+0.449, -0.027, +0.723)
+rig joint hip            mesh  (+0.072, -0.021, +0.829)
+rig joint knee           mesh  (+0.070, -0.025, +0.390)
+rig joint ankle          mesh  (+0.055, -0.012, +0.188)
+rig joint toe            mesh  (+0.028, -0.132, +0.012)
+rig fingers    mesh  (5 chains fitted to the body's fingers)
+rig head  頭             mesh  (+0.000, -0.049, +1.220)
+rig head  目.L           mesh  (+0.039, -0.100, +1.299)
+bones=299 deform=219 meshes=45
+standard PMX bone names: 66/66
+IK reach: knee 0.01 mm, toe 0.01 mm
+weights checked on 32117 vertices
+pose             stretch  worst object             pen cm verts  object                     knee
+test                1.54  body                       0.36     0  shoes_ribbons              59.8 ok
+arms_up             1.72  body                       1.17    64  bodice_shell                0.0 ok
+arms_forward        1.72  sleeve_balloon             1.00     4  sleeve_balloon              0.0 ok
+wrist_twist_pos     1.34  sleeve_balloon             0.00     0                              0.0 ok
+wrist_twist_neg     1.34  sleeve_balloon             0.00     0                              0.0 ok
+squat               1.59  body                       1.07    32  shoes_ribbons             117.6 ok
+walk                1.72  body                       1.56     4  hair_back                  31.1 ok
+head_left           1.47  hair_back                  0.26     0  hair_cap                    0.0 ok
+head_right          1.47  hair_back                  0.25     0  hair_cap                    0.0 ok
+torso_left          1.25  bodice_bow                 0.03     0  petticoat_core              0.0 ok
+torso_right         1.25  bodice_bow                 0.02     0  sleeve_balloon              0.0 ok
+swing               1.41  petticoat_tier1            0.31     0  hair_lock_L                 0.0 ok
+fist                1.55  body                       0.00     0                              0.0 ok
+raise_bend          1.44  sleeve_balloon             0.84    28  bodice_shell                0.0 ok
+reach_forward       1.55  sleeve_balloon             0.10     0  sleeve_balloon              0.0 ok
+forward_bend        1.35  body                       0.24     0  hair_curtain_R             21.7 ok
+side_bend           1.28  bodice_shell               1.40    17  hair_curl_R                 0.0 ok
+RIG CHECK OK
