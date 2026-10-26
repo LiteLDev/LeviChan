@@ -25,24 +25,26 @@ Each tier is one thin band of softly gathered fabric:
   (1 - (1 - d) ** FLARE_POW of the full seam-to-hem drop d). Where the hem
   is tucked up under the skirt, the band ends higher on the same surface (it
   gets shorter, and its folds shallower: SHORT_POW) instead of being squashed
-  into a flat shelf. Eight PROFILE rings (slightly closer towards the hem)
-  let the skirt chains bend it smoothly.
+  into a flat shelf. Twelve PROFILE rings (closer towards
+  the hem) let the skirt chains bend it smoothly.
 - Shading: the folds' shading normals are blended towards the smooth band's
   (FOLD_SHADE), so fold flanks peeking out under the skirt do not break into
   small shade wedges; the geometry, silhouette and outline keep the folds.
 
-Exposure: the sheet shows the ruffles mainly under the skirt's raised fold
-troughs, and keeps them tucked up under the hanging lobes; in the side view
-the leg shows under the skirt's sides. A tier's hem is raised (tuck()):
-- in the back half, under the skirt's lobes, to just above the skirt's hem
-  there (TUCK_PX), fading out towards the troughs (TUCK_SECTOR back weight);
-- round each side, over the band of side-view columns where the sheet shows
-  the leg (SIDE_BAND), behind the lowest skirt hem nearby (SIDE_WINDOW).
-The front keeps its measured hem. The tucked hem is then smoothed along the
-band, its slope limited (MAX_SLOPE) and smoothed again, so it rises in broad
-curves rather than steps, flaps or fins. The skirt's hem rows and folds come from
+Exposure (round 6): the exposed ruffles follow the skirt's hem instead of
+hanging from a fixed bowl and being tucked up in steps (the steps read as
+flat triangular flaps with vertical edges from 3/4 views). Each tier's hem is
+the skirt's built hem (skirt.hem_terms) plus an exposure that swells, with a
+cosine ease across each skirt fold, from a narrow band under the lobe to a
+rounded cluster under the trough (cluster_row(): EXPOSE_LOBE / EXPOSE, more
+in front and back, least at the sides where the side view shows the leg),
+and never below the measured bowl. The hem is smoothed along the band and its
+rise limited (CLUSTER_SLOPE). Where the hem rises, the tier's seam rises with
+it (BAND_MIN, hidden inside the skirt), so the exposed band keeps its gathered
+flare instead of hanging as a long flat panel, and the core ends just inside
+the outer tier's seam. The skirt's hem rows and folds come from
 levi/parts/skirt.py (fold_table / hem_terms / fold_index / profiles, pure
-functions), so the tuck and the clearance follow the skirt.
+functions), so the clusters and the clearance follow the skirt.
 
 Clearance: every ring is kept at least CLEAR px inside the skirt's inner
 surface (the skirt's sheet rebuilt from skirt.profiles(), less its solidify
@@ -103,12 +105,14 @@ SPF = 8           # samples across one gather fold (notch at 0, crest at 0.5)
 WIDTH_VAR = 0.3   # fold width irregularity (share of the mean width, +-)
 DEPTH_VAR = 0.35  # fold depth / scallop rise irregularity
 VAR_SMOOTH = 0.7  # per-fold depth / rise blended over this many folds (sigma)
-NOTCH_P = 2.2     # scallop rise ((1 + cos) / 2) ** NOTCH_P: broad petal, round arch notch
-SEAM_FOLD = 0.7   # share of the fold depth at the seam (gathered: the folds run up the band)
+NOTCH_P = 1.6     # scallop rise ((1 + cos) / 2) ** NOTCH_P: broad petal, round arch notch
+SEAM_FOLD = 0.45  # share of the fold depth just below the seam (gathered: the folds run up the band)
+SEAM_RAMP = 0.3   # ... reached over this share of the band from the seam (smoothstep), so the
+                  # gathers open continuously out of the seam (no step at the first ring)
 FOLD_POW = 0.5    # the folds open as d ** FOLD_POW down the band (visible all the way up)
 # Where the hem is tucked up, the band is shorter and has less fabric to
 # fold: the fold depth scales with (band length / full length) ** SHORT_POW.
-SHORT_POW = 0.7
+SHORT_POW = 0.45
 # The band flares out from its seam as 1 - (1 - d) ** FLARE_POW of the full
 # drop d: most of the flare happens high up, inside the skirt, and the
 # exposed lower band hangs nearly straight, turning gradually (no shelf).
@@ -122,10 +126,10 @@ HEM_SMIN = 2.0    # softness (px) of the min of the front and side outlines
 HEM_DROP = 6.0
 # Profile rings from the seam (0) to the hem (1), denser where the band
 # turns from sloping to hanging and where the scallops form.
-PROFILE = (0.0, 0.15, 0.30, 0.45, 0.60, 0.74, 0.87, 1.0)
+PROFILE = (0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.69, 0.78, 0.86, 0.93, 1.0)
 # Share of the gathered surface's normal in the shading normals (the rest is
 # the smooth band's; see _finish).
-FOLD_SHADE = 0.3
+FOLD_SHADE = 0.55
 # Hem roll: angles (deg) of the rings round the half circle under the edge.
 ROLL_DEG = (60.0, 120.0, 180.0)
 # Whether each tier casts sun shadows (obj['levi_cast_shadow'], read by
@@ -154,35 +158,39 @@ CAST_TIERS = (False, False)
 # a tier's hem rises to LIFT_ROW, behind the skirt's centre hem, easing back
 # to the measured bowl by x1.
 TIERS = (
-    ('petticoat_tier0', (HALF_W, FRONT_D, BACK_D, 2.0), (55, 90), ('free', 52, 0.86), 41, 2.6, 4.5, 1),
-    ('petticoat_tier1', (0.70 * HALF_W, 0.70 * FRONT_D, 0.70 * BACK_D, 2.2), (55, 90), ('core', 22), 30, 2.4, 4.0, 2),
+    ('petticoat_tier0', (HALF_W, FRONT_D, BACK_D, 2.0), (55, 90), ('free', 52, 0.86), 40, 4.2, 5.0, 1),
+    ('petticoat_tier1', (0.78 * HALF_W, 0.78 * FRONT_D, 0.78 * BACK_D, 2.2), (55, 90), ('core', 22), 34, 3.6, 4.5, 2),
 )
-# Tuck up under the skirt, per tier: (front lobes, sides, back lobes) weights
-# (see the module docstring); front and back blend across the sides.
-# SIDE_BAND = (centre y, half width, ease px) of side-view columns; the leg
-# shows a little in front of the middle.
-TUCK_SECTOR = ((0.0, 0.7, 0.4), (0.0, 0.7, 0.4))
-SIDE_BAND = (-18.0, 14.0, 40.0)
-SIDE_WINDOW = 12.0     # deg either side: the side tuck clears the lowest skirt hem in this window
-TUCK_PX = 4.0          # tucked hem sits this far above the skirt's hem
-EXPOSE = (28.0, None)   # px of each tier that may hang below the skirt's hem (back half)
-EXPOSE_FRONT = 30.0    # the limit relaxes this much more per unit of front weight
-EXPOSE_MAX = (42.0, None)   # px of each tier that may hang below the skirt's hem anywhere
-                            # (the outer tier's front quarters hung ~55 px below lifted
-                            # troughs, reading as long flaps from 3/4 behind)
-TUCK_U = (0.3, 0.75)   # lobe weight: 1 within |u| < u0 of the crest, 0 past u1
-TUCK_SMOOTH = 1.0      # the tucked hem row is smoothed along the hem (sigma, folds)
-MAX_SLOPE = 0.45       # the hem rises at most this many px per px along the band
-MIN_LEN = 18.0         # a tier's hem stays at least this many px below its top
+# Exposure (round 6): the tiers show as rounded ruffle clusters under the
+# skirt's raised fold troughs, and as a narrower band under its lobes (see
+# cluster_row()). Per tier, px of ruffle hanging below the skirt's built hem
+# at a trough and under a lobe's crest (negative: tucked up behind it), each
+# as (sides, front, back). The sheet shows a deep ruffle band front and back
+# and mostly leg under the sides; the inner tier shows a second, lower layer.
+EXPOSE = ((22.0, 78.0, 58.0), (30.0, 84.0, 66.0))
+EXPOSE_LOBE = ((6.0, 48.0, 36.0), (14.0, 54.0, 44.0))
+# Fold position |u| (0 crest, 1 trough) over which a cluster grows from its
+# lobe exposure to its full trough exposure, per tier; a cosine ease, so the
+# cluster's sides run round into the skirt's hem instead of ending in a
+# vertical edge.
+CLUSTER_U = ((0.25, 0.95), (0.15, 0.90))
+# front / back weight: smoothstep of +-cos(azimuth) over this range
+FRONT_COS = (0.6, 0.95)
+CLUSTER_SMIN = 3.0     # softness (px) of the min of the bowl and the clusters
+CLUSTER_SMOOTH = 0.8   # the hem row is smoothed along the hem (sigma, folds)
+CLUSTER_SLOPE = 1.6    # ... then rises at most this many px per px along the band
+BAND_MIN = 34.0        # a tier's seam stays at least this many px above its hem: where the
+                       # hem tucks up the seam rises with it (hidden inside the skirt), so
+                       # the band never hangs as a long panel below a raised hem
 CLEAR = 4.0            # px inside the skirt's inner surface
 CLEAR_SOFT = 1.0       # softness of that limit (px)
-CLEAR_HOLD = 6.0       # below the skirt's edge the limit holds for this many px,
-CLEAR_RELAX = 0.4      # then relaxes this many px per px (the cloth below hangs
+CLEAR_HOLD = 4.0       # below the skirt's edge the limit holds for this many px,
+CLEAR_RELAX = 0.3      # then relaxes this many px per px (the cloth below hangs
 CLEAR_FADE = 40.0      # nearly straight, not flaring out), and ends this many px down
 CORE_RX = L['waist_half_w'] * 1.40   # core top ring round the hips (m)
 CORE_RY = 0.065
 CORE_CY = L['waist_center_y'] * 0.6
-CORE_N = 24
+CORE_N = 96
 CORE_RINGS = 6
 CORE_TUCK = 16.0       # px the core reaches down inside the outer tier's top edge
 LIFT_ROW = 585   # high enough that no lifted sliver peeks out under the skirt
@@ -386,32 +394,32 @@ def hem_z(x, y, lift=None):
     return spec.px_to_z(hem_row(x, y, lift))
 
 
-def tuck(folds, x, y, row, sector, expose=None, expose_max=None):
-    """Hem row after tucking (x, y) px up under the skirt (see TUCK_SECTOR);
-    row is the untucked hem row, folds the skirt's fold table."""
+def _smin(a, b, k):
+    """Smooth minimum of a and b (softness k)."""
+    return min(a, b) - k * math.log1p(math.exp(-abs(a - b) / k))
+
+
+def cluster_row(folds, idx, x, y, row):
+    """Hem row of tier idx at the hem-outline point (x, y) px, from its
+    untucked (measured bowl + lift) hem row: the skirt's built hem
+    (skirt.hem_terms) plus an exposure that eases (cosine over CLUSTER_U[idx]
+    of the skirt fold position) from EXPOSE_LOBE under a lobe's crest to
+    EXPOSE under a trough, so each trough frames a rounded ruffle cluster;
+    both blend from the sides to the front and back (FRONT_COS). Never lower
+    than the bowl (smooth min)."""
     phi = skirt_azimuth(x, y)
     _, u = skirt.fold_index(folds, phi)
-    srows = skirt.hem_terms(folds, phi + np.radians(SIDE_WINDOW) * np.linspace(-1.0, 1.0, 9))[0]
-    lobe = 1.0 - _smoothstep(TUCK_U[0], TUCK_U[1], abs(float(u)))
-    wf = _smoothstep(-0.25, 0.25, math.cos(phi))       # 1 in the front half, 0 in the back
-    # under a lobe: up to just above the skirt's hem there
-    w_lobe = lobe * (sector[2] + (sector[0] - sector[2]) * wf)
-    r_lobe = row + w_lobe * (min(row, float(srows[len(srows) // 2]) - TUCK_PX) - row)
-    # at the sides: up behind the lowest skirt hem nearby
-    w_side = sector[1] * (1.0 - _smoothstep(SIDE_BAND[1], SIDE_BAND[1] + SIDE_BAND[2], abs(y - SIDE_BAND[0])))
-    r_side = row + w_side * (min(row, float(srows.max()) - TUCK_PX) - row)
-    # under a raised trough in the back half: no more than EXPOSE px of this
-    # tier below the skirt, so the tiers inside show below it as layered
-    # ruffles instead of one tall panel (the front keeps its measured hem)
-    lim = math.inf
-    trough = float(srows[len(srows) // 2 - 1:len(srows) // 2 + 2].max())
-    if expose is not None and wf < 1.0:
-        lim = trough + expose + EXPOSE_FRONT * wf / (1.0 - wf)
-    # anywhere: no more than expose_max px below the skirt (the front
-    # quarters under lifted troughs would otherwise hang as long flaps)
-    if expose_max is not None:
-        lim = min(lim, trough + expose_max)
-    return min(r_lobe, r_side, lim)
+    here = float(skirt.hem_terms(folds, np.array([phi]))[0][0])
+    u0, u1 = CLUSTER_U[idx]
+    e = min(1.0, max(0.0, (abs(float(u)) - u0) / (u1 - u0)))
+    e = 0.5 - 0.5 * math.cos(math.pi * e)
+    wf = _smoothstep(FRONT_COS[0], FRONT_COS[1], math.cos(phi))
+    wb = _smoothstep(FRONT_COS[0], FRONT_COS[1], -math.cos(phi))
+
+    def blend(v):
+        return v[0] + (v[1] - v[0]) * wf + (v[2] - v[0]) * wb
+    lobe, trough = blend(EXPOSE_LOBE[idx]), blend(EXPOSE[idx])
+    return _smin(row, here + lobe + (trough - lobe) * e, CLUSTER_SMIN)
 
 
 def _limit_slope(rows, arc, slope, sign=1.0):
@@ -433,26 +441,34 @@ def _limit_slope(rows, arc, slope, sign=1.0):
     return sign * rows
 
 
-def _gentle(rows, arc, slope):
-    """The hem rows with their slope limited to `slope` both ways: the mean of
-    the raised and the lowered envelope (each limited to `slope`), so a tuck
-    keeps its mean height but ramps in and out gently."""
-    return 0.5 * (_limit_slope(rows, arc, slope) + _limit_slope(rows, arc, slope, -1.0))
-
-
 def _lift_pinch(x, lift):
     """Radial scale of the hem outline point at x px (see LIFT_PINCH)."""
     return 1.0 - LIFT_PINCH * (1.0 - _smoothstep(lift[0], lift[1], abs(x)))
 
 
 # ---------------------------------------------------------------- core
+# The outer tier's seam height (world z) by ellipse angle, (angles, z) sorted,
+# set by build() once the outer tier is built (its seam rises where its hem
+# tucks up); the core ends CORE_TUCK px below it.
+_SEAM0 = None
+
+
+def _ellipse_angle(x, y):
+    w, fd, bd = TIERS[0][1][:3]
+    return math.atan2(y / (fd if y < 0 else bd), x / w)
+
+
 def _core_bottom(phi):
     """(x, y, z) world point of the core's lower edge at ellipse angle phi."""
     _, dims0, lift0, (_, height0, top0) = TIERS[0][:4]
     c, s = math.cos(phi), math.sin(phi)
     hx, hy = dims0[0] * c, (dims0[1] if s < 0 else dims0[2]) * s
-    # a few px below the outer tier's (untucked) top edge
-    z = hem_z(hx, hy, lift0) + (height0 - CORE_TUCK) * PX
+    # a few px below the outer tier's top edge (untucked, until it is built)
+    if _SEAM0 is None:
+        z = hem_z(hx, hy, lift0) + height0 * PX
+    else:
+        z = float(np.interp(phi, _SEAM0[0], _SEAM0[1], period=2 * math.pi))
+    z -= CORE_TUCK * PX
     k = top0 * 0.97 * _lift_pinch(hx, lift0) * PX
     return Vector((k * hx, k * hy, z))
 
@@ -465,8 +481,7 @@ def _core_top(phi):
 def _core_point(x, y, up_px):
     """Point on the core cone up_px above its lower edge, in the direction of
     the hem outline point (x, y) px."""
-    w, fd, bd = TIERS[0][1][:3]
-    phi = math.atan2(y / (fd if y < 0 else bd), x / w)
+    phi = _ellipse_angle(x, y)
     b, t = _core_bottom(phi), _core_top(phi)
     return b.lerp(t, min(1.0, up_px * PX / (t.z - b.z)))
 
@@ -503,27 +518,33 @@ def _tier(col, idx, inner, folds, name, shape, lift, top, count, depth_px, rise_
     n = len(outline)
     # hem outline, drawn in near the lifted midline
     hem = [((bx * k, by * k), nrm) for (bx, by), nrm in outline for k in (_lift_pinch(bx, lift),)]
-    # top ring: free (above the untucked hem, scaled) or sewn onto the core
-    if top[0] == 'free':
-        tops = [Vector((top[2] * bx * PX, top[2] * by * PX, hem_z(ox, oy, lift) + top[1] * PX))
-                for ((bx, by), _), ((ox, oy), _) in zip(hem, outline)]
-    else:
-        tops = [_core_point(bx, by, top[1]) for (bx, by), _ in hem]
-    # full drop (untucked hem) and the tucked hem: measured bowl + lift,
-    # tucked under the skirt, smoothed, slope limited, smoothed again, and at
-    # least MIN_LEN below the top. The slope is limited both ways (_gentle),
-    # so tucks ramp in and out without lifting the hem around them. That can
-    # let a tucked or lifted hem sag a little, so the result never hangs
-    # below the raw tuck ramped in at 1 px per px (raise-only, so it is at or
-    # above tuck() everywhere): no sliver shows under the skirt's lobes or
-    # past LIFT_ROW.
+    # the hem: measured bowl + lift, raised into the ruffle clusters under the
+    # skirt (cluster_row), smoothed along the band and its rise limited to
+    # CLUSTER_SLOPE (raise-only, so the hem never sags below a lobe), then
+    # smoothed once more; never below the raw clusters ramped in at 1 px per
+    # px, so no sliver shows under the skirt's lobes or past LIFT_ROW
     full = [hem_z(ox, oy, lift) for (ox, oy), _ in outline]
     arc = [(f - fracs[0]) * total for f in fracs] + [total]
-    raw = [tuck(folds, ox, oy, hem_row(ox, oy, lift), TUCK_SECTOR[idx], EXPOSE[idx], EXPOSE_MAX[idx])
-           for (ox, oy), _ in outline]
-    rows = _gentle(_smooth_loop(raw, TUCK_SMOOTH * SPF), arc, MAX_SLOPE)
-    rows = np.minimum(_smooth_loop(rows, 0.5 * SPF), _limit_slope(raw, arc, 1.0))
-    hems = [spec.px_to_z(max(r, _row(t.z) + MIN_LEN)) for r, t in zip(rows, tops)]
+    raw = [cluster_row(folds, idx, ox, oy, hem_row(ox, oy, lift)) for (ox, oy), _ in outline]
+    rows = _limit_slope(_smooth_loop(raw, CLUSTER_SMOOTH * SPF), arc, CLUSTER_SLOPE)
+    rows = np.minimum(_smooth_loop(rows, 0.5 * SPF), _limit_slope(raw, arc, CLUSTER_SLOPE))
+    hems = [spec.px_to_z(r) for r in rows]
+    # top ring: free (above the untucked hem, scaled) or sewn onto the core;
+    # either way at least BAND_MIN above the hem (smooth min): where the hem
+    # tucks up the seam rises with it, inside the skirt, so the band keeps its
+    # length and flare instead of hanging as a long panel or folding flat
+    def seam_up(top_row, hem_r):
+        return top_row - _smin(top_row, hem_r - BAND_MIN, CLUSTER_SMIN)
+    if top[0] == 'free':
+        tops = []
+        for ((bx, by), _), ((ox, oy), _), r in zip(hem, outline, rows):
+            z = hem_z(ox, oy, lift) + top[1] * PX
+            tops.append(Vector((top[2] * bx * PX, top[2] * by * PX, z + seam_up(_row(z), r) * PX)))
+    else:
+        tops = []
+        for ((bx, by), _), r in zip(hem, rows):
+            t = _core_point(bx, by, top[1])
+            tops.append(_core_point(bx, by, top[1] + seam_up(_row(t.z), r)))
     amp = _per_fold(count, seed + 7, fold)
     rise = _per_fold(count, seed + 29, fold)
     # fabric per fold: a band shortened by the tuck folds less deeply
@@ -544,7 +565,8 @@ def _tier(col, idx, inner, folds, name, shape, lift, top, count, depth_px, rise_
                 belly = 1.0 + BELLY * math.sin(math.pi * d)
                 cpos = math.cos(2 * math.pi * phase[i])
                 # the seam ring itself lies on its support (the core cone)
-                grow = SEAM_FOLD + (1.0 - SEAM_FOLD) * d ** FOLD_POW if s > 0.0 else 0.0
+                ramp = min(1.0, s / SEAM_RAMP)
+                grow = (SEAM_FOLD + (1.0 - SEAM_FOLD) * d ** FOLD_POW) * ramp * ramp * (3 - 2 * ramp)
                 gather = -k * cpos * depth_px * amp[i] * short[i] * grow
                 notch = (0.5 + 0.5 * cpos) ** NOTCH_P
                 x = t.x + (belly * bx * PX - t.x) * g + nx * gather * PX
@@ -556,7 +578,9 @@ def _tier(col, idx, inner, folds, name, shape, lift, top, count, depth_px, rise_
 
     obj = _finish(col, common.toon_material('petticoat'), name, rings(1.0), soft=rings(0.0))
     obj['levi_cast_shadow'] = CAST_TIERS[idx]
-    return obj
+    # the seam height by ellipse angle (sorted), for the core under the outer tier
+    seam = sorted((_ellipse_angle(bx, by), t.z) for ((bx, by), _), t in zip(hem, tops))
+    return obj, (np.array([a for a, _ in seam]), np.array([z for _, z in seam]))
 
 
 def _hem_roll(prev, edge):
@@ -647,8 +671,13 @@ def _core(col, mat, inner):
 
 
 def build(col):
+    global _SEAM0
     inner = _SkirtInner()
     folds = skirt.fold_table()
+    _SEAM0 = None
+    # the outer tier first: the core ends just inside its seam, and the inner
+    # tiers are sewn onto the core
+    _, _SEAM0 = _tier(col, 0, inner, folds, *TIERS[0])
     _core(col, common.toon_material('petticoat'), inner)
-    for idx, tier in enumerate(TIERS):
+    for idx, tier in enumerate(TIERS[1:], 1):
         _tier(col, idx, inner, folds, *tier)

@@ -14,7 +14,10 @@ radial offset. The fit compares, per view, against the measured outline tables i
 - clearance: no cloth point may sit inside the petticoat (radially, per
   azimuth and row) - the skirt is the outer garment;
 - priors: folds stay near AMP_TARGET deep, smooth offsets vary slowly, and
-  every trough sits above its two crests.
+  every trough sits above its two crests;
+- hem smoothness (round 6): the built hem's slope and curvature along the
+  cloth (SLOPE_MAX / CURV_MAX), so no lobe hangs as a narrow tongue between
+  two deep arches (edge-on it read as a thin fin).
 Coordinate descent over the fold parameters, deterministic. With --write the
 FOLDS table in skirt.py is replaced in place; --report only scores it.
 --freeze 1,5 keeps those FOLDS columns as they are. --baseline OLD.py adds a
@@ -63,6 +66,16 @@ PET_W = 60.0       # per px of a cloth point inside the petticoat (+ CLEAR)
 CLEAR = 3.0
 VIS_TOL = 3.0      # px a cloth point may sit behind the petticoat depth and still count as visible
 UPS = 12           # azimuth upsampling of the hem curve (sub-pixel spacing for the envelope)
+# Hem smoothness (the built, smoothed hem row along the arc of the hem): a lobe
+# hanging far below two narrow arches is a near-flat strip of cloth that reads
+# as a thin fin edge-on, and its flanks as near-vertical cut edges. Penalised
+# per px of arc: the hem's slope (rows per px of arc) beyond SLOPE_MAX and its
+# curvature (rows per px^2) beyond CURV_MAX, both squared. Arc length counts
+# the fold's radial in / out (hem_shape()).
+SLOPE_MAX = 1.3
+SLOPE_W = 40.0
+CURV_MAX = 0.08
+CURV_W = 4.0e4
 
 
 def COL_W(view, c):
@@ -358,6 +371,27 @@ def prior_error(folds):
     return e
 
 
+def hem_shape(folds):
+    """(slope, curvature, arc px per sample) of the built hem row along the
+    hem, on skirt._dense()'s fine azimuth grid."""
+    d = skirt._dense(folds)
+    row = d['row']
+    rad = skirt._hem_radius(d['phi']) + d['off'][:, -1]
+    # arc length along the hem in plan, the fold's radial in / out included:
+    # a deep fold's flank runs toward the view, so the hem may drop steeply in
+    # projection while it falls gently along the cloth
+    ds = np.hypot(rad * (d['phi'][1] - d['phi'][0]), 0.5 * (np.roll(rad, -1) - np.roll(rad, 1)))
+    slope = (np.roll(row, -1) - np.roll(row, 1)) / (2 * ds)
+    curv = (np.roll(row, -1) - 2 * row + np.roll(row, 1)) / ds ** 2
+    return slope, curv, ds
+
+
+def smooth_error(folds):
+    slope, curv, ds = hem_shape(folds)
+    return (SLOPE_W * (np.maximum(0.0, np.abs(slope) - SLOPE_MAX) ** 2 * ds).sum() +
+            CURV_W * (np.maximum(0.0, np.abs(curv) - CURV_MAX) ** 2 * ds).sum())
+
+
 def total_error(folds, detail=False):
     P = skirt.profiles(folds)
     pts = hem_curves(P)
@@ -366,7 +400,7 @@ def total_error(folds, detail=False):
     ce = PET_W * clearance_error(P)
     if BASE_RAD is not None:
         ce += INSIDE_W * np.maximum(0.0, inside_baseline(P) - INSIDE_TOL).sum()
-    pe = prior_error(folds)
+    pe = prior_error(folds) + smooth_error(folds)
     tot = sum(ev.values()) + ee + ce + pe
     if detail:
         return tot, ev, ee, ce, pe
@@ -468,6 +502,9 @@ def report(folds):
     f = np.array(folds, dtype=np.float64)
     depth = np.maximum(f[:, 1], np.roll(f[:, 1], -1)) - f[:, 2]
     print(f'arch depth (px) max {depth.max():.0f} mean {depth.mean():.0f}; crest curl max {f[:, 5].max():.0f}')
+    slope, curv, _ = hem_shape(folds)
+    print(f'hem smoothness: max slope {np.abs(slope).max():.2f} (cap {SLOPE_MAX}), curvature '
+          f'{curv.min():.3f}..{curv.max():.3f} (cap {CURV_MAX}), penalty {smooth_error(folds):.0f}')
     # inward moves vs the baseline skirt (the petticoat is fitted inside it)
     if BASE_RAD is not None:
         d = inside_baseline(P)
