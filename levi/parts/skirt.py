@@ -48,6 +48,13 @@ to the hem and, at the fold troughs, a short turned-out edge.
   sheet's hem turns at every trough). At a crest the hem tucks under a
   little instead, easing in from mid-skirt (CREST_CURL_T) and ending at half
   its steepest slope, so the edge does not hook back.
+- Hem relief (round 9, hem_relief()): narrow valleys sink every trough and
+  split every fold's broad rise, deepening from mid-skirt toward the hem and
+  opening out again at the edge, so the lower skirt shows about twice the
+  folds, deeper, while crests, outlines and hem rows stay. The outer face's
+  shading normals are blended toward the cloth without them (RELIEF_SHADE).
+- Outline (round 9): lighter round the hem roll and on the inside of the
+  cloth (OUTLINE_VG, HEM_LINE_MIN).
 - Normals are smooth over the whole cloth, round the hem roll too; only the
   waist rim (under the bodice) is split.
 - FOLDS was fitted by levi/parts/_skirt_fit.py so that the visible lower
@@ -179,6 +186,40 @@ DRIFT_DEG = 4.0          # sideways wander of the folds up the skirt (deg at the
 CREST_CURL_T = 0.45      # main-sheet t where the per-fold crest curl (tuck under) starts
 CURL_K = 0.3             # share of the fitted crest tuck (FOLDS column 5) that is built: the
                          # full tuck folds the crest edge back into an edge-on blade
+# Hem relief (round 9): godet folds deepen sharply toward the hem (the
+# reference model's folds are ~3x deeper near the hem than at the hips) and
+# twice as many show across the front. Both only move cloth INWARD, in narrow
+# valleys, so the crests - which carry the three views' outlines - and the
+# hem rows stay where FOLDS put them:
+# - every main trough sinks by RELIEF_TROUGH px, in a valley RELIEF_TROUGH_W
+#   of the half-fold wide (narrow valley, the broad crest is untouched);
+# - every fold's broad rise (u < 0, see _hem_terms_raw) gets a secondary
+#   valley RELIEF_SUB px deep at u = RELIEF_SUB_U, RELIEF_SUB_W wide, so a
+#   second, smaller crest stands between it and the trough before;
+# both grow as s ** RELIEF_POW from main-sheet t = RELIEF_T0 to the hem
+# (nothing above it: the hips keep their smooth bell). The Gaussian along
+# the circumference (SMOOTH_PX) rounds the valley bottoms. FOLDS was fitted
+# without the relief (it only takes cloth inward, so the fitted outlines
+# hold); _skirt_fit scores the built cloth, relief included.
+# Shading: the relief's own normals would break the near-frontal key light's
+# terminator into specks along every valley wall; the outer face's shading
+# normals are blended toward the cloth without the relief (RELIEF_SHADE of
+# the real normal), so the cel split stays clean while the outline and the
+# silhouette keep the full folds (the petticoat's FOLD_SHADE does the same).
+RELIEF_T0 = 0.42
+RELIEF_POW = 1.6
+RELIEF_TROUGH = 20.0
+RELIEF_TROUGH_W = 0.35
+RELIEF_SUB = 14.0
+RELIEF_SUB_U = -0.45
+RELIEF_SUB_W = 0.22
+RELIEF_SHADE = 0.6
+RELIEF_MOUTH = 1.0
+RELIEF_MOUTH_T = 0.7
+# Outline (round 9): the hem roll and the inside of the cloth draw a lighter
+# line (HEM_LINE_MIN of the outline width) than the outer face's silhouette.
+HEM_LINE_MIN = 0.45
+OUTLINE_VG = 'skirt_line'
 
 # One row per fold, sorted by azimuth; fitted by _skirt_fit.py, regenerate with
 #   blender -b --factory-startup -P levi/parts/_skirt_fit.py -- --write
@@ -286,7 +327,7 @@ def azimuths(folds):
     where the hem curve bends (lobe bottoms, arch tops, the turns of narrow
     folds), so every crest-to-trough transition gets intermediate samples.
     First sample at phi = 0."""
-    d = _dense(folds)
+    d = _dense(folds)                        # the built cloth (full relief)
     if 'azimuths' in d:
         return d['azimuths'].copy()
     fine = np.append(d['phi'], 2 * np.pi)
@@ -334,9 +375,10 @@ def _trough_floor(folds, phi):
 
 
 _DENSE_CACHE = {}
+DENSE_CACHE_MAX = 4      # entries kept (the built cloth and the relief-free one, per table)
 
 
-def _dense(folds):
+def _dense(folds, relief=1.0):
     """The cloth on a fine uniform azimuth grid (NF samples from phi = 0):
     dict with 'phi', the hem 'row' (NF,) and the radial 'off'set (NF, N_RINGS)
     of every ring, px. The fold model (hem_terms) is built from pieces that
@@ -344,15 +386,17 @@ def _dense(folds):
     then a steep face that turns hard into the trough), which reads as a
     pointed trough in clay and cel; a Gaussian along the circumference
     (SMOOTH_PX of arc at the hem) makes the cloth turn round everywhere while
-    moving it by only ~1 px. Cached per fold table."""
-    key = tuple(tuple(f) for f in folds)
-    if _DENSE_CACHE.get('key') == key:
-        return _DENSE_CACHE['val']
+    moving it by only ~1 px. relief scales the hem relief (hem_relief(); 0
+    gives the cloth the shading normals are blended toward). Cached per fold
+    table and relief."""
+    key = (tuple(tuple(f) for f in folds), float(relief))
+    if key in _DENSE_CACHE:
+        return _DENSE_CACHE[key]
     phi = np.arange(NF) * (2 * np.pi / NF)
     t = np.array(T_STEPS)[None, :]
     # fold, smooth offset and crest curl follow the drifting folds (exact at
     # the hem, where the drift is 0: the last column is the hem row)
-    row, fold_t, offs_t, w_t, curl_t, _, _ = _hem_terms_raw(folds, phi[:, None] + drift(phi[:, None], t))
+    row, fold_t, offs_t, w_t, curl_t, u_t, _ = _hem_terms_raw(folds, phi[:, None] + drift(phi[:, None], t))
     row = row[:, -1]
     # folds open gently below the hips and deepen down to the hem; the crest
     # curl eases in (level start) from mid-skirt toward the hem
@@ -371,11 +415,37 @@ def _dense(folds):
     kc = np.clip((t - CREST_CURL_T) / (1 - CREST_CURL_T), 0, 1)
     kc = kc * kc * (2.0 - kc)
     off = off - CURL_K * curl_t * (1 - w_t) * kc + HEM_FLARE * w_t * flare_k(t)
+    # round 9: narrow valleys deepening toward the hem (inward only)
+    off = off - relief * hem_relief(u_t, t)
     px =float(_hem_radius(phi).mean()) * (2 * np.pi / NF)       # px of arc per sample
     val = {'phi': phi, 'row': _smooth_loop(row, SMOOTH_ROW_PX / px),
            'off': _smooth_loop(off, SMOOTH_PX / px)}
-    _DENSE_CACHE.update(key=key, val=val)
+    if len(_DENSE_CACHE) >= DENSE_CACHE_MAX:     # bounded: the fit tries many tables
+        _DENSE_CACHE.pop(next(iter(_DENSE_CACHE)))
+    _DENSE_CACHE[key] = val
     return val
+
+
+def relief_growth(t):
+    """0..1 share of the hem relief at main-sheet height t: none above
+    RELIEF_T0, then s ** RELIEF_POW (level start) down to the hem; the
+    last stretch (from RELIEF_MOUTH_T) gives back RELIEF_MOUTH of it, so
+    each valley opens out into its mouth at the hem edge instead of
+    pinching it in (the petticoat below keeps its clearance)."""
+    t = np.asarray(t, dtype=np.float64)
+    s = np.clip((t - RELIEF_T0) / (1.0 - RELIEF_T0), 0.0, 1.0)
+    return s ** RELIEF_POW * (1.0 - RELIEF_MOUTH * _smoothstep((t - RELIEF_MOUTH_T) / (1.0 - RELIEF_MOUTH_T)))
+
+
+def hem_relief(u, t):
+    """Inward depth (px) of the round-9 hem relief at fold position u (-1
+    trough before, 0 crest, 1 trough after) and main-sheet height t: a narrow
+    valley at every main trough and a secondary valley on each fold's broad
+    rise. 0 at every crest, so the outlines stay."""
+    a = np.abs(np.asarray(u, dtype=np.float64))
+    trough = 1.0 - _smoothstep((1.0 - a) / RELIEF_TROUGH_W)
+    sub = 1.0 - _smoothstep(np.abs(np.asarray(u) - RELIEF_SUB_U) / RELIEF_SUB_W)
+    return relief_growth(t) * (RELIEF_TROUGH * trough + RELIEF_SUB * sub)
 
 
 def hem_terms(folds, phi):
@@ -482,14 +552,15 @@ def ring_terms(folds, phi=None):
     return hem_terms(folds, phi + drift(phi, np.array(T_STEPS)[None, :]))
 
 
-def profiles(folds):
+def profiles(folds, relief=1.0):
     """Cloth points, array (N_PHI, N_RINGS, 3) of (x, y, row) in panel px.
 
     Rings: T_STEPS (waist -> hem edge). The fold offsets and hem rows are
-    the smoothed ones of _dense(), sampled at azimuths().
+    the smoothed ones of _dense(), sampled at azimuths(). relief: share of
+    the hem relief (1 = the built cloth; the samples stay the same).
     """
     phi = azimuths(folds)
-    d = _dense(folds)
+    d = _dense(folds, relief)
     rows = np.interp(phi, d['phi'], d['row'], period=2 * np.pi)
     off = np.stack([np.interp(phi, d['phi'], d['off'][:, j], period=2 * np.pi)
                     for j in range(N_RINGS)], axis=1)
@@ -575,9 +646,9 @@ def front_surface_y(dx, row):
 
 
 # ---------------------------------------------------------------- build
-def build(col):
-    folds = fold_table()
-    pts = profiles(folds)
+def _sheet(pts):
+    """Outer cloth sheet points and outward unit normals, both (N_RINGS,
+    N_PHI, 3) metres, from profiles() points (px)."""
     rings = [[Vector((spec.px_to_h(pts[i, k, 0]), spec.px_to_h(pts[i, k, 1]),
                       spec.px_to_z(pts[i, k, 2]))) for i in range(N_PHI)]
              for k in range(N_RINGS)]
@@ -591,6 +662,13 @@ def build(col):
     P = np.array([v.co[:] for v in bm.verts]).reshape(N_RINGS, N_PHI, 3)
     Nv = np.array([v.normal[:] for v in bm.verts]).reshape(N_RINGS, N_PHI, 3)
     bm.free()
+    return P, Nv
+
+
+def build(col):
+    folds = fold_table()
+    P, Nv = _sheet(profiles(folds))
+    _, Nsoft = _sheet(profiles(folds, relief=0.0))   # the cloth without the hem relief
     outer, inner, roll = shell(P, Nv)
 
     # one closed cloth shell: outer sheet, the rounded hem roll, inner sheet
@@ -628,6 +706,7 @@ def build(col):
         a, b = e.vertices
         sharp.data[e.index].value = (a < 2 * nverts and b < 2 * nverts and
                                      (a % nverts) // N_PHI == 0 and (b % nverts) // N_PHI == 0)
+    _shade_normals(me, Nsoft)
     # white -> mint with height (up to Z_MINT), mint streaks on the folds'
     # turned-away faces, and the flared edge at the troughs (its inside shows)
     # mint by flare weight
@@ -651,8 +730,54 @@ def build(col):
         # soft union of the height / streak tint and the edge tint (no
         # crease in the colour where one takes over from the other)
         attr.data[v.index].value = g + e - g * e
-    common.add_outline(obj)
+    # outline: full width on the outer face, lighter round the hem roll
+    # and on the inside of the cloth
+    vg = obj.vertex_groups.new(name=OUTLINE_VG)
+    vg.add(list(range(nverts)), 1.0, 'REPLACE')
+    for j in range(HEM_ROLL - 1):
+        w = 1.0 - (1.0 - HEM_LINE_MIN) * (j + 1) / HEM_ROLL
+        vg.add(list(range(2 * nverts + j * N_PHI, 2 * nverts + (j + 1) * N_PHI)), w, 'REPLACE')
+    common.add_outline(obj, vertex_group=OUTLINE_VG, min_factor=HEM_LINE_MIN)
     return obj
+
+
+def _shade_normals(me, Nsoft):
+    """Blend the outer face's shading normals toward the cloth without the hem
+    relief (Nsoft, (N_RINGS, N_PHI, 3)): RELIEF_SHADE of each vertex's own
+    normal. The first roll rows take the same correction, fading out round
+    the hem roll; the inner face, the rest of the roll and the waist rim (ring 0)
+    keep their own normals."""
+    if RELIEF_SHADE >= 1.0:
+        return
+    n = N_RINGS
+    nverts = n * N_PHI
+    soft = Nsoft.reshape(-1, 3)
+    own = np.empty(len(me.loops) * 3)
+    me.corner_normals.foreach_get('vector', own)
+    own = own.reshape(-1, 3)
+    lv = np.empty(len(me.loops), dtype=np.int64)
+    me.loops.foreach_get('vertex_index', lv)
+    k = np.zeros(len(lv))               # share of the correction
+    src = np.zeros(len(lv), dtype=np.int64)
+    outer = (lv < nverts) & (lv >= N_PHI)
+    k[outer] = 1.0
+    src[outer] = lv[outer]
+    roll = lv >= 2 * nverts
+    j = (lv[roll] - 2 * nverts) // N_PHI            # roll row 0 .. HEM_ROLL-2
+    k[roll] = np.clip(1.0 - 2.0 * (j + 1) / HEM_ROLL, 0.0, 1.0)
+    src[roll] = (n - 1) * N_PHI + (lv[roll] - 2 * nverts) % N_PHI
+    # the correction at the source vertex (the hem ring for the roll):
+    # blended minus own, taken from the vertex's (smooth) normal
+    vn = np.empty(len(me.vertices) * 3)
+    me.vertices.foreach_get('normal', vn)
+    vn = vn.reshape(-1, 3)
+    s = soft[src]
+    s = np.where((s * vn[src]).sum(1)[:, None] < 0, -s, s)
+    want = RELIEF_SHADE * vn[src] + (1.0 - RELIEF_SHADE) * s
+    want /= np.maximum(np.linalg.norm(want, axis=1), 1e-9)[:, None]
+    out = own + k[:, None] * (want - vn[src])
+    out /= np.maximum(np.linalg.norm(out, axis=1), 1e-9)[:, None]
+    me.normals_split_custom_set([tuple(v) for v in out])
 
 
 def shell(P, Nv):

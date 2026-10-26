@@ -1,0 +1,21 @@
+IOU front 0.9165
+REGION front skin      iou 0.7840  tol 0.9590  dE   6.6  shade ref 0.17 ren 0.15  ref #EFDBD1 ren #F6DFD5  px ref 42432 ren 40627  dEi   3.4 px 27685
+REGION front hair      iou 0.5592  tol 0.7884  dE  12.8  shade ref 0.53 ren 0.57  ref #C0CBC3 ren #C1CEC6  px ref 45963 ren 34743  dEi  11.3 px 22388
+REGION front dress     iou 0.7857  tol 0.9311  dE   6.1  shade ref 0.23 ren 0.19  ref #E8EEE1 ren #EAF0E3  px ref 105692 ren 114798  dEi   5.2 px 82230
+REGION front green     iou 0.3930  tol 0.8029  dE  17.2  shade ref 0.57 ren 0.33  ref #468753 ren #468353  px ref 14929 ren 15535  dEi  15.7 px 2785
+REGION front petticoat iou 0.3634  tol 0.6177  dE   9.6  shade ref 0.39 ren 0.21  ref #EDCFC8 ren #F5D8D2  px ref 15353 ren 9581  dEi   8.1 px 4567
+REGION front shoe      iou 0.5119  tol 0.8744  dE  13.4  shade ref 0.26 ren 0.39  ref #366E47 ren #3C744B  px ref 4995 ren 5263  dEi   9.2 px 1880
+IOU side  0.8608
+REGION side  skin      iou 0.6415  tol 0.8504  dE   6.2  shade ref 0.19 ren 0.22  ref #EEDBD1 ren #F6DDD4  px ref 23453 ren 20041  dEi   3.2 px 13033
+REGION side  hair      iou 0.6703  tol 0.8526  dE  11.0  shade ref 0.37 ren 0.52  ref #CAD4CD ren #C4D2C9  px ref 47339 ren 45112  dEi   9.9 px 32227
+REGION side  dress     iou 0.7488  tol 0.9080  dE   7.5  shade ref 0.25 ren 0.26  ref #E5EADD ren #E7EDE0  px ref 54308 ren 55685  dEi   6.7 px 39843
+REGION side  green     iou 0.3129  tol 0.6391  dE  18.0  shade ref 0.70 ren 0.44  ref #488A56 ren #448152  px ref 6460 ren 6082  dEi  14.9 px 1348
+REGION side  petticoat iou 0.3527  tol 0.6092  dE  10.6  shade ref 0.44 ren 0.34  ref #EDCDC5 ren #ECCEC8  px ref 11895 ren 8112  dEi   9.2 px 3472
+REGION side  shoe      iou 0.6804  tol 0.9380  dE  10.2  shade ref 0.18 ren 0.22  ref #326E44 ren #357046  px ref 5146 ren 5395  dEi   5.5 px 2671
+IOU back  0.9188
+REGION back  skin      iou 0.6638  tol 0.8549  dE   5.9  shade ref 0.18 ren 0.18  ref #EBD8CD ren #F5DDD3  px ref 29375 ren 25684  dEi   3.3 px 17882
+REGION back  hair      iou 0.6971  tol 0.8693  dE   9.3  shade ref 0.37 ren 0.27  ref #CAD5CE ren #D0DCD4  px ref 91547 ren 98364  dEi   7.9 px 69023
+REGION back  dress     iou 0.6287  tol 0.8268  dE   6.4  shade ref 0.30 ren 0.18  ref #E5ECDE ren #EBF0E3  px ref 78992 ren 68586  dEi   5.5 px 48552
+REGION back  green     iou 0.2647  tol 0.5769  dE  15.5  shade ref 0.59 ren 0.48  ref #458654 ren #438953  px ref 7465 ren 4279  dEi  10.1 px 922
+REGION back  petticoat iou 0.4021  tol 0.6548  dE  10.2  shade ref 0.38 ren 0.22  ref #EFCFC8 ren #F1D4CE  px ref 14941 ren 15580  dEi   8.8 px 6261
+REGION back  shoe      iou 0.5369  tol 0.8676  dE  12.8  shade ref 0.32 ren 0.42  ref #356C45 ren #367147  px ref 6098 ren 8054  dEi  10.1 px 2853
