@@ -145,7 +145,10 @@ SPAN_OUTER = 25.0           # deg round the limb from the outer side that counts
 SPAN_BIN = 0.005            # m: bins along the limb (points averaged per bin)
 TWISTS = {'forearm': ('ひじ', '手首'), 'thigh': ('下半身', '足'), 'neck': ('上半身2', '頭')}
 GAZE = ((0, 0), (10, 0), (-10, 0), (0, 8), (0, -8), (10, 8), (-10, -8), (10, -8), (-10, 8))
-EYE_MORPHS = (('まばたき', 1.0), ('まばたき', 0.5), ('ウィンク', 1.0), ('ウィンク右', 1.0), ('笑い', 1.0))
+EYE_MORPHS = (('まばたき', 1.0), ('まばたき', 0.5), ('ウィンク', 1.0), ('ウィンク右', 1.0), ('笑い', 1.0),
+              ('はぅ', 1.0), ('はぅ', 0.5), ('なごみ', 1.0), ('びっくり', 1.0), ('じと目', 1.0), ('キリッ', 1.0),
+              ('瞳小', 1.0), ('ハイライト消', 1.0), ('真面目', 1.0), ('困る', 1.0), ('にこり', 1.0),
+              ('怒り', 1.0), ('上', 1.0), ('下', 1.0))
 CROSS_GROUPS = {
     'hair': ('hair_back', 'hair_front'),
     'garment': ('bodice', 'sleeves', 'accessories'),
@@ -780,7 +783,7 @@ def eye_check(model):
     if not eyes or not cover or '両目' not in arm.pose.bones:
         return []
     keys = {}
-    for o in cover:
+    for o in cover + eyes:     # (the eyes carry their own keys: 瞳小, ハイライト消)
         if o.data.shape_keys:
             for kb in o.data.shape_keys.key_blocks[1:]:
                 keys.setdefault(kb.name, []).append(kb)

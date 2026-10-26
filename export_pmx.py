@@ -300,7 +300,11 @@ MORPH_INFO = {
     'ω': ('MOUTH', 'Omega'), '∧': ('MOUTH', 'Mouth_Hu'), 'にやり': ('MOUTH', 'Grin'),
     'ぺろっ': ('MOUTH', 'Tongue'), '真面目': ('EYEBROW', 'Serious'), '困る': ('EYEBROW', 'Trouble'),
     'にこり': ('EYEBROW', 'Smily'), '怒り': ('EYEBROW', 'Angry'), '上': ('EYEBROW', 'Up'),
-    '下': ('EYEBROW', 'Down'),
+    '下': ('EYEBROW', 'Down'), 'キリッ': ('EYE', 'Kiri'), '瞳小': ('EYE', 'Pupil small'),
+    'ハイライト消': ('EYE', 'Highlight off'), '▲': ('MOUTH', 'Triangle'), '口角上げ': ('MOUTH', 'Mouth corner up'),
+    '口角下げ': ('MOUTH', 'Mouth corner down'), '口横広げ': ('MOUTH', 'Mouth wide'),
+    '歯無し上': ('MOUTH', 'Upper teeth off'), '照れ': ('OTHER', 'Blush'), '涙': ('OTHER', 'Tears'),
+    '汗': ('OTHER', 'Sweat'),
 }
 # PMX panel numbers (pmx morph.category) of mmd_tools' category names
 PANEL_NUM = {'SYSTEM': 0, 'EYEBROW': 1, 'EYE': 2, 'MOUTH': 3, 'OTHER': 4}

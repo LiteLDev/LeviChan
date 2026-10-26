@@ -162,6 +162,40 @@ def check_morphs(pmx, want, errors, panels=None):
             errors.append(f'vertex morph {n} is in no display frame')
         if panels and n in panels and m.category != panels[n]:
             errors.append(f'vertex morph {n} in panel {m.category}, expected {panels[n]}')
+    # independently of the export's own record: every standard name sits in its MORPH_INFO
+    # panel with its English name, and a model with the head's blink has the whole set
+    MORPH_INFO, PANEL_NUM = _export_tables('MORPH_INFO', 'PANEL_NUM')
+    for n, m in got.items():
+        if n in MORPH_INFO:
+            cat, en = MORPH_INFO[n]
+            if m.category != PANEL_NUM[cat]:
+                errors.append(f'morph {n} in panel {m.category}, MORPH_INFO says {cat} ({PANEL_NUM[cat]})')
+            if m.name_e != en:
+                errors.append(f'morph {n} English name {m.name_e!r}, MORPH_INFO says {en!r}')
+    if 'まばたき' in got:
+        if ROOT not in sys.path:
+            sys.path.insert(0, ROOT)
+        from levi.parts import head       # the expression set the head ships
+        missing = [n for n in head.ALL_MORPHS if n not in got]
+        if missing:
+            errors.append(f'head morphs missing: {" ".join(missing)}')
+    panels_used = {}
+    for m in pmx.morphs:
+        panels_used[m.category] = panels_used.get(m.category, 0) + 1
+    print('morph panels (1 brow, 2 eye, 3 mouth, 4 other): '
+          + ', '.join(f'{k}: {v}' for k, v in sorted(panels_used.items())))
+
+
+def _export_tables(*names):
+    """Literal tables of export_pmx.py (read from its source: importing it runs the export)."""
+    import ast
+    with open(os.path.join(ROOT, 'export_pmx.py'), encoding='utf-8') as f:
+        tree = ast.parse(f.read())
+    found = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and getattr(node.targets[0], 'id', '') in names:
+            found[node.targets[0].id] = ast.literal_eval(node.value)
+    return tuple(found[n] for n in names)
 
 
 def check_names(pmx, errors):
