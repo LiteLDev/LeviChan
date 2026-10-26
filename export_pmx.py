@@ -277,8 +277,21 @@ def convert(arm, mesh, no_edge, out_dir):
     return root
 
 
-# shape key -> (PMX morph panel, English name); others go to the 'other' panel
-MORPH_INFO = {'まばたき': ('EYE', 'Blink')}
+# shape key -> (PMX morph panel, English name) for the standard MMD facial morphs; any
+# other key goes to the 'other' panel under its own name
+MORPH_INFO = {
+    'まばたき': ('EYE', 'Blink'), '笑い': ('EYE', 'Smile'), 'ウィンク': ('EYE', 'Wink'),
+    'ウィンク右': ('EYE', 'Wink_R'), 'ウィンク２': ('EYE', 'Wink 2'), 'ｳｨﾝｸ２右': ('EYE', 'Wink 2_R'),
+    'はぅ': ('EYE', 'Close><'), 'なごみ': ('EYE', 'Calm'), 'びっくり': ('EYE', 'Surprised'),
+    'じと目': ('EYE', 'Slant'), 'あ': ('MOUTH', 'a'), 'い': ('MOUTH', 'i'), 'う': ('MOUTH', 'u'),
+    'え': ('MOUTH', 'e'), 'お': ('MOUTH', 'o'), 'ん': ('MOUTH', 'n'), 'ワ': ('MOUTH', 'Wa'),
+    'ω': ('MOUTH', 'Omega'), '∧': ('MOUTH', 'Mouth_Hu'), 'にやり': ('MOUTH', 'Grin'),
+    'ぺろっ': ('MOUTH', 'Tongue'), '真面目': ('EYEBROW', 'Serious'), '困る': ('EYEBROW', 'Trouble'),
+    'にこり': ('EYEBROW', 'Smily'), '怒り': ('EYEBROW', 'Angry'), '上': ('EYEBROW', 'Up'),
+    '下': ('EYEBROW', 'Down'),
+}
+# PMX panel numbers (pmx morph.category) of mmd_tools' category names
+PANEL_NUM = {'SYSTEM': 0, 'EYEBROW': 1, 'EYE': 2, 'MOUTH': 3, 'OTHER': 4}
 
 
 def add_vertex_morphs(root, mesh):
@@ -579,6 +592,7 @@ def main():
         'bones': sum(1 for pb in arm.pose.bones if not pb.is_mmd_shadow_bone),   # mmd_tools adds shadow bones for 付与
         'materials': len(mesh.data.materials),
         'vertex_morphs': [m.name for m in root.mmd_root.vertex_morphs],
+        'morph_panels': {m.name: PANEL_NUM.get(m.category, 4) for m in root.mmd_root.vertex_morphs},
         'mesh_vertices': len(mesh.data.vertices),
         'mesh_faces': len(mesh.data.polygons),
         'rigid_bodies': n_rb,

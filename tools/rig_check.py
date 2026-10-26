@@ -38,8 +38,8 @@ MAX_PEN = 0.02        # deepest new penetration of clothes / hair into the body 
 PEN_DEPTH = 0.005     # vertices deeper than this are counted in the report
 PEN_SEARCH = 0.2      # find_nearest radius; farther points are treated as outside
 PEN_BODY = ('body', '_proxy')                 # the closed skin the others must stay out of
-PEN_SKIP = ('head',)
-WINDING_CHUNK = 2e5     # points x triangles per winding-number batch                          # the head's neck sits inside the body's neck on purpose
+PEN_SKIP = ('head',)    # the head's neck sits inside the body's neck on purpose
+WINDING_CHUNK = 2e5     # points x triangles per winding-number batch
 
 CORE_PARENTS = {
     '全ての親': None, 'センター': '全ての親', 'グルーブ': 'センター', '腰': 'グルーブ',
@@ -238,6 +238,72 @@ def knee_bends(arm):
 
 
 
+GAZE = ((10, 0), (-10, 0), (0, 8), (0, -8), (10, 8), (-10, -8))   # 両目 yaw (her left +) / pitch (up +), deg
+# (rig.EYE_LIMIT clamps 目 there in Blender; a VMD gaze beyond it is the animator's call)
+MAX_EYE_POKE = 0.0015    # m: an eye may come at most this much further out of the face / lids
+
+
+def _poke(bvh, co, piv):
+    """How far each point lies outside the surface in `bvh`, seen from the eyeball centre
+    `piv`: the length of the ray piv -> point beyond its first hit (0 when the ray goes
+    through the eye opening)."""
+    out = np.zeros(len(co))
+    pv = Vector(piv)
+    for i, p in enumerate(co):
+        d = Vector(p) - pv
+        ln = d.length
+        if ln < 1e-6:
+            continue
+        hit = bvh.ray_cast(pv, d / ln, ln)
+        if hit[0] is not None:
+            out[i] = ln - hit[3]
+    return out
+
+
+def check_eyes(arm, errors):
+    """Eyes turned by 両目 (目 appends it fully) in GAZE directions stay behind the face:
+    seen from its eyeball centre, no eye vertex comes out through the face skin more than
+    MAX_EYE_POKE further than at rest (through the eye opening is fine)."""
+    from mathutils.bvhtree import BVHTree
+    eyes = [o for o in skinned_meshes(arm) if any(g.name.split('.')[0] == '目' for g in o.vertex_groups)]
+    if not eyes or '両目' not in arm.pose.bones:
+        print('eyes: no eye geometry on 目')
+        return
+    cover = [o for o in skinned_meshes(arm) if o.users_collection[0].name == 'head' and o not in eyes
+             and ('face' in o.name.lower() or 'lid' in o.name.lower())]
+    rig_pose.reset_pose(arm)
+    dg = bpy.context.evaluated_depsgraph_get()
+    verts, polys = [], []
+    for o in cover:
+        me = o.evaluated_get(dg).to_mesh()
+        base = len(verts)
+        verts += [o.matrix_world @ v.co for v in me.vertices]
+        polys += [[base + i for i in p.vertices] for p in me.polygons]
+        o.evaluated_get(dg).to_mesh_clear()
+    if not polys:
+        return
+    bvh = BVHTree.FromPolygons(verts, polys)    # the head does not move: rest surface is enough
+    def pivot(o):
+        g = max(o.vertex_groups, key=lambda g: g.name.split('.')[0] == '目')
+        return arm.matrix_world @ arm.data.bones[g.name].head_local
+    piv = {o.name: pivot(o) for o in eyes}
+    rest = {o.name: _poke(bvh, _eval_verts(o), piv[o.name]) for o in eyes}
+    worst = (0.0, '')
+    for yaw, pitch in GAZE:
+        rig_pose.reset_pose(arm)
+        rig_pose.turn(arm, '両目', (0, 0, 1), yaw)
+        rig_pose.turn(arm, '両目', (1, 0, 0), pitch)
+        bpy.context.view_layer.update()
+        for o in eyes:
+            d = _poke(bvh, _eval_verts(o), piv[o.name]) - rest[o.name]
+            if len(d) and d.max() > worst[0]:
+                worst = (float(d.max()), f'{o.name} gaze {yaw:+d}/{pitch:+d}')
+    rig_pose.reset_pose(arm)
+    print(f'eyes: {len(eyes)} objects on 目, worst poke through the face {worst[0] * 1000:.2f} mm {worst[1]}')
+    if worst[0] > MAX_EYE_POKE:
+        errors.append(f'eyes poke through the face by {worst[0] * 1000:.1f} mm ({worst[1]})')
+
+
 def check_mmd_names(arm, errors):
     """The PMX names motions bind to (VMD keys are matched by Japanese bone name)."""
     jp = {pb.get('mmd_name_j') for pb in arm.pose.bones}
@@ -364,6 +430,7 @@ def main():
     check_mmd_names(arm, errors)
     check_ik(arm, errors)
     check_weights(arm, errors)
+    check_eyes(arm, errors)
     # the throwaway fixtures (tubes, no hands) only make sense for the round-1 test pose
     fixtures = args.fixtures or not (args.parts or builder.available_parts())
     default = ["test"] if fixtures else list(rig_pose.POSES)

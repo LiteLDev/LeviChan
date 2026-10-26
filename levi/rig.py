@@ -181,6 +181,46 @@ TWIST_AT = 0.6        # twist bones start this far down their limb segment (semi
 TWIST_RAMP = (0.1, 0.95)   # ... and take over that segment's weight between these fractions
 
 
+EYE_PIVOT_PROP = 'levi_eye_pivot'   # head objects that are eyes carry their eyeball centre (world, m)
+EYE_LIMIT = (10.0, 8.0)   # deg: most the eyes turn (yaw, pitch) in Blender; the head's clean gaze range
+
+
+def eye_objects(head_objs):
+    """Head objects that are the eyes themselves (rotate with 目.L / 目.R): those carrying
+    obj['levi_eye_pivot'], else ones named *eye* that are not brows, lashes, lids or whites."""
+    out = [o for o in head_objs if o.get(EYE_PIVOT_PROP) is not None]
+    if out:
+        return out
+    return [o for o in head_objs if 'eye' in o.name.lower()
+            and not any(k in o.name.lower() for k in ('brow', 'lash', 'lid', 'white'))]
+
+
+def eye_pivots(head_objs):
+    """{'L': Vector, 'R': Vector} eyeball centres: obj['levi_eye_pivot'] (world; one per
+    object, its side by x), else the least-squares sphere centre of each side's eye
+    vertices. A side with nothing mirrors the other."""
+    piv = {}
+    for o in eye_objects(head_objs):
+        p = o.get(EYE_PIVOT_PROP)
+        if p is not None and len(p) == 3:
+            v = Vector(tuple(p))
+            piv.setdefault('L' if v.x >= 0 else 'R', v)
+    if len(piv) < 2:
+        pts = _world_verts(eye_objects(head_objs))
+        for t, s in (('L', 1.0), ('R', -1.0)):
+            side = pts[pts[:, 0] * s > 0.005] if len(pts) else pts
+            if t in piv or len(side) < 12:
+                continue
+            A = np.c_[2 * side, np.ones(len(side))]
+            c = np.linalg.lstsq(A, (side ** 2).sum(1), rcond=None)[0][:3]
+            if np.linalg.norm(c - side.mean(0)) < 0.03:   # a real sphere-ish cap, not a flat decal
+                piv[t] = Vector(c)
+    for a, b in (('L', 'R'), ('R', 'L')):
+        if a not in piv and b in piv:
+            piv[a] = Vector((-piv[b].x, piv[b].y, piv[b].z))
+    return piv
+
+
 def fit_head(head_objs):
     """Head centre depth and the left eye position from the head part's mesh.
 
@@ -194,6 +234,12 @@ def fit_head(head_objs):
     if len(skull) < 8:
         return out
     out['head_y'] = float(skull[:, 1].min() + skull[:, 1].max()) / 2
+    piv = eye_pivots(head_objs)
+    if piv:
+        out['eye'] = piv['L']
+        out['eye_R'] = piv['R']
+        out['eye_src'] = 'pivot'
+        return out
     ex, ez = L['eye_x'], L['eye_z']
     near = skull[(np.abs(np.abs(skull[:, 0]) - ex) < 0.01) & (np.abs(skull[:, 2] - ez) < 0.01)]
     if len(near):
@@ -294,20 +340,22 @@ SHOULDER_AUX = False
 # share of 腕's rotation the clavicle (肩補助) takes: a raised arm lifts the shoulder
 SHOULDER_SHRUG = 0.15
 # share of 腕's rotation the sleeve drapes turn back (袖追従): gravity-ish when the arm rises
-SLEEVE_COUNTER = 0.4
+SLEEVE_COUNTER = 0.75   # round 4: 0.4 left the raised bags standing above the shoulders
 DRAPE_SEGMENTS = 2    # bones per sleeve drape chain
 # 肩補助 carries this share of 肩's skin, by position along 肩 (inner end .. joint)
 SHRUG_SPAN = (0.1, 0.8)
 # per helper name: (blend start before the joint, blend end after it) overriding the part's band
-JOINT_BAND_BY_AUX = {'腕補助': (0.04, 0.06)}
+JOINT_BAND_BY_AUX = {'腕補助': (0.04, 0.06), 'ひざ補助': (0.075, 0.075)}   # knee: 6 cm left the walk knee angular, 9 cm folded the squat
 # per joint (first helper's name): the helpers as (share of the lower bone's rotation,
 # position along the lower bone where the skin turns with that helper alone). The band
 # turns smoothly from the upper bone (at -before) through each helper to the lower bone
 # (at +after). The knee gets two helpers: a deep squat bends it ~120 deg, and one helper
 # leaves 50-70 deg between neighbours, which linear skinning collapses into a notch.
-JOINT_AUX_CHAIN = {'腕補助': ((0.35, 0.0),), 'ひざ補助': ((0.35, -0.015), (0.7, 0.015))}
+JOINT_AUX_CHAIN = {'腕補助': ((0.35, 0.0),), 'ひざ補助': ((0.33, -0.025), (0.67, 0.025))}
 # per helper: (full, none) lateral distance (m) from the lower bone's axis within which the
 # split applies. The shoulder's upper bone 肩 also weights torso skin, which stays put.
+# per helper: (band scale at the front, at the back, the front direction)
+JOINT_FRONT_BACK = {'ひざ補助': (1.4, 0.85, (0.0, -1.0, 0.0))}
 JOINT_REACH_BY_AUX = {'腕補助': (0.05, 0.08)}
 
 
@@ -383,8 +431,11 @@ def _core_bones(J=None, H=None, F=None):
         sfx = '.' + tag
         en_sfx = '_' + tag
         sj, el, wr = J['shoulder_joint'], J['elbow'], wrist
-        add(Bone('目' + sfx, jp_side + '目', 'Eye' + en_sfx, _mx(eye, s),
-                 _mx(eye - Vector((0, 0.03, 0)), s), '頭', r=0.02, r_end=0.015, group='Body'))
+        # 目 turns about the eyeball centre and appends 両目 fully (MMD standard: a gaze
+        # keyed on 両目 turns both eyes)
+        e = H['eye_R'] if tag == 'R' and 'eye_R' in H else _mx(eye, s)
+        add(Bone('目' + sfx, jp_side + '目', 'Eye' + en_sfx, e, e - Vector((0, 0.03, 0)), '頭',
+                 r=0.02, r_end=0.015, group='Body', meta={'follow': ('両目', 1.0)}))
         add(Bone('肩' + sfx, jp_side + '肩', 'Shoulder' + en_sfx, _mx((L['neck_half_w'] * 1.1, sj.y, L['shoulder_z']), s),
                  _mx(sj, s), '上半身2', r=0.045, r_end=0.03, group='Arms'))
         arm = '腕' + sfx              # the bone the arm's skin and children hang from
@@ -546,6 +597,7 @@ HAIR_ROOT = '髪追従'
 HAIR_SECTORS = 10     # back-hair chains around the skull
 HAIR_RING = True      # weight the back hair by angle between neighbouring chains (like the skirt)
 HAIR_LOCK_CHAINS = True   # long back-hair locks get their own chains (_hair_locks)
+HAIR_GRAVITY = 0.5    # Blender only: share of the torso's sideways bend the hanging hair turns back
 HAIR_FOLLOW = 0.15    # share of the head's rotation the back-hair chains take (the scalp takes all of it)
 # back hair is weighted to 頭 fully above the eyes, fading to the chains by just under
 # the choker: below that it hangs at the shoulders, which a head turn must not sweep it
@@ -563,9 +615,16 @@ SKIRT_SEG_FOLLOW = (0.65, 0.1)
 SKIRT_LEG_SHARPNESS = 1.0   # 1 = the even split (1 + sin a) / 2; 1.5-2 sheared the petticoat (x2.0-2.4 in walk)
 SKIRT_SECTORS = 16          # skirt chains around the body
 SKIRT_SEGMENTS = 3          # bones per skirt chain
-SKIRT_PUSH_JOINTS = (1,)    # the chain joints that take the push below (each the full gain)
-SKIRT_PUSH = (15.0, 0.8)    # (thigh swing in deg before it pushes, share of the swing past that)
-SKIRT_PUSH_MAX = 20.0       # deg: most extra turn the push adds (bounds very deep hip bends)
+# Skirt drape (Blender): each chain joint turns forward / back only as far as the cloth must
+# to clear the thighs, and hangs back toward its rest direction otherwise (_skirt_drape).
+SKIRT_DRAPE = True
+DRAPE_PHI = tuple(range(-60, 121, 10))   # deg of thigh pitch (forward +) the drape table samples
+DRAPE_CLEAR = 0.012         # m kept between the innermost cloth layer and the thigh surface
+DRAPE_BEND = 30.0           # deg: most a joint bends against the segment above it
+DRAPE_UP = 10.0             # deg a segment may lift above the one over it
+DRAPE_SPREAD = 100.0        # deg around the body over which a lifted chain lifts its neighbours
+DRAPE_SPREAD_POW = 2.0      # ... falling off as 1 - (angle / spread) ** this (flat next to the lifted chain)
+DRAPE_SHARE_AT = 60.0       # deg of thigh pitch at which the PMX's linear 回転付与 share is read
 
 
 def skirt_follow(angle, s):
@@ -579,6 +638,129 @@ def skirt_follow(angle, s):
     # instead of a broad panel; at the centre front and back both legs still share equally
     own, other = ((0.5 * (1.0 + k * math.sin(a))) ** SKIRT_LEG_SHARPNESS for k in (s, -s))
     return total * own / max(own + other, 1e-9)
+
+
+def _thigh_profile(body, hip, knee, s):
+    """(t, radius) samples of one thigh (side s) along hip -> knee from the body mesh:
+    the 90th percentile distance of the body's vertices from the axis, per slab."""
+    ax = knee - hip
+    ln = float(np.linalg.norm(ax))
+    ax = ax / ln
+    ts = np.linspace(0.0, 1.0, 11)
+    rs = np.full(len(ts), 0.065)
+    if len(body):
+        side = body[body[:, 0] * s > 0.005]
+        rel = side - hip
+        t = rel @ ax / ln
+        lat = np.linalg.norm(rel - np.outer(rel @ ax, ax), axis=1)
+        for i, tk in enumerate(ts):
+            sel = lat[(np.abs(t - tk) < 0.05) & (lat < 0.12)]
+            if len(sel) >= 8:
+                rs[i] = float(np.percentile(sel, 90))
+    return ts, rs
+
+
+def _rot_x(p, c, a):
+    """Points p turned about the world X axis through c by `a` rad, forward-positive
+    (a vector hanging down swings toward -Y, the way she faces)."""
+    ca, sa = math.cos(a), math.sin(a)
+    q = p - c
+    return np.stack([q[..., 0], q[..., 1] * ca + q[..., 2] * sa, -q[..., 1] * sa + q[..., 2] * ca], -1) + c
+
+
+def _thigh_depth(q, hip, knee, prof):
+    """How far points q lie inside the thigh capsule hip -> knee widened by DRAPE_CLEAR
+    (<= 0 outside); the hip end (t < 0.12, the pelvis) does not count."""
+    ax = knee - hip
+    ln2 = float(ax @ ax)
+    t = ((q - hip) @ ax) / ln2
+    tc = np.clip(t, 0.0, 1.0)
+    d = np.linalg.norm(q - (hip + tc[..., None] * ax), axis=-1)
+    r = np.interp(tc, prof[0], prof[1]) + DRAPE_CLEAR
+    return np.where((t > 0.12) & (t < 1.08), r - d, -1.0)
+
+
+def _skirt_drape(chains, pts, cy, hip, knee, body):
+    """Drape table of the skirt chains: {chain k: {'L'|'R': (nseg, len(DRAPE_PHI)) absolute
+    forward turn (rad) of each segment}} for that thigh pitched alone by each DRAPE_PHI.
+
+    Each segment, root first, takes the smallest turn (from its rest direction, so it
+    hangs, within DRAPE_BEND of the segment above) that keeps the cloth of its sector
+    (skirt and petticoat, the innermost layer counts) DRAPE_CLEAR off the swung thigh.
+    Chains then lift their neighbours by a share falling off over DRAPE_SPREAD, as the
+    cloth between them is pulled along. Cloth already inside the thigh at rest is ignored."""
+    ang = np.degrees(np.arctan2(pts[:, 0], pts[:, 1] - cy))
+    step = 360.0 / SKIRT_SECTORS
+    grid = np.radians(np.arange(-150.0, 150.1, 2.5))
+    phis = np.radians(np.array(DRAPE_PHI, dtype=float))
+    out = {}
+    sides = {}
+    for tag, s in (('L', 1.0), ('R', -1.0)):
+        h, kn = hip * np.array([s, 1, 1]), knee * np.array([s, 1, 1])
+        sides[tag] = (h, kn, _thigh_profile(body, h, kn, s))
+    raw = {tag: {} for tag in sides}
+    for k, (a, joints) in enumerate(chains):
+        J = np.array([tuple(j) for j in joints])
+        n = len(J) - 1
+        d = (ang - a + 180.0) % 360.0 - 180.0
+        sel = pts[np.abs(d) < 0.6 * step]
+        if len(sel) > 900:
+            sel = sel[np.linspace(0, len(sel) - 1, 900).astype(int)]
+        zj = J[:, 2]
+        u = np.interp(-sel[:, 2], np.maximum.accumulate(-zj), np.arange(n + 1.0))
+        keep = u > 0.35
+        sel, u = sel[keep], u[keep]
+        seg = np.clip(np.floor(u), 0, n - 1).astype(int)
+        for tag, (h, kn, prof) in sides.items():
+            rest_in = _thigh_depth(sel, h, kn, prof) > 0.0
+            tab = np.zeros((n, len(phis)))
+            for pi, phi in enumerate(phis):
+                knee_p = _rot_x(kn, h, phi)
+                A = []
+                q = sel.copy()
+                Jc = J.copy()
+                for j in range(n):
+                    prev = A[-1] if A else 0.0
+                    m = (seg == j) & ~rest_in
+                    cand = grid[np.abs(grid - prev) <= math.radians(DRAPE_BEND)]
+                    if not m.any():
+                        best = min(cand, key=lambda g: (abs(g), g))
+                    else:
+                        P = q[m]
+                        dep = np.stack([_thigh_depth(_rot_x(P, Jc[j], g - prev), h, knee_p, prof).max()
+                                        for g in cand])
+                        clear = dep <= 0.0
+                        if clear.any():
+                            c = cand[clear]
+                            best = c[np.argmin(np.abs(c) + 1e-6 * c)]
+                        else:
+                            best = cand[np.argmin(dep)]
+                    A.append(float(best))
+                    turn = best - prev
+                    below = seg >= j
+                    q[below] = _rot_x(q[below], Jc[j], turn)
+                    Jc[j + 1:] = _rot_x(Jc[j + 1:], Jc[j], turn)
+                # no zigzag: a segment that must lift more than the one above it lifts that
+                # one too (within DRAPE_UP), so the cloth curves over the thigh in one
+                # direction (blended skinning cuts a zigzag's corners into the leg)
+                up = math.radians(DRAPE_UP)
+                for j in range(n - 2, -1, -1):
+                    if A[j + 1] > 0:
+                        A[j] = max(A[j], A[j + 1] - up)
+                    elif A[j + 1] < 0:
+                        A[j] = min(A[j], A[j + 1] + up)
+                tab[:, pi] = A
+            raw[tag][k] = tab
+    angles = np.array([a for a, _ in chains])
+    for tag in sides:
+        for k in range(len(chains)):
+            dk = np.abs((angles - angles[k] + 180.0) % 360.0 - 180.0)
+            f = np.clip(1.0 - (dk / DRAPE_SPREAD) ** DRAPE_SPREAD_POW, 0.0, 1.0)
+            f[dk < 1e-6] = 1.0
+            stack = np.stack([raw[tag][m] * f[m] for m in range(len(chains))])
+            mx, mn = stack.max(0), stack.min(0)
+            out.setdefault(k, {})[tag] = np.maximum(mx, 0.0) + np.minimum(mn, 0.0)
+    return out
 
 
 HAIR_LOCK_LEN = 0.2    # a back-hair loose part at least this long (m) ...
@@ -630,6 +812,8 @@ def _secondary_bones(parts, core):
         if not any(b.name == HAIR_ROOT for b in bones):
             h = byname['頭'].head
             meta = {'follow': ('頭', HAIR_FOLLOW)} if HAIR_FOLLOW > 1e-4 else {}
+            if HAIR_GRAVITY > 1e-4:
+                meta['gravity'] = [(n, HAIR_GRAVITY) for n in ('上半身', '上半身2') if n in byname]
             bones.append(Bone(HAIR_ROOT, HAIR_ROOT, 'HairRoot', h, h + Vector((0, 0, 0.03)), '首',
                               deform=False, group='HairFollow', meta=meta))
         return HAIR_ROOT
@@ -683,6 +867,10 @@ def _secondary_bones(parts, core):
     if len(pts):
         cy = float(pts[:, 1].mean())
         chains = _sector_chains(pts, (0.0, cy), L['hip_z'], SKIRT_SECTORS, SKIRT_SEGMENTS, 0.08)
+        drape = {}
+        if SKIRT_DRAPE and chains:
+            th = byname['足.L']
+            drape = _skirt_drape(chains, pts, cy, np.array(th.head), np.array(th.tail), verts('body'))
         for k, (ang, joints) in enumerate(chains):
             hem_r = max(0.03, math.hypot(joints[-1].x, joints[-1].y - cy) * math.pi / SKIRT_SECTORS)
             # the chain hangs from two follow bones that add a share of each thigh's
@@ -696,15 +884,28 @@ def _secondary_bones(parts, core):
             parent = '下半身'
             for i, seg in enumerate(chain):
                 frac = SKIRT_SEG_FOLLOW[i] if i < len(SKIRT_SEG_FOLLOW) else 0.0
-                push = i in SKIRT_PUSH_JOINTS and SKIRT_PUSH[1] > 1e-4
-                if frac > 1e-4 or push:
+                if frac > 1e-4 or k in drape:
                     head = seg.head
                     for tag, s, jp_side in SIDES[::-1]:
                         name = f'スカート{k}追従{jp_side}' + (f'{i}' if i else '')
+                        share = skirt_follow(ang, s) * frac
+                        meta = {'follow': (f'足.{tag}', share)}
+                        if k in drape:
+                            # the PMX gets the drape's linear part at DRAPE_SHARE_AT (physics does the
+                            # rest there); Blender turns the bone by the drape table itself
+                            tab = drape[k][tag]
+                            xs = np.array(DRAPE_PHI, dtype=float)
+                            a = math.radians(DRAPE_SHARE_AT)
+                            turn = lambda r: float(np.interp(DRAPE_SHARE_AT, xs, r))  # noqa: E731
+                            lin = (turn(tab[i]) - (turn(tab[i - 1]) if i else 0.0)) / a
+                            meta = {'follow': (f'足.{tag}', round(lin, 4)),
+                                    'drape': {'i': i, 'L': drape[k]['L'], 'R': drape[k]['R'], 'own': tag,
+                                              'above': f'スカート{k}追従左' + (f'{i - 1}' if i > 1 else '')}}
+                        # a drape bone points along -X: its local Y is the forward-pitch axis, which
+                        # the axis-angle rotation keeps even when a pose reset zeroes it
+                        tail = head + (Vector((-0.03, 0, 0)) if k in drape else Vector((0, 0, 0.03)))
                         bones.append(Bone(name, name, f'Skirt{k}Follow{tag}' + (f'{i}' if i else ''), head,
-                                          head + Vector((0, 0, 0.03)), parent, deform=False, group='SkirtFollow',
-                                          meta={'follow': (f'足.{tag}', skirt_follow(ang, s) * frac),
-                                                **({'push': skirt_follow(ang, s)} if push else {})}))
+                                          tail, parent, deform=False, group='SkirtFollow', meta=meta))
                         parent = name
                 seg.parent = parent
                 bones.append(seg)
@@ -778,17 +979,21 @@ def _candidates(part, obj, bones):
         return ['頭'] + [b.name for b in side if b.deform]
     if part == 'head':
         low = obj.name.lower()
-        if 'lid' in low and 'eye' not in low:
-            return ['頭']           # eyelid sheets (blink morph) ride the head rigidly
-        if 'eye' in low and not any(k in low for k in ('brow', 'lash', 'lid', 'white')):
+        if obj in eye_objects(_HEAD_OBJS or [obj]):
+            p = obj.get(EYE_PIVOT_PROP)
+            if p is not None and len(p) == 3:
+                return ['目.L' if p[0] >= 0 else '目.R']   # one eye: rigid on its own bone
             return ['目.L', '目.R']
+        if 'eye' in low:
+            return ['頭']           # eye whites and other eye pieces that do not turn: rigid on the head
         return ['頭', '首', '上半身2']
     if part in ('skirt', 'petticoat'):
         return ['上半身', '下半身'] + grp('Skirt')
     if part == 'sleeves':      # detached sleeves: arm only, never the torso
         return _names(bones, lambda b: base(b) in ('肩', '肩補助', '腕補助', '腕', '腕D', '腕捩', 'ひじ補助', 'ひじ', '手捩', '手首')) + grp('Sleeve')
-    if part == 'bodice':       # a strapless corset: torso only; anything hanging below the hip rides the skirt
-        return ['上半身', '上半身2', '首', '下半身'] + grp('Skirt')
+    if part == 'bodice':       # a corset: the torso skin's weights (_skin_sample), the shoulder bones only where
+        # the skin under the top rim has them (the armpit); anything hanging below the hip rides the skirt
+        return ['上半身', '上半身2', '首', '下半身'] + _names(bones, lambda b: base(b) in SKIN_FOLLOW_ARM) + grp('Skirt')
     if part == 'shoes':
         return _names(bones, lambda b: base(b) in ('ひざ', '足首'))
     if part == 'accessories':
@@ -884,13 +1089,85 @@ def _skirt_weights(co, bones, group='Skirt', body_names=('上半身', '下半身
             W[:, j] += ac * share * np.maximum(0.0, 1.0 - np.abs(uc - (i + 0.5)))
         rest += ac * (1.0 - share)
     bi = [col[n] for n in body]
-    W[:, bi] += _envelope(co, [bones[i] for i in bi]) * rest[:, None]
+    sub = [bones[i] for i in bi]
+    env = _envelope(co, sub)
+    if group == 'Skirt':
+        env = _skin_sample(co, [b.name for b in sub], env)
+    W[:, bi] += env * rest[:, None]
     return W
+
+
+# Garments over the torso take the weights of the body skin under them, so skin and cloth
+# move together (the skirt's waist in a side bend, the bodice rim at the armpit)
+SKIN_FOLLOW = True
+SKIN_FOLLOW_ARM = ('肩', '肩補助', '腕D')   # shoulder bones the bodice may take from the skin
+BODICE_ARM_CAP = 0.12      # most of a bodice vertex the arm (腕D) may carry
+SKIN_K = 8                 # nearest skin vertices averaged (inverse distance) ...
+SKIN_SOFT = 0.005          # ... softened by this many m, so the sample varies smoothly
+_SKIN = None               # (points (N, 3), {bone: column}, weights (N, B)) of the skinned body (build_rig)
+
+
+SKIN_REACH = (0.025, 0.07)  # m from the skin: garment weights hand over from the skin's to their own
+
+
+def _skin_sample(co, names, base):
+    """`base` (V, len(names)) blended toward the weights of the body skin nearest each
+    point (SKIN_K nearest vertices, inverse-distance, among the skin vertices that are
+    mostly `names`), fully within SKIN_REACH[0] of the skin, not at all beyond
+    SKIN_REACH[1], so cloth on the body moves with it and loose cloth keeps `base`.
+    Returns `base` unchanged without a skinned body."""
+    if not SKIN_FOLLOW or _SKIN is None:
+        return base
+    pts, col, W = _SKIN
+    cols = [col.get(n) for n in names]
+    if all(c is None for c in cols):
+        return base
+    sub = np.stack([W[:, c] if c is not None else np.zeros(len(W)) for c in cols], 1)
+    keep = sub.sum(1) > 0.5
+    if keep.sum() < SKIN_K:
+        return base
+    from mathutils.kdtree import KDTree
+    pts, sub = pts[keep], sub[keep] / sub[keep].sum(1, keepdims=True)
+    tree = KDTree(len(pts))
+    for i, p in enumerate(pts):
+        tree.insert(p, i)
+    tree.balance()
+    nn = np.zeros((len(co), SKIN_K), dtype=np.int64)
+    dd = np.full((len(co), SKIN_K), 1e3)
+    for v, q in enumerate(co):
+        for k, (_, i, dist) in enumerate(tree.find_n(q, SKIN_K)):
+            nn[v, k], dd[v, k] = i, dist
+    wt = 1.0 / (dd + SKIN_SOFT)
+    sk = np.einsum('vk,vkb->vb', wt, sub[nn]) / wt.sum(1, keepdims=True)
+    f = (1.0 - _smoothstep(SKIN_REACH[0], SKIN_REACH[1], dd.min(1)))[:, None]
+    return base * (1.0 - f) + sk * f
+
+
+def _store_skin(objs):
+    """Remember the skinned body's vertices and weights for _skin_sample."""
+    global _SKIN
+    pts, rows, names = [], [], {}
+    for o in objs:
+        co = _world_verts([o])
+        if not len(co):
+            continue
+        gn = {g.index: g.name for g in o.vertex_groups}
+        for v in o.data.vertices:
+            rows.append([(names.setdefault(gn[g.group], len(names)), g.weight) for g in v.groups if g.group in gn])
+        pts.append(co)
+    if not pts:
+        _SKIN = None
+        return
+    W = np.zeros((sum(len(p) for p in pts), len(names)))
+    for i, r in enumerate(rows):
+        for c, wv in r:
+            W[i, c] = wv
+    _SKIN = (np.concatenate(pts), names, W)
 
 
 # ---- per-object helpers: topology, sides, smoothing, pruning
 SMOOTH_RADIUS = {     # metres of weight smoothing along the surface, per part
-    'body': 0.008, 'head': 0.01, 'shoes': 0.012, 'accessories': 0.012, 'bodice': 0.02,
+    'body': 0.008, 'head': 0.01, 'shoes': 0.012, 'accessories': 0.012, 'bodice': 0.035,
     'hair_front': 0.025, 'hair_back': 0.03, 'sleeves': 0.065, 'skirt': 0.03, 'petticoat': 0.04,
 }
 DEFAULT_SMOOTH = 0.012
@@ -915,18 +1192,23 @@ def _topology(obj, co):
 
 
 def _islands(n, edges):
-    parent = np.arange(n)
-
-    def find(a):
-        while parent[a] != a:
-            parent[a] = parent[parent[a]]
-            a = parent[a]
-        return a
-    for a, b in edges.tolist():
-        ra, rb = find(a), find(b)
-        if ra != rb:
-            parent[max(ra, rb)] = min(ra, rb)
-    return np.array([find(i) for i in range(n)])
+    """Loose-part label of every vertex: the smallest vertex index in its part.
+    Vectorized union-find (hook roots onto the smaller root, then pointer jumping)."""
+    lab = np.arange(n)
+    if not len(edges):
+        return lab
+    a, b = edges[:, 0], edges[:, 1]
+    while True:
+        la, lb = lab[a], lab[b]
+        diff = la != lb
+        if not diff.any():
+            return lab
+        np.minimum.at(lab, np.maximum(la, lb)[diff], np.minimum(la, lb)[diff])
+        while True:
+            nl = lab[lab]
+            if (nl == lab).all():
+                break
+            lab = nl
 
 
 def _side_mask(co, labels, bones, per_vertex):
@@ -954,12 +1236,100 @@ def _smooth(w, co, edges, radius):
     a thin ribbon don't carry weights much farther than `radius`."""
     if radius <= 0 or not len(edges):
         return w
+    # only the bones this mesh uses: the rest stay zero under any averaging
+    act = np.nonzero(np.abs(w).max(0) > 0.0)[0]
+    if not len(act):
+        return w
+    out = w.copy()
+    out[:, act] = _smooth_ml(w[:, act], co, edges, radius, 0)
+    return out
+
+
+def _edge_ref(co, edges):
     ln = np.linalg.norm(co[edges[:, 0]] - co[edges[:, 1]], axis=1)
     pos = ln[ln > 1e-6]
-    if not len(pos):
+    return ln, (float(np.median(pos)) if len(pos) else 0.0)
+
+
+def _match(co, edges, ln):
+    """Cluster labels pairing each vertex with a neighbour (handshake matching on the
+    shortest edges, a few rounds), so the coarse graph keeps the mesh's connectivity:
+    clusters never join surfaces that only lie close in space. Deterministic."""
+    n = len(co)
+    lab = -np.ones(n, dtype=np.int64)
+    src = np.concatenate([edges[:, 0], edges[:, 1]])
+    dst = np.concatenate([edges[:, 1], edges[:, 0]])
+    d = np.concatenate([ln, ln])
+    keep = src != dst
+    src, dst, d = src[keep], dst[keep], d[keep]
+    nxt = 0
+    for _ in range(3):
+        free = (lab[src] < 0) & (lab[dst] < 0)
+        s, t, dd = src[free], dst[free], d[free]
+        if not len(s):
+            break
+        order = np.lexsort((t, dd, s))          # per source: shortest edge first, then index
+        s, t = s[order], t[order]
+        first = np.ones(len(s), dtype=bool)
+        first[1:] = s[1:] != s[:-1]
+        choice = -np.ones(n, dtype=np.int64)
+        choice[s[first]] = t[first]
+        v = np.nonzero(choice >= 0)[0]
+        mutual = v[(choice[choice[v]] == v) & (v < choice[v])]
+        if not len(mutual):
+            break
+        ids = nxt + np.arange(len(mutual))
+        lab[mutual] = ids
+        lab[choice[mutual]] = ids
+        nxt += len(mutual)
+    single = np.nonzero(lab < 0)[0]
+    lab[single] = nxt + np.arange(len(single))
+    return lab, nxt + len(single)
+
+
+SMOOTH_DIRECT = 64   # iterations above which smoothing runs on a coarsened mesh first
+
+
+def _smooth_ml(w, co, edges, radius, depth):
+    """Smoothing about `radius` metres whatever the mesh density. Within SMOOTH_DIRECT
+    iterations of the plain diffusion (_diffuse) it runs directly; otherwise neighbouring
+    vertices are paired (_match), the cluster averages are smoothed on the coarse graph
+    (recursively), the coarse change is added back to every vertex of its cluster, and a
+    short diffusion on the fine mesh (about one coarse edge) evens out the cluster steps.
+    Diffusion radii add in squares, so the two passes together give `radius`. Cost stays
+    about linear in the vertex count."""
+    ln, ref = _edge_ref(co, edges)
+    if ref <= 0.0:
         return w
-    ref = float(np.median(pos))
-    iters = int(min(MAX_SMOOTH_ITERS, round(2.0 * (radius / ref) ** 2)))
+    iters = int(round(2.0 * (radius / ref) ** 2))
+    if iters <= SMOOTH_DIRECT or len(co) < 64 or depth >= 12:
+        return _diffuse(w, co, edges, ln, ref, min(iters, MAX_SMOOTH_ITERS))
+    lab, nc = _match(co, edges, ln)
+    if nc > 0.85 * len(co):       # nothing to pair (a soup of separate edges): plain diffusion
+        return _diffuse(w, co, edges, ln, ref, min(iters, MAX_SMOOTH_ITERS))
+    cnt = np.bincount(lab, minlength=nc).astype(float)[:, None]
+    cco = np.zeros((nc, 3))
+    np.add.at(cco, lab, co)
+    cco /= cnt
+    cw = np.zeros((nc, w.shape[1]))
+    np.add.at(cw, lab, w)
+    cw /= cnt
+    ce = np.stack([lab[edges[:, 0]], lab[edges[:, 1]]], 1)
+    ce = ce[ce[:, 0] != ce[:, 1]]
+    ce = np.unique(np.sort(ce, 1), axis=0) if len(ce) else ce
+    _, cref = _edge_ref(cco, ce) if len(ce) else (None, 0.0)
+    post = min(radius * 0.7, 1.5 * max(cref, ref))      # fine-level pass: about one coarse edge
+    rc = math.sqrt(max(radius ** 2 - post ** 2, 0.0))
+    if len(ce):
+        cw = _smooth_ml(cw, cco, ce, rc, depth + 1) - cw
+    else:
+        cw = np.zeros_like(cw)
+    w = w + cw[lab]
+    return _diffuse(w, co, edges, ln, ref, int(round(2.0 * (post / ref) ** 2)))
+
+
+def _diffuse(w, co, edges, ln, ref, iters):
+    """`iters` Laplacian steps of the weight rows along the mesh edges."""
     if iters <= 0:
         return w
     c = np.minimum(1.0, (ref / np.maximum(ln, 1e-9)) ** 2)
@@ -977,7 +1347,157 @@ def _smooth(w, co, edges, radius):
     return w
 
 
-def _prune(w):
+PRUNE_FOLD = 2.0      # a bone keeps all its weight from this many times the 5th-largest weight up
+PRUNE_SMOOTH = 0.03    # m: smoothing of the copy that picks the kept bones (_prune's guide)
+PRUNE_MOTION = True   # refit pruned vertices to their unpruned motion (_motion_refit)
+FOLD_TARGET_MIN = 0.05   # a helper folds into a bone it blends between in full once that keeps this much
+
+
+_PARENTS = {}         # bone name -> parent name, the whole rig (set by build_rig)
+FOLD_CHAIN_GROUPS = ('Skirt', 'Hair', 'Sleeve')   # chain bones fold into the kept bones in proportion
+
+
+def _fold_targets(bones):
+    """Per column: [(column, fraction)], the bones a pruned weight folds into, first
+    choice first, so the skin keeps moving almost as before. A joint helper splits into
+    the upper and lower bone by its share of the bend (ひじ補助 50/50 between 腕捩 and ひじ);
+    a twist bone goes to the bone it twists with, the shrug to 肩. Then, for limb and torso
+    bones, the nearest relatives: the parent chain upward, then the children. Secondary
+    chains (skirt, hair, sleeve drapes) have none: neighbouring chains move alike, so
+    their weight is spread over the kept bones in proportion."""
+    col = {b.name: j for j, b in enumerate(bones)}
+    kids = {}
+    for b in bones:
+        p = _PARENTS.get(b.name, b.parent)
+        while p and p not in col:
+            p = _PARENTS.get(p)
+        if p:
+            kids.setdefault(p, []).append(b.name)
+    out = []
+    for b in bones:
+        m, t = b.meta, []
+        if 'joint_aux' in m:
+            upper, lower = m['joint_aux']
+            share = m.get('aux_share', 0.5)
+            up = next((u for u in reversed(list(upper)) if u in col), None)
+            if up is not None:
+                t.append((col[up], 1.0 - share))
+            if lower in col:
+                t.append((col[lower], share))
+        for key in ('twist_of', 'shrug_of'):
+            if m.get(key) in col:
+                t.append((col[m[key]], 1.0))
+        if b.group not in FOLD_CHAIN_GROUPS:
+            p = _PARENTS.get(b.name, b.parent)
+            while p:
+                if p in col and bones[col[p]].group not in FOLD_CHAIN_GROUPS:
+                    t.append((col[p], 1.0))
+                p = _PARENTS.get(p)
+            t += [(col[c], 1.0) for c in sorted(kids.get(b.name, []))
+                  if bones[col[c]].group not in FOLD_CHAIN_GROUPS]
+        out.append(t)
+    return out
+
+
+def _prune(w, bones=None, guide=None, co=None):
+    """Keep at most MAX_INFLUENCE bones per vertex, continuously and without crushing the
+    kept ones. With t the 5th-largest weight (at least MIN_WEIGHT), every bone folds away
+    the share 1 - smoothstep(t, PRUNE_FOLD * t, w) of its weight w: all of it at or below t
+    (so at most four remain), none from PRUNE_FOLD * t up. The result is a continuous
+    function of the weights, whichever bones swap rank; the round-4 prune subtracted t from
+    every bone, which turned a smooth field into a cliff where five or six bones overlap
+    on a dense mesh. The folded weight goes to the bones a helper blends between
+    (_fold_targets: ひじ補助 to 腕捩 / ひじ by its share, a twist bone to its limb, the
+    shrug to 肩) as far as those keep weight, the rest to the kept bones in proportion.
+    `bones`: the columns' Bone objects (None: proportional only)."""
+    k = MAX_INFLUENCE
+    n, B = w.shape
+    w = w / np.maximum(w.sum(1, keepdims=True), 1e-12)
+    g = w if guide is None else guide / np.maximum(guide.sum(1, keepdims=True), 1e-12)
+    if B > k:
+        t = -np.partition(-g, k, axis=1)[:, k]
+    else:
+        t = np.zeros(n)
+    t = np.maximum(t, MIN_WEIGHT)[:, None]
+    fold = w * (1.0 - _smoothstep(0.0, 1.0, (g - t) / ((PRUNE_FOLD - 1.0) * t)))
+    out = w - fold
+    left = fold.sum(1)
+    if bones is not None:
+        for j, tg in enumerate(_fold_targets(bones)):
+            if not tg:
+                continue
+            amt = fold[:, j].copy()
+            split = sum(f for _, f in tg if f < 1.0) > 0.0      # a helper's fixed split
+            for c, frac in tg:
+                if c == j:
+                    continue
+                g = _smoothstep(0.0, FOLD_TARGET_MIN, out[:, c])
+                give = (fold[:, j] * frac if split and frac < 1.0 else amt) * g
+                give = np.minimum(give, amt)
+                out[:, c] += give
+                left -= give
+                amt -= give
+    out += out / np.maximum(out.sum(1, keepdims=True), 1e-12) * np.maximum(left, 0.0)[:, None]
+    empty = np.nonzero(out.sum(1) <= 1e-12)[0]      # only with 5+ exactly tied bones
+    out[empty, np.argmax(w[empty], axis=1)] = 1.0
+    kk = min(k, B)
+    idx = np.argsort(-out, axis=1, kind='stable')[:, :kk]
+    ww = np.take_along_axis(out, idx, axis=1)
+    ww = ww / np.maximum(ww.sum(1, keepdims=True), 1e-12)
+    if co is not None and bones is not None and _MOTION:
+        ww = _motion_refit(w, idx, ww, co, bones, fold.sum(1) > 1e-9)
+    return idx, ww
+
+
+_MOTION = {}          # deform bone name -> (K, 3, 4) skinning matrices in the sample poses (build_rig)
+MOTION_D = 0.01       # m: motion error that weighs as much as moving a kept weight by its own size
+MOTION_TOP = 8        # strongest unpruned bones whose motion the refit matches
+
+
+def _motion_refit(w, idx, ww, co, bones, folded):
+    """Re-weight the kept bones of each pruned vertex so it moves as the unpruned blend
+    did in the sample poses (_motion_samples): least squares over the poses, sum 1,
+    regularized toward the folded weights, the more strongly the smaller a kept weight
+    is (a bone entering the set enters at zero: no jump). Folding a few % of torso weight
+    on a raised upper arm into the arm moves the skin centimetres; this puts it back.
+    Only vertices that lost weight in the prune are touched."""
+    rows = np.nonzero(folded)[0]
+    if not len(rows):
+        return ww
+    shape = next(iter(_MOTION.values())).shape
+    S = np.zeros((len(bones),) + shape)
+    have = np.zeros(len(bones), dtype=bool)
+    for j, b in enumerate(bones):
+        if b.name in _MOTION:
+            S[j] = _MOTION[b.name]
+            have[j] = True
+    K = shape[0]
+    m = min(MOTION_TOP, w.shape[1])
+    out = ww.copy()
+    for s0 in range(0, len(rows), 8192):
+        r = rows[s0:s0 + 8192]
+        p = np.c_[co[r], np.ones(len(r))]
+        src = np.argsort(-w[r], axis=1, kind='stable')[:, :m]
+        sw = np.take_along_axis(w[r], src, 1)
+        sw = sw / np.maximum(sw.sum(1, keepdims=True), 1e-12)
+        ok = have[src].all(1) & have[idx[r]].all(1)
+        y = np.einsum('nj,njkab,nb->nka', sw, S[src], p).reshape(len(r), -1)
+        A = np.einsum('njkab,nb->njka', S[idx[r]], p)
+        A = A.reshape(len(r), A.shape[1], -1)
+        o = ww[r]
+        lam = K * MOTION_D ** 2 * (0.05 / (o + 0.002))
+        H = np.einsum('nia,nja->nij', A, A) + lam[:, :, None] * np.eye(A.shape[1])[None]
+        g = np.einsum('nia,na->ni', A, y) + lam * o
+        Hi = np.linalg.inv(H)
+        hg, h1 = np.einsum('nij,nj->ni', Hi, g), Hi.sum(2)
+        mu = (hg.sum(1) - 1.0) / np.maximum(h1.sum(1), 1e-12)
+        u = np.maximum(hg - mu[:, None] * h1, 0.0)
+        u = u / np.maximum(u.sum(1, keepdims=True), 1e-12)
+        out[r[ok]] = u[ok]
+    return out
+
+
+def _prune_subtract(w):
     """Keep the MAX_INFLUENCE strongest bones per vertex, continuously: the next-strongest
     weight (at least MIN_WEIGHT) is subtracted from every bone before renormalizing, so a
     bone entering or leaving the top four does so at zero weight instead of jumping."""
@@ -1039,6 +1559,17 @@ def _split_joint_aux(w, co, bones, band):
         lb = bones[col[lower]]
         d = np.array((lb.tail - lb.head).normalized())
         t = (co - np.array(b.head)) @ d
+        lat_d = np.linalg.norm((co - np.array(b.head)) - t[:, None] * d, axis=1)
+        scale = JOINT_FRONT_BACK.get(stem)
+        if scale is not None:
+            # the band is wider over the front of the joint (the kneecap wraps round) and
+            # narrower behind it (the hollow creases instead of pinching): t is divided by
+            # the local band scale, lerped by how far round to the front the vertex is
+            lat = (co - np.array(b.head)) - t[:, None] * d
+            fwd = np.array(scale[2], dtype=float)
+            front = (lat @ fwd) / np.maximum(np.linalg.norm(lat, axis=1), 1e-6)
+            k = scale[1] + (scale[0] - scale[1]) * _smoothstep(-1.0, 1.0, front)
+            t = t / k
         knots = [-before] + [bones[j].meta.get('aux_at', 0.0) for j in aux] + [after]
         steps = [_smoothstep(k0, k1, t) for k0, k1 in zip(knots, knots[1:])]
         f = [1.0 - steps[0]] + [s0 - s1 for s0, s1 in zip(steps, steps[1:])] + [steps[-1]]
@@ -1059,8 +1590,7 @@ def _split_joint_aux(w, co, bones, band):
         if reach is not None:
             # only skin around the limb: torso skin with a little of the upper bone's
             # weight (the ribs under the armpit) must not be handed to the arm
-            lat = np.linalg.norm((co - np.array(b.head)) - t[:, None] * d, axis=1)
-            g = (1.0 - _smoothstep(reach[0], reach[1], lat))[:, None]
+            g = (1.0 - _smoothstep(reach[0], reach[1], lat_d))[:, None]
             w[:, cols] = old * (1.0 - g) + w[:, cols] * g
 
 
@@ -1156,7 +1686,7 @@ def _hair_head_fade(w, co, bones):
     return w
 
 
-CROTCH_SMOOTH = 0.03          # weight smoothing radius (m) at the crotch
+CROTCH_SMOOTH = 0.045          # weight smoothing radius (m) at the crotch
 CROTCH_PARTS = ('body', '_proxy')   # skin only: garments there follow the skirt chains
 CROTCH_ZONE = (0.07, 0.22, 0.04)   # half width, depth below the hip joints, vertical fade
 
@@ -1195,6 +1725,173 @@ def _armpit_mask(co, bones):
     return m
 
 
+# the arm's bones may hold at most smoothstep(J.x - ARM_CAP[0], J.x - ARM_CAP[1], |x|) of a
+# skin vertex (J = the shoulder joint): chest and back skin medial of the shoulder stays on
+# the torso instead of following a raised arm by a third (the chest-side stretch in arms_up,
+# which garments sampling the skin copied)
+ARM_CAP = None   # off: tried (0.05, 0.005) / (0.07, 0): arms_up x2.26 / x2.04 on the chest
+ARM_CAP_BONES = ('腕D', '腕', '腕捩', 'ひじ補助', 'ひじ', '手捩', '手首')
+
+
+def _arm_cap(w, co, bones):
+    col = {b.name: i for i, b in enumerate(bones)}
+    w = w.copy()
+    for t, s in (('L', 1.0), ('R', -1.0)):
+        arm = col.get(deform_arm(col, t))
+        if arm is None:
+            continue
+        jx = abs(bones[arm].head.x)
+        cap = _smoothstep(jx - ARM_CAP[0], jx - ARM_CAP[1], co[:, 0] * s)
+        cols = [col[f'{n}.{t}'] for n in ARM_CAP_BONES if f'{n}.{t}' in col]
+        a = w[:, cols].sum(1)
+        excess = np.maximum(a - cap, 0.0)
+        if not excess.any():
+            continue
+        w[:, cols] *= np.where(a > 1e-12, 1.0 - excess / np.maximum(a, 1e-12), 1.0)[:, None]
+        tgt = col.get(f'肩補助.{t}', col.get('上半身2'))
+        if tgt is None:
+            continue
+        w[:, tgt] += excess
+    return w
+
+
+# Sleeves are weighted by construction with at most 4 bones (_sleeve_weights): two
+# neighbouring arm bones along the arm (SLEEVE_ARM_KNOTS) and two neighbouring drape
+# segments, so no prune ever cuts a 5-6 bone field into a stretch ridge.
+SLEEVE_BUILD = True
+# (bone stem, position along shoulder -> elbow -> wrist: ('s', m) from the shoulder,
+# ('e', m) from the elbow, ('f', frac) of the forearm, ('w', m) past the wrist)
+SLEEVE_ARM_KNOTS = (('腕D', ('s', 0.0)), ('腕捩', ('e', -0.06)), ('ひじ補助', ('e', 0.0)),
+                    ('ひじ', ('e', 0.06)), ('手捩', ('f', 0.85)), ('手首', ('w', 0.03)))
+SLEEVE_SMOOTH = 0.0          # m: surface smoothing of the constructed sleeve weights (already smooth)
+SLEEVE_ATTACH = (0.12, 0.85)   # sleeve parameter s: the drape fades in after the band, out before the cuff
+_SLEEVE_S = None               # per-vertex sleeve parameter of the object being skinned (_weights)
+_SLEEVE_EDGES, _SLEEVE_N = None, 0   # ... its edges and vertex count
+SLEEVE_PARAM_SMOOTH = 0.065    # m: surface smoothing of the sleeve's arm / drape parameters
+
+
+def _sleeve_param(obj, co):
+    """The sleeve's own 0 (band) .. 1 (wrist) parameter: the part's point attribute named by
+    obj['levi_sleeve_param'] (sleeves.sleeve_params), else None."""
+    name = obj.get('levi_sleeve_param')
+    attr = obj.data.attributes.get(name) if name else None
+    if attr is None or attr.domain != 'POINT' or len(attr.data) != len(co):
+        return None
+    v = np.empty(len(co))
+    attr.data.foreach_get('value', v)
+    return v
+
+
+def _sleeve_weights(co, bones, sparam=None, edges=None):
+    """(V, B) sleeve weights with at most 4 bones per vertex by construction. Along the
+    arm (arc length a of the nearest point on shoulder -> elbow -> wrist) a hat blend of
+    two neighbouring SLEEVE_ARM_KNOTS bones; the drape share g (fading in between
+    DRAPE_NEAR and DRAPE_FAR from the arm axis, and only between the attachments
+    SLEEVE_ATTACH along the sleeve parameter s) goes to a hat blend of two neighbouring
+    drape segments by the position u along the drape chain. With `edges`, the parameters
+    a, g and u (not the weights) are smoothed along the surface (SLEEVE_PARAM_SMOOTH), so
+    the result stays smooth and still has at most 4 bones. Without a sleeve parameter s is
+    the arm position normalized over the drape's span."""
+    col = {b.name: i for i, b in enumerate(bones)}
+    W = np.zeros((len(co), len(bones)))
+    done = np.zeros(len(co), dtype=bool)
+    for t, sd in (('L', 1.0), ('R', -1.0)):
+        side = co[:, 0] * sd > 0.0
+        arm = col.get(deform_arm(col, t))
+        el, wr = col.get(f'ひじ.{t}'), col.get(f'手首.{t}')
+        if arm is None or el is None or wr is None or not side.any():
+            continue
+        S, E, Wp = (np.array(bones[arm].head), np.array(bones[el].head), np.array(bones[wr].head))
+        l1, l2 = float(np.linalg.norm(E - S)), float(np.linalg.norm(Wp - E))
+        u = _polyline_u(co, np.array([S, E]), np.array([E, Wp]))
+        a = np.where(u < 1.0, u * l1, l1 + (u - 1.0) * l2)
+        fd = (Wp - E) / l2
+        past = (co - Wp) @ fd
+        a = np.where((u >= 1.999) & (past > 0), l1 + l2 + past, a)      # past the wrist: along the forearm
+        drape = sorted((j for j, b in enumerate(bones) if b.group == 'Sleeve' and b.name.endswith('.' + t)),
+                       key=lambda j: bones[j].meta.get('seg', 0))
+        g = np.zeros(len(co))
+        uc = np.zeros(len(co))
+        if drape:
+            d = np.min([_seg_dist(co, np.array(bones[c].head), np.array(bones[c].tail)) for c in (arm, el)], axis=0)
+            sel = side & (d > DRAPE_NEAR)
+            if sparam is not None:
+                sp = sparam
+            elif sel.sum() >= 16:
+                lo, hi = float(a[sel].min()), float(a[sel].max())
+                sp = np.clip((a - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
+            else:   # a few points (an ornament's host): no span to normalize over; mid-sleeve
+                sp = np.full(len(co), 0.5)
+            g = _smoothstep(DRAPE_NEAR, DRAPE_FAR, d) * _smoothstep(0.0, SLEEVE_ATTACH[0], sp) * \
+                (1.0 - _smoothstep(SLEEVE_ATTACH[1], 1.0, sp))
+            uc = _polyline_u(co, np.array([bones[j].head for j in drape]), np.array([bones[j].tail for j in drape]))
+        if edges is not None and len(edges) and SLEEVE_PARAM_SMOOTH > 0:
+            sm = _smooth(np.stack([a, g, uc], 1), co, edges, SLEEVE_PARAM_SMOOTH)
+            a, g, uc = (np.where(side, sm[:, i], x) for i, x in enumerate((a, g, uc)))
+        knots, cols = [], []
+        for stem, (kind, v) in SLEEVE_ARM_KNOTS:
+            n = deform_arm(col, t) if stem == '腕D' else f'{stem}.{t}'
+            if n in col:
+                knots.append({'s': v, 'e': l1 + v, 'f': l1 + v * l2, 'w': l1 + l2 + v}[kind])
+                cols.append(col[n])
+        if len(knots) < 2:
+            continue
+        knots = np.maximum.accumulate(np.array(knots))
+        ac = np.clip(a, knots[0], knots[-1])
+        armw = np.zeros((len(co), len(bones)))
+        for i in range(len(knots) - 1):
+            k0, k1 = knots[i], knots[i + 1]
+            inside = (ac >= k0) & ((ac <= k1) if i == len(knots) - 2 else (ac < k1))
+            f = np.clip((ac - k0) / max(k1 - k0, 1e-9), 0.0, 1.0)
+            armw[inside, cols[i]] += 1.0 - f[inside]
+            armw[inside, cols[i + 1]] += f[inside]
+        dw = np.zeros((len(co), len(bones)))
+        if drape:
+            uq = np.clip(uc, 0.5, len(drape) - 0.5)
+            for i, j in enumerate(drape):
+                dw[:, j] = np.maximum(0.0, 1.0 - np.abs(uq - (i + 0.5)))
+        W[side] = (armw * (1.0 - g)[:, None] + dw * g[:, None])[side]
+        done |= side
+    if not done.all():
+        plain = [j for j, b in enumerate(bones) if not {'twist_of', 'joint_aux', 'shrug_of'} & set(b.meta)]
+        W[np.ix_(~done, plain)] = _envelope(co[~done], [bones[j] for j in plain])
+    return W
+
+
+# Thick cloth shells (the skirt's outer face, inner face and rounded hem): vertices at the
+# same place on the cloth (angle around the body, height) get the same weights, so the two
+# faces cannot separate in a pose: weights are averaged over SHELL_CELL cells.
+SHELL_PARTS = ('skirt',)
+SHELL_CELL = (1.5, 0.004)    # deg around the body, m of height
+
+
+def _shell_share(w, co, bones):
+    """Weights as a smooth function of (angle around the body, height): splatted onto a
+    SHELL_CELL grid with bilinear weights and read back the same way, so vertices of both
+    faces at one spot get equal weights and the field stays continuous."""
+    cy = next((b.meta['cy'] for b in bones if b.group == 'Skirt' and 'cy' in b.meta), None)
+    if cy is None:
+        return w
+    ncell = int(round(360.0 / SHELL_CELL[0]))
+    th = (np.degrees(np.arctan2(co[:, 0], co[:, 1] - cy)) % 360.0) / (360.0 / ncell)
+    zz = co[:, 2] / SHELL_CELL[1]
+    i0, j0 = np.floor(th).astype(np.int64), np.floor(zz).astype(np.int64)
+    fx, fz = th - i0, zz - j0
+    corners = [(0, 0, (1 - fx) * (1 - fz)), (1, 0, fx * (1 - fz)), (0, 1, (1 - fx) * fz), (1, 1, fx * fz)]
+    # the angle wraps (cells at 359.x and 0.x deg are neighbours)
+    keys = np.concatenate([np.stack([(i0 + di) % ncell, j0 + dj], 1) for di, dj, _ in corners])
+    uniq, inv = np.unique(keys, axis=0, return_inverse=True)
+    inv = inv.reshape(4, -1)
+    acc = np.zeros((len(uniq), w.shape[1]))
+    den = np.zeros(len(uniq))
+    for (di, dj, f), ix in zip(corners, inv):
+        np.add.at(acc, ix, w * f[:, None])
+        np.add.at(den, ix, f)
+    node = acc / np.maximum(den, 1e-12)[:, None]
+    out = sum(node[ix] * f[:, None] for (di, dj, f), ix in zip(corners, inv))
+    return out
+
+
 def _base_weights(part, co, bones):
     """(V, B) weights before side masking / smoothing / pruning."""
     plain = [j for j, b in enumerate(bones) if not {'twist_of', 'joint_aux', 'shrug_of'} & set(b.meta)]
@@ -1206,12 +1903,26 @@ def _base_weights(part, co, bones):
     else:
         main = [i for i, b in enumerate(sub) if b.group != 'Skirt']
         w0 = np.zeros((len(co), len(sub)))
-        w0[:, main] = _envelope(co, [sub[i] for i in main])
+        env = _envelope(co, [sub[i] for i in main])
+        w0[:, main] = _skin_sample(co, [sub[i].name for i in main], env) if part == 'bodice' else env
+        if part == 'bodice':
+            # a fitted strapless bodice takes at most BODICE_ARM_CAP of the arm from the skin
+            # (its rim at the armpit rides along; the neckline and chest stay on the torso)
+            arm = [i for i in main if sub[i].name.split('.')[0] in ('腕D', '腕')]
+            chest = next((i for i in main if sub[i].name == '上半身2'), None)
+            if arm and chest is not None:
+                a = w0[:, arm].sum(1)
+                k = np.minimum(1.0, BODICE_ARM_CAP / np.maximum(a, 1e-9))
+                w0[:, chest] += a * (1.0 - k)
+                w0[:, arm] *= k[:, None]
         if len(main) < len(sub):        # bodice ribbons hanging over the skirt ride the skirt
             t = _smoothstep(L['hip_z'] + SKIRT_BAND[0], L['hip_z'] + SKIRT_BAND[1], co[:, 2])[:, None]
             w0 = (1.0 - t) * w0 + t * _skirt_weights(co, sub)
     w = np.zeros((len(co), len(bones)))
     w[:, plain] = w0
+    if part == 'sleeves' and SLEEVE_BUILD:
+        ok = lambda x: x if x is not None and len(co) > 1 and _SLEEVE_N == len(co) else None  # noqa: E731
+        return _sleeve_weights(co, bones, ok(_SLEEVE_S), ok(_SLEEVE_EDGES))
     if part == 'sleeves':
         _drape_only_away_from_arm(w, co, bones)
     _split_ankle(w, co, bones)
@@ -1223,6 +1934,7 @@ def _base_weights(part, co, bones):
 
 RIGID_ISLAND = 0.05   # loose pieces (not skin) within this radius move rigidly ...
 ATTACH_REACH = 0.03   # ... with the weights of the surface they sit on, found within this distance
+_HEAD_OBJS = []       # the head part's objects (build_rig)
 _ATTACH_HOST = np.zeros((0, 3))   # every skinned vertex outside the small loose pieces (build_rig)
 WAIST_STRADDLE = 0.15  # ... unless both 上半身 and 下半身 hold at least this share of it
 
@@ -1368,8 +2080,12 @@ def _lock_weights(w, co, labels, bones):
 
 def _weights(obj, part, co, bones):
     """(V, k) bone indices and weights for the vertices of `obj` (world positions `co`)."""
-    w = _base_weights(part, co, bones)
+    global _SLEEVE_S, _SLEEVE_EDGES, _SLEEVE_N
     edges = _topology(obj, co)
+    _SLEEVE_S = _sleeve_param(obj, co) if part == 'sleeves' else None
+    _SLEEVE_EDGES, _SLEEVE_N = (edges, len(co)) if part == 'sleeves' else (None, 0)
+    w = _base_weights(part, co, bones)
+    _SLEEVE_S, _SLEEVE_EDGES, _SLEEVE_N = None, None, 0
     labels = _islands(len(co), edges)
     if part == 'hair_back':
         _lock_weights(w, co, labels, bones)
@@ -1377,7 +2093,8 @@ def _weights(obj, part, co, bones):
     ok = masked.sum(1) > 1e-9
     w = np.where(ok[:, None], masked, w)
     w = w / w.sum(1, keepdims=True)
-    w = _smooth(w, co, edges, SMOOTH_RADIUS.get(part, DEFAULT_SMOOTH))
+    radius = SLEEVE_SMOOTH if part == 'sleeves' and SLEEVE_BUILD else SMOOTH_RADIUS.get(part, DEFAULT_SMOOTH)
+    w = _smooth(w, co, edges, radius)
     m = _crotch_mask(co, bones) if part in CROTCH_PARTS and CROTCH_SMOOTH > 0 else None
     if m is not None and m.max() > 0:
         # the crotch is pulled between both thighs in a stride: spread its L/R weight
@@ -1390,11 +2107,21 @@ def _weights(obj, part, co, bones):
         w = w * (1.0 - m[:, None]) + _smooth(w, co, edges, ARMPIT_SMOOTH) * m[:, None]
     if part == 'hair_back':
         w = _hair_head_fade(w, co, bones)
+    if part in SHELL_PARTS:
+        w = _shell_share(w, co, bones)
+    if part in CROTCH_PARTS and ARM_CAP:
+        w = _arm_cap(w, co, bones)
     cord = _neck_cord(obj, part)
     if cord:
-        return _prune(_neck_cord_weights(cord, w, co, bones))
-    w = _island_rules(w, co, labels, bones, part)
-    return _prune(w)
+        w = _neck_cord_weights(cord, w, co, bones)
+    else:
+        w = _island_rules(w, co, labels, bones, part)
+    # which bones a vertex keeps is decided on a wider-smoothed copy of its weights, so
+    # the set changes gradually along the surface instead of wherever two weak bones swap
+    guide = _smooth(w, co, edges, PRUNE_SMOOTH) if PRUNE_SMOOTH > 0 and radius > 0 else None
+    if guide is not None and part in SHELL_PARTS:
+        guide = _shell_share(guide, co, bones)
+    return _prune(w, bones, guide, co)
 
 
 def _skin(obj, part, bones, arm):
@@ -1472,33 +2199,135 @@ def _bake_modifiers(obj):
     """Apply generators (mirror, subsurf...) so weights cover the real vertices.
     The Outline hull and any armature stay live."""
     keep = ('Outline',) + tuple(m.name for m in obj.modifiers if m.type == 'ARMATURE')
-    if obj.data.shape_keys:
-        print(f'rig: {obj.name} has shape keys; skinning its base mesh without applying modifiers')
+    if not any(m.name not in keep for m in obj.modifiers):
         return
-    if any(m.name not in keep for m in obj.modifiers):
+    if obj.data.shape_keys:
+        _apply_modifiers_with_keys(obj, keep)
+    else:
         common.apply_modifiers(obj, keep=keep)
 
 
-def _skirt_push_driver(arm, con, src, base, share):
-    """Blender only: the skirt's lower joint adds a turn that grows with how far the thigh
-    has swung past SKIRT_PUSH[0] (a collision-like push: nothing for a small stride, most of
-    the extra for a deep squat), on top of its linear 回転付与 `base`. In the PMX the
-    segments below the chain roots are physics bodies that collide with the legs, which
-    does the same job, so only `base` is exported."""
-    phi0, gain = math.radians(SKIRT_PUSH[0]), SKIRT_PUSH[1]
-    cap = math.radians(SKIRT_PUSH_MAX)
-    fc = con.driver_add('influence')
+def _apply_modifiers_with_keys(obj, keep):
+    """Apply the generator modifiers (mirror, subsurf...) of a mesh with shape keys
+    (the head's morphs), keeping every key: the mesh is evaluated once per key at full
+    value, and the keys are rebuilt on the evaluated topology. Refuses (and leaves the
+    object as it is) if a key changes the vertex count."""
+    keys = obj.data.shape_keys.key_blocks
+    saved = [(kb.name, kb.value, kb.mute, kb.slider_min, kb.slider_max) for kb in keys]
+    show = {m.name: m.show_viewport for m in obj.modifiers}
+    for m in obj.modifiers:
+        if m.name in keep:
+            m.show_viewport = False
+    show_only = obj.show_only_shape_key
+    obj.show_only_shape_key = False
+    dg = bpy.context.evaluated_depsgraph_get()
+
+    def sample(active):
+        for i, kb in enumerate(keys):
+            if i:
+                kb.value = 1.0 if i == active else 0.0
+                kb.mute = False
+        obj.data.update()
+        dg.update()
+        ev = obj.evaluated_get(dg)
+        me = ev.to_mesh()
+        co = np.empty(len(me.vertices) * 3)
+        me.vertices.foreach_get('co', co)
+        ev.to_mesh_clear()
+        return co
+    shapes = [sample(i) for i in range(len(keys))]
+    for (name, val, mute, lo, hi), kb in zip(saved, keys):
+        kb.value, kb.mute = val, mute
+    obj.show_only_shape_key = show_only
+    if any(len(c) != len(shapes[0]) for c in shapes):
+        print(f'rig: {obj.name}: a shape key changes the topology under its modifiers; not applied')
+        for m in obj.modifiers:
+            m.show_viewport = show[m.name]
+        return
+    for i, kb in enumerate(keys):
+        if i:
+            kb.value = 0.0
+    dg.update()
+    new = bpy.data.meshes.new_from_object(obj.evaluated_get(dg), preserve_all_data_layers=True, depsgraph=dg)
+    old_me = obj.data
+    obj.shape_key_clear()
+    obj.data = new
+    new.name = old_me.name
+    for m in list(obj.modifiers):
+        if m.name in keep:
+            m.show_viewport = show[m.name]
+        else:
+            obj.modifiers.remove(m)
+    base = obj.shape_key_add(name=saved[0][0], from_mix=False)
+    base.data.foreach_set('co', shapes[0])
+    for (name, val, mute, lo, hi), co in zip(saved[1:], shapes[1:]):
+        kb = obj.shape_key_add(name=name, from_mix=False)
+        kb.data.foreach_set('co', co)
+        kb.slider_min, kb.slider_max = lo, hi
+        kb.value, kb.mute = val, mute
+    if old_me.users == 0:
+        bpy.data.meshes.remove(old_me)
+
+
+def _drape_prop(arm, pb, prop, tab, thigh, sgn):
+    """pb[prop] = the drape row `tab` (rad over DRAPE_PHI) at the forward pitch of
+    `thigh`: a driver reading the thigh's twist about its own X (evaluated local rotation,
+    so IK counts) through an F-curve with the table as linear keys, flat outside."""
+    pb[prop] = 0.0
+    fc = pb.driver_add(f'["{prop}"]')
     drv = fc.driver
     drv.type = 'SCRIPTED'
-    for c, ch in zip('wxyz', ('ROT_W', 'ROT_X', 'ROT_Y', 'ROT_Z')):
+    v = drv.variables.new()
+    v.name, v.type = 'p', 'TRANSFORMS'
+    tg = v.targets[0]
+    tg.id, tg.bone_target = arm, thigh
+    tg.transform_type, tg.rotation_mode, tg.transform_space = 'ROT_X', 'SWING_TWIST_X', 'LOCAL_SPACE'
+    drv.expression = 'p'
+    for m in list(fc.modifiers):
+        fc.modifiers.remove(m)
+    pts = sorted((sgn * math.radians(x), float(y)) for x, y in zip(DRAPE_PHI, tab))
+    fc.keyframe_points.add(len(pts))
+    for kp, (x, y) in zip(fc.keyframe_points, pts):
+        kp.co = (x, y)
+        kp.interpolation = 'LINEAR'
+    fc.extrapolation = 'CONSTANT'
+    fc.update()
+
+
+def _skirt_drape_driver(arm, pb, d):
+    """Blender only: turn a skirt chain joint about the world X axis by the drape table
+    (_skirt_drape). The chain's L follow bone at joint i carries two properties, the
+    absolute turn of segment i for each thigh pitched alone (_drape_prop); the larger
+    forward and backward lifts of the two thighs combine, and the joint turns by the
+    combined turn of its segment minus the one above (read from the joint above's
+    follow bone). The R follow bones stay at rest. In the PMX the segments below the
+    chain roots are physics bodies colliding with the legs, so only the linear share
+    ('follow') is exported."""
+    if d['own'] != 'L':
+        return
+    i = d['i']
+    for t in 'LR':
+        x = arm.data.bones[f'足.{t}'].matrix_local.to_3x3().col[0]
+        sgn = 1.0 if x.dot(Vector((-1.0, 0.0, 0.0))) > 0 else -1.0   # forward pitch = + twist about X
+        _drape_prop(arm, pb, f'drape_{t}', d[t][i], f'足.{t}', sgn)
+    pb.rotation_mode = 'AXIS_ANGLE'      # about local Y (the bone points along -X): forward pitch
+    pb.rotation_axis_angle = (0.0, 0.0, 1.0, 0.0)
+    fc = pb.driver_add('rotation_axis_angle', 0)
+    drv = fc.driver
+    drv.type = 'SCRIPTED'
+    srcs = [('a', pb.name, 'drape_L'), ('b', pb.name, 'drape_R')]
+    if i:
+        srcs += [('c', d['above'], 'drape_L'), ('d', d['above'], 'drape_R')]
+    for name, bone, prop in srcs:
         v = drv.variables.new()
-        v.name, v.type = c, 'TRANSFORMS'
-        t = v.targets[0]
-        t.id, t.bone_target = arm, src
-        t.transform_type, t.rotation_mode, t.transform_space = ch, 'QUATERNION', 'LOCAL_SPACE'
-    ang = '(2.0 * atan2(sqrt(x * x + y * y + z * z), abs(w)))'
-    push = f'min({cap!r}, {gain!r} * max(0.0, {ang} - {phi0!r}))'
-    drv.expression = f'min(1.0, {base!r} + {share!r} * {push} / max({ang}, 1e-6))'
+        v.name, v.type = name, 'SINGLE_PROP'
+        tg = v.targets[0]
+        tg.id_type, tg.id = 'OBJECT', arm
+        tg.data_path = f'pose.bones["{bone}"]["{prop}"]'
+    expr = 'max(0,a,b)+min(0,a,b)'
+    if i:
+        expr += '-max(0,c,d)-min(0,c,d)'
+    drv.expression = expr
     for m in list(fc.modifiers):
         fc.modifiers.remove(m)
 
@@ -1586,15 +2415,37 @@ def _create_armature(bones):
             src, infl = b.meta['follow']
             pb['mmd_append'] = src
             pb['mmd_append_influence'] = float(infl)
-            if src in data.bones and (infl > 1e-4 or 'push' in b.meta):
+            if 'drape' in b.meta:
+                _skirt_drape_driver(arm, pb, b.meta['drape'])
+            elif src in data.bones and infl > 1e-4:
                 c = pb.constraints.new('COPY_ROTATION')
                 c.name = 'Follow'
                 c.target, c.subtarget = arm, src
                 c.target_space, c.owner_space = 'LOCAL_OWNER_ORIENT', 'LOCAL'
                 c.mix_mode = 'BEFORE'
                 c.influence = infl
-                if 'push' in b.meta:
-                    _skirt_push_driver(arm, c, src, infl, b.meta['push'])
+        for src, k in b.meta.get('gravity', ()):
+            # Blender only (MMD physics hangs the hair itself): turn back k of the torso
+            # bone's sideways bend (about the forward axis), so the long hair keeps hanging
+            # when she leans to a side. A forward bend and her twist still carry it along:
+            # bent forward, the hair rests on her back (hanging free it went into it)
+            c = pb.constraints.new('COPY_ROTATION')
+            c.name = f'Gravity {src}'
+            c.target, c.subtarget = arm, src
+            c.target_space, c.owner_space = 'LOCAL_OWNER_ORIENT', 'LOCAL'
+            c.mix_mode = 'BEFORE'
+            c.use_x = c.use_y = False
+            c.invert_z = True
+            c.influence = k
+        if b.name.split('.')[0] == '目' and EYE_LIMIT:
+            # Blender only (PMX bones have no rotation limits): the eyes turn at most
+            # EYE_LIMIT (yaw, pitch) degrees, the range in which the irises stay behind the lids
+            c = pb.constraints.new('LIMIT_ROTATION')
+            c.name = 'Gaze limit'
+            c.owner_space = 'LOCAL'
+            c.use_limit_x = c.use_limit_z = True
+            c.min_x, c.max_x = -math.radians(EYE_LIMIT[1]), math.radians(EYE_LIMIT[1])
+            c.min_z, c.max_z = -math.radians(EYE_LIMIT[0]), math.radians(EYE_LIMIT[0])
         if b.meta.get('helper'):
             pb['mmd_helper'] = True     # driven by 付与 only: hidden, not for the animator
         if 'follow_q' in b.meta:
@@ -1625,6 +2476,71 @@ def _create_armature(bones):
     return arm
 
 
+# generic poses for the prune's motion refit: (input bone stems, how, degrees). `how` is a
+# world direction to bend toward (x mirrored on .R), or twist / curl / pitch / yaw / roll / side
+MOTION_POSES = (
+    (('腕',), (0, 0, 1), 80), (('腕',), (0, -1, 0), 80), (('ひじ',), (0, -1, 0), 90),
+    (('手捩',), 'twist', 60), (('腕捩',), 'twist', 45), (('手首',), (0, -1, 0), 45),
+    (('肩',), (0, 0, 1), 20), (('足',), (0, -1, 0), 60), (('足',), (0, 1, 0), 30),
+    (('足',), 'side', 30), (('ひざ',), (0, 1, 0), 90), (('足首',), (0, -1, 0), 30),
+    (('上半身',), 'pitch', 30), (('上半身',), 'yaw', 30), (('上半身2',), 'roll', 20),
+    (('下半身',), 'pitch', 20), (('首',), 'yaw', 40), (('頭',), 'pitch', 30),
+    (('Fingers',), 'curl', 60), (('Chains',), 'pitch', 25),
+)
+
+
+def _motion_samples(arm):
+    """{deform bone: (K, 3, 4)} skinning matrices (posed @ rest^-1) of every deform bone
+    in MOTION_POSES (each joint bent or twisted on its own, chain roots swung), evaluated
+    on the real armature with its constraints and drivers, IK muted. The prune's refit
+    (_motion_refit) compares vertex motion in them. The pose is reset afterwards."""
+    from mathutils import Quaternion
+    pbs = arm.pose.bones
+    muted = [c for pb in pbs for c in pb.constraints if c.type == 'IK' and not c.mute]
+    for c in muted:
+        c.mute = True
+    deform = [pb for pb in pbs if pb.bone.use_deform]
+    out = {pb.name: [] for pb in deform}
+
+    def rot(pb, axis_w, deg):
+        local = (pb.bone.matrix_local.to_3x3().inverted() @ Vector(axis_w)).normalized()
+        pb.rotation_mode = 'QUATERNION'
+        pb.rotation_quaternion = Quaternion(local, math.radians(deg)) @ pb.rotation_quaternion
+
+    for stems, how, deg in MOTION_POSES:
+        for pb in pbs:
+            pb.matrix_basis.identity()
+        for pb in pbs:
+            stem = pb.name.split('.')[0]
+            grp = pb.bone.collections[0].name if pb.bone.collections else ''
+            side = -1.0 if pb.name.endswith('.R') else 1.0
+            hit = stem in stems or ('Fingers' in stems and grp == 'Fingers') or \
+                ('Chains' in stems and grp in FOLD_CHAIN_GROUPS and stem.endswith('_0'))
+            if not hit:
+                continue
+            ax = pb.bone.matrix_local.to_3x3()
+            if how == 'twist':
+                rot(pb, ax.col[1], deg * side)
+            elif how == 'curl':
+                rot(pb, ax.col[0], deg)
+            elif isinstance(how, str):
+                w_ax = {'pitch': (1, 0, 0), 'yaw': (0, 0, 1), 'roll': (0, 1, 0), 'side': (0, side, 0)}[how]
+                rot(pb, w_ax, deg)
+            else:
+                tgt = Vector(how)
+                tgt.x *= side
+                rot(pb, ax.col[1].cross(tgt), deg)
+        bpy.context.view_layer.update()
+        for pb in deform:
+            out[pb.name].append(np.array(pb.matrix @ pb.bone.matrix_local.inverted())[:3])
+    for pb in pbs:
+        pb.matrix_basis.identity()
+    for c in muted:
+        c.mute = False
+    bpy.context.view_layer.update()
+    return {k: np.array(v) for k, v in out.items()}
+
+
 def bone_table(arm=None):
     """[(blender_name, jp, en)] for the rig in the scene (for export)."""
     arm = arm or bpy.data.objects[ARM_NAME]
@@ -1649,17 +2565,21 @@ def build_rig():
         print(f'rig joint {k:14s} {src}  ({J[k].x:+.3f}, {J[k].y:+.3f}, {J[k].z:+.3f})')
     # eyelid sheets (head_lid, carrying the blink morph) sit in front of the eyes: leave
     # them out, or the eye depth follows the lids
-    H = fit_head([o for o in parts.get('head', []) if 'lid' not in o.name.lower()])
+    global _HEAD_OBJS
+    _HEAD_OBJS = list(parts.get('head', []))
+    H = fit_head(parts.get('head', []))
     F = fit_fingers(parts.get('body', []), J)
     print(f"rig fingers    {'mesh' if F else 'spec'}  ({len(F)} chains fitted to the body's fingers)")
     core = _core_bones(J, H, F)
     by = {b.name: b for b in core}
     hd, ey = by['頭'].head, by['目.L'].head
     print(f"rig head  頭             {'mesh' if 'head_y' in H else 'spec'}  ({hd.x:+.3f}, {hd.y:+.3f}, {hd.z:+.3f})")
-    print(f"rig head  目.L           {'mesh' if 'eye' in H else 'spec'}  ({ey.x:+.3f}, {ey.y:+.3f}, {ey.z:+.3f})")
+    print(f"rig head  目.L           {H.get('eye_src', 'mesh') if 'eye' in H else 'spec'}  ({ey.x:+.3f}, {ey.y:+.3f}, {ey.z:+.3f})")
     bones = core + _secondary_bones(parts, core)
     arm = _create_armature(bones)
-    global _ATTACH_HOST
+    global _ATTACH_HOST, _PARENTS, _MOTION
+    _MOTION = _motion_samples(arm) if PRUNE_MOTION else {}
+    _PARENTS = {b.name: b.parent for b in bones}
     host = []
     for objs in parts.values():
         for o in objs:
@@ -1672,11 +2592,16 @@ def build_rig():
                 if np.linalg.norm(pk - pk.mean(0), axis=1).max() >= RIGID_ISLAND:
                     host.append(pk)
     _ATTACH_HOST = np.concatenate(host) if host else np.zeros((0, 3))
-    for part, objs in parts.items():
-        for o in objs:
+    global _SKIN
+    _SKIN = None
+    order = sorted(parts, key=lambda n: n not in ('body', '_proxy'))   # the skin first: garments sample it
+    for part in order:
+        for o in parts[part]:
             if o.parent is None:
                 o.parent = arm
                 o.matrix_parent_inverse = arm.matrix_world.inverted()
             _skin(o, part, bones, arm)
+        if part in ('body', '_proxy') and _SKIN is None:
+            _store_skin(parts[part])
     bpy.context.view_layer.update()
     return arm
