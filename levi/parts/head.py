@@ -1,7 +1,11 @@
 """Head: skull, face (profile, nose, jaw), eyes, mouth, ears and the top of the neck.
 
-The head is a grid of horizontal rings. Every ring is two superellipse halves
-(face half in front, skull/jaw half behind) whose extents come from a table of
+head_face is one mesh from the crown to the top of the neck. The upper head
+(down to just under the eyes, RING_ROWS) is a grid of horizontal rings; below
+it the lower face, jaw, chin, under-jaw, throat and neck are one soft surface
+of tilted loops (see 'lower face' below and lower_loops). Every ring is two
+superellipse halves (face half in front, skull/jaw half behind) whose extents
+come from a table of
 measurements taken on ref/front.png (half-width) and ref/side.png (front
 profile, jaw/skull back line), in reference panel pixels. The skin details
 (lashes, brows, blush, nose tip) are painted into a procedurally generated
@@ -30,14 +34,17 @@ the opening, as in a hand-built face), see `Patch`.
 * The mouth is a narrow slit into a small pouch (palette 'mouth').
 * MMD morphs are shape keys on head_face (value 0): まばたき, ウィンク,
   ウィンク右, 笑い (eyes) and あ, い, う, え, お (mouth). The lids slide over the
-  eyeball and stay in front of it along the whole linear morph.
+  eyeball and stay in front of it along the whole linear morph. The vowels
+  open the jaw (the chin and the pouch's lower half turn about a hinge under
+  the ear) and shape the lips on top.
 
 Local landmark corrections (spec.L is a +-3 px first pass):
 * the face, eyes and neck on ref/front.png are centred on panel column ~321.5,
   not 320, so the whole head is shifted by HEAD_DX (+1.5 px, character's left);
 * chin_z: the sheet's front view puts the chin point on row ~162, the side view
   on row ~158; the model ends the (now rounded) chin at row 161.3, its
-  profile 1-2.5 px behind the old wedge over rows 155-161.
+  profile 1-2.5 px behind the old wedge over rows 155-161; the lower face's
+  blur rounds the front-view V into a softer chin (user-approved).
 """
 import math
 from functools import lru_cache
@@ -104,8 +111,8 @@ TABLE = [
     # runs back nearly level from the chin, like the sheet's under-jaw line
     # (which rises only ~5 rows over ~25 columns), not as a steep wedge.
     (128.0, 36.8, 234.6, 291.5, 317.0),
-    (132.0, 35.1, 234.2, 290.5, 309.0),
-    (136.0, 34.0, 235.4, 287.9, 300.0),
+    (132.0, 34.95, 234.2, 290.0, 309.0),
+    (136.0, 33.65, 235.4, 288.0, 300.0),
     (140.0, 32.3, 237.1, 284.8, 296.0),
     (142.0, 31.4, 238.0, 283.0, 294.5),
     (144.0, 30.3, 238.9, 281.8, 292.6),
@@ -144,11 +151,12 @@ NOSE_SIGMA = ((106.0, 6.5), (116.0, 5.7), (122.0, 5.5), (126.0, 5.5), (137.0, 5.
 # is broad, relaxing to a plain ellipse at the chin
 FRONT_EXP = ((80.0, 2.2), (98.0, 2.8), (118.0, 2.8), (132.0, 2.55), (146.0, 2.5), (155.0, 2.35), (161.3, 2.1))
 
+# Horizontal rings of the upper head (skull, eyes, nose). Below the last one
+# (LOWER_TOP) the lower face, jaw, under-jaw and neck are one surface of
+# tilted loops (see lower_loops).
 RING_ROWS = ([43.0, 44.5, 47, 50, 54, 59, 65, 72, 80, 88, 94, 98.5]
              + [100.0 + 1.5 * k for k in range(21)]        # eyes and nose: 100 .. 130
-             + [131.5, 133, 134.5, 136, 137.5, 139, 140.5, 141.75, 143, 144.25, 145.5, 146.75, 148,
-                149.25, 150.5, 151.75, 153, 154.25, 155.4, 156.5, 157.5, 158.4, 159.2, 159.9,
-                160.5, 161.0, 161.3])
+             + [131.5])
 
 
 def pchip(xs, ys, x):
@@ -292,7 +300,11 @@ def x_of_a(a, row):
 
 
 def face_point(X, row, detail=True):
-    """Face surface point at (X px from the midline, row) as seen from the front."""
+    """Face surface point at (X px from the midline, row) as seen from the front.
+    Below the upper head's rings (the mouth and chin) it is the front of the
+    lower-face surface (lower_field)."""
+    if row > LOWER_SPLIT:
+        return lower_field(detail).front_point(X, row)
     return surf(a_of_x(X, row), row, detail)
 
 
@@ -652,7 +664,7 @@ def front_uv(co):
 EYE_BOX = ((99.0, 131.5), 6.5, math.radians(88.0))   # rows, inner X [px], outer ring angle
 EYE_LOOPS = (0.2, 0.42, 0.7)     # intermediate loops between the lash loop (0) and the grid (1)
 MOUTH_BOX = ((139.0, 154.25), 9.0)                   # rows, half-width [px]
-MOUTH_LOOPS = (0.3, 0.62)
+MOUTH_LOOPS = (0.25, 0.5, 0.75)
 EYE_GAP = 0.35                   # px between the opening's rim and the eyeball (closest point)
 EYE_WALL_IN = 0.4                # px the rim rolls back into the eyeball
 EYE_SLEEVE = 5.0                 # px deep socket sleeve behind the rim: what a turned eyeball uncovers
@@ -731,12 +743,7 @@ def make_patches(angles, rows):
     row_mid = rows[(i0 + i1) // 2]
     kl0 = next(k for k in range(half, N_RING) if x_of_a(angles[k], row_mid) >= x_in)
     kl1 = max(k for k in range(half, N_RING) if angles[k] <= a_out)
-    out = [Patch('eye', s, i0, i1, kl0, kl1) for s in (1, -1)]
-    (ma, mb), mx = MOUTH_BOX
-    j0, j1 = _nearest(rows, ma), _nearest(rows, mb)
-    m = next(d for d in range(1, half) if x_of_a(angles[half + d], MOUTH_ROW) >= mx)
-    out.append(Patch('mouth', 0, j0, j1, half - m, half + m))
-    return out
+    return [Patch('eye', s, i0, i1, kl0, kl1) for s in (1, -1)]   # (the mouth: mouth_patch)
 
 
 EYE_R_RANGE = (14.0, 36.0)      # eyeball radius search range [px]
@@ -787,35 +794,452 @@ def sphere_point(c, r, x, z):
     return Vector((c.x + d.x, c.y - math.sqrt(max(0.0, r * r - d.length_squared)), c.z + d.z))
 
 
-def build_head(detail=True, eye_fit=None):
-    """BMesh of head_face and its layout (patches). eye_fit: the left eyeball
-    (centre, radius) from the detailed head; fitted here when None."""
+# ---------------------------------------------------------------- lower face: one soft surface
+# Below the upper head's last ring (LOWER_TOP, just under the eyes) the lower
+# face, jaw, chin, under-jaw, throat and the top of the neck are one surface:
+# head_face continues into the neck, so there is no seam or buried tube at
+# the jaw. Its shape is the measured head (TABLE: front-view half-width, the
+# side-view profile and under-jaw line; below the nose with rounder, U-shaped
+# plan sections and a smaller muzzle) united with the neck (NECK), as an
+# occupancy field on a voxel grid that is blurred (gaussian LOWER_BLUR). The
+# blur rounds the jaw edge, the chin and the under-jaw/throat junction into
+# one soft surface (a fillet where the jaw meets the neck), while broad
+# surfaces stay where they are. It fades in below the nose (LOWER_W_ROWS), so
+# the lower face meets the upper head's last ring exactly.
+# The mesh: loops from that ring down to the neck's open end. Each column is a
+# fan of rays from a point inside (LOWER_O) swept from the ring's vertex to
+# the neck end's; a vertex is where its ray leaves the surface. Each column's
+# loops are spaced evenly over three spans: the face down to the jaw edge, the
+# under-jaw band (where the surface faces down more than JAW_DOWN) and the
+# neck, so loops run along the jaw line and round the jaw edge and the throat.
+LOWER_TOP = RING_ROWS[-1]
+LOWER_SPLIT = LOWER_TOP           # face_point: below this row, the lower-face surface
+FIELD_BOX = ((0.0, 50.0), (214.0, 332.0), (114.0, 190.0))   # |X|, col, row [px]
+FIELD_VOX = 0.5                   # px per voxel
+LOWER_BLUR = 2.6                  # px: gaussian sigma of the occupancy blur
+LOWER_W_ROWS = (LOWER_TOP, 139.0)   # the blur fades in over these rows ...
+LOWER_W_NOSE = (7.0, 134.0, 141.0)  # ... and in below the nose: X sigma, rows
+# front half cross-section exponent below the nose (blended in from front_exp
+# over LOWER_RAMP rows, slowly: near the face's sides a lower exponent moves
+# the surface back by several px): rounder toward the jaw, so the plan
+# sections are U-shaped (narrowing to the chin) instead of boxes with a flat
+# front and square corners
+LOWER_FRONT_EXP = ((131.5, 2.55), (140.0, 2.25), (148.0, 2.08), (156.0, 2.0), (161.3, 2.0))
+LOWER_RAMP = (LOWER_TOP, 146.0)
+LOWER_MUZZLE = 0.45               # share of the muzzle kept below the nose; the rest goes into the base front
+# neck: row, front col, back col, half-width [px] (surface). The back is the
+# round-5 neck's; below row 158 the throat follows the sheet's line (cols
+# 272-275 over rows 158-170, 0.5-1.5 px in front of it); above, it leans
+# forward into the under-jaw, so the blur's fillet spreads over a longer turn.
+NECK = ((128.0, 272.0, 304.0, 15.8), (138.0, 270.0, 304.5, 16.0), (146.0, 268.5, 303.0, 15.5),
+        (151.0, 268.3, 301.6, 15.3), (155.0, 269.4, 300.8, 15.1), (158.0, 271.0, 300.6, 14.95),
+        (161.0, 272.8, 300.1, 14.85), (165.0, 273.8, 300.0, 14.8), (169.0, 275.2, 300.6, 14.8),
+        (174.0, 276.9, 302.1, 14.8), (190.0, 277.5, 303.0, 14.8))
+NECK_END = 174.0                  # the open end of the neck: inside the body's neck, under the choker
+LOWER_O = ((0.0, 287.0, 142.0), (0.0, 290.0, 128.0))   # ray origins (X, col, row): front, back columns
+LOWER_FAN = 240                   # rays per column when laying the loops out
+LOOPS_FACE, LOOPS_UNDER, LOOPS_NECK = 36, 15, 16
+JAW_DOWN = 0.62                   # the under-jaw band: the surface faces down more than this
+# below the nose only: a little more fullness in the cheek beside the mouth
+# (amplitude px, centre as share of the half-width, row, row sigma), so it
+# rounds into the chin instead of reading as a plane
+LOWER_CHEEK_FILL = (0.9, 0.5, 146.0, 6.0)
+# finer than the blur, applied to the blurred surface (forward along -Y, on
+# surfaces facing forward): the shallow fold under the lower lip and the chin
+# pad below it, so the mouth-to-chin profile is not one straight line.
+# (amplitude px (+ forward), row, row sigma, X sigma)
+LOWER_RELIEF = ((-0.45, 150.4, 1.9, 7.0), (0.35, 155.6, 2.6, 6.0))
+
+
+def lower_relief(X, row):
+    """Forward offset [px] of the lower face's fine relief at (X, row)."""
+    X, row = np.asarray(X, float), np.asarray(row, float)
+    return sum(a * np.exp(-((row - r0) / sr) ** 2 - (X / sx) ** 2) for a, r0, sr, sx in LOWER_RELIEF)
+
+
+def _px(p):
+    """World point -> (X px from the midline, side-view col, row)."""
+    return ((p[0] - HEAD_DX) * PPM, col_of(p[1]), row_of(p[2]))
+
+
+def _world(P):
+    return Vector((HEAD_DX + P[0] / PPM, yc(P[1]), zr(P[2])))
+
+
+def field_exp(row):
+    """Front half cross-section exponent of the lower-face field."""
+    e0 = front_exp(row)
+    t = float(_smooth(*LOWER_RAMP, row))
+    if t <= 0.0:
+        return e0
+    rows, vals = zip(*LOWER_FRONT_EXP)
+    return e0 + (float(np.interp(row, rows, vals)) - e0) * t
+
+
+def front_y_vec(row, X, detail):
+    """_front_y vectorized over X >= 0 (array), with the lower face's rounder
+    sections and smaller muzzle (identical to ring() down to LOWER_TOP). The
+    muzzle's removed share moves the base front forward, so the midline stays
+    on the measured profile."""
+    q = _ring_params(row, detail)
+    hw = q['hw']
+    ef = 2.0 / field_exp(row)
+    keep = 1.0 + (LOWER_MUZZLE - 1.0) * float(_smooth(*LOWER_RAMP, row))
+    u = np.clip(X / hw, 0.0, 1.0)
+    c = np.sqrt(np.clip(1.0 - u ** (2.0 / ef), 0.0, 1.0))
+    yp = (q['mid'] - (q['bf'] + q['muzzle'] * (1.0 - keep)) * c ** ef
+          - q['muzzle'] * keep * np.exp(-(X / MUZZLE_SIGMA) ** 2) - lower_cheek(X, row, hw))
+    amp, share, r0, sig = LOWER_CHEEK_FILL
+    yp = yp - (amp * float(_smooth(*LOWER_RAMP, row)) * np.exp(-((row - r0) / sig) ** 2)
+               * np.sin(np.pi * u) ** 1.5 * np.exp(-((u - share) / 0.35) ** 2))
+    if detail:
+        yp = yp - q['nose'] * np.exp(-(X / q['sig']) ** 2) - relief(X, row) * _smooth(0.05, 0.3, c)
+    return yp
+
+
+def _occ(d):
+    """Anti-aliased occupancy (the blur's input) from a signed distance [px]
+    (positive inside)."""
+    return np.clip(0.5 + d / FIELD_VOX, 0.0, 1.0)
+
+
+FAR = 50.0                        # px: 'distance' outside every section
+
+
+def _head_plane(row, X, C, detail):
+    """Signed in-plane distance [px, positive inside] to the measured head's
+    section on `row` at X (nx,) >= 0 and columns C (nc,): (nc, nx). The
+    section is the front half (front_y_vec) and the back half ellipse of
+    ring(); the distance is approximate, but zero exactly on the section."""
+    if not TABLE[0][0] <= row <= TABLE[-1][0]:
+        return np.full((len(C), len(X)), -FAR)
+    q = _ring_params(row, detail)
+    hw = q['hw']
+    Xc = np.minimum(X, hw)
+    yf = front_y_vec(row, Xc, detail)
+    yb = q['mid'] + q['bb'] * np.sqrt(np.clip(1.0 - (Xc / hw) ** 2, 0.0, 1.0))
+    gf, gb = np.gradient(yf, X), np.gradient(yb, X)
+    df = (C[:, None] - yf[None, :]) / np.sqrt(1.0 + gf[None, :] ** 2)
+    db = (yb[None, :] - C[:, None]) / np.sqrt(1.0 + gb[None, :] ** 2)
+    d = np.minimum(np.minimum(df, db), (hw - X)[None, :])
+    # near the outline the distance is exact (distance to the section's
+    # polyline): the estimate above depends on where the section's tip falls
+    # between the grid's X samples, which would leave ripples from row to row
+    near = np.abs(d) < 2.5
+    if near.any():
+        a = np.linspace(0.0, math.pi / 2, 160)
+        Xs = hw * np.sin(a) ** (2.0 / field_exp(row))
+        Ys = front_y_vec(row, Xs, detail)
+        Xb = hw * np.sin(a[::-1])
+        Yb = q['mid'] + q['bb'] * np.cos(a[::-1])
+        px = np.concatenate([-Xs[:0:-1], Xs, Xb[1:], -Xb[-2::-1]])
+        py = np.concatenate([Ys[:0:-1], Ys, Yb[1:], Yb[-2::-1]])
+        ci, xi = np.nonzero(near)
+        Q = np.stack([X[xi], C[ci]], 1)
+        A = np.stack([px[:-1], py[:-1]], 1)
+        B = np.stack([px[1:], py[1:]], 1)
+        AB = B - A
+        t = np.clip(((Q[:, None, :] - A[None]) * AB[None]).sum(2) / np.maximum((AB * AB).sum(1), 1e-12)[None], 0, 1)
+        dist = np.linalg.norm(Q[:, None, :] - A[None] - t[..., None] * AB[None], axis=2).min(1)
+        d[ci, xi] = np.sign(d[ci, xi]) * dist
+    return d
+
+
+def neck_at(row):
+    """(front col, back col, half-width) of the neck on `row`."""
+    cols = [np.array(c) for c in zip(*NECK)]
+    return tuple(float(np.interp(row, cols[0], c)) for c in cols[1:])
+
+
+def _neck_plane(row, X, C):
+    if row < NECK[0][0]:
+        return np.full((len(C), len(X)), -FAR)
+    f, b, w = neck_at(row)
+    cy, hd = (f + b) / 2, (b - f) / 2
+    # the blur pulls a round section in by ~sigma^2 / 2R: start that much fuller
+    g = LOWER_BLUR ** 2 / 2
+    hw, hd = w + g / w, hd + g / hd
+    ex, ey = X[None, :] / hw, (C[:, None] - cy) / hd
+    e = np.sqrt(ex ** 2 + ey ** 2)
+    grad = np.sqrt((ex / hw) ** 2 + (ey / hd) ** 2) / np.maximum(e, 1e-6)
+    return (1.0 - e) / np.maximum(grad, 1e-6)
+
+
+def _blur(a, sigma, axis):
+    k = int(math.ceil(3.0 * sigma))
+    w = np.exp(-0.5 * (np.arange(-k, k + 1) / sigma) ** 2)
+    w /= w.sum()
+    pad = [(0, 0)] * a.ndim
+    pad[axis] = (k, k)
+    p = np.pad(a, pad, mode='edge')
+    out = np.zeros_like(a)
+    n = a.shape[axis]
+    for i, wi in enumerate(w):
+        sl = [slice(None)] * a.ndim
+        sl[axis] = slice(i, i + n)
+        out += wi * p[tuple(sl)]
+    return out
+
+
+class LowerField:
+    """F < 0 inside the lower-face surface, F = 0 on it (panel px coordinates
+    X, col, row; symmetric in X). Trilinear on a FIELD_VOX grid."""
+
+    def __init__(self, detail):
+        self.detail = detail
+        (x0, x1), (c0, c1), (r0, r1) = FIELD_BOX
+        v = FIELD_VOX
+        self.X = np.arange(x0, x1 + v / 2, v)
+        self.C = np.arange(c0, c1 + v / 2, v)
+        self.R = np.arange(r0, r1 + v / 2, v)
+        dist = np.empty((len(self.R), len(self.C), len(self.X)), np.float32)
+        for i, row in enumerate(self.R):
+            dist[i] = np.maximum(_head_plane(row, self.X, self.C, detail), _neck_plane(row, self.X, self.C))
+        occ = _occ(dist)
+        nx = len(self.X)
+        full = np.concatenate([occ[:, :, :0:-1], occ], axis=2)    # mirror: -X .. X
+        for ax in range(3):
+            full = _blur(full, LOWER_BLUR / v, ax)
+        blur = full[:, :, nx - 1:]
+        sx, r_a, r_b = LOWER_W_NOSE
+        w = (_smooth(LOWER_W_ROWS[0], LOWER_W_ROWS[1], self.R)[:, None, None]
+             * (1.0 - np.exp(-(self.X / sx) ** 2)[None, None, :]
+                * (1.0 - _smooth(r_a, r_b, self.R))[:, None, None]))
+        # unblurred: the plain signed distance, which (unlike the occupancy) is
+        # smooth across rows too, scaled to the blurred field's slope at the
+        # surface (a step blurred by sigma rises 1 / (sqrt(2 pi) sigma) per px)
+        g = 1.0 / (math.sqrt(2.0 * math.pi) * LOWER_BLUR)
+        self.F = ((1.0 - w) * (-g * dist) + w * (0.5 - blur)).astype(np.float32)
+
+    def sample(self, P):
+        P = np.asarray(P, float).reshape(-1, 3)
+        v = FIELD_VOX
+        f = np.stack([(P[:, 2] - self.R[0]) / v, (P[:, 1] - self.C[0]) / v, (np.abs(P[:, 0]) - self.X[0]) / v], 1)
+        f = np.clip(f, 0.0, np.array(self.F.shape) - 1.000001)
+        i = np.floor(f).astype(int)
+        t = f - i
+        out = np.zeros(len(P))
+        for a in (0, 1):
+            wa = t[:, 0] if a else 1.0 - t[:, 0]
+            for b in (0, 1):
+                wb = wa * (t[:, 1] if b else 1.0 - t[:, 1])
+                for c in (0, 1):
+                    out += wb * (t[:, 2] if c else 1.0 - t[:, 2]) * self.F[i[:, 0] + a, i[:, 1] + b, i[:, 2] + c]
+        return out
+
+    def normal(self, P, h=0.5):
+        """Outward unit normal (px coordinates) at points P (N, 3)."""
+        P = np.asarray(P, float).reshape(-1, 3)
+        g = np.stack([self.sample(P + e) - self.sample(P - e) for e in np.eye(3) * h], 1)
+        return g / np.maximum(np.linalg.norm(g, axis=1, keepdims=True), 1e-12)
+
+    def ray_hits(self, O, D, tmax=80.0, step=0.4):
+        """Distance along each ray O + t D (O, D: (N, 3) or (3,), D unit, px) to
+        where it first leaves the surface, and the number of surface crossings
+        along it."""
+        D = np.asarray(D, float).reshape(-1, 3)
+        O = np.broadcast_to(np.asarray(O, float).reshape(-1, 3), D.shape)
+        ts = np.arange(0.0, tmax, step)
+        f = self.sample(O[:, None, :] + ts[None, :, None] * D[:, None, :]).reshape(len(D), len(ts))
+        out = f > 0.0
+        j = np.argmax(out, axis=1)
+        if not out[np.arange(len(D)), j].all() or (j == 0).any():
+            raise ValueError('head: a lower-face ray does not leave the surface; check LOWER_O / FIELD_BOX')
+        lo, hi = ts[j - 1], ts[j]
+        for _ in range(30):
+            mid = (lo + hi) / 2
+            inside = self.sample(O + mid[:, None] * D) < 0.0
+            lo, hi = np.where(inside, mid, lo), np.where(inside, hi, mid)
+        return (lo + hi) / 2, np.count_nonzero(np.diff(out.astype(int), axis=1), axis=1)
+
+    def relieved(self, P):
+        """Surface points P (N, 3) moved by the fine relief (detailed head only),
+        faded out where the surface does not face forward."""
+        P = np.array(P, float).reshape(-1, 3)
+        if not self.detail:
+            return P
+        n = self.normal(P)
+        P[:, 1] -= lower_relief(np.abs(P[:, 0]), P[:, 2]) * np.clip(-n[:, 1] * 1.4 - 0.4, 0.0, 1.0) ** 2
+        return P
+
+    def front_points(self, X, row):
+        """Points (N, 3, px) where the front view's lines of sight at (X, row)
+        (arrays) meet the surface, with the fine relief."""
+        X, row = np.asarray(X, float).ravel(), np.asarray(row, float).ravel()
+        cols = np.arange(FIELD_BOX[1][0], 300.0, 0.25)
+        n = len(X)
+        grid = np.stack([np.repeat(X, len(cols)), np.tile(cols, n), np.repeat(row, len(cols))], 1)
+        inside = (self.sample(grid) < 0.0).reshape(n, len(cols))
+        j = np.argmax(inside, axis=1)
+        if not inside[np.arange(n), j].all() or (j == 0).any():
+            raise ValueError('head: a front-view line of sight misses the lower-face surface')
+        lo, hi = cols[j - 1], cols[j]
+        for _ in range(30):
+            mid = (lo + hi) / 2
+            ins = self.sample(np.stack([X, mid, row], 1)) < 0.0
+            lo, hi = np.where(ins, lo, mid), np.where(ins, mid, hi)
+        return self.relieved(np.stack([X, (lo + hi) / 2, row], 1))
+
+    def front_point(self, X, row):
+        """World point where the front view's line of sight at (X, row) meets the surface."""
+        return _world(self.front_points([X], [row])[0])
+
+
+_FIELDS = {}
+
+
+def lower_field(detail=True):
+    if detail not in _FIELDS:
+        _FIELDS[detail] = LowerField(detail)
+    return _FIELDS[detail]
+
+
+def _slerp(a, b, t):
+    om = np.arccos(np.clip(np.sum(a * b, axis=-1, keepdims=True), -1.0, 1.0))
+    so = np.maximum(np.sin(om), 1e-9)
+    return np.sin((1.0 - t) * om) / so * a + np.sin(t * om) / so * b
+
+
+def _circ_fill(v):
+    """Fill NaNs of a circular sequence by interpolation from its valid entries."""
+    v = np.asarray(v, float)
+    ok = np.isfinite(v)
+    if ok.all() or not ok.any():
+        return v
+    n = len(v)
+    k = np.arange(n)
+    kk, vv = k[ok], v[ok]
+    return np.where(ok, v, np.interp(k, np.concatenate([kk - n, kk, kk + n]), np.concatenate([vv, vv, vv])))
+
+
+def _lower_layout(top, fld):
+    """Ray directions of the lower loops (L, K, 3), from the detailed head."""
+    K = len(top)
+    ca = np.cos(ring_angles(K))[:, None]
+    O = (np.array(LOWER_O[0]) * (1.0 + ca) + np.array(LOWER_O[1]) * (1.0 - ca)) / 2   # K, 3
+    Ptop = np.array([_px(p) for p in top])
+    f, b, w = neck_at(NECK_END)
+    cy, hd = (f + b) / 2, (b - f) / 2
+    Pbot = np.array([(w * math.sin(a), cy - hd * math.cos(a), NECK_END) for a in ring_angles(K)])
+    d0 = Ptop - O
+    d1 = Pbot - O
+    d0 /= np.linalg.norm(d0, axis=1, keepdims=True)
+    d1 /= np.linalg.norm(d1, axis=1, keepdims=True)
+    T = np.linspace(0.0, 1.0, LOWER_FAN)
+    fan = _slerp(d0[:, None, :], d1[:, None, :], T[None, :, None])           # K, T, 3
+    t, cross = fld.ray_hits(np.repeat(O, LOWER_FAN, axis=0), fan)
+    H = (np.repeat(O, LOWER_FAN, axis=0) + t[:, None] * fan.reshape(-1, 3)).reshape(K, LOWER_FAN, 3)
+    n = fld.normal(H.reshape(-1, 3)).reshape(K, LOWER_FAN, 3)
+    s = np.concatenate([np.zeros((K, 1)), np.cumsum(np.linalg.norm(np.diff(H, axis=1), axis=2), axis=1)], 1)
+    down = n[..., 2] > JAW_DOWN
+    # (not the underside of the nose)
+    allowed = (H[..., 2] > 138.0) & ~((np.abs(H[..., 0]) < 12.0) & (H[..., 2] < 143.0))
+    fJ, fT = np.full(K, np.nan), np.full(K, np.nan)
+    for k in range(K):
+        idx = np.nonzero(down[k] & allowed[k])[0]
+        if not len(idx):
+            continue
+        after = np.nonzero(~down[k, idx[0]:])[0]
+        if len(after):
+            fJ[k] = s[k, idx[0]] / s[k, -1]
+            fT[k] = s[k, idx[0] + after[0]] / s[k, -1]
+    if not np.isfinite(fJ).any():
+        raise ValueError('head: no under-jaw band found')
+    fJ, fT = _circ_fill(fJ), _circ_fill(fT)
+    for _ in range(6):
+        fJ = (np.roll(fJ, 1) + 2 * fJ + np.roll(fJ, -1)) / 4
+        fT = (np.roll(fT, 1) + 2 * fT + np.roll(fT, -1)) / 4
+    fJ = np.clip(fJ, 0.1, 0.84)
+    fT = np.clip(np.maximum(fT, fJ + 0.08), 0.0, 0.94)
+    fr = np.concatenate([fJ[None] * (np.arange(1, LOOPS_FACE + 1) / LOOPS_FACE)[:, None],
+                         fJ[None] + (fT - fJ)[None] * (np.arange(1, LOOPS_UNDER + 1) / LOOPS_UNDER)[:, None],
+                         fT[None] + (1.0 - fT)[None] * (np.arange(1, LOOPS_NECK + 1) / LOOPS_NECK)[:, None]])
+    tt = np.array([[np.interp(fr[j, k] * s[k, -1], s[k], T) for k in range(K)] for j in range(len(fr))])
+    dirs = _slerp(np.broadcast_to(d0, tt.shape + (3,)), np.broadcast_to(d1, tt.shape + (3,)), tt[..., None])
+    half = K // 2
+    step = np.diff(s, axis=1)
+    kmax, jmax = np.unravel_index(np.argmax(step), step.shape)
+    cross = cross.reshape(K, LOWER_FAN)
+    kc, jc = np.unravel_index(np.argmax(cross), cross.shape)
+    print(f'HEAD lower loops: {len(fr)} x {K}; fan step max {step[kmax, jmax]:.2f} px (column {kmax}, at '
+          f'{np.round(H[kmax, jmax], 1).tolist()}); crossings max {int(cross[kc, jc])} (column {kc}, at '
+          f'{np.round(H[kc, jc], 1).tolist()}); front jaw band {fJ[half] * s[half, -1]:.1f}..'
+          f'{fT[half] * s[half, -1]:.1f} of {s[half, -1]:.1f} px')
+    # every ray must leave the surface once: a ray that leaves and comes back
+    # in skips the surface it hides (stretched quads), so the origins are wrong
+    if cross.max() > 1 or step.max() > 5.0:
+        raise ValueError('head: the lower-face rays do not see the whole surface from LOWER_O '
+                         f'(crossings {int(cross.max())}, fan step {step.max():.2f} px)')
+    return {'dirs': dirs, 'orig': np.broadcast_to(O, dirs.shape).copy(), 'iJ': LOOPS_FACE,
+            'iT': LOOPS_FACE + LOOPS_UNDER}
+
+
+def lower_loops(top, detail, layout=None):
+    """World points of the lower loops (below the ring `top`, which is not
+    repeated) down to the neck end. layout (from the detailed head) fixes the
+    rays, so the smooth head (shading normals) gets the same vertices on its
+    own surface."""
+    fld = lower_field(detail)
+    if layout is None:
+        layout = _lower_layout(top, fld)
+    D, O = layout['dirs'], layout['orig'].reshape(-1, 3)
+    t, _ = fld.ray_hits(O, D)
+    P = fld.relieved(O + t[:, None] * D.reshape(-1, 3)).reshape(D.shape)
+    return [[_world(p) for p in lp] for lp in P], layout
+
+
+def mouth_patch(pts, i_top):
+    """The mouth's patch on the lower loops: between the loops nearest the
+    MOUTH_BOX rows at the midline, MOUTH_BOX's half-width wide at the mouth."""
+    half = N_RING // 2
+    front = [row_of(lp[half].z) for lp in pts]
+    (ra, rb), mx = MOUTH_BOX
+    cand = range(i_top + 1, len(pts))
+    near = lambda r: min(cand, key=lambda i: abs(front[i] - r))   # noqa: E731
+    im = near(MOUTH_ROW)
+    m = next(d for d in range(1, half) if abs(pts[im][half + d].x - HEAD_DX) * PPM >= mx)
+    return near(ra), near(rb), half - m, half + m
+
+
+def build_head(detail=True, eye_fit=None, layout=None):
+    """BMesh of head_face, its patches, the eyeballs and the lower-face layout.
+    eye_fit: the left eyeball (centre, radius) from the detailed head; fitted
+    here when None. layout: the detailed head's (see lower_loops)."""
     angles, rows = ring_angles(N_RING), RING_ROWS
+    pts = [ring(r, angles, detail) for r in rows]
+    lower, layout = lower_loops(pts[-1], detail, layout)
+    pts += lower
     patches = make_patches(angles, rows)
+    if 'mouth' not in layout:
+        layout['mouth'] = mouth_patch(pts, len(rows) - 1)
+    patches.append(Patch('mouth', 0, *layout['mouth']))
     skip_v = set().union(*(p.interior() for p in patches))
     skip_f = set().union(*(p.cells() for p in patches))
     bm = bmesh.new()
     grid = {}
-    for i, r in enumerate(rows):
-        pts = ring(r, angles, detail)
-        for k, p in enumerate(pts):
+    for i, lp in enumerate(pts):
+        for k, p in enumerate(lp):
             if (i, k) not in skip_v:
                 grid[i, k] = bm.verts.new(p)
-    for i in range(len(rows) - 1):
+    for i in range(len(pts) - 1):
         for k in range(N_RING):
             if (i, k) in skip_f:
                 continue
             k2 = (k + 1) % N_RING
             bm.faces.new((grid[i, k], grid[i, k2], grid[i + 1, k2], grid[i + 1, k]))
-    bm.faces.new([grid[0, k] for k in reversed(range(N_RING))])
-    bm.faces.new([grid[len(rows) - 1, k] for k in range(N_RING)])
+    bm.faces.new([grid[0, k] for k in reversed(range(N_RING))])   # the neck end stays open
 
     eyes = {}
     for p in patches:
-        build_patch(bm, p, grid, angles, rows, detail)
+        if p.kind == 'eye':
+            build_patch(bm, p, grid, angles, rows, detail)
+        else:
+            build_mouth_patch(bm, p, grid, detail)
         if p.kind == 'eye' and p.side > 0:
             eyes[1] = eye_fit if eye_fit else fit_eyeball([bm.verts[v].co.copy() for v in p.loops[0]])
             eyes[-1] = mirror_eye(eyes[1])
+    _sync(bm)
+    layout.setdefault('vloop', {v.index: i for (i, k), v in grid.items()})
     for v in bm.verts:
         v.co = hug(v.co, eyes)
     for p in patches:
@@ -828,7 +1252,7 @@ def build_head(detail=True, eye_fit=None):
     front = min(bm.faces, key=lambda f: f.calc_center_median().y)
     if front.normal.y > 0:
         bmesh.ops.reverse_faces(bm, faces=bm.faces)
-    return bm, patches, eyes
+    return bm, patches, eyes, layout
 
 
 HUG_BAND = (0.5, 5.0)            # px outside the opening: lids drape on the eyeball .. own shape
@@ -886,59 +1310,84 @@ def _sync(bm):
     bm.verts.ensure_lookup_table()
 
 
-def build_patch(bm, p, grid, angles, rows, detail):
-    """Concentric loops from the grid boundary to the feature's opening."""
-    eye = p.kind == 'eye'
-    start_x = EYE_CX if eye else 0.0
-    c0, c0_corners = eye_polygon() if eye else mouth_polygon()
-    start = min(range(p.kl0 + 1, p.kl1), key=lambda kl: abs(x_of_a(angles[kl], rows[p.i0]) - start_x))
-    bnd = p.boundary(start)
-    bverts = [grid[i, p.k(kl)] for i, kl in bnd]
+def _patch_boundary(p, grid, start):
+    """The patch's grid boundary vertices (clockwise on screen from `start` on
+    the top edge) and each one's arc-length fraction around it."""
+    bverts = [grid[i, p.k(kl)] for i, kl in p.boundary(start)]
     seg = [(bverts[(m + 1) % len(bverts)].co - bverts[m].co).length for m in range(len(bverts))]
-    fr = np.concatenate([[0.0], np.cumsum(seg)[:-1]]) / sum(seg)
-    C0 = _resample(c0, fr, c0_corners)
-    if eye:
-        mid = lambda X: (lash_bottom(X) + lower_lid(X)) / 2   # noqa: E731
-        p.upper = [r < mid(min(max(X, EYE_IN), EYE_OC)) - 1e-6 for X, r in C0]
-        C1 = [eye_outer_point(X, r, up) for (X, r), up in zip(C0, p.upper)]
-        ts = EYE_LOOPS
-    else:
-        p.upper = [r < float(mouth_row(X)) - 1e-6 for X, r in C0]
-        lips, lip_corners = mouth_polygon(grow=0.9)
-        C1 = _resample(lips, fr, lip_corners)
-        ts = MOUTH_LOOPS
-    sgn = p.sign()
-    # loops in (local angle, row): C1 -> boundary
-    b_par = [(angles[kl], rows[i]) for i, kl in bnd]
-    c1_par = [(a_of_x(X, r), r) for X, r in C1]
-    loops_par = []
-    for t in ts:
-        loops_par.append([(a1 + (ab - a1) * t, r1 + (rb - r1) * t) for (a1, r1), (ab, rb) in zip(c1_par, b_par)])
+    return bverts, np.concatenate([[0.0], np.cumsum(seg)[:-1]]) / sum(seg)
 
-    def world(par):
-        return surf(par[0] * sgn, par[1], detail)
 
-    def px_of(par):
-        return (x_of_a(par[0], par[1]), par[1])
-
-    loops = [[_new_vert(bm, face_point(X * sgn, r, detail)) for X, r in C0],
-             [_new_vert(bm, face_point(X * sgn, r, detail)) for X, r in C1]]
-    p.px = [list(C0), list(C1)]
-    p.fade = [1.0, 1.0]
-    for t, lp in zip(ts, loops_par):
-        loops.append([_new_vert(bm, world(par)) for par in lp])
-        p.px.append([px_of(par) for par in lp])
-        p.fade.append((1.0 - t) ** 1.5)
-    loops.append(bverts)
-    p.px.append([px_of(par) for par in b_par])
-    p.fade.append(0.0)
-    n = len(bverts)
+def _bridge(bm, p, loops):
+    """Quads between consecutive patch loops (BMVerts, the opening first)."""
+    n = len(loops[0])
     for a, b in zip(loops, loops[1:]):
         for m in range(n):
             m2 = (m + 1) % n
             bm.faces.new((a[m], a[m2], b[m2], b[m]))
     _sync(bm)
     p.loops = [[v.index for v in lp] for lp in loops]
+
+
+def build_patch(bm, p, grid, angles, rows, detail):
+    """Concentric loops from the grid boundary to the eye opening, laid out
+    in (ring angle, row) on the upper head's rings."""
+    start = min(range(p.kl0 + 1, p.kl1), key=lambda kl: abs(x_of_a(angles[kl], rows[p.i0]) - EYE_CX))
+    bverts, fr = _patch_boundary(p, grid, start)
+    c0, c0_corners = eye_polygon()
+    C0 = _resample(c0, fr, c0_corners)
+    mid = lambda X: (lash_bottom(X) + lower_lid(X)) / 2   # noqa: E731
+    p.upper = [r < mid(min(max(X, EYE_IN), EYE_OC)) - 1e-6 for X, r in C0]
+    C1 = [eye_outer_point(X, r, up) for (X, r), up in zip(C0, p.upper)]
+    sgn = p.sign()
+    # loops in (local angle, row): C1 -> boundary
+    b_par = [(angles[kl], rows[i]) for i, kl in p.boundary(start)]
+    c1_par = [(a_of_x(X, r), r) for X, r in C1]
+    loops_par = [[(a1 + (ab - a1) * t, r1 + (rb - r1) * t) for (a1, r1), (ab, rb) in zip(c1_par, b_par)]
+                 for t in EYE_LOOPS]
+
+    def px_of(par):
+        return (x_of_a(par[0], par[1]), par[1])
+
+    loops = [[_new_vert(bm, face_point(X * sgn, r, detail)) for X, r in C] for C in (C0, C1)]
+    p.px = [list(C0), list(C1)]
+    p.fade = [1.0, 1.0]
+    for t, lp in zip(EYE_LOOPS, loops_par):
+        loops.append([_new_vert(bm, surf(a * sgn, r, detail)) for a, r in lp])
+        p.px.append([px_of(par) for par in lp])
+        p.fade.append((1.0 - t) ** 1.5)
+    loops.append(bverts)
+    p.px.append([px_of(par) for par in b_par])
+    p.fade.append(0.0)
+    _bridge(bm, p, loops)
+
+
+def build_mouth_patch(bm, p, grid, detail):
+    """Concentric loops from the grid boundary to the mouth slit, laid out in
+    front-view (X, row) and placed on the lower-face surface."""
+    start = min(range(p.kl0 + 1, p.kl1), key=lambda kl: abs(grid[p.i0, p.k(kl)].co.x - HEAD_DX))
+    bverts, fr = _patch_boundary(p, grid, start)
+    c0, c0_corners = mouth_polygon()
+    C0 = _resample(c0, fr, c0_corners)
+    p.upper = [r < float(mouth_row(X)) - 1e-6 for X, r in C0]
+    lips, lip_corners = mouth_polygon(grow=0.9)
+    C1 = _resample(lips, fr, lip_corners)
+    B = [((v.co.x - HEAD_DX) * PPM, row_of(v.co.z)) for v in bverts]
+    p.px = [list(C0), list(C1)]
+    p.fade = [1.0, 1.0]
+    for t in MOUTH_LOOPS:
+        p.px.append([(x1 + (xb - x1) * t, r1 + (rb - r1) * t) for (x1, r1), (xb, rb) in zip(C1, B)])
+        p.fade.append((1.0 - t) ** 1.5)
+    flat = [xr for lp in p.px for xr in lp]
+    pts = lower_field(detail).front_points([x for x, _ in flat], [r for _, r in flat])
+    loops, k = [], 0
+    for lp in p.px:
+        loops.append([_new_vert(bm, _world(P)) for P in pts[k:k + len(lp)]])
+        k += len(lp)
+    loops.append(bverts)
+    p.px.append(B)
+    p.fade.append(0.0)
+    _bridge(bm, p, loops)
 
 
 def add_eye_rim(bm, p, c, r):
@@ -1011,22 +1460,63 @@ def eye_motion(name, X, row, upper):
     return 0.0, close + spread - row, 0.0
 
 
+# The vowels open the jaw: everything below the mouth line (lower lip, chin,
+# under-jaw, the lower half of the mouth pouch) turns about the jaw hinge
+# (below the ear) by JAW_OPEN degrees, times jaw_share(); the lips then shape
+# the opening (mouth_motion). The throat and neck stay (the share fades out
+# over the first neck loops), and the cheeks stretch between.
+JAW_OPEN = {'あ': 9.0, 'い': 2.2, 'う': 2.2, 'え': 5.2, 'お': 6.5}   # degrees
+JAW_HINGE = (287.0, 133.0)        # side-view col, row of the hinge axis (along X)
+JAW_LINE = (0.45, 4.0, 0.35)      # the jaw's moving part ends along a line rising from the mouth
+#                                   corners toward the hinge: rise per px of X, band half-width + growth per px
+
+
 def mouth_motion(name, X, row, upper):
-    """(dX, drow, forward) of a slit vertex in the mouth morph `name` [px]."""
+    """(dX, drow, forward) of a slit vertex in the mouth morph `name` [px]:
+    the lips' own shape, on top of the jaw."""
     w = max(0.0, 1.0 - (X / MOUTH_HALF) ** 2) ** 0.7
+    pull = 1.0 - 0.3 * abs(X) / MOUTH_HALF
     if name == 'あ':
-        return -0.1 * X, (-0.5 if upper else 3.4) * w, 0.0
-    if name == 'い':
-        return 0.2 * X, (-0.35 if upper else 0.9) * w - 0.5 * (1 - w), 0.0
+        return 0.14 * X, (-0.55 if upper else 0.1) * w, 0.0
+    if name == 'い':     # wide, corners up a little
+        return 0.3 * X, (-0.3 if upper else 0.15) * w - 0.5 * (1 - w), 0.0
     if name == 'え':
-        return 0.06 * X, (-0.45 if upper else 2.0) * w, 0.0
+        return 0.22 * X, (-0.5 if upper else 0.1) * w - 0.25 * (1 - w), 0.0
     if name == 'お':
-        return -0.28 * X, (-0.6 if upper else 2.8) * w, 0.5 * (1.0 - 0.3 * abs(X) / MOUTH_HALF)
+        return -0.34 * X, (-0.6 if upper else 0.15) * w, 0.9 * pull
     # う: a small, round, pursed mouth
-    return -0.4 * X, (-0.5 if upper else 0.9) * w, 0.9 * (1.0 - 0.3 * abs(X) / MOUTH_HALF)
+    return -0.45 * X, (-0.35 if upper else 0.15) * w, 1.4 * pull
 
 
-def morph_targets(name, patches, eyes, co):
+def jaw_share(X, row, col, upper=None):
+    """Share of the jaw's turn a point (front-view X, row; side-view col) takes:
+    1 below the mouth line, 0 above it, a soft band between that rises from
+    the mouth corners toward the hinge. Across the slit the lips part: the
+    lower lip takes all of it, the upper none, the corners half. upper: for
+    vertices on the slit (and its rim), which side they are on."""
+    X = abs(X)
+    rise, band, grow = JAW_LINE
+    ex = max(0.0, X - MOUTH_HALF)
+    b = float(mouth_row(min(X, MOUTH_HALF))) - rise * ex
+    s = float(_smooth(b - band - grow * ex, b + band + grow * ex, row))
+    w = max(0.0, 1.0 - (X / MOUTH_HALF) ** 2) ** 0.25    # (a broad, D-shaped opening)
+    below = (row > b) if upper is None else not upper
+    s = s + w * (1.0 - s) if below else s - w * s
+    # nothing behind the hinge, and nothing at the fixed upper head
+    return (s * (1.0 - float(_smooth(JAW_HINGE[0] - 10.0, JAW_HINGE[0] + 2.0, col)))
+            * float(_smooth(LOWER_TOP, LOWER_TOP + 5.0, row)))
+
+
+def _jaw_turn(co, share, ang):
+    """`co` turned about the jaw hinge by ang * share (radians, opening)."""
+    h = Vector((HEAD_DX, yc(JAW_HINGE[0]), zr(JAW_HINGE[1])))
+    a = ang * share
+    d = co - h
+    ca, sa = math.cos(a), math.sin(a)
+    return h + Vector((d.x, d.y * ca - d.z * sa, d.y * sa + d.z * ca))
+
+
+def morph_targets(name, patches, eyes, co, layout):
     """{vertex index: world position} of the morph `name`; co: rest positions."""
     out = {}
     for p in patches:
@@ -1035,7 +1525,7 @@ def morph_targets(name, patches, eyes, co):
                 continue
             out.update(_eye_targets(name, p, eyes, co))
         elif p.kind == 'mouth' and name in MOUTH_MORPHS:
-            out.update(_mouth_targets(name, p, eyes, co))
+            out.update(_mouth_targets(name, p, eyes, co, layout))
     return out
 
 
@@ -1117,13 +1607,39 @@ def _clear_sphere(out, co, c, r, p):
             break
 
 
-def _mouth_targets(name, p, eyes, co):
+def _mouth_targets(name, p, eyes, co, layout):
     out, fwd = _moved(p, lambda X, row, up: mouth_motion(name, X, row, up), co, eyes)
     for v, pt in out.items():
         pt.y -= fwd[v]
     for w, v in zip(p.wall, p.loops[0]):
         if v in out:
             out[w] = pouch_back(out[v])
+    ang = math.radians(JAW_OPEN.get(name, 0.0))
+    if ang <= 0.0:
+        return out
+    upper = dict(zip(p.loops[0], p.upper))
+    upper.update(zip(p.wall, p.upper))
+    i_top, i_neck = len(RING_ROWS) - 1, len(RING_ROWS) - 1 + layout['iT']
+    share = {}
+    for v, i in layout['vloop'].items():          # the grid: fades out down the neck
+        if i > i_top:
+            share[v] = 1.0 - float(_smooth(i_neck - 1.0, i_neck + 4.0, i))
+    for lp in p.loops:                            # the patch, the slit and its rim
+        for v in lp:
+            share[v] = 1.0
+    for v in p.wall:
+        share[v] = 1.0
+    centre = row_of(co[p.pouch[-1]].z)
+    for v in p.pouch:                             # the pouch: its lower half goes with the jaw
+        share[v] = None
+    for v, f in share.items():
+        X, col, row = _px(co[v])
+        if f is None:
+            s = 0.5 + 0.5 * max(-1.0, min(1.0, (row - centre) / POUCH_SIZE[1]))
+        else:
+            s = jaw_share(X, row, col, upper.get(v)) * f
+        if s > 1e-6:
+            out[v] = _jaw_turn(out.get(v, co[v]), s, ang)
     return out
 
 
@@ -1169,19 +1685,22 @@ def shade_keep(co):
     return SHADE_KEEP[1] + (SHADE_KEEP[0] - SHADE_KEEP[1]) * f
 
 
-def set_shading_normals(me, smooth, own=(), rim_of=None):
+def set_shading_normals(me, smooth, own=(), rim_of=None, tilt=None):
     """Custom normals: mostly the smooth face form (no nose / lid / lip detail,
     so the two-tone shading stays clean), blended with some of the real normal
     so the lids and cheeks still turn the light a little. `own`: vertices that
     keep their real normal (the mouth pouch). `rim_of`: {vertex: opening
     vertex} for the rims rolling into the openings, which take their opening
-    vertex's normal, so the lid edge never turns dark in a sliver."""
+    vertex's normal, so the lid edge never turns dark in a sliver. `tilt`:
+    {vertex: vector} added to the shading normal (see shade_tilts)."""
     normals = []
     for v, n in zip(me.vertices, smooth):
         k = 1.0 if v.index in own else shade_keep(v.co)
         normals.append((n * (1 - k) + v.normal * k).normalized())
     for v, src in (rim_of or {}).items():
         normals[v] = normals[src]
+    for v, t in (tilt or {}).items():
+        normals[v] = (normals[v] + t).normalized()
     me.normals_split_custom_set_from_vertices(normals)
     return normals
 
@@ -1332,38 +1851,25 @@ def ear_mesh(side):
     return bm
 
 
-NECK_LINE_ROWS = (155.0, 161.0)   # the neck outline fades in between these rows (below the jaw junction)
 NECK_SHADE_ROW = 166.0    # the neck's shading normals turn under the jaw above this row
 NECK_SHADE_BAND = 8.0     # ... over this many rows either side (no hard edge)
-NECK_TILT = Vector((0.0, 0.6, -0.8)) * 0.15   # added to the real normal: down and back
+NECK_TILT = Vector((0.0, 0.6, -0.8)) * 0.15   # added to the shading normal: down and back
 
 
-def set_neck_normals(me):
-    """The sheet draws a band of shade under the chin. Tilt the upper neck's
-    real normals down and back (away from the camera-relative key light) and
-    fade the tilt out over NECK_SHADE_BAND rows around NECK_SHADE_ROW, so the
-    shade edge sits a few px below the jaw, still turns around the neck, and
-    the neck meets the body's neck lit. The jaw's cast shadow lands on top."""
+def shade_tilts(me, vloop, i_neck):
+    """{vertex: vector} added to the neck's shading normals. The sheet draws a
+    band of shade under the chin: the neck's normals tilt down and back (away
+    from the camera-relative key light), fading in over the loops around the
+    throat (i_neck: the last under-jaw loop) and out over NECK_SHADE_BAND rows
+    around NECK_SHADE_ROW, so the shade edge sits a few px below the jaw, still
+    turns around the neck, and the neck meets the body's neck lit."""
     lo, hi = zr(NECK_SHADE_ROW + NECK_SHADE_BAND), zr(NECK_SHADE_ROW - NECK_SHADE_BAND)
-    out = []
-    for v in me.vertices:
-        w = float(_smooth(lo, hi, v.co.z))
-        out.append((v.normal + NECK_TILT * w).normalized())
-    me.normals_split_custom_set_from_vertices(out)
-
-
-def neck_mesh():
-    """Top of the neck, from inside the head down to just above the choker."""
-    # row, depth centre [col], half-width, half-depth [px]: the top flares
-    # back into the base of the skull instead of meeting it as a plain tube
-    # the throat also leans forward into the jaw's underside as a broad fillet
-    # (it meets the underside at ~150 deg, not square), so the jaw rolls into
-    # the neck instead of sitting on a cylinder
-    rows = [(138.0, 288.5, 16.0, 16.0), (146.0, 285.0, 15.5, 18.0), (151.0, 283.6, 15.3, 18.0),
-            (155.0, 284.0, 15.1, 16.8), (158.0, 284.6, 14.95, 16.0), (161.0, 285.8, 14.85, 14.3),
-            (165.0, 286.9, 14.8, 13.1), (169.0, 287.9, 14.8, 12.7), (174.0, 289.5, 14.8, 12.6)]
-    rings = [common.ellipse_ring((HEAD_DX, yc(cy), zr(r)), w / PPM, d / PPM, 28) for r, cy, w, d in rows]
-    return common.loft(rings, closed=True, cap_start=True, cap_end=False)
+    out = {}
+    for v, i in vloop.items():
+        w = float(_smooth(i_neck - 3.0, i_neck + 2.0, i)) * float(_smooth(lo, hi, me.vertices[v].co.z))
+        if w > 0.0:
+            out[v] = NECK_TILT * w
+    return out
 
 
 # ---------------------------------------------------------------- build
@@ -1375,9 +1881,9 @@ def build(col):
     white_mat = face_material(eye_texture_pixels(), 'toon_face_eyewhite', 'levi_eyewhite_tex')
     iris_mat = face_material(eye_texture_pixels(iris_only=True), 'toon_face_iris', 'levi_iris_tex')
 
-    bm, patches, eyes = build_head(detail=True)
+    bm, patches, eyes, layout = build_head(detail=True)
     co = [v.co.copy() for v in bm.verts]
-    smooth_bm, _, _ = build_head(detail=False, eye_fit=eyes[1])
+    smooth_bm, _, _, _ = build_head(detail=False, eye_fit=eyes[1], layout=layout)
     smooth_bm.normal_update()
     smooth = [v.normal.copy() for v in smooth_bm.verts]
     smooth_bm.free()
@@ -1395,11 +1901,12 @@ def build(col):
     me.shade_smooth()
     set_face_uv(me)
     set_eye_region(me, pixels, skip=own)
-    set_shading_normals(me, smooth, own - set(rim_of), rim_of)
+    set_shading_normals(me, smooth, own - set(rim_of), rim_of,
+                        shade_tilts(me, layout['vloop'], len(RING_ROWS) - 1 + layout['iT']))
     head.shape_key_add(name='Basis', from_mix=False)
     for name in EYE_MORPHS + MOUTH_MORPHS:
         kb = head.shape_key_add(name=name, from_mix=False)
-        for v, pt in morph_targets(name, patches, eyes, co).items():
+        for v, pt in morph_targets(name, patches, eyes, co, layout).items():
             kb.data[v].co = pt
         kb.value = 0.0   # a new key is not guaranteed to start at 0
     # no outline hull on the rims rolling into the openings and the pouch: seen
@@ -1422,16 +1929,7 @@ def build(col):
         common.shade_smooth(ear, 80)
         common.add_outline(ear)
 
-    neck = common.new_object(col, 'head_neck', neck_mesh(), [skin])
-    neck.data.shade_smooth()
-    set_neck_normals(neck.data)
-    # the neck's top is buried in the jaw: no hull there, or the attachment
-    # draws a second jaw line; full outline from just below the junction
-    vg = neck.vertex_groups.new(name='outline_width')
-    lo, hi = zr(NECK_LINE_ROWS[1]), zr(NECK_LINE_ROWS[0])
-    for v in neck.data.vertices:
-        vg.add([v.index], 1.0 - float(_smooth(lo, hi, v.co.z)), 'REPLACE')
-    common.add_outline(neck, vertex_group='outline_width', min_factor=0.0)
     c, r = eyes[1]
     print(f'HEAD eye pivot L ({c.x:.4f}, {c.y:.4f}, {c.z:.4f}) radius {r * PPM:.2f} px')
+    _FIELDS.clear()        # (~60 MB of voxels: only needed while building)
     return col
