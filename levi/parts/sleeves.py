@@ -793,6 +793,9 @@ def build(col):
     # The white cuff ruffle doesn't cast: its scalloped rim printed small
     # hard shadow specks onto the bag and the hand that the sheet never paints.
     objs[2]['levi_cast_shadow'] = False
+    # for the rig (round 8): the ribbon's long loose strips are the bow's tails, lying on
+    # the bag; they take its skin weights (rig._sleeve_ride_weights)
+    objs[3]['levi_sleeve_tails'] = True
     for o in objs:
         # for the rig (round 5: drape weights by position along the sleeve):
         # each vertex's place along the sleeve, 0 band .. 1 wrist, independent
