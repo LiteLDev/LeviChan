@@ -2075,7 +2075,7 @@ def eye_object(col, name, mat, c, bm):
 #   shrink with 瞳小 and go out in ハイライト消.
 # * Lashes: real geometry over the painted upper lash (see Lashes).
 SHADE_LIFT = 0.04                # px the lid-shadow layer floats in front of the white (behind the iris)
-HILITE_LIFT = 0.11               # px the highlights float in front of the white (in front of the iris)
+HILITE_LIFT = 0.095              # px the highlights float in front of the white (in front of the iris)
 HILITES = ((IRIS[0] - 1.0, 110.8, 1.5), (IRIS[0] + 3.2, 121.2, 0.7))   # X, row, radius [px]
 HILITE_SEG = 14
 
