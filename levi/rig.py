@@ -182,6 +182,7 @@ TWIST_RAMP = (0.1, 0.95)   # ... and take over that segment's weight between the
 
 
 EYE_PIVOT_PROP = 'levi_eye_pivot'   # head objects that are eyes carry their eyeball centre (world, m)
+EYE_LIMIT = (10.0, 8.0)   # deg: most the eyes turn (yaw, pitch) in Blender; the head's clean gaze range
 
 
 def eye_objects(head_objs):
@@ -983,8 +984,8 @@ def _candidates(part, obj, bones):
             if p is not None and len(p) == 3:
                 return ['目.L' if p[0] >= 0 else '目.R']   # one eye: rigid on its own bone
             return ['目.L', '目.R']
-        if 'lid' in low and 'eye' not in low:
-            return ['頭']           # eyelid sheets (blink morph) ride the head rigidly
+        if 'eye' in low:
+            return ['頭']           # eye whites and other eye pieces that do not turn: rigid on the head
         return ['頭', '首', '上半身2']
     if part in ('skirt', 'petticoat'):
         return ['上半身', '下半身'] + grp('Skirt')
@@ -2436,6 +2437,15 @@ def _create_armature(bones):
             c.use_x = c.use_y = False
             c.invert_z = True
             c.influence = k
+        if b.name.split('.')[0] == '目' and EYE_LIMIT:
+            # Blender only (PMX bones have no rotation limits): the eyes turn at most
+            # EYE_LIMIT (yaw, pitch) degrees, the range in which the irises stay behind the lids
+            c = pb.constraints.new('LIMIT_ROTATION')
+            c.name = 'Gaze limit'
+            c.owner_space = 'LOCAL'
+            c.use_limit_x = c.use_limit_z = True
+            c.min_x, c.max_x = -math.radians(EYE_LIMIT[1]), math.radians(EYE_LIMIT[1])
+            c.min_z, c.max_z = -math.radians(EYE_LIMIT[0]), math.radians(EYE_LIMIT[0])
         if b.meta.get('helper'):
             pb['mmd_helper'] = True     # driven by 付与 only: hidden, not for the animator
         if 'follow_q' in b.meta:
@@ -2557,7 +2567,7 @@ def build_rig():
     # them out, or the eye depth follows the lids
     global _HEAD_OBJS
     _HEAD_OBJS = list(parts.get('head', []))
-    H = fit_head([o for o in parts.get('head', []) if 'lid' not in o.name.lower()])
+    H = fit_head(parts.get('head', []))
     F = fit_fingers(parts.get('body', []), J)
     print(f"rig fingers    {'mesh' if F else 'spec'}  ({len(F)} chains fitted to the body's fingers)")
     core = _core_bones(J, H, F)

@@ -238,7 +238,8 @@ def knee_bends(arm):
 
 
 
-GAZE = ((15, 0), (-15, 0), (0, 10), (0, -10))   # 両目 yaw (her left +) / pitch (up +), deg
+GAZE = ((10, 0), (-10, 0), (0, 8), (0, -8), (10, 8), (-10, -8))   # 両目 yaw (her left +) / pitch (up +), deg
+# (rig.EYE_LIMIT clamps 目 there in Blender; a VMD gaze beyond it is the animator's call)
 MAX_EYE_POKE = 0.0015    # m: an eye may come at most this much further out of the face / lids
 
 
@@ -253,8 +254,7 @@ def _signed_out(bvh, co):
 
 
 def check_eyes(arm, errors):
-    """Eyes turned by 両目 (目 appends it fully) in GAZE directions stay behind the face
-    and the lids: no eye vertex comes out of them more than MAX_EYE_POKE beyond where it
+    """Eyes turned by 両目 (目 appends it fully) in GAZE directions stay behind the face: no eye vertex comes out of them more than MAX_EYE_POKE beyond where it
     sat at rest."""
     from mathutils.bvhtree import BVHTree
     eyes = [o for o in skinned_meshes(arm) if any(g.name.split('.')[0] == '目' for g in o.vertex_groups)]

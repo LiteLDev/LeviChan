@@ -42,7 +42,7 @@ The body part may store fitted limb joints for the rig as `obj["levi_joints"] = 
 ## Rig (levi/rig.py)
 - Fitted from the real meshes (the build log says `mesh` or `spec` per item):
   - Limb joints come from body cross-sections. The knee sits at sheet row 700 (`spec.L['knee_z']`).
-  - 頭 depth comes from the head mesh. 目.L/目.R sit at the eyeball centres: `obj['levi_eye_pivot']` (world, m) on the head's eye objects, else a sphere fit of the eye geometry, else on the face surface at the landmark eye. Eye objects (`rig.eye_objects`) ride their side's 目 rigidly; 目 appends 両目 fully (PMX 付与, the standard gaze). `rig_check` turns 両目 ±15° / ±10° and fails if an eye comes more than 1.5 mm further out of the face or lids.
+  - 頭 depth comes from the head mesh. 目.L/目.R sit at the eyeball centres: `obj['levi_eye_pivot']` (world, m) on the head's eye objects, else a sphere fit of the eye geometry, else on the face surface at the landmark eye. Eye objects (`rig.eye_objects`) ride their side's 目 rigidly; 目 appends 両目 fully (PMX 付与, the standard gaze). Blender limits 目 to `rig.EYE_LIMIT` (±10° yaw, ±8° pitch); `rig_check` turns 両目 to those limits (and both at once) and fails if an eye comes more than 1.5 mm further out of the face.
   - Each of the five fingers gets its own chain, fitted to that finger's loose part in the body mesh. Finger bones are rolled so that +X curls toward the palm.
   - Fingers must therefore stay separate loose parts per finger, or the rig falls back to a generic hand.
 - Semi-standard bones:
@@ -72,7 +72,7 @@ The body part may store fitted limb joints for the rig as `obj["levi_joints"] = 
   - Bodice pieces hand over to the skirt weights from 6 cm above the hip to 2 cm below it, so ribbons hanging over the skirt ride it.
   - .L/.R bones are masked off the other side.
   - Small loose ornaments move rigidly with the weights of the surface they sit on: the part's weights at the closest vertex of any larger skinned piece within `rig.ATTACH_REACH` (shoe leaves ride the ankle wrap, flowers the hair). The exception is an ornament that straddles 上半身/下半身 (the waist bow): it rides the waist like the cloth under it.
-  - Eyelid sheets (head objects named *lid*, carrying the blink shape key) are 頭 only and left out of the eye fit.
+  - Head objects named *eye* that are not eye objects (the whites) are 頭 only.
   - Weights are smoothed along the surface (wider at the crotch, `rig.CROTCH_SMOOTH`, where a stride pulls the skin between the thighs, and in the armpits).
     - The smoothing radius is in metres whatever the mesh density: above `rig.SMOOTH_DIRECT` diffusion steps it runs on a coarsened copy of the mesh (neighbouring vertices paired along edges) and finishes with a short pass on the full mesh. Cost stays about linear in the vertex count (4x the round-4 faces rigs in ~20 s).
   - Pruning to 4 influences (PMX BDEF4) is continuous and motion-aware (`rig._prune`):
