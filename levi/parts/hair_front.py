@@ -200,12 +200,15 @@ def _axis_foot(p):
 #    hair take over there; the sheet cap stays under them).
 #  - FIT_STRENGTH: the target's crown is lower and flatter than ours (2-3 cm at
 #    the front top); in pairwise review the full fit (and every stronger variant)
-#    lost to the rounder sheet dome, so the crown goes a quarter of the way at the
-#    apex and half way from row 40 down.
+#    lost to the rounder sheet dome; this setting (a quarter of the way at the
+#    apex, half from row 40) still lost 0-26 with both models.
+#  - FIT is therefore off (round 10 decision: naturalness ranks above fidelity):
+#    the cap, CAP_PROFILE (= CAP_PROFILE_SHEET) and everything on it are main's,
+#    and no fit table is computed. FIT = True turns the reshape back on.
 # Everything that sits on the cap (the fringe roots, ahoge, the side locks'
 # roots) moves with the same offset field (cap_shift), and the cap is kept
 # FACE_CLEAR off the forehead (_clear_face).
-FIT = True
+FIT = False                     # round 10 decision: off (see the note above)
 FIT_AZ = 256                    # grid sections (the cap itself: CAP_AZ)
 FIT_ROW_STEP = 1.0              # px
 FIT_LABELS = ('hair_front', 'head')
@@ -353,6 +356,8 @@ def _clear_face(rows, pts, nrm, off):
 
 def _fit_lookup(az, row):
     """Bilinear lookup of the fit offset (m) at (az, row)."""
+    if not FIT:
+        return 0.0
     rows, azs, a = _fit_table()[:3]
     x = (row - rows[0]) / FIT_ROW_STEP
     i0 = int(max(0, min(len(rows) - 2, math.floor(x))))
@@ -384,6 +389,8 @@ def cap_shift(p):
     cap: along head_normal by the fit offset at the nearest sheet-cap grid point
     (inverse-distance blend of the 4 nearest), so roots stay on the reshaped scalp
     and hanging points below the crown (offset 0) stay put."""
+    if not FIT:
+        return Vector(p)
     if 'kd' not in _FIT:
         from mathutils.kdtree import KDTree
         tab = _fit_table()

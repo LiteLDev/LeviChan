@@ -1,5 +1,26 @@
 # R10-A5: front hair follows the shape master
 
+## Decision (coordinator): ships with the crown fit off
+
+The master's crown lost every pairwise A/B round (the strongest setting tried lost 0-26 with both
+models), and naturalness ranks above fidelity. So `FIT = False`.
+
+**What ships**
+- The cap, the strands and `CAP_PROFILE` (equal to `CAP_PROFILE_SHEET`) are vertex-identical to
+  main. Every hair_front object has 0.00 mm displacement against main's build.
+- No fit table is computed while `FIT` is off.
+- The fit code is kept behind the flag, together with the inside-out strand fix and the
+  `CAP_PROFILE` layout.
+
+**Checks on the shipped version**
+- `check.py`: OK (107,968 faces).
+- `rig_check.py`: all 17 core poses OK.
+- `export_pmx.py` and `pmx_reimport.py`: OK.
+- Rest-view pairwise A/B against main: 0/0/12 ties with both models (`pairwise_shipped_fit_off.md`).
+  The inside-out fix only triggers on a fitted cap, so it changes nothing on main's geometry.
+
+The sections below record the fitted variant (`FIT = True`) and why it was turned off.
+
 `levi/parts/hair_front.py` only.
 
 ## What changed
