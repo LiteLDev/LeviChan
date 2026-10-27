@@ -234,23 +234,30 @@ def _spow(v, e):
     return math.copysign(abs(v) ** e, v)
 
 
-def _ring(st, s, n=RING_N, scale=1.0, shift=None, k=1.0, env=False):
-    """Folded superellipse ring of station st at sleeve parameter s (folds k as
-    deep; env: their crests' envelope, see _fold)."""
+def _ring_dirs(st, s, n=RING_N, scale=1.0, shift=None):
+    """(centre, [unfolded radial offset per ring vertex]) of station st at s."""
     oc, orow, ic, irow, sc, ry = st
     po, pi = W(oc, orow), W(ic, irow)
     mid = (po + pi) / 2 + Y * px(sc - CX) + (shift if shift is not None else Vector())
     a = (po - pi) / 2 * scale
     b = px(ry) * scale
     sag = SAG * _smooth(0.3, 0.75, s)
-    pts = []
+    offs = []
     for j in range(n):
         th = 2 * math.pi * j / n
-        m = _fold(th, s, k, env)
         # the hanging (inner, lower) half carries more depth than the upper half
         bb = b * (1.0 - sag * math.cos(th))
-        pts.append(mid + (a * _spow(math.cos(th), SUPER) + Y * (bb * _spow(math.sin(th), SUPER))) * m)
-    return pts
+        offs.append(a * _spow(math.cos(th), SUPER) + Y * (bb * _spow(math.sin(th), SUPER)))
+    return mid, offs
+
+
+def _ring(st, s, n=RING_N, scale=1.0, shift=None, k=1.0, env=False, q=None):
+    """Folded superellipse ring of station st at sleeve parameter s (folds k as
+    deep; env: their crests' envelope, see _fold); q: per-vertex radius factor
+    of the shape master (round 10, see _target_q), applied under the folds."""
+    mid, offs = _ring_dirs(st, s, n, scale, shift)
+    return [mid + o * (_fold(2 * math.pi * j / n, s, k, env) * (1.0 if q is None else float(q[j])))
+            for j, o in enumerate(offs)]
 
 
 def _orient_outward(bm, centres):
@@ -330,6 +337,121 @@ def _ring_params(n=RING_COUNT):
     return us
 
 
+# ---------------------------------------------------------------- shape master (round 10)
+# The bag takes its girth from the shape master: per ring and per ring vertex
+# the outermost `sleeves` surface along the vertex's radial direction (in the
+# ring's own plane, from the station centre) gives a factor q = target radius /
+# procedural radius. Where the target is hidden (hair behind the arm, the body
+# or skirt in front of the inner side) or flares into a thin flap (the pointed
+# hem wings that curl up past the wrist), the factor falls back to 1 by a
+# validity weight; it is clamped, smoothed round the ring and along the sleeve,
+# and faded in below the band (TARGET_BAND), so the drawstring keeps its
+# procedural pleats and the bow sits as before, and handed back to the
+# procedural hem toward the wrist (TARGET_HEM), where the cuff is sewn in. The
+# folds are still procedural on top of it (clean quad lanes, the rig's drape
+# weights, the soft shading). The station spline, which levi_sleeve_s measures
+# along, stays the bag's centre line: the factors change the girth round it.
+TARGET_RMAX = 2.0             # rays start this many procedural radii out
+TARGET_RNEAR = 1.4            # ... or this many, looking through other cloth
+TARGET_OPAQUE = ('hair_back', 'hair_front')
+TARGET_NEAR_MAX = 1.02        # ... where the cloth may only come in
+TARGET_INNER_MIN = 0.97       # the inner side is taken in no further (see _target_q)
+TARGET_CLAMP = (0.75, 1.30)   # factor limits: a flap or a stray patch is a bulge at most
+TARGET_SMOOTH = (12, 3)       # [1 2 1] passes round the ring / along the sleeve
+TARGET_BAND = (0.03, 0.16)    # s over which the target takes over from the band
+TARGET_HEM = (0.75, 1.0)      # s over which it hands back to the procedural hem ...
+TARGET_HEM_OUT = 0.85         # ... fully where the target is narrower, this share where wider
+TARGET_FLAP = 0.05            # samples this far past the upper clamp are the hem wing: dropped, not clipped
+
+
+def _circ_smooth(a, passes, axis=-1):
+    for _ in range(passes):
+        a = 0.25 * np.roll(a, 1, axis) + 0.5 * a + 0.25 * np.roll(a, -1, axis)
+    return a
+
+
+def _line_smooth(a, passes):
+    for _ in range(passes):
+        b = a.copy()
+        b[1:-1] = 0.25 * a[:-2] + 0.5 * a[1:-1] + 0.25 * a[2:]
+        a = b
+    return a
+
+
+def _weighted_smooth(q, ok, circ, line=0, axis=-1):
+    """Radius factors q smoothed round the ring (circ passes along axis) and
+    along the sleeve (line passes along axis 0), each sample weighted by its
+    validity ok (bool, or a 0..1 share): missing samples count as procedural (1)
+    and the result is renormalised by the smoothed validity, so a lone valid
+    sample doesn't spread thin; where samples are few it fades back to 1."""
+    w = np.asarray(ok, dtype=float)
+    qw = 1.0 + (np.where(w > 0.0, q, 1.0) - 1.0) * w
+    qw = _line_smooth(_circ_smooth(qw, circ, axis), line)
+    w = _line_smooth(_circ_smooth(w, circ, axis), line)
+    return 1.0 + (qw - 1.0) / np.maximum(w, 1e-3) * np.clip(w * 2.0, 0.0, 1.0)
+
+
+def _cast_in(cen, dirs, r0, occluders=True):
+    """Radius of the outermost `sleeves` surface along each direction, cast
+    inward from cen + dir * r0 (per ray; NaN past the centre or where another
+    part is outermost), and who is outermost."""
+    from .. import shape
+    _, d, _, who = shape.ray('sleeves', cen + dirs * r0[:, None], -dirs, max_d=float(r0.max()),
+                             occluders=occluders)
+    r = r0 - d
+    return np.where(r > 0.0, r, np.nan), who
+
+
+_TQ = {}                      # cached shape-master factors (one build reloads the module)
+
+
+def _target_q():
+    """(us, q): the ring parameters u and the shape master's radius factor per
+    ring and ring vertex (RING_COUNT x RING_N), validity-weighted and smoothed."""
+    if 'q' in _TQ:
+        return _TQ['us'], _TQ['q']
+    us = _ring_params()
+    last = len(FLAT) - 1
+    raw = np.full((len(us), RING_N), np.nan)
+    for i, u in enumerate(us):
+        s = u / last
+        mid, offs = _ring_dirs(_interp_at(FLAT, u), s)
+        rp = np.array([o.length for o in offs])
+        dirs = np.array([tuple(o / o.length) for o in offs])
+        cen = np.repeat(np.array([tuple(mid)]), RING_N, 0)
+        # rays from TARGET_RMAX procedural radii out, each along its own vertex direction
+        r, who = _cast_in(cen, dirs, rp * TARGET_RMAX)
+        raw[i] = r / rp
+        # Where other cloth or the body lies outside the bag (the inner side, next to
+        # the skirt and the bodice) look through it, from closer in; not through the
+        # hair, which hides a fused, missing sleeve surface.
+        miss = ~np.isfinite(raw[i]) & np.array([w not in TARGET_OPAQUE for w in who])
+        if miss.any():
+            r, _ = _cast_in(cen[miss], dirs[miss], rp[miss] * TARGET_RNEAR, occluders=False)
+            # trusted only to take cloth in: there the skirt's labels stray onto
+            # the sleeve and the target's bag is fused with the skirt it touches
+            f = r / rp[miss]
+            raw[i, miss] = np.where(f <= TARGET_NEAR_MAX, f, np.nan)
+    ok = np.isfinite(raw) & (raw > TARGET_CLAMP[0] - 0.15) & (raw < TARGET_CLAMP[1] + TARGET_FLAP)
+    q = _weighted_smooth(np.clip(np.nan_to_num(raw, nan=1.0), *TARGET_CLAMP), ok, *TARGET_SMOOTH)
+    fade = np.array([_smooth(*TARGET_BAND, u / last) for u in us])[:, None]
+    # The inner side (toward the body, the inside of a bent elbow) is taken in at
+    # most to TARGET_INNER_MIN: there the cloth folds against the arm when the elbow
+    # bends, and a bag taken in closer compressed past the rig's limits
+    # (hands_behind_head, idol_dance).
+    inner = np.array([_smooth(0.0, 0.7, -math.cos(2 * math.pi * j / RING_N)) for j in range(RING_N)])
+    floor = TARGET_CLAMP[0] + (TARGET_INNER_MIN - TARGET_CLAMP[0]) * inner
+    q = 1.0 + (np.clip(q, floor[None, :], TARGET_CLAMP[1]) - 1.0) * fade
+    # Into the wrist gather the bag keeps its procedural girth on the inside, where the
+    # cuff ruffle is sewn in behind the turned-in facing (a narrower hem would let
+    # the ruffle's root through), and most of it outside (the target's flare there
+    # is the hem wing curling away, not the gathered hem).
+    hem = np.array([_smooth(*TARGET_HEM, u / last) for u in us])[:, None]
+    q = np.where(q < 1.0, 1.0 + (q - 1.0) * (1.0 - hem), 1.0 + (q - 1.0) * (1.0 - TARGET_HEM_OUT * hem))
+    _TQ['us'], _TQ['q'] = us, q
+    return us, q
+
+
 def sleeve_param(p):
     """Pure function for the rig: position of world point p along the sleeve,
     0 at the band (drawstring) .. 1 at the wrist gather, by the nearest point
@@ -379,8 +501,8 @@ def _balloon_rings(k=1.0, env=False):
     their crests' envelope)."""
     flat = FLAT
     last = len(flat) - 1
-    us = _ring_params()
-    rings = [_ring(_interp_at(flat, u), u / last, k=k, env=env) for u in us]
+    us, tq = _target_q()
+    rings = [_ring(_interp_at(flat, u), u / last, k=k, env=env, q=q) for u, q in zip(us, tq)]
     # exact place of each ring along the centre line, for SLEEVE_PARAM_ATTR
     # (a nearest-point projection could jump between the upper and lower run
     # of the bent centre line for cloth far out on the inside of the bend)
@@ -395,8 +517,9 @@ def _balloon_rings(k=1.0, env=False):
     # step straight back up the cuff axis, so the return stays centred.
     _, cuff_ax = _frame(STATIONS[-1][0], STATIONS[-1][1])
     # (The lip ring keeps ~2 px edges to the hem: shorter edges tear under skinning.)
-    rings.append(_ring(st1, 1.0, scale=0.95, shift=-cuff_ax * px(3.0), k=k * HEM_FOLD, env=env))
-    rings.append(_ring(st1, 1.0, scale=0.89, shift=-cuff_ax * px(8.5), k=k * HEM_FOLD, env=env))
+    qh = tq[-1]                     # the lip and facing follow the hem ring
+    rings.append(_ring(st1, 1.0, scale=0.95, shift=-cuff_ax * px(3.0), k=k * HEM_FOLD, env=env, q=qh))
+    rings.append(_ring(st1, 1.0, scale=0.89, shift=-cuff_ax * px(8.5), k=k * HEM_FOLD, env=env, q=qh))
     return rings, [0.0] + sp + [1.0, 1.0]
 
 
@@ -490,12 +613,14 @@ def _lobe(th, k, phase, irr=0.0, pinch=1.6):
 
 
 def _frill_ring(c, e, ra, rb, n, k=0, amp=0.0, lift_dir=None, lift=0.0, phase=0.0, irr=0.0,
-                pinch=1.6, curl=0.0):
+                pinch=1.6, curl=0.0, girth=None):
     """Ellipse (e, b) of radii ra, rb around c; k rounded lobes push the ring
     out radially by amp and along lift_dir by lift at their crests (and pull
     it in / down in the valleys between them); curl pushes the crests alone
     further out (a lobe's edge turning outward). b is world Y made
-    perpendicular to e and lift_dir (= Y when lift_dir lies in XZ)."""
+    perpendicular to e and lift_dir (= Y when lift_dir lies in XZ). girth: a
+    radius factor per ring vertex (the shape master's, see _frill_q); the lift
+    along lift_dir keeps its height."""
     b = Y.copy()
     if lift_dir is not None:
         b = b - lift_dir * b.dot(lift_dir)
@@ -504,12 +629,42 @@ def _frill_ring(c, e, ra, rb, n, k=0, amp=0.0, lift_dir=None, lift=0.0, phase=0.
     for j in range(n):
         th = 2 * math.pi * j / n
         g = _lobe(th, k, phase, irr, pinch) if k else 0.0
-        w = 1.0 + amp * g + curl * max(g, 0.0) ** 2
+        w = (1.0 + amp * g + curl * max(g, 0.0) ** 2) * (1.0 if girth is None else float(girth[j]))
         p = c + e * (ra * w * math.cos(th)) + b * (rb * w * math.sin(th))
         if lift_dir is not None and lift:
             p = p + lift_dir * (lift * g)
         pts.append(p)
     return pts
+
+
+def _frill_q(name, plain, use, clamp, passes):
+    """Shape-master girth factor per ring vertex angle of a frill (cached by name):
+    the outermost `sleeves` radius about each ring centre of the plain frill
+    (plain() -> rings, centres; no lobes, no girth) over its own, for the rings
+    `use` (slice), averaged over them, validity-weighted, smoothed round the ring
+    (passes) and clamped. One profile for every ring, so a rolled rim's two
+    faces scale alike."""
+    if name in _TQ:
+        return _TQ[name]
+    rings, centres = plain()[:2]
+    f = []
+    for ring, c in list(zip(rings, centres))[use]:
+        P = np.array([tuple(p) for p in ring])
+        C = np.array(tuple(c))
+        r = np.linalg.norm(P - C, axis=1)
+        dirs = (P - C) / r[:, None]
+        rt, _ = _cast_in(np.repeat(C[None], len(P), 0), dirs, r * TARGET_RMAX)
+        f.append(rt / r)
+    f = np.array(f)
+    ok = np.isfinite(f) & (f > clamp[0] - 0.15) & (f < clamp[1] + 0.25)
+    mean = np.where(ok, np.clip(np.nan_to_num(f, nan=1.0), *clamp), 0.0).sum(0) / np.maximum(ok.sum(0), 1)
+    _TQ[name] = np.clip(_weighted_smooth(mean, ok.mean(0), passes), *clamp)
+    return _TQ[name]
+
+
+def _girth(q, w, floor=0.0):
+    """Per-vertex girth factor 1 + w (q - 1) of a frill ring, at least floor (<= 1)."""
+    return np.maximum(1.0 + w * (q - 1.0), floor)
 
 
 # Top frill. The sheet's heading is a low, softly scalloped frill rising out
@@ -545,12 +700,21 @@ RUFFLE_N = 72
 RUFFLE_LOBES = 9              # 8 ring vertices per wave: soft rounded fluting
 RUFFLE_PINCH = 1.0            # even sine waves: no pinched valleys between pointed petals
 RUFFLE_IRR = 0.5              # somewhat uneven wave widths and heights (see _lobe)
+# Shape master (round 10): the frill's girth round the band follows the target
+# (sampled over the opening and the rim, rings 4..), as a radius factor on the rings
+# from RUFFLE_TARGET_H px above the drawstring, which stays cinched (never inside it).
+RUFFLE_TARGET = (slice(4, None), (0.82, 1.08), 16)   # rings sampled, clamp, smoothing passes
+RUFFLE_TARGET_H = (4.0, 14.0)
 
 
-def _ruffle_bm():
-    k, n = RUFFLE_LOBES, RUFFLE_N
+def _ruffle_rings(k=RUFFLE_LOBES, q=None):
+    """(rings, centres) of the heading frill with k lobes; q: the shape master's
+    girth factor per ring vertex (see _frill_q), taken in from RUFFLE_TARGET_H px
+    above the drawstring and never inside it."""
+    n = RUFFLE_N
     # tucked into the balloon's gathered top
     rings = [_frill_ring(BAND_MID + BAND_AX * px(6), BAND_E, px(TIE_R - 1), px(TIE_R - 1), n)]
+    centres = [BAND_MID + BAND_AX * px(6)]
     top = max(range(len(RUFFLE_PROFILE)), key=lambda i: RUFFLE_PROFILE[i][0])
     for i, (h, ra, rb, amp, lift) in enumerate(RUFFLE_PROFILE):
         # the frame turns from the band axis to the rim normal smoothly with
@@ -558,9 +722,16 @@ def _ruffle_bm():
         s = 1.0 if i >= top else _smooth(0.0, 1.0, h / RUFFLE_PROFILE[top][0])
         f = (-BAND_AX).lerp(RIM_NORMAL, s).normalized()
         c = TIE + f * px(h) + RUFFLE_SHIFT * s
+        g = None if q is None else _girth(q, 1.0 if i >= top else _smooth(*RUFFLE_TARGET_H, h),
+                                          min(1.0, (TIE_R + 0.5) / min(ra, rb)))
         rings.append(_frill_ring(c, _perp_xz(f), px(ra), px(rb), n, k, amp, f, px(lift), 0.3,
-                                 RUFFLE_IRR, RUFFLE_PINCH))
-    return _loft_out(rings)
+                                 RUFFLE_IRR, RUFFLE_PINCH, girth=g))
+        centres.append(c)
+    return rings, centres
+
+
+def _ruffle_bm():
+    return _loft_out(_ruffle_rings(q=_frill_q('ruffle', lambda: _ruffle_rings(0), *RUFFLE_TARGET))[0])
 
 
 # Cuff: one white ruffle attached inside the gathered hem, spilling out
@@ -593,6 +764,12 @@ CUFF_CURL_FROM = 0.55
 # its lobes CUFF_SOFT as deep (see FOLD_SHADE): shaded lobe flanks, not specks
 CUFF_SHADE = 0.2
 CUFF_SOFT = 0.0
+# Shape master (round 10): the cuff keeps its procedural girth. The target's
+# cuff is a scrunchie in a jumble of the hem wing; its girth, sampled like the
+# heading frill's, only widened the flare by up to 6%, and that pushed the cuff
+# 2-3 mm further into the body where the hands meet it (dance_point, hug_self:
+# already majors), for no visible gain. The bag's hem it is sewn into follows
+# the target only as far as TARGET_HEM allows.
 #   (s along the ruffle 0..1, radius front px, radius side px)
 CUFF_PROFILE = (
     (0.00, 21.8, 19.8),           # sewn inside the hem facing (clear of its pleat valleys)
