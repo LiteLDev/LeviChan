@@ -1,0 +1,20 @@
+pose             stretch  worst object             pen cm verts  object                     knee
+test                1.61  petticoat_tier0            0.35     0  petticoat_core             59.8 ok
+arms_up             1.71  body                       0.61     4  sleeve_balloon              0.0 ok
+
+arms_forward        1.69  body                       0.46     0  sleeve_balloon              0.0 ok
+wrist_twist_pos     1.30  sleeve_balloon             0.00     0                              0.0 ok
+wrist_twist_neg     1.30  sleeve_balloon             0.00     0                              0.0 ok
+squat               1.66  body                       0.87    30  shoes_ribbons             101.1 ok
+walk                1.79  petticoat_tier0            1.71     7  hair_back                  26.0 ok
+head_left           1.46  hair_back_side             0.22     0  hair_cap                    0.0 ok
+head_right          1.46  hair_back_side             0.21     0  hair_cap                    0.0 ok
+torso_left          1.53  skirt                      0.10     0  petticoat_core              0.0 ok
+torso_right         1.35  skirt                      0.09     0  petticoat_core              0.0 ok
+swing               1.55  petticoat_tier1            0.00     0  skirt                       0.0 ok
+fist                1.82  body                       0.00     0                              0.0 ok
+raise_bend          1.41  body                       0.65     4  sleeve_balloon              0.0 ok
+reach_forward       1.59  sleeve_balloon             0.06     0  bodice_shell                0.0 ok
+forward_bend        1.33  petticoat_tier1            0.28     0  petticoat_core             18.7 ok
+side_bend           1.44  body                       1.57    25  skirt                       0.0 ok
+RIG CHECK OK
