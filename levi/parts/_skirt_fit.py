@@ -1,5 +1,10 @@
 """Fit the skirt's godet folds (skirt.FOLDS) to the three reference views.
 
+Obsolete since round 10: the skirt takes its radius, hem and folds from the
+shape master (skirt._target(), skirt.fold_table()), so FOLDS no longer shapes
+the built cloth below the waistband and this fit has nothing to optimise.
+Kept for the record of rounds 6-9.
+
     blender -b --factory-startup -P levi/parts/_skirt_fit.py [-- [--fresh] [--write] | --report] [--baseline OLD_SKIRT.py]
 
 The cloth is skirt.profiles(FOLDS). Each fold has a crest azimuth, the hem

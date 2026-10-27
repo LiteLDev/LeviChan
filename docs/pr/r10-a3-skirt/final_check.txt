@@ -1,0 +1,4 @@
+PART petticoat    faces= 12000 budget=18000
+PART skirt        faces= 22680 budget=24000
+TOTAL faces=107968 budget=200000
+CHECK OK

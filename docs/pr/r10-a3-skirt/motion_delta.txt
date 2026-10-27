@@ -1,0 +1,29 @@
+better extended  cross_legged         petticoat  flip            10 ->        2 (minor -> ok) スカート12_0
+WORSE  extended  cross_legged         petticoat  stretch          2 ->     2.13 (minor -> major) スカート10_2
+better extended  cross_legged         skirt      flip            10 ->        0 (minor -> ok) 
+WORSE  extended  cross_legged         skirt      pen         0.0109 ->   0.0202 (minor -> major) スカート0_1
+WORSE  extended  cross_legged         skirt      pen_frac   0.00119 ->  0.00661 (ok -> minor) スカート0_1
+WORSE  extended  deep_lunge           petticoat  pen_frac   0.00347 ->  0.00521 (ok -> minor) スカート11_0
+better extended  hands_on_hips        skirt      pen         0.0113 ->   0.0088 (minor -> ok) スカート12_0
+better extended  high_kick            petticoat  pen         0.0124 ->  0.00668 (minor -> ok) スカート10_0
+WORSE  extended  high_kick            petticoat  stretch       1.95 ->     2.11 (minor -> major) スカート15_2
+better extended  jump_tuck            petticoat  stretch       2.02 ->     1.97 (major -> minor) スカート15_2
+WORSE  extended  kneel_one            petticoat  pen_frac   0.00347 ->  0.00694 (ok -> minor) スカート11_0
+WORSE  extended  lie_back_elbows      petticoat  stretch       1.93 ->     2.09 (minor -> major) スカート5_2
+WORSE  extended  run_r                petticoat  stretch       1.94 ->     2.09 (minor -> major) スカート15_2
+better extended  run_r                skirt      stretch       2.15 ->     1.71 (major -> minor) スカート14_1
+better extended  seiza                petticoat  pen_frac   0.00521 ->        0 (minor -> ok) スカート11_0
+better extended  twist_bend           skirt      stretch       1.63 ->     1.37 (minor -> ok) スカート14_0
+WORSE  motion    run                  petticoat  jitter           - ->    0.423 (ok -> major) スカート15_2
+better motion    run                  petticoat  pop         0.0833 ->        - (major -> ok) スカート1_2
+better motion    run                  skirt      jitter       0.403 ->        - (major -> ok) スカート5_1
+better motion    run                  skirt      stretch       2.23 ->     1.82 (major -> minor) スカート1_1
+better motion    sit_stand            petticoat  jitter      0.0532 ->        - (minor -> ok) スカート0_2
+better motion    sit_stand            petticoat  pen         0.0116 ->  0.00828 (minor -> ok) スカート11_0
+WORSE  motion    sit_stand            skirt      jitter           - ->   0.0558 (ok -> minor) スカート1_1
+better motion    sit_stand            skirt      pen_frac   0.00666 ->  0.00344 (minor -> ok) スカート2_1
+better motion    spin                 petticoat  stretch       2.09 ->     1.97 (major -> minor) スカート15_2
+better motion    turn                 petticoat  jitter      0.0301 ->   0.0258 (minor -> ok) スカート15_2
+WORSE  motion    walk                 petticoat  pop              - ->  0.00803 (ok -> major) スカート1_2
+WORSE  motion    walk                 skirt      pen        0.00754 ->   0.0117 (ok -> minor) スカート12_1
+minor/major rows (pose x part x metric) old [50, 14] new [44, 15]

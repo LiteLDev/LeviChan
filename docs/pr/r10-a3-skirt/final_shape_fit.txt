@@ -1,0 +1,10 @@
+FIT body         target->ours   8.6 /  24.2 /  37.3 mm  ours->target   7.6 /  22.0 /  28.9 mm  covered 0.312
+FIT head         target->ours   6.2 /  19.8 /  31.7 mm  ours->target  11.1 /  21.4 /  28.6 mm  covered 0.426
+FIT hair_front   target->ours   4.5 /  14.9 /  28.5 mm  ours->target   8.7 /  22.5 /  28.6 mm  covered 0.535
+FIT hair_back    target->ours  24.6 /  73.4 / 127.5 mm  ours->target  10.1 /  23.9 /  29.3 mm  covered 0.173
+FIT accessories  target->ours   4.7 /  11.6 /  18.4 mm  ours->target   8.2 /  20.6 /  28.0 mm  covered 0.522
+FIT bodice       target->ours   9.2 /  21.2 /  52.3 mm  ours->target   5.9 /  14.0 /  25.9 mm  covered 0.259
+FIT skirt        target->ours  13.7 /  37.1 /  65.7 mm  ours->target   4.3 /  17.2 /  27.5 mm  covered 0.260
+FIT petticoat    target->ours  14.0 /  34.2 /  73.3 mm  ours->target   5.4 /  19.1 /  27.7 mm  covered 0.192
+FIT sleeves      target->ours  11.7 /  27.4 /  54.4 mm  ours->target   7.4 /  20.0 /  28.4 mm  covered 0.240
+FIT shoes        target->ours   7.4 /  18.7 /  31.9 mm  ours->target   4.3 /  11.8 /  22.2 mm  covered 0.347
