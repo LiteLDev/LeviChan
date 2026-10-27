@@ -1,0 +1,6 @@
+gpt-6-astra  kneel_one            minor   -> clean*  better 
+gpt-6-astra  run_l                minor   -> clean*  better 
+gpt-6-astra  run_r                minor   -> clean*  better 
+gpt-6.1-sol  kneel_one            clean*  -> minor   WORSE  The raised thigh carries a broad, stiff section of skirt upward while the rear hem projects away from the fold
+gpt-6-astra worse 0 better 3 of 30
+gpt-6.1-sol worse 1 better 0 of 30

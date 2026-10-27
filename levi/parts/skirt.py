@@ -63,6 +63,22 @@ to the hem and, at the fold troughs, a short turned-out edge.
   petticoat, with the hem's slope and curvature along the cloth bounded
   (round 6), so the lobes end round instead of in thin edge-on fins.
 
+- Round 10 (shape master): below the waistband the cloth's radius and the
+  hem row come from the shape master (levi/shape.py), sampled per (polar
+  angle, panel row) round the body axis inside _dense() (_target(),
+  target_radius(), target_hem()); the waistband under the bodice keeps the
+  procedural shape (TGT_TOP). section() is the master's bell (the cloth
+  low-passed round the skirt) and fold_table() the folds read off it
+  (_target_folds()), so the fold terms the petticoat, the streaks and the
+  trough flare use, and every export (profiles, front_surface_y, section,
+  hem_terms, fold_index), describe the built cloth. The master's hem
+  flounce is not modelled: below TGT_FLARE_ROW the radius may turn in or
+  out only gently down the cloth (TGT_TUCK, TGT_FLARE), so its rolled-in
+  lowest rows and kicked-out ruffle edge do not balloon the lobes. The
+  fold model below (FOLDS, fitted to the sheet by _skirt_fit.py) now only
+  shapes the waistband; the topology, rings, shell and attributes are
+  unchanged.
+
 All reference measurements are in panel pixels (rows / columns of
 ref/<view>.png; panel centre column = 320).
 """
@@ -294,11 +310,360 @@ def _pchip(x, xs, ys, ms):
     return h00 * ys[i] + h10 * h * ms[i] + h01 * ys[i + 1] + h11 * h * ms[i + 1]
 
 
-def section(row):
-    """(X, Yf, Yb) at panel row(s), smoothly interpolated between the
-    measured sections (a piecewise-linear profile would crease the bell at
-    every table row)."""
+def _section_sheet(row):
+    """(X, Yf, Yb) at panel row(s) measured on the sheet, smoothly
+    interpolated between the measured sections (a piecewise-linear profile
+    would crease the bell at every table row)."""
     return tuple(_pchip(row, _SEC[:, 0], _SEC[:, k], m) for k, m in zip((1, 2, 3), _SEC_M))
+
+
+def section(row):
+    """(X, Yf, Yb) at panel row(s): the bell (the cloth without its folds).
+    Round 10: the shape master's bell (its cloth low-passed round the skirt)
+    below the waistband, blended (TGT_TOP) into the sheet's measured sections
+    under the bodice."""
+    row = np.asarray(row, dtype=np.float64)
+    d = _target()
+    w = target_weight(row)
+    out = []
+    for k, v in enumerate(_section_sheet(row)):
+        t = np.interp(row, d['rows'], d['bell'][:, k])
+        out.append(v + w * (t - v))
+    return tuple(out)
+
+
+# ---------------------------------------------------------------- shape master (round 10)
+# The cloth's radius is sampled from the shape master (levi.shape) on a grid of
+# polar angle round the body axis x panel row: the outermost surface along
+# horizontal rays cast inward, kept where it is labelled skirt. Gaps (the
+# bodice ribbon tails, the hands and sleeves, the back hair, stray label
+# patches) and the pockets inside the hem flounce's flutes (a ray entering a
+# flute's mouth hits its far wall) are filled from the samples around them,
+# along the column and round the ring, weighted by inverse distance, as an
+# offset from the sheet's bell (0 at the waist), so the folds run on up under
+# the hair and fade toward the waist. The waistband under the bodice stays
+# procedural (TGT_TOP).
+TGT_DA = 0.5             # deg between target samples round the skirt
+TGT_ROW0, TGT_ROW1, TGT_DROW = 318.0, 624.0, 2.0   # panel rows sampled
+TGT_RMAX = 0.8           # m: rays start this far from the axis
+TGT_TOP = (342.0, 392.0)  # rows over which the target takes over from the procedural waist
+TGT_FLOUNCE = 45.0       # px: below the skirt's labels, cloth this close to its radius is still skirt ...
+TGT_FLOUNCE_GAP = 32.0   # ... across gaps of up to this many rows ...
+TGT_FLOUNCE_ROWS = 60.0  # ... and at most this far below the labels
+TGT_HEM_MIN = 505.0     # a skirt column ending above this row is a stray label patch
+TGT_POCKET_WIN = 14      # rows (half window, in samples) a pocket is judged against
+TGT_POCKET = 3.0         # px a sample may lie inside the cloth above and below it
+TGT_PAD_LABELS = ('hair_back', 'hair_front', 'sleeves', 'body')   # (the bodice ribbon tails lie flat on the cloth)
+TGT_HAIR_PAD = (14.0, 3.0)   # rows, deg kept clear of hits on those
+TGT_JUMP = 6.0          # px a sample may lie off the last kept one in its column ...
+TGT_JUMP_SLOPE = 1.2     # ... plus this per px of rows between them
+TGT_MIN_RUN = 10         # samples: shorter runs of skirt in a column are stray
+TGT_SLOPE_ROWS = 24.0    # px of samples the slope is read over where a column comes into view
+TGT_HEM_SMOOTH = 3.0     # deg: Gaussian on the target's hem row
+TGT_SMOOTH = (1.0, 1.5)  # samples (round, down): Gaussian on the filled field
+TGT_SMOOTH_UP = (400.0, 480.0, 4.0)  # rows, deg: the smoothing round the skirt widens to this above the first row
+TGT_FLARE_ROW = 470.0    # below this row ...
+TGT_TUCK = 0.1           # ... the cloth turns in by at most this many px per px of drop
+TGT_FLARE = 0.7          # ... and out by at most this many
+TGT_BELL_DEG = 30.0     # deg: low-pass round the skirt that gives the bell (section())
+TGT_FOLD_BAND = (60.0, 12.0)   # rows above the hem whose mean offset picks the fold crests
+TGT_FOLD_HP = 18.0       # deg: high-pass for the crest picking
+TGT_FOLD_SEP = 9.0       # deg: least crest spacing
+TGT_FOLD_PROM = 3.0      # px: least crest prominence
+RELIEF_SOFT_PX = 10.0    # the target folds' detail removed for the shading normals (profiles(relief=0))
+
+_TGT = {}
+
+
+def target_weight(row):
+    """0..1 share of the shape master at panel row (0 on the waistband under the bodice)."""
+    return _smoothstep((np.asarray(row, dtype=np.float64) - TGT_TOP[0]) / (TGT_TOP[1] - TGT_TOP[0]))
+
+
+def _bell_radius(sec, a):
+    """Radius (px) of the egg section sec = (X, Yf, Yb) in polar direction a."""
+    X, Yf, Yb = sec
+    c = np.cos(a)
+    Y = np.where(c > 0, Yf, Yb)
+    return 1.0 / np.sqrt((np.sin(a) / X) ** 2 + (c / Y) ** 2)
+
+
+def _gauss_rows(v, sigma):
+    """Gaussian along axis 0 (sigma in samples), edges held."""
+    if sigma <= 0:
+        return v
+    k = int(math.ceil(3 * sigma))
+    w = np.exp(-0.5 * (np.arange(-k, k + 1) / sigma) ** 2)
+    w /= w.sum()
+    p = np.concatenate([np.repeat(v[:1], k, 0), v, np.repeat(v[-1:], k, 0)], 0)
+    return sum(w[i] * p[i:i + len(v)] for i in range(2 * k + 1))
+
+
+def _target():
+    """The shape master's skirt on the (row, polar angle) grid, computed once:
+    dict with 'a' (NA,) rad, 'rows' (NR,), 'R' (NR, NA) filled outer radius px,
+    'ok' the sampled cells, 'hem' (NA,) hem row, 'bell' (NR, 3) (X, Yf, Yb)."""
+    if 'd' in _TGT:
+        return _TGT['d']
+    from .. import shape
+    a = np.radians(np.arange(0.0, 360.0, TGT_DA))
+    rows = np.arange(TGT_ROW0, TGT_ROW1 + 0.5 * TGT_DROW, TGT_DROW)
+    na, nr = len(a), len(rows)
+    dirs = np.stack([np.sin(a), -np.cos(a), np.zeros(na)], 1)
+    names = shape.parts()
+    R = np.full((nr, na), np.nan)
+    ok = np.zeros((nr, na), dtype=bool)
+    off_cloth = np.zeros((nr, na), dtype=bool)
+    for i, row in enumerate(rows):
+        r, _, who = shape.radial(names, (0.0, 0.0, spec.px_to_z(row)), dirs, TGT_RMAX)
+        R[i] = r * spec.PX_PER_M
+        ok[i] = np.array([w == 'skirt' for w in who]) & np.isfinite(r)
+        off_cloth[i] = np.array([w in TGT_PAD_LABELS for w in who])
+    def hem_rows(ok):
+        """Per column the hem row (NaN for a stray column) from the skirt
+        samples `ok`: the lowest sample; then the hem flounce, which is partly
+        labelled petticoat (round the sides it reads as high arches with flat
+        tops): below that sample, cloth within TGT_FLOUNCE px of the skirt's
+        radius there (a flute's mouth, up to TGT_FLOUNCE_GAP rows, may lie
+        between) still belongs to the skirt; the petticoat hangs much further
+        in. A column ending above TGT_HEM_MIN is a stray label patch (the
+        petticoat streaks beside the hips)."""
+        last = nr - 1 - np.argmax(ok[::-1], axis=0)
+        hem = np.full(na, np.nan)
+        for j in np.nonzero(ok.any(axis=0))[0]:
+            i0 = last[j]
+            ref = R[max(0, i0 - 4):i0 + 1, j][ok[max(0, i0 - 4):i0 + 1, j]].max()
+            end = i0
+            for i in range(i0 + 1, min(nr, i0 + 1 + int(TGT_FLOUNCE_ROWS / TGT_DROW))):
+                if (rows[i] - rows[end]) > TGT_FLOUNCE_GAP:
+                    break
+                if np.isfinite(R[i, j]) and R[i, j] >= ref - TGT_FLOUNCE and not off_cloth[i, j]:
+                    end = i
+            hem[j] = rows[end]
+        hem[hem < TGT_HEM_MIN] = np.nan
+        return hem
+
+    raw_hem = hem_rows(ok)
+    stray = ~np.isfinite(raw_hem)
+    hem = _smooth_loop(shape.fill_ring(raw_hem), TGT_HEM_SMOOTH / TGT_DA)
+    # pockets: a sample further in than the cloth both above and below it
+    # (within TGT_POCKET_WIN rows) looks into a flute's mouth
+    Rm = np.where(ok, R, -np.inf)
+    w = TGT_POCKET_WIN
+    pad = np.concatenate([np.full((w, na), -np.inf), Rm, np.full((w + 1, na), -np.inf)], 0)
+    win = np.lib.stride_tricks.sliding_window_view(pad, w, axis=0).max(axis=-1)
+    above, below = win[:nr], win[w + 1:w + 1 + nr]
+    ok &= ~(R < np.minimum(above, below) - TGT_POCKET)
+    # beside what lies over the cloth the labels are unreliable (hair locks
+    # and hands lying on it are partly labelled skirt): no samples within
+    # TGT_HAIR_PAD of a hit on TGT_PAD_LABELS
+    pr, pa = int(TGT_HAIR_PAD[0] / TGT_DROW), int(TGT_HAIR_PAD[1] / TGT_DA)
+    near = off_cloth.copy()
+    for di in range(-pr, pr + 1):
+        for dj in range(-pa, pa + 1):
+            sh = np.roll(off_cloth, dj, axis=1)
+            if di > 0:
+                near[di:] |= sh[:-di]
+            elif di < 0:
+                near[:di] |= sh[-di:]
+            else:
+                near |= sh
+    ok &= ~near
+    # off-surface samples: each column is followed up and down from a seed
+    # (its sample nearest the column's median a little above the hem); a
+    # sample further than TGT_JUMP + TGT_JUMP_SLOPE x the rows since the last
+    # kept one from that one lies on something else (hair locks and hand
+    # patches labelled skirt, standing well off the cloth). Then fragments
+    # of fewer than TGT_MIN_RUN samples in a column go too.
+    for j in range(na):
+        idx = np.nonzero(ok[:, j])[0]
+        if not len(idx):
+            continue
+        band = idx[(rows[idx] >= hem[j] - 90.0) & (rows[idx] <= hem[j] - 20.0)]
+        band = band if len(band) else idx
+        med = np.median(R[band, j])
+        seed = band[np.argmin(np.abs(R[band, j] - med))]
+        for order in (idx[idx > seed], idx[idx < seed][::-1]):
+            last = seed
+            for i in order:
+                if abs(R[i, j] - R[last, j]) > TGT_JUMP + TGT_JUMP_SLOPE * abs(rows[i] - rows[last]):
+                    ok[i, j] = False
+                else:
+                    last = i
+    for j in range(na):
+        col = np.concatenate([[False], ok[:, j], [False]]).astype(np.int8)
+        edges = np.nonzero(np.diff(col))[0]
+        for s, e in zip(edges[0::2], edges[1::2]):
+            if e - s < TGT_MIN_RUN:
+                ok[s:e, j] = False
+    # (the hem stays the one read off the labels: the filters above thin the
+    # samples beside the ribbon tails and the hair, which says nothing about
+    # where the cloth ends; the flounce walk already skips hair, hands and legs)
+    # offset from the sheet's bell, filled along the column and round the
+    # ring, inverse-distance weighted. Above a column's first sample the
+    # offset eases (cubic Hermite: the samples' value and slope there, 0 and
+    # level at the top row) back to the bell, so the folds seen below the
+    # back hair run on up under it without a kink where they come into view
+    bell = np.stack([_bell_radius(_section_sheet(row), a) for row in rows])
+    D = np.where(ok, R - bell, np.nan)
+    Dv, dv = np.zeros((nr, na)), np.full((nr, na), np.inf)
+    for j in range(na):
+        idx = np.nonzero(ok[:, j])[0]
+        rr, vv = rows[idx], D[idx, j]
+        top = None
+        if not len(rr) or rr[0] > TGT_TOP[0]:
+            if len(rr):
+                near = rr <= rr[0] + TGT_SLOPE_ROWS
+                slope = np.polyfit(rr[near], vv[near], 1)[0] if near.sum() > 2 else 0.0
+                top = (rr[0], vv[0], slope)
+            rr, vv = np.concatenate([[rows[0]], rr]), np.concatenate([[0.0], vv])
+        Dv[:, j] = np.interp(rows, rr, vv)
+        if top is not None:
+            # the slope is bounded so the ease runs monotonically from 0 to
+            # the first sample (no overshoot, no clipped plateau)
+            r1, v1, s1 = top
+            L = r1 - rows[0]
+            s1 = float(np.clip(s1, min(0.0, 3 * v1 / L), max(0.0, 3 * v1 / L)))
+            h = (rows - rows[0]) / L
+            above_first = rows < r1
+            Dv[above_first, j] = (v1 * (3 * h * h - 2 * h ** 3) + s1 * L * (h ** 3 - h * h))[above_first]
+        k = np.clip(np.searchsorted(rr, rows), 1, len(rr) - 1) if len(rr) > 1 else np.zeros(nr, int)
+        dv[:, j] = np.minimum(np.abs(rows - rr[k]), np.abs(rows - rr[k - 1])) if len(rr) > 1 else np.abs(rows - rr[0])
+        if len(idx):                # below the last sample: its radius held ...
+            below_last = rows > rows[idx[-1]]
+            Dv[below_last, j] = R[idx[-1], j] - bell[below_last, j]
+            if stray[j]:            # ... unless the column is a stray patch: the ring fill
+                dv[below_last, j] = 1e6
+    Dh, dh = np.zeros((nr, na)), np.full((nr, na), np.inf)
+    ja = np.arange(na)
+    for i in range(nr):
+        idx = np.nonzero(ok[i])[0]
+        if not len(idx):
+            continue
+        xs = np.concatenate([idx - na, idx, idx + na])
+        Dh[i] = np.interp(ja, xs, np.tile(D[i, idx], 3))
+        k = np.clip(np.searchsorted(xs, ja), 1, len(xs) - 1)
+        gap = np.minimum(ja - xs[k - 1], xs[k] - ja) * np.radians(TGT_DA)
+        dh[i] = gap * bell[i]
+    wv, wh = 1.0 / np.maximum(dv, 0.5) ** 2, 1.0 / np.maximum(dh, 0.5) ** 2
+    fill = (Dv * wv + Dh * wh) / (wv + wh)
+    D = np.where(ok, D, fill)
+    # below TGT_FLARE_ROW the cloth may turn in by at most TGT_TUCK px per px
+    # going down, and out by at most TGT_FLARE: the master's flounce rolls its
+    # lowest rows in under the lobes (on a single sheet: inflated, ballooning
+    # lobes) and kicks its ruffle edge out (a flat shelf with a corner).
+    # Clamped before the smoothing below, which rounds the clamp's corners.
+    R = bell + D
+    for i in range(1, nr):
+        if rows[i] > TGT_FLARE_ROW:
+            R[i] = np.clip(R[i], R[i - 1] - TGT_TUCK * TGT_DROW, R[i - 1] + TGT_FLARE * TGT_DROW)
+    D = R - bell
+    # round the skirt the field is smoothed wider toward the waist (TGT_SMOOTH_UP),
+    # where the master's narrow creases would read as pinched dents
+    k = np.clip((rows - TGT_SMOOTH_UP[0]) / (TGT_SMOOTH_UP[1] - TGT_SMOOTH_UP[0]), 0.0, 1.0)[:, None]
+    fine = _smooth_loop(D.T, TGT_SMOOTH[0]).T
+    wide = _smooth_loop(D.T, TGT_SMOOTH_UP[2] / TGT_DA).T
+    D = _gauss_rows(wide + (fine - wide) * _smoothstep(k), TGT_SMOOTH[1])
+    R = bell + D
+    # the bell: the cloth low-passed round the skirt, read off at the four quarters
+    low = _smooth_loop(R.T, TGT_BELL_DEG / TGT_DA).T
+    q = na // 4
+    bsec = np.stack([0.5 * (low[:, q] + low[:, 3 * q]), low[:, 0], low[:, 2 * q]], 1)
+    _TGT['d'] = {'a': a, 'rows': rows, 'R': R, 'ok': ok, 'hem': hem, 'bell': bsec}
+    return _TGT['d']
+
+
+def target_radius(a, row):
+    """Shape master's outer cloth radius (px) at polar angle(s) a (rad, 0 =
+    front, + toward +X) and panel row(s), bilinear on the filled grid."""
+    d = _target()
+    a = np.asarray(a, dtype=np.float64)
+    row = np.asarray(row, dtype=np.float64)
+    na, nr = len(d['a']), len(d['rows'])
+    fa = np.mod(a, 2 * np.pi) / np.radians(TGT_DA)
+    j0 = np.floor(fa).astype(int) % na
+    s = fa - np.floor(fa)
+    fr = np.clip((row - d['rows'][0]) / TGT_DROW, 0.0, nr - 1 - 1e-9)
+    i0 = np.floor(fr).astype(int)
+    g = fr - i0
+    R = d['R']
+    j1 = (j0 + 1) % na
+    return ((R[i0, j0] * (1 - s) + R[i0, j1] * s) * (1 - g)
+            + (R[i0 + 1, j0] * (1 - s) + R[i0 + 1, j1] * s) * g)
+
+
+def target_hem(a):
+    """Shape master's hem row at polar angle(s) a."""
+    d = _target()
+    return np.interp(np.mod(a, 2 * np.pi), d['a'], d['hem'], period=2 * np.pi)
+
+
+def polar(phi, row):
+    """Polar angle (rad) of the bell point at skirt azimuth phi and panel row."""
+    X, Yf, Yb = section(row)
+    c = np.cos(phi)
+    return np.arctan2(X * np.sin(phi), c * np.where(c > 0, Yf, Yb))
+
+
+def to_phi(a, row=575.0):
+    """Skirt azimuth phi of polar angle a at panel row (inverse of polar())."""
+    X, Yf, Yb = (float(v) for v in section(row))
+    c = np.cos(a)
+    return np.arctan2(np.sin(a) / X, c / np.where(c > 0, Yf, Yb))
+
+
+def _target_folds():
+    """The fold table (FOLDS columns) read off the shape master, so the fold
+    terms the petticoat, the mint streaks and the trough flare use describe
+    the cloth that is built: crests at the maxima of the folds' offset
+    (high-passed round the skirt, TGT_FOLD_HP) averaged over a band above the
+    hem (TGT_FOLD_BAND), at least TGT_FOLD_SEP apart and TGT_FOLD_PROM
+    prominent; hem rows at the crest and at the arch top (the highest hem in
+    the middle half between two crests); half-depth from the offsets."""
+    if 'folds' in _TGT:
+        return _TGT['folds']
+    d = _target()
+    a, rows, hem = d['a'], d['rows'], d['hem']
+    na = len(a)
+    bell = np.stack([_bell_radius(tuple(b), a) for b in d['bell']])
+    D = d['R'] - bell
+    hp = D - _smooth_loop(D.T, TGT_FOLD_HP / TGT_DA).T
+    m = (rows[:, None] >= hem[None] - TGT_FOLD_BAND[0]) & (rows[:, None] <= hem[None] - TGT_FOLD_BAND[1])
+    F = _smooth_loop((hp * m).sum(0) / np.maximum(m.sum(0), 1), 1.0 / TGT_DA)
+    sep = int(round(TGT_FOLD_SEP / TGT_DA))
+    half = sep // 2
+    peak = [j for j in range(na)
+            if F[j] >= max(F[(j + k) % na] for k in range(-half, half + 1))]
+    crests = []
+    for j in sorted(peak, key=lambda j: -F[j]):
+        if all(min(abs(j - c), na - abs(j - c)) >= sep for c in crests):
+            crests.append(j)
+    crests.sort()
+
+    def valley(j0, j1):            # the lowest F strictly between crests j0 -> j1 (round the ring)
+        n = (j1 - j0) % na or na
+        return min(F[(j0 + k) % na] for k in range(1, n))
+    while len(crests) > 3:
+        prom = [F[c] - max(valley(crests[i - 1], c), valley(c, crests[(i + 1) % len(crests)]))
+                for i, c in enumerate(crests)]
+        i = int(np.argmin(prom))
+        if prom[i] >= TGT_FOLD_PROM:
+            break
+        crests.pop(i)
+    n = len(crests)
+    out = []
+    for i, c in enumerate(crests):
+        nx = crests[(i + 1) % n]
+        span = (nx - c) % na or na
+        mid = [(c + k) % na for k in range(span // 4, 3 * span // 4 + 1)]
+        trough_row = float(min(hem[j] for j in mid))
+        lo = 0.5 * (valley(crests[i - 1], c) + valley(c, nx))
+        amp = max(2.0, 0.5 * (F[c] - lo))
+        out.append((float(np.degrees(to_phi(a[c]))) % 360.0, float(hem[c]), trough_row,
+                    round(amp, 1), 0.0, 0.0, 15.0))
+    out.sort()
+    _TGT['folds'] = out
+    return out
 
 
 def _smoothstep(x):
@@ -417,9 +782,22 @@ def _dense(folds, relief=1.0):
     off = off - CURL_K * curl_t * (1 - w_t) * kc + HEM_FLARE * w_t * flare_k(t)
     # round 9: narrow valleys deepening toward the hem (inward only)
     off = off - relief * hem_relief(u_t, t)
-    px =float(_hem_radius(phi).mean()) * (2 * np.pi / NF)       # px of arc per sample
-    val = {'phi': phi, 'row': _smooth_loop(row, SMOOTH_ROW_PX / px),
-           'off': _smooth_loop(off, SMOOTH_PX / px)}
+    px = float(_hem_radius(phi).mean()) * (2 * np.pi / NF)       # px of arc per sample
+    # round 10: the hem row and, below the waistband, the radius come from the
+    # shape master; the fold model above only shapes the waistband (and gives
+    # the fold terms their positions, read off the master too)
+    row = _smooth_loop(target_hem(polar(phi, 575.0)), SMOOTH_ROW_PX / px)
+    rr = TOP_ROW + t * (row[:, None] - TOP_ROW)
+    X, Yf, Yb = section(rr)
+    c = np.cos(phi)[:, None]
+    x, y = X * np.sin(phi)[:, None], -c * np.where(c > 0, Yf, Yb)
+    rb = np.hypot(x, y)
+    off_t = target_radius(np.arctan2(x, -y), rr) - rb
+    if relief != 1.0:
+        soft = _smooth_loop(off_t, RELIEF_SOFT_PX / px)
+        off_t = soft + relief * (off_t - soft)
+    off = off + target_weight(rr) * (off_t - off)
+    val = {'phi': phi, 'row': row, 'off': _smooth_loop(off, SMOOTH_PX / px)}
     if len(_DENSE_CACHE) >= DENSE_CACHE_MAX:     # bounded: the fit tries many tables
         _DENSE_CACHE.pop(next(iter(_DENSE_CACHE)))
     _DENSE_CACHE[key] = val
@@ -611,7 +989,11 @@ def initial_folds(crests=(4, 44, 92, 136, 184, 212, 243, 315)):
 
 
 def fold_table():
-    return FOLDS if FOLDS else initial_folds()
+    """The folds of the built cloth: read off the shape master (round 10).
+    FOLDS, the sheet-fitted table of rounds 6-9, is kept only as a record:
+    the built cloth no longer depends on it below the waistband, so
+    _skirt_fit.py no longer drives the build."""
+    return _target_folds()
 
 
 _MAIN_CACHE = {}
