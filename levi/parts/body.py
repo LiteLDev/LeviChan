@@ -44,8 +44,10 @@ leg_section() / leg_offset() (round 8: it clears its shell off the leg, which no
 on below the malleoli into the heel round the ankle pivot).
 """
 import math
+import os
 
 import bmesh
+import numpy as np
 from mathutils import Matrix, Vector
 from mathutils.kdtree import KDTree
 
@@ -78,6 +80,100 @@ def _interp(table, t):
                 return tuple(x + (y - x) * a for x, y in zip(v0, v1))
             return v0 + (v1 - v0) * a
     return table[-1][1]
+
+
+# ---------------------------------------------------------------- shape master (round 10)
+# The exposed skin takes its shape from the shape master (levi/shape.py, label
+# 'body'): each section function (leg_offset, arm_rings, build_torso) casts rays
+# from its ring centre out along its own vertex directions, and blends its
+# procedural radius toward the master's by a weight that is 1 where the master is
+# the outermost surface and plausible, fading to 0 into hidden zones (under the
+# petticoat, the bodice, the sleeves and the shoes), which keep the procedural shape.
+# False: the procedural shape alone (round 9); LEVI_BODY_MASTER=0 for A/B renders
+MASTER = os.environ.get('LEVI_BODY_MASTER', '1') != '0'
+MASTER_INSET = 0.5     # px: stay this far inside the master's surface (the outline hull)
+# A sample counts only if the master's radius is within this share of ours and its
+# surface faces outward along the ray (the master's labels have stray patches: cuffs
+# and ribbons labelled body; a ray starting inside a neighbouring limb exits it).
+MASTER_RATIO = (0.7, 1.45)
+MASTER_REACH = 1.6     # rays start this many of our radii out from the ring centre
+MASTER_FACING = 0.15   # min cos between the hit surface's normal and the ray (outward)
+
+
+def _master_radii(centres, dirs, r_ours, labels=('body',), reach=None, occluders=True):
+    """Radius (m) of the shape master's outermost `labels` surface along each unit
+    direction from its centre (left-side points; the mirrored right side is sampled
+    too and averaged, so the body stays symmetric), or NaN where another part is
+    outermost or no plausible surface is hit (see MASTER_RATIO / MASTER_FACING).
+    reach: optional per-ray cap (m) on how far out the ray starts. occluders=False
+    looks through other parts (the legs inside the skirt)."""
+    from .. import shape as master
+    C = np.asarray(centres, dtype=np.float64).reshape(-1, 3)
+    D = np.asarray(dirs, dtype=np.float64).reshape(-1, 3)
+    D = D / np.linalg.norm(D, axis=1, keepdims=True)
+    R = np.asarray(r_ours, dtype=np.float64).reshape(-1)
+    rmax = R * MASTER_REACH
+    if reach is not None:
+        rmax = np.minimum(rmax, np.asarray(reach, dtype=np.float64))
+    lo, hi = MASTER_RATIO
+    out = []
+    for sgn in (1.0, -1.0):
+        Cs, Ds = C.copy(), D.copy()
+        Cs[:, 0] *= sgn
+        Ds[:, 0] *= sgn
+        _, dist, nrm, _ = master.ray(labels, Cs + Ds * rmax[:, None], -Ds, float(rmax.max()), occluders)
+        r = rmax - dist
+        with np.errstate(invalid='ignore'):
+            ok = (np.isfinite(r) & (r > R * lo) & (r < np.minimum(R * hi, rmax - 1e-4))
+                  & ((nrm * Ds).sum(1) > MASTER_FACING))
+        out.append(np.where(ok, r, np.nan))
+    a, b = out
+    with np.errstate(invalid='ignore'):
+        return np.where(np.isfinite(a) & np.isfinite(b), (a + b) / 2, np.where(np.isfinite(a), a, b))
+
+
+def _gauss(a, sig_r, sig_c, periodic=True):
+    """Separable Gaussian smoothing of a 2-D table: rows clamped at the ends, columns
+    periodic (rings) or clamped."""
+    a = np.asarray(a, dtype=np.float64)
+    for axis, sig, per in ((0, sig_r, False), (1, sig_c, periodic)):
+        if sig <= 0:
+            continue
+        h = max(1, int(math.ceil(3 * sig)))
+        k = np.exp(-0.5 * (np.arange(-h, h + 1) / sig) ** 2)
+        k /= k.sum()
+        b = np.moveaxis(a, axis, 0)
+        n = b.shape[0]
+        idx = np.arange(-h, n + h)
+        idx = idx % n if per else np.clip(idx, 0, n - 1)
+        pad = b[idx]
+        b = sum(k[j] * pad[j:j + n] for j in range(2 * h + 1))
+        a = np.moveaxis(b, 0, axis)
+    return a
+
+
+def _blend_table(delta, weight, sig_d, sig_w, periodic=True):
+    """Offsets from a table of master deltas (NaN = no sample) and a 0..1 reliability
+    weight per sample: the deltas are filled across the gaps and smoothed, the weight
+    (0 where there is no sample) smoothed wider, so the shape fades into the hidden
+    zones over a few loops instead of stepping."""
+    from .. import shape as master
+    d = np.array(delta, dtype=np.float64)
+    ok = np.isfinite(d)
+    w = np.where(ok, np.asarray(weight, dtype=np.float64), 0.0)
+    if not ok.any():
+        return np.zeros_like(d)
+    for i in range(d.shape[0]):
+        if ok[i].any():
+            d[i] = master.fill_ring(d[i]) if periodic else master.fill_rows(d[i][:, None])[:, 0]
+    d = master.fill_rows(d, 0)
+    d = np.where(np.isfinite(d), d, 0.0)
+    d = _gauss(d, sig_d[0], sig_d[1], periodic)
+    w = _gauss(w, sig_w[0], sig_w[1], periodic)
+    # a lone sample cannot pull a loop out: the weight saturates only where the
+    # neighbourhood is mostly sampled
+    w = np.clip(w * 1.25, 0.0, 1.0)
+    return d * w
 
 
 # ---------------------------------------------------------------- sweep
@@ -379,8 +475,65 @@ def build_torso(bm):
             co.x -= math.copysign(px(hol * g * f), co.x)
         return co
 
-    return sweep(bm, centers, hints, radii, n=TORSO_N, p=ps, cap0='ngon', cap1='pole',
-                 cap1_len=px(4), ring_fn=tilt, tangent=(0, 0, -1), thetas=_torso_thetas(table))
+    rings, frames = ring_points(centers, hints, radii, TORSO_N, ps, (0, 0, -1), _torso_thetas(table))
+    rings = [[tilt(i, co) for co in ring] for i, ring in enumerate(rings)]
+    rings = _torso_master(table, rings)
+    return skin_rings(bm, rings, frames, 'ngon', 'pole', 0.0, px(4))
+
+
+# Shape master on the torso: rows where the master's skin counts (ramp in, full,
+# full, out): the neck below the jaw, the shoulders and the upper chest, fading out
+# above the bust (the master's bust rises ~1 cm proud of ours at the bodice's top
+# edge; following it there pushed a ridge across the chest and the skin through the
+# bodice's neckline). The bodice and the choker hide the rest (no samples); the back
+# is under the hair (only stray samples next to the shoulder: a knob), so the master
+# counts on the front and the sides only.
+TORSO_MASTER_ROWS = (163, 172, 212, 232)
+TORSO_MASTER_BACK = (-0.1, 0.4)   # weight 1 -> 0 as the ray turns toward the back (its +y share)
+# The shoulder sockets keep their procedural border (the arm's transition rings start
+# from it; a horizontal ray from the torso's centre there meets the arm): no master
+# within SOCKET_K + this many ring vertices of each side, over these rows.
+TORSO_MASTER_SOCKET = (2.0, 182.0, 238.0)
+TORSO_MASTER_SMOOTH = ((1.0, 1.0), (1.5, 1.5))   # (rings, ring vertices)
+_TORSO_MASTER = {}
+
+
+def _torso_master(table, rings):
+    """Torso rings moved horizontally (from the ring's centre line) toward the shape
+    master where its skin is outermost."""
+    if not MASTER:
+        return rings
+    n, K = TORSO_N, SOCKET_K
+    key = tuple(round(c, 6) for ring in rings for co in ring for c in co)
+    if key not in _TORSO_MASTER:
+        C, D, R, W = [], [], [], []
+        r0, r1, r2, r3 = TORSO_MASTER_ROWS
+        ks, s0, s1 = TORSO_MASTER_SOCKET
+        for (row, hw, yf, yb, p, ys), ring in zip(table, rings):
+            win = smoothstep(r0, r1, row) * (1 - smoothstep(r2, r3, row))
+            for k, co in enumerate(ring):
+                v = Vector((co.x, co.y - px(ys), 0.0))
+                C.append((0.0, px(ys), co.z))
+                D.append(tuple(v.normalized()) if v.length > 1e-9 else (1.0, 0.0, 0.0))
+                R.append(max(v.length, 1e-6))
+                # ring distance (vertices) from the nearer side (k = 0 left, n / 2 right)
+                dk = min(k % n, n - k % n, abs(k - n // 2))
+                band = smoothstep(s0 - 6, s0, row) * (1 - smoothstep(s1, s1 + 6, row))
+                back = 1 - smoothstep(*TORSO_MASTER_BACK, D[-1][1])
+                W.append(win * back * (1 - band * (1 - smoothstep(K + 0.5, K + 0.5 + ks, dk))))
+        W = np.array(W)
+        r_t = np.full(len(R), np.nan)
+        sel = W > 0
+        if sel.any():
+            r_t[sel] = _master_radii(np.array(C)[sel], np.array(D)[sel], np.array(R)[sel])
+        delta = ((r_t - np.array(R)) / px(1) - MASTER_INSET).reshape(len(rings), n)
+        W = W.reshape(len(rings), n)
+        # the soft window is applied again after smoothing: zero on the socket border
+        # and outside the rows
+        _TORSO_MASTER[key] = (_blend_table(delta, W, *TORSO_MASTER_SMOOTH) * W, D)
+    off, D = _TORSO_MASTER[key]
+    return [[co + Vector(D[i * n + k]) * px(off[i, k]) for k, co in enumerate(ring)]
+            for i, ring in enumerate(rings)]
 
 
 def cut_socket(bm, rings, side):
@@ -501,6 +654,83 @@ HAND_P = ((0, 2.0), (12, 2.3))
 THENAR = (3, 10, 20, 31)
 
 
+# Shape master on the hands (volume only): the master's hands are mittens, turned
+# about the forearm against ours, so they give no ring-by-ring radii. Instead the
+# palm's width and thickness and the fingers' thickness are measured in the master's
+# own principal frame of each hand (HAND_MASTER_SLICES, px along the hand from our
+# wrist) and the palm rings, the knuckle row and the finger sections take this share
+# of the ratio master / ours. The fingers keep their own separation and topology.
+HAND_MASTER_W = (0.5, 0.5, 0.25)  # palm width, palm thickness, finger thickness
+HAND_MASTER_CAP = 0.15            # no scale beyond 1 -+ this (the mitten's fingers are one slab)
+HAND_MASTER_SLICES = ((14.0, 32.0), (40.0, 56.0))   # palm, fingers
+HAND_MASTER_REACH = 30.0          # px round the hand's axis
+HAND_MASTER_LABELS = ('body', 'sleeves')
+_HAND_MASTER = None
+HAND_MASTER_INFO = {}
+
+
+def _hand_master():
+    """(palm width, palm thickness, finger thickness) scale factors from the master."""
+    global _HAND_MASTER
+    if _HAND_MASTER is not None:
+        return _HAND_MASTER
+    if not MASTER:
+        _HAND_MASTER = (1.0, 1.0, 1.0)
+        return _HAND_MASTER
+    from .. import shape as master
+    # the master's hand surface: its skin and the cuff-side patches of the hand that
+    # were labelled sleeves (the label sheet), nothing else (the skirt and the hair
+    # hang within reach of the hand)
+    V, F = master.data()[:2]
+    V = V[np.unique(F[master.faces(HAND_MASTER_LABELS)])]
+    k = px(1)
+    W0 = np.array(P(*WRIST))
+    d0, w0, n0 = (np.array(v) for v in hand_frame())
+    (p0, p1), (f0, f1) = HAND_MASTER_SLICES
+    meas = []
+    for sgn in (1.0, -1.0):
+        m3 = np.array([sgn, 1.0, 1.0])
+        Wd, dd = W0 * m3, d0 * m3
+        rel = V - Wd
+        t = rel @ dd
+        sel = (np.linalg.norm(rel - np.outer(t, dd), axis=1) < HAND_MASTER_REACH * k) & (t > -5 * k) & (t < 80 * k)
+        Q = V[sel]
+        if len(Q) < 50:
+            continue
+        _, _, vt = np.linalg.svd(Q - Q.mean(0), full_matrices=False)
+        a1, a2 = vt[1], vt[2]          # across the hand, through it
+        tq = (Q - Wd) @ dd
+
+        def ext(lo, hi, ax):
+            q = Q[(tq >= lo * k) & (tq < hi * k)] @ ax
+            return (np.percentile(q, 99) - np.percentile(q, 1)) / k if len(q) >= 10 else np.nan
+        meas.append((ext(p0, p1, a1), ext(p0, p1, a2), ext(f0, f1, a2)))
+    if not meas:
+        _HAND_MASTER = (1.0, 1.0, 1.0)
+        return _HAND_MASTER
+    pw, pt, ft = np.nanmean(np.array(meas, dtype=np.float64), 0)
+    # ours over the same slices
+    ts = [t for t in HAND_STATIONS if p0 <= t <= p1]
+    ow = np.mean([sum(_interp(HAND_R, t)[:2]) for t in ts])
+    ot = np.mean([sum(_interp(HAND_R, t)[2:]) for t in ts])
+    of = np.mean([2 * f[4] for f in FINGERS]) * (FINGER_SECTION[1] + FINGER_SECTION[2]) / 2 * FINGER_TAPER[1]
+    ww, wt, wf = HAND_MASTER_W
+    c = HAND_MASTER_CAP
+    _HAND_MASTER = tuple(float(np.clip(1 + wgt * (m / o - 1), 1 - c, 1 + c)) if np.isfinite(m) else 1.0
+                         for wgt, m, o in ((ww, pw, ow), (wt, pt, ot), (wf, ft, of)))
+    HAND_MASTER_INFO.update(master=(pw, pt, ft), ours=(ow, ot, of), scale=_HAND_MASTER)
+    return _HAND_MASTER
+
+
+def _hand_r(t):
+    """HAND_R at `t` px from the wrist, scaled toward the master's palm (none at the wrist)."""
+    sw, st, _ = _hand_master()
+    f = smoothstep(0.0, 10.0, t)
+    a, b, c, d = _interp(HAND_R, t)
+    gw, gt = 1 + (sw - 1) * f, 1 + (st - 1) * f
+    return (a * gw, b * gw, c * gt, d * gt)
+
+
 def hand_frame():
     """Unit vectors (d: along the hand, w: toward the thumb, n: palm normal)."""
     d = Vector((HAND_DIR[0], HAND_DIR[1], -HAND_DIR[2])).normalized()
@@ -549,6 +779,46 @@ def _palm_shape(t_px):
     return f
 
 
+# Shape master on the arm rings: the bare shoulder cap (the transition rings follow
+# the first round ring), fading out under the sleeve's top band (px of arc from
+# SHOULDER: full, none). Inside the sleeves the arm keeps its procedural shape (the
+# master's skin there is stray: cuff ruffles and ribbons labelled body; following it
+# pushed the upper arm through the sleeve's band); the hand rings keep their own
+# (HAND_R, _hand_master). Smoothing (stations, ring vertices) of the deltas, the weight.
+ARM_MASTER_ARC = (50.0, 75.0)
+ARM_MASTER_SMOOTH = ((0.8, 1.0), (1.5, 2.0))
+_ARM_MASTER = {}
+
+
+def _arm_master(centers, frames, rings, use):
+    """Arm rings moved radially (in each ring's plane) toward the shape master where
+    its skin is outermost, by the station weights use[i] (0..1)."""
+    if not MASTER or not any(u > 0 for u in use):
+        return rings
+    key = tuple(round(c, 6) for co in centers for c in co)
+    C, D, R = [], [], []
+    for i, ring in enumerate(rings):
+        t = frames[i][0]
+        for co in ring:
+            v = co - centers[i]
+            v = v - t * v.dot(t)
+            C.append(tuple(centers[i]))
+            D.append(tuple(v.normalized()) if v.length > 1e-9 else tuple(frames[i][1]))
+            R.append(max(v.length, 1e-6))
+    if key not in _ARM_MASTER:
+        sel = np.repeat(np.array(use) > 0, ARM_N)
+        r_t = np.full(len(R), np.nan)
+        r_t[sel] = _master_radii(np.array(C)[sel], np.array(D)[sel], np.array(R)[sel])
+        delta = ((r_t - np.array(R)) / px(1) - MASTER_INSET).reshape(len(rings), ARM_N)
+        # the stations without samples (weight 0) take part in the smoothing, so the
+        # master's share fades out instead of stopping at a ring
+        w = np.repeat(np.array(use, dtype=np.float64)[:, None], ARM_N, 1)
+        _ARM_MASTER[key] = _blend_table(delta, w, *ARM_MASTER_SMOOTH, periodic=True) * w
+    off = _ARM_MASTER[key]
+    return [[co + Vector(D[i * ARM_N + k]) * px(off[i, k]) for k, co in enumerate(ring)]
+            for i, ring in enumerate(rings)]
+
+
 def arm_rings(loop, tans):
     """Positions (left side) of the arm rings from the socket border to the
     palm end, and the frames of the round part.
@@ -586,7 +856,7 @@ def arm_rings(loop, tans):
     for t in HAND_STATIONS:
         centers.append(W + d * t * k)
         hints.append(w.copy())
-        radii.append(tuple(px(x) for x in _interp(HAND_R, t)))
+        radii.append(tuple(px(x) for x in _hand_r(t)))
         hand_t.append(t)
 
     shapes = [None if ht is None else _palm_shape(ht) for ht in hand_t]
@@ -595,6 +865,10 @@ def arm_rings(loop, tans):
         return shapes[i](dx, dy) if shapes[i] else (0.0, 0.0, 0.0)
     pexp = [2.0 if ht is None else _interp(HAND_P, ht) for ht in hand_t]
     rings, frames = ring_points(centers, hints, radii, ARM_N, p=pexp, shape=shape)
+    a0, a1 = ARM_MASTER_ARC
+    rings = _arm_master(centers, frames, rings,
+                        [0.0 if ht is not None else 1 - smoothstep(a0, a1, arc(key))
+                         for key, ht in zip(list(ARM_STATIONS) + [None] * len(HAND_STATIONS), hand_t)])
     # transition: cubic Hermite from each socket vertex (leaving along the
     # torso surface) to its vertex on the first round ring (arriving along the arm)
     t1 = frames[0][0]
@@ -680,7 +954,8 @@ def _rot(v, axis, deg):
     return Matrix.Rotation(math.radians(deg), 3, axis) @ v
 
 
-def finger(bm, base, direction, bend_axis, seg_len, r0, curl, mirror, n=FINGER_N, taper=FINGER_TAPER):
+def finger(bm, base, direction, bend_axis, seg_len, r0, curl, mirror, n=FINGER_N, taper=FINGER_TAPER,
+           section=FINGER_SECTION):
     pts = [base - direction * px(r0 * 0.6)]
     dirs = [direction]
     rs = [r0 * 0.82]
@@ -714,7 +989,7 @@ def finger(bm, base, direction, bend_axis, seg_len, r0, curl, mirror, n=FINGER_N
         dirs.append(dcur)
         rs.append(rtip * k)
         kind.append(None)
-    sw, sb, sp = FINGER_SECTION
+    sw, sb, sp = section
     radii = [(px(r) * sw, px(r) * sw, px(r) * sb, px(r) * sp) for r in rs]
     # side hint = across the finger (in the palm plane); up = toward the back of the hand
 
@@ -735,18 +1010,23 @@ def finger(bm, base, direction, bend_axis, seg_len, r0, curl, mirror, n=FINGER_N
 
 def build_fingers(bm, W, d, w, n, mirror=False):
     k = px(1)
+    # the shape master's palm width spaces the fingers and sets their width (so the
+    # gaps between them keep their share), its finger thickness their depth
+    sw, _, sf = _hand_master()
+    fs, fb, fp = FINGER_SECTION
+    sec = (fs * sw, fb * sf, fp * sf)
     for off, kd, splay, segs, r0, curl, lift in FINGERS:
-        base = W + d * kd * k + w * off * k + n * (0.5 + lift) * k
+        base = W + d * kd * k + w * off * sw * k + n * (0.5 + lift) * k
         direction = _rot(d, n, splay)       # splay within the palm plane
         axis = direction.cross(n).normalized()  # rotating about it bends toward +n (palm)
-        finger(bm, base, direction, axis, segs, r0, curl, mirror)
+        finger(bm, base, direction, axis, segs, r0, curl, mirror, section=sec)
     # thumb: from inside the thumb ball at the heel of the palm, angled out toward
     # the thumb side and turned toward the palm, out of the fingers' plane
     (ta, tw, tn), (da, dw, dn), segs, r0, curl = THUMB
-    base = W + d * ta * k + w * tw * k + n * tn * k
+    base = W + d * ta * k + w * tw * sw * k + n * tn * k
     tdir = (d * da + w * dw + n * dn).normalized()
     axis = tdir.cross(n).normalized()
-    finger(bm, base, tdir, axis, segs, r0, curl, mirror, taper=THUMB_TAPER)
+    finger(bm, base, tdir, axis, segs, r0, curl, mirror, taper=THUMB_TAPER, section=sec)
 
 
 # ---------------------------------------------------------------- legs + feet
@@ -942,6 +1222,130 @@ def knee_joint():
     return P((xo + xi) / 2, (yf + yb) / 2 - KNEE_FWD, KNEE_ROW)
 
 
+# Shape master on the legs. The master's skin counts from the petticoat's hem down
+# (LEG_MASTER_ROWS: ramp in, full, full, out); its thighs inside the skirt are
+# partial and lumpy (cloth-fused patches labelled body), so the hidden thigh keeps
+# its procedural shape, but takes the hem row's correction (axis shift and section
+# scale), fading out toward the hip (THIGH_HOLD rows: none, full), so the thigh runs
+# into the fitted knee without a waist at the hem. The ribbons of the shoes wrap the
+# ankle from row ~800 and shoes.py ties its laces to the plain LEG_FRONT / LEG_SIDE
+# ellipses there, so the ankle keeps its procedural shape.
+LEG_MASTER_ROWS = (604, 628, 755, 805)
+THIGH_HOLD = (470, 628)
+LEG_CLOTH_CLEAR = 6.0 / 1000 * spec.PX_PER_M   # px the thigh keeps inside the master's skirt / petticoat
+LEG_MASTER_STEP = 2.0      # px between table rows
+LEG_MASTER_N = 48          # angles round the ring
+# The legs take only the master's proportions, not its relief: per row the delta is
+# fitted by a low-order Fourier series round the ring (order 1: the axis shifts,
+# order 2: the section's width / depth), smoothed along the leg (rows px). Our
+# anatomy (kneecap, calf, tendon) stays. Following the master ring by ring (its knee
+# hollows, the narrowing between knee and calf) lost the pairwise review 2-22 / 0-20:
+# "wavy", "kinked knee", "pinched".
+LEG_MASTER_ORDER = 2
+LEG_MASTER_ROW_SIGMA = 14.0
+LEG_MASTER_MIN_VALID = 0.4     # rows with fewer samples round the ring don't count
+LEG_MASTER_RIDGE = (0.02, 0.5)  # ridge on (order 1, order 2) terms, in sample counts (keeps gaps tame)
+# The master's share around the knee (rows KNEE_ROW +- KNEE_MASTER_BAND, smooth):
+# the knee's style is an open question, so its outer shape can be held nearer round 9's.
+KNEE_MASTER_W = 1.0
+KNEE_MASTER_BAND = (14.0, 30.0)
+_LEG_MASTER = None
+LEG_MASTER_INFO = {}
+
+
+def _leg_lowpass(delta, ang):
+    """delta [row, angle] (NaN = no sample) -> its low-order Fourier fit round each
+    ring (LEG_MASTER_ORDER), the coefficients smoothed along the rows (weighted by the
+    rows' sample share, LEG_MASTER_ROW_SIGMA)."""
+    terms = [np.ones_like(ang)]
+    lam = [0.0]
+    for k in range(1, LEG_MASTER_ORDER + 1):
+        terms += [np.cos(k * ang), np.sin(k * ang)]
+        lam += [LEG_MASTER_RIDGE[min(k, 2) - 1]] * 2
+    A = np.stack(terms, 1)
+    coef = np.zeros((len(delta), len(terms)))
+    wrow = np.zeros(len(delta))
+    for i, d in enumerate(delta):
+        ok = np.isfinite(d)
+        if ok.mean() < LEG_MASTER_MIN_VALID:
+            continue
+        Ao = A[ok]
+        coef[i] = np.linalg.solve(Ao.T @ Ao + np.diag(lam) * ok.sum(), Ao.T @ d[ok])
+        wrow[i] = ok.mean()
+    # normalised Gaussian smoothing along the rows (rows without a fit don't count)
+    h = int(math.ceil(3 * LEG_MASTER_ROW_SIGMA / LEG_MASTER_STEP))
+    g = np.exp(-0.5 * (np.arange(-h, h + 1) * LEG_MASTER_STEP / LEG_MASTER_ROW_SIGMA) ** 2)
+    n = len(delta)
+    out = np.zeros_like(coef)
+    for i in range(n):
+        j = np.arange(i - h, i + h + 1)
+        ok = (j >= 0) & (j < n)
+        ww = g[ok] * wrow[j[ok]]
+        if ww.sum() > 1e-9:
+            out[i] = (ww[:, None] * coef[j[ok]]).sum(0) / ww.sum()
+    return out @ A.T
+
+
+def _leg_master():
+    """(rows, offsets px [row, angle]) of the master's leg skin: the radial offset
+    that moves each ring point (leg_section + anatomy, at parametric angle
+    2 pi j / LEG_MASTER_N) onto the master, weighted. None without the master."""
+    global _LEG_MASTER
+    if _LEG_MASTER is not None or not MASTER:
+        return _LEG_MASTER
+    from .. import shape as master
+    r0, r1, r2, r3 = LEG_MASTER_ROWS
+    t0, t1 = THIGH_HOLD
+    rows = np.arange(t0 - 12.0, r3 + 12.0 + 1e-6, LEG_MASTER_STEP)
+    ang = 2 * math.pi * np.arange(LEG_MASTER_N) / LEG_MASTER_N
+    C, D, R, Q = [], [], [], []
+    for row in rows:
+        cx, cy, hw, hd = leg_section(row)
+        f = _leg_shape(row)
+        for a in ang:
+            dx, dy = math.cos(a), math.sin(a)
+            oa, ob = f(dx, dy)
+            qx, qy = hw * dx + oa, hd * dy + ob
+            L = math.hypot(qx, qy)
+            C.append(P(cx, cy, row))
+            D.append((qx / L, -qy / L, 0.0))
+            R.append(px(L))
+            # the ray may not start past the midline (inside the other leg)
+            Q.append(px(cx) / max(1e-6, -qx / L) if qx < 0 else 1.0)
+    R = np.array(R)
+    r_t = _master_radii(C, D, R, reach=np.array(Q) * 0.98)
+    delta = ((r_t - R) / px(1) - MASTER_INSET).reshape(len(rows), len(ang))
+    delta[rows < r0] = np.nan          # under the petticoat: no samples
+    kb0, kb1 = KNEE_MASTER_BAND
+    win = []
+    for r in rows:
+        w = 1 - smoothstep(r2, r3, r)
+        w *= 1 - (1 - smoothstep(kb0, kb1, abs(r - KNEE_ROW))) * (1 - KNEE_MASTER_W)
+        win.append(w)
+    win = np.array(win)
+    off = _leg_lowpass(delta, ang)
+    # above the full rows the correction of the first full row is held, fading out
+    # up the thigh
+    i1 = int(np.argmin(np.abs(rows - r1)))
+    for i, r in enumerate(rows):
+        if r < r1:
+            off[i] = off[i1] * smoothstep(t0, t1, r)
+    off = off * win[:, None]
+    # hidden zone: stay LEG_CLOTH_CLEAR inside the master's skirt / petticoat (the
+    # nearest cloth surface out along the ray from the leg's centre)
+    _, d_cloth, _, _ = master.ray(('skirt', 'petticoat'), C, D, 0.3, False)
+    room = (d_cloth.reshape(len(rows), len(ang)) - R.reshape(len(rows), len(ang))) / px(1) - LEG_CLOTH_CLEAR
+    # (only the master's outward push is limited: where our procedural thigh is
+    # already tighter than that, it stays as it is)
+    with np.errstate(invalid='ignore'):
+        cap = np.where(np.isfinite(room), np.maximum(room, 0.0), np.inf)
+    LEG_MASTER_INFO['clamped'] = int((off > cap).sum())
+    LEG_MASTER_INFO['valid'] = float(np.isfinite(delta).mean())
+    off = np.minimum(off, cap)
+    _LEG_MASTER = (rows, off)
+    return _LEG_MASTER
+
+
 def ankle_joint():
     """Left ankle pivot (world): on the leg axis at ANKLE_ROW, ANKLE_BACK px behind it."""
     cx, cy, _, _ = leg_section(ANKLE_ROW)
@@ -960,9 +1364,32 @@ def leg_section(row):
 
 def leg_offset(row):
     """f(dx, dy) -> (d_side, d_front) px: how the anatomy (kneecap, calf, malleoli,
-    tendon, heel) moves the point of the leg ring at `row` at unit direction (dx: + outer,
-    dy: + front). shoes.py clears its shell against it."""
-    return _leg_shape(row)
+    tendon, heel) and the shape master move the point of the leg ring at `row` at unit
+    direction (dx: + outer, dy: + front). shoes.py clears its shell against it."""
+    anat = _leg_shape(row)
+    tab = _leg_master()
+    if tab is None or not tab[0][0] <= row <= tab[0][-1]:
+        return anat
+    rows, off = tab
+    j = min(len(rows) - 2, int((row - rows[0]) / LEG_MASTER_STEP))
+    t = (row - rows[j]) / (rows[j + 1] - rows[j])
+    o = off[j] * (1 - t) + off[j + 1] * t
+    if not np.any(np.abs(o) > 1e-6):
+        return anat
+    n = len(o)
+    _, _, hw, hd = leg_section(row)
+
+    def f(dx, dy):
+        a, b = anat(dx, dy)
+        u = (math.atan2(dy, dx) / (2 * math.pi)) % 1.0 * n
+        k = int(u) % n
+        s = o[k] + (o[(k + 1) % n] - o[k]) * (u - int(u))
+        qx, qy = hw * dx + a, hd * dy + b
+        L = math.hypot(qx, qy)
+        if L < 1e-9:
+            return a, b
+        return a + s * qx / L, b + s * qy / L
+    return f
 
 
 def build_leg(bm):
@@ -973,7 +1400,7 @@ def build_leg(bm):
         hints.append(Vector((1, 0, 0)))
         # side+ = outer, side- = inner, up+ = front, up- = back
         radii.append((px(hw), px(hw), px(hd), px(hd)))
-        shapes.append(_leg_shape(row))
+        shapes.append(leg_offset(row))
 
     def shape(i, dx, dy):
         a, b = shapes[i](dx, dy)
@@ -1077,6 +1504,9 @@ def build(col):
     if SHOULDER_JOINT is not None:
         joints['shoulder_joint'] = tuple(P(*SHOULDER_JOINT))
     obj['levi_joints'] = joints
+    if MASTER:
+        print(f"BODY shape master: hand scale (palm width, palm thickness, finger thickness) "
+              f"{tuple(round(v, 3) for v in _hand_master())}; legs {LEG_MASTER_INFO}")
     common.shade_smooth(obj, 75.0)
     common.add_outline(obj)
     return obj
