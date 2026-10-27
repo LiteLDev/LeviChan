@@ -304,6 +304,7 @@ def _front_y(q, row, xp, c, detail):
     the midline; c = cos of the ring angle."""
     yp = q['mid'] - q['bf'] * abs(c) ** q['ef'] - q['muzzle'] * math.exp(-(xp / MUZZLE_SIGMA) ** 2)
     yp -= float(lower_cheek(abs(xp), row, q['hw']))
+    yp += float(master_offset(abs(xp), row, q['mid'] - yp, c))   # on the base form: detail or not alike
     if detail:
         yp -= q['nose'] * math.exp(-(xp / q['sig']) ** 2)
         # facial relief, faded out where the surface turns to the side
@@ -1010,11 +1011,12 @@ def field_exp(row):
     return e0 + (float(np.interp(row, rows, vals)) - e0) * t
 
 
-def front_y_vec(row, X, detail):
+def front_y_vec(row, X, detail, master=True):
     """_front_y vectorized over X >= 0 (array), with the lower face's rounder
     sections and smaller muzzle (identical to ring() down to LOWER_TOP). The
     muzzle's removed share moves the base front forward, so the midline stays
-    on the measured profile."""
+    on the measured profile. master=False: without the shape master's depth
+    (what master_dy is measured against)."""
     q = _ring_params(row, detail)
     hw = q['hw']
     ef = 2.0 / field_exp(row)
@@ -1026,9 +1028,157 @@ def front_y_vec(row, X, detail):
     amp, share, r0, sig = LOWER_CHEEK_FILL
     yp = yp - (amp * float(_smooth(*LOWER_RAMP, row)) * np.exp(-((row - r0) / sig) ** 2)
                * np.sin(np.pi * u) ** 1.5 * np.exp(-((u - share) / 0.35) ** 2))
+    if master:
+        yp = yp + master_offset(X, row, q['mid'] - yp, c)
     if detail:
         yp = yp - q['nose'] * np.exp(-(X / q['sig']) ** 2) - relief(X, row) * _smooth(0.05, 0.3, c)
     return yp
+
+
+# ---------------------------------------------------------------- shape master (round 10)
+# The face front takes its depth from the shape master's 'head' surface
+# (levi/shape.py): master_dy(row) [px, + = back] is added to the section
+# functions' front (_front_y, front_y_vec), so the upper rings, the lower
+# face's field, face_point and with them the patches, the eye fit and every
+# morph target follow; along -Y only, so the front-projected texture stays on
+# its panel pixels and the front-view outline (the half-width) stays ours.
+#
+# What the master says (measured once, master_fit): its upper face (brow,
+# eyes) meets ours, but below the eyes its face recedes, ~1.5-2.5 cm behind
+# ours over the cheeks, mouth and chin (a flatter face, less of a muzzle). Its
+# finer forms do not carry over: blank eye sockets, no mouth, a small sharp
+# nose with a nostril hollow, a V chin, and label noise (bang strands
+# labelled head). Following them sample by sample left ridges, a pinched nose
+# root and a notched profile, and lost the pairwise A/B to round 9 (16 of 16).
+# So only the broad form is taken: the median set-back over the cheek band
+# (MASTER_CHEEK, beside the nose, outside the sockets and the mouth) per row,
+# fitted by one smooth ramp A * smoothstep(MASTER_RAMP0, r1, row), and
+# MASTER_FOLLOW of it applied. Our own nose, lids, mouth and chin ride on it
+# with their shapes; the sides fade out (master_depth), so the jaw and the
+# front-view outline stay ours. The forehead and skull (under the hair_front
+# cap) do not move: the ramp is 0 above MASTER_RAMP0 (mid-eye: the lower lid
+# would go back more than the upper one: master_offset moves the opening
+# and its rim back rigidly instead). The fit compares the master with our
+# analytic section (front_y_vec); below LOWER_TOP the mesh is its blurred
+# field, within ~1 px of it on the cheeks. The set-back is applied to the
+# base form (before the nose and the relief), so the shading-normal head
+# gets the same. The ramp ends no
+# earlier than MASTER_RAMP1[0] (the data alone would end it at row ~129, a
+# shelf under the eyes).
+# How much to follow, by the order-balanced pairwise Codex A/B against round
+# 9 (8 face close-ups, cel + clay; consistent picks new-old, astra / sol):
+# 0.25: 8-0 / 8-0 ("shorter, rounder chin", "cleaner jaw curve"); 0.35:
+# 6-2 / 8-0; 0.45: 0-8 / 6-2; 0.6: 0-8 / 0-8 and 1.0: 0-8 / 0-8 ("scooped
+# mouth area", "hooked chin": the chin's thin wedge saturates in
+# master_depth while the mouth goes back).
+MASTER_GRID = ((0.0, 48.0), (96.0, 161.0))      # X, rows [px], 1 px steps
+MASTER_BAND = (-4.0, 32.0)                      # accepted target - ours [px] (outside: stray labels)
+MASTER_FACING = 0.3                             # the target faces forward: |n_y| at least (its winding varies)
+MASTER_CHEEK = (6.0, 26.0)                      # X band [px] the set-back is read over
+MASTER_EYE = 8.0                                # px: samples this close to the eye opening are dropped
+MASTER_MOUTH = (8.0, 3.5)                       # dropped around the slit: half-width, half-height [px]
+MASTER_RAMP0 = 112.0                            # row the set-back starts from (0 above)
+MASTER_RAMP1 = (146.0, 160.0)                   # search range of the row it is complete by
+MASTER_FOLLOW = 0.25                            # share of the master's set-back taken
+
+
+@lru_cache(maxsize=1)
+def master_fit():
+    """(A [px], r1 [row]): the master's face set-back behind ours, fitted as
+    A * smoothstep(MASTER_RAMP0, r1, row) to the per-row median over the
+    cheek band."""
+    from .. import shape
+    (x0, x1), (r0, r1) = MASTER_GRID
+    Xs = np.arange(x0, x1 + 0.5)
+    Rs = np.arange(r0, r1 + 0.5)
+    ours = np.array([front_y_vec(r, Xs, True, master=False) for r in Rs])          # (rows, X) cols
+    hw = np.array([_ring_params(r, True)['hw'] for r in Rs])
+    gx = np.gradient(ours, Xs, axis=1)
+    gr = np.gradient(ours, Rs, axis=0)
+    ok_ours = (Xs[None, :] < 0.92 * hw[:, None]) & (np.hypot(gx, gr) < 2.5)        # ours faces forward
+    D = np.full((2,) + ours.shape, np.nan)
+    for k, sg in enumerate((1.0, -1.0)):
+        O = np.array([(HEAD_DX + sg * X / PPM, -1.0, zr(r)) for r in Rs for X in Xs])
+        p, _, n, _ = shape.ray('head', O, [(0.0, 1.0, 0.0)], occluders=False)
+        with np.errstate(invalid='ignore'):
+            d = np.where(np.abs(n[:, 1]) >= MASTER_FACING, col_of(p[:, 1]), np.nan).reshape(ours.shape) - ours
+            D[k] = np.where((d >= MASTER_BAND[0]) & (d <= MASTER_BAND[1]), d, np.nan)
+    X2, R2 = np.meshgrid(Xs, Rs)
+    mx, my = MASTER_MOUTH
+    keep = (ok_ours & (X2 >= MASTER_CHEEK[0]) & (X2 <= MASTER_CHEEK[1])
+            & (np.asarray(_eye_opening_d(X2, R2)) >= MASTER_EYE) & ~((X2 < mx) & (np.abs(R2 - mouth_row(X2)) < my)))
+    rows, med = [], []
+    for j, r in enumerate(Rs):
+        v = D[:, j][:, keep[j]]
+        v = v[np.isfinite(v)]
+        if len(v) >= 5:
+            rows.append(r)
+            med.append(float(np.median(v)))
+    rows, med = np.array(rows), np.array(med)
+    if len(rows) < 10:
+        raise ValueError(f'head: the shape master covers only {len(rows)} rows of the cheeks')
+    best = None
+    for r1 in np.arange(MASTER_RAMP1[0], MASTER_RAMP1[1] + 0.5, 1.0):
+        s = _smooth(MASTER_RAMP0, r1, rows)
+        a = float((s * med).sum() / max((s * s).sum(), 1e-9))
+        err = float(((a * s - med) ** 2).sum())
+        if best is None or err < best[0]:
+            best = (err, a, float(r1))
+    err, a, r1 = best
+    a = max(a, 0.0)                                 # a set-back only: never in front of the measured profile
+    print(f'HEAD shape master: face set-back {a:.1f} px from row {MASTER_RAMP0:.0f} to {r1:.0f} '
+          f'({len(rows)} rows sampled, rms {math.sqrt(err / len(rows)):.1f} px); taking {MASTER_FOLLOW:.0%}')
+    return a, r1
+
+
+def master_dy(row):
+    """Set-back [px, + = back] the shape master gives the face front on `row`
+    (the same across the face; master_depth fades it out at the sides).
+    master_fit is cached: change the MASTER_* fit parameters before the
+    first head query, not between builds in one process."""
+    a, r1 = master_fit()
+    t = min(max((row - MASTER_RAMP0) / (r1 - MASTER_RAMP0), 0.0), 1.0)
+    return MASTER_FOLLOW * a * t * t * (3.0 - 2.0 * t)
+
+
+MASTER_EYE_KEEP = (2.0, 14.0)     # px from the eye opening: the eye's rigid set-back .. the ramp's
+MASTER_EYE_ROW = 125.0            # the eye takes the ramp's set-back on this row (the lower lid's lowest)
+
+
+def master_offset(X, row, depth, c):
+    """Set-back [px, + back] of the face front at (|X|, row), `depth` px in
+    front of its section's widest point (ring angle cos c): the ramp
+    (master_dy, shaped by master_depth), except on and around the eye
+    opening, which goes back rigidly by the ramp's value on its lower lid
+    (MASTER_EYE_ROW), blended out over MASTER_EYE_KEEP. Rigidly: no fade or
+    saturation there either, so the rim keeps its shape exactly, fit_eyeball
+    refits the same sphere moved back, and the lids' morph paths, the socket
+    sleeve and the eye checks stay ours. (The ramp across the opening tilted
+    the rim: the half-way blink went 1.46 -> 1.54 mm and はぅ=0.5 1.48 ->
+    1.60 mm through the turned eyeball; with the side fade on the rigid part
+    the outer corner lagged 0.5 px and キリッ's socket sleeve crossed the
+    gaze. Holding the eye at 0 left a groove under it, which lost the A/B.)"""
+    k = _smooth(*MASTER_EYE_KEEP, _eye_opening_d(X, row))
+    return k * master_depth(master_dy(row), depth, c) + (1.0 - k) * master_dy(MASTER_EYE_ROW)
+
+
+MASTER_FACE_C = (0.0, 0.3)        # cos of the ring angle: the set-back faded out .. in toward the sides
+MASTER_KEEP = 0.25               # share of the front's depth (in front of the widest point) a set-back keeps
+
+
+def master_depth(d, depth, c):
+    """The set-back d >= 0 [px] applied to a front point `depth` px in front of the
+    section's widest point (ring angle cos c): a set-back saturates softly
+    at (1 - MASTER_KEEP) of that depth, so toward the sides (depth -> 0) it
+    fades out and the section never folds behind its widest point."""
+    if np.ndim(d) == 0 and np.ndim(depth) == 0 and np.ndim(c) == 0:
+        if d <= 0.0:
+            return 0.0
+        s = (1.0 - MASTER_KEEP) * max(float(depth), 1e-6)
+        return s * math.tanh(float(d) / s) * float(_smooth(*MASTER_FACE_C, c))
+    d = np.maximum(np.asarray(d, float), 0.0)
+    s = (1.0 - MASTER_KEEP) * np.maximum(np.asarray(depth, float), 1e-6)
+    return s * np.tanh(d / s) * _smooth(*MASTER_FACE_C, c)
 
 
 def _occ(d):
