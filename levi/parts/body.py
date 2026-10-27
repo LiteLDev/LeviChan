@@ -781,8 +781,8 @@ LEG_SIDE = {
     862: (-17, 11.5), 874: (-12, 11),
 }
 # Loft rows: ~13 rows apart over the hip / groin (the leg swings), ~15 down the
-# hidden thigh, then 6-7 rows (about 1 cm) over the whole knee band the rig's
-# two ひざ補助 helpers bend (rows ~660-740), ~11 down the shin, and 7 again
+# hidden thigh, then 6-7 rows (about 1 cm) over the whole knee band the rig
+# bends (rig.JOINT_ALONG, rows ~650-730), ~11 down the shin, and 7 again
 # (about 1 cm) over the ankle band the foot bends about (rows ~830-873).
 LEG_ROWS = (455, 467, 480, 493, 506, 520, 535, 550, 566, 582, 598, 612, 624, 635, 645,
             654, 662, 670, 677, 684, 691, 697, 703, 709, 715, 721, 728, 735, 743,
@@ -794,7 +794,13 @@ LEG_N = 28        # vertices per leg ring: a round terminator on the cel shade
 # the calf stays below it. Its depth is KNEE_FWD px ahead of the leg axis, as
 # the rig's own fit does, so IK bends the knee forward.
 KNEE_ROW = 690.0
-KNEE_FWD = 15.0   # 9 px (nearer the axis) stretched the squat knee x1.54 -> x1.75
+# Round 10 (the 风堇 MMD knee, user decision): 5 px puts the pivot ~43% of the leg's depth
+# behind the front skin (round 9: 15 px, 23%), as in the reference, so the kneecap's skin
+# wraps round a corner. That is ~2 mm ahead of the hip-ankle line; the leg IK starts from a
+# prebent knee (rig.KNEE_IK_PREBEND) to find the bend. 2.5 px (47%) lost the pairwise review
+# to 5 (0-6, 0-8) and failed the IK in sit_chair with an 8 deg prebend; 0 px (52%) widened
+# the bend span. (Round 8, 9 px: squat stretch x1.54 -> x1.75 with the old wide band.)
+KNEE_FWD = 5.0
 LEG_SIGMA = 5.0   # px: Gaussian smoothing of the measured profiles (no kinks)
 # Wider smoothing where the thigh narrows above the knee and the calf swells
 # below it (rows ~620-700), so the knee-to-calf contour is one soft curve in

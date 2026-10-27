@@ -409,50 +409,48 @@ SHOULDER_TWIST_FADE = 120.0     # deg
 # arm sweeps through it (idol_dance@78-81: arm bone pop 4.7 mm; 150-178 deg: 43 mm).
 SHOULDER_SHRUG_BLEND = (100.0, 175.0)
 # per helper name: (blend start before the joint, blend end after it) overriding the part's band
-JOINT_BAND_BY_AUX = {'腕補助': (0.04, 0.06)}   # the knee uses JOINT_HINGE (round 5's band: 7.5 cm)
+JOINT_BAND_BY_AUX = {'腕補助': (0.04, 0.06)}   # the knee uses JOINT_ALONG
 # per joint (first helper's name): the helpers as (share of the lower bone's rotation,
 # position along the lower bone where the skin turns with that helper alone). The band
 # turns smoothly from the upper bone (at -before) through each helper to the lower bone
-# (at +after). The knee gets two helpers: a deep squat bends it ~120 deg, and one helper
-# leaves 50-70 deg between neighbours, which linear skinning collapses into a notch.
-JOINT_AUX_CHAIN = {'腕補助': ((0.35, 0.0),), 'ひざ補助': ((0.33, -0.025), (0.67, 0.025))}
+# (at +after). The knee has no helpers since round 10 (JOINT_ALONG).
+JOINT_AUX_CHAIN = {'腕補助': ((0.35, 0.0),)}
 # per helper: (full, none) lateral distance (m) from the lower bone's axis within which the
 # split applies. The shoulder's upper bone 肩 also weights torso skin, which stays put.
-# per helper: (band scale at the front, at the back, the front direction); unused while
-# JOINT_HINGE covers the knee (round 5: (1.4, 0.85, (0, -1, 0)))
+# per helper: (band scale at the front, at the back, the front direction); unused since
+# round 6 (round 5's knee: (1.4, 0.85, (0, -1, 0)))
 JOINT_FRONT_BACK = {}
 JOINT_REACH_BY_AUX = {'腕補助': (0.05, 0.08)}
-# per helper: hinge partition (_split_joint_aux), replacing JOINT_BAND_BY_AUX /
-# JOINT_FRONT_BACK / aux_at for that joint. A vertex at distance t along the lower bone
-# from the joint gets the angle atan2(t, d) and the knots are angles: (d at the front,
-# at the side, at the back in m, interpolated quadratically in the cosine of the
-# vertex's direction from the limb axis toward `forward`; knots in degrees from the
-# upper limb (-) to the lower (+): upper end, one per helper, lower end; forward).
-# Round 6, knee: the band reaches ~19 cm in front and at the sides, ~11 behind (d x
-# tan 75 deg), so the kneecap wraps round a long arc while the hollow folds short. The
-# round-5 band (7.5 cm x 1.4 in front, x 0.85 behind) swung thigh skin above the joint
-# out into a lobe; shorter bands here (d 3-4 cm) pinched the knee or passed x1.85.
-# Round 7: the hollow folds without crossing itself only if the share changes no faster
-# along the angle than the bend allows (share' x bend < 1): behind the knee the band is
-# longer (d 4.5 cm) and the knots wider (+-80 / +-27 deg), so a seiza (156 deg) folds the
-# hollow instead of passing calf and thigh skin through each other (round 6: 160 faces
-# flipped in seiza, 116 in jump_tuck, knee volume 0.61; now 54 / 44, 0.65). Longer still
-# (7 cm, +-84 deg: 32 flips) swelled the calf behind a squatting knee into a hook, so the
-# visible shape decided here. JOINT_HINGE_CAP keeps the angular band off the ankle and hip.
-JOINT_HINGE = {'ひざ補助': ((0.05, 0.05, 0.045), (-80.0, -27.0, 27.0, 80.0), (0.0, -1.0, 0.0))}
-JOINT_HINGE_CAP = (0.10, 0.16)   # m along the limb: beyond, the hinge band is all upper / lower limb
-# Round 8 tried, each judged by pairwise Codex A/B against this knee (9 knee poses, shuffled;
-# new / old / same per model) and kept none (docs/pr/r8-2-shoulder-run/):
-# - narrower bands: hinge d 4 / 3.5 / 3.5 cm, knots +-65 / +-22 deg: 1-2 / 7-8; along-limb
-#   band near the reference MMD models' width (front -3.5..+6 cm, back +-3 cm): 0-2 / 7-9,
-#   "pinched", "angular notch", "ring-like creases";
-# - a flatter, squarer kneecap face (body.KNEECAP): ring creases above the kneecap;
-# - the knee pivot further back (body.KNEE_FWD 3 / 10 px): the leg IK then solves seiza
-#   with the knee bent 88 deg instead of 161 (a pivot behind the hip-ankle line bends no IK);
-# - helpers turning about points 1-2.5 cm in front of the joint (translating helpers): about
-#   even (5 / 8 / 5 and 6 / 6 / 6 over two shuffles at 2 cm), squat rated minor / minor
-#   as this knee is on a re-rate, but 3x the folded faces in the hollow (seiza 54 -> 162);
-#   with back partners about the joint the squat turned "knobby" (major / major).
+# Round 10: the knee follows the 风堇 (Hyacine) MMD model's knee (user decision, round 10):
+# a compact thigh -> shin blend with no helper bones (2 bones per vertex), about the pivot
+# moved back to ~43% of the leg's depth (body.KNEE_FWD), so the bend turns over a short
+# band and the knee reads as a defined corner instead of round 6-9's 17 cm "rubber hose".
+# Per lower bone stem: along-limb partition (_split_joint_aux): (knots at the front, at the
+# sides, at the back, forward). Knots are m along the limb from the pivot (- thigh, + shin):
+# the upper end, one per helper, the lower end; between consecutive knots the share is a
+# smoothstep. They are interpolated round the limb as a quadratic in the cosine of the
+# direction toward `forward`, so neighbouring columns don't shear.
+# Hyacine (measured on hyacine.blend: share of ひざ's turn against t / knee radius, round the
+# limb): one smoothstep over about +-6 cm (+-1.7 R), the same all round, t50 ~0, 10-90%
+# band 7.5-8.5 cm (2.1-2.3 R), no helpers. On our ~3x denser loft that profile (+-6.6 cm,
+# variant H0) still bent over a long arc (motion_check span 0.83 squat / 0.95 seiza): her
+# rings are 2.3 cm apart, so her turn lands on one ring. Narrowing the front to +-3.25 cm
+# (10-90%: 4.3 cm front, 5.6 sides, 7.5 back) brings the span to Hyacine's 0.5-0.7
+# (squat 0.63, seiza 0.71); the back stays wider so the hollow folds instead of creasing
+# (seiza flips 52 -> 8). Pairwise Codex (both models, both orders; docs/pr/r10-knee/):
+# every helperless compact variant beat round 9's knee 16-18 / 0-2 with both models (this
+# one 18-0 and 18-0); within that family (+-6.6 / 5 / 4 cm, front-narrow) both models
+# tied, so the spans and the hollow's metrics picked this one. A 50% helper at the pivot
+# (H1) or Nahida's narrow back with the front 2 cm lower (N1) lost to the plain blend (2-16
+# / 4-8, 0-18 / 0-18; astra even preferred round 9 to them; N1: 92-126 flips in seiza /
+# cross_legged).
+# Front +-3.0 cm: span 0.61 / 0.69 but the kneecap's skin stretched x1.91 in squat.
+JOINT_ALONG = {'ひざ': ((-0.0325, 0.0325), (-0.045, 0.045), (-0.06, 0.06), (0.0, -1.0, 0.0))}
+# Rounds 6-9 (replaced): a hinge partition, the share following atan2(t, d) with d 5 cm in
+# front and at the sides and 4.5 cm behind, knots +-27 / +-80 deg, two helpers ひざ補助 /
+# ひざ補助2 at 33 / 67%, capped 10-16 cm along the limb. Round 8's pairwise review preferred
+# it over narrower bands ("pinched", "angular notch") with the pivot forward at 23% depth;
+# round 10's pivot and the user's choice of the reference knee overrule that.
 
 
 def _joint_aux(add, jp, en, joint, nxt, parent, lower, upper, s, sfx, jp_side, en_sfx, group):
@@ -699,8 +697,7 @@ def _core_bones(J=None, H=None, F=None):
                  r=0.065, r_end=0.04, group='Legs'))
         add(Bone('ひざ' + sfx, jp_side + 'ひざ', 'Knee' + en_sfx, _mx(knee, s), _mx(ankle, s), '足' + sfx,
                  connect=True, r=0.05, r_end=0.035, group='Legs'))
-        _joint_aux(add, 'ひざ補助', 'KneeAux', knee, ankle, '足' + sfx, 'ひざ' + sfx, ('足' + sfx,),
-                   s, sfx, jp_side, en_sfx, 'Legs')
+        # (no knee helpers since round 10: JOINT_ALONG splits thigh / shin directly)
         if HIP_AUX:
             # hip helper (round 7): turns HIP_AUX of the thigh about the hip joint (回転付与);
             # the skin blending pelvis and thigh blends through it (_hat_remap)
@@ -722,6 +719,52 @@ def _core_bones(J=None, H=None, F=None):
 # IK: (constraint owner, IK control bone, chain length, iterations). The toe IK
 # gets 40 iterations too: Blender's damped solver needs them for large rotations.
 KNEE_IK_MIN = math.radians(0.5)   # least knee bend the leg IK may solve to (positive X = forward bend)
+# Round 10 (Blender only): the leg IK starts its solve from the knee bent forward at least
+# this much (deg; a Limit Rotation on ひざ ahead of the IK, on only while the IK is). With the
+# knee pivot near the hip-ankle line (body.KNEE_FWD) the rest leg is all but straight, and
+# Blender's damped solver, starting straight, cannot find the bend (seiza 18 deg instead of
+# 150, jump_tuck 28 instead of 135). The IK still solves the whole chain: the rest pose and
+# every reachable pose come out as before (a straight leg straightens again). 3 deg still
+# failed jump_tuck; 8 deg reached all 170 core / extended poses and clip frames (every 3rd)
+# but not sit_chair with the pivot 2.5 px further back; 20 deg leaves that margin. The PMX
+# keeps MMD's own solver (a knee link limited to forward bends).
+KNEE_IK_PREBEND = 20.0
+# Round 10: the skirt drape's thigh (_thigh_spheres, _thigh_profile) runs from the hip to a
+# point this far (m) in front of the knee pivot, round 9's pivot (body.KNEE_FWD 15 px, now
+# 5): the skin didn't move, and the drape tables were tuned on that line. Through the new
+# pivot the petticoat stretched x2.0-2.4 in cross_legged, high_kick, run, spin (round 9:
+# up to x2.0-2.2 in other chains); through this point it is back to round 9's set.
+DRAPE_KNEE_FWD = 10.0 / 643.0
+
+
+KNEE_PREBEND_NAME = 'IK prebend'
+
+
+def _knee_prebend(arm, knee, foot):
+    """KNEE_IK_PREBEND: a local Limit Rotation (X >= the prebend) first in ひざ's stack, on
+    while the leg's IK is: its influence is driven by the foot's (足首) IK, which an FK leg
+    mutes with the knee's (MMD's IK switch, motion_poses.leg_fk), so an FK knee may
+    straighten. (Reading the knee's own IK made a dependency cycle through ひざ.) Blender
+    only: mmd_tools would export any Limit Rotation on the knee as its PMX IK link limit, so
+    strip_blender_only removes it."""
+    ik = next(c for c in foot.constraints if c.type == 'IK')
+    c = knee.constraints.new('LIMIT_ROTATION')
+    c.name = KNEE_PREBEND_NAME
+    c.owner_space = 'LOCAL'
+    c.use_limit_x = True
+    c.min_x, c.max_x = math.radians(KNEE_IK_PREBEND), math.pi
+    knee.constraints.move(knee.constraints.find(c.name), 0)
+    fc = c.driver_add('influence')
+    dr = fc.driver
+    dr.type = 'SCRIPTED'
+    for nm, path in (('m', 'mute'), ('w', 'influence')):
+        v = dr.variables.new()
+        v.name, v.type = nm, 'SINGLE_PROP'
+        v.targets[0].id = arm
+        v.targets[0].data_path = f'pose.bones["{foot.name}"].constraints["{ik.name}"].{path}'
+    dr.expression = '(1 - m) * w'
+
+
 IK_SETUP = [(f'ひざ.{t}', f'足ＩＫ.{t}', 2, 40) for t in 'LR'] + \
            [(f'足首.{t}', f'つま先ＩＫ.{t}', 1, 40) for t in 'LR']
 
@@ -2353,11 +2396,18 @@ def _hair_collision(arm, bones, parts):
 
 def strip_blender_only(arm):
     """Remove the Blender-only hair collision (probes, ghosts, their Damped Tracks and the
-    colliders) before a PMX export: MMD's physics does that job there."""
+    colliders) before a PMX export: MMD's physics does that job there. Also removes the
+    knee's IK prebend (KNEE_IK_PREBEND), which mmd_tools would export as the knee's IK
+    link limit. Returns the number of hair collision bones removed."""
     for pb in arm.pose.bones:
         for c in [c for c in pb.constraints if c.name == 'Hair collision']:
             pb.constraints.remove(c)
-    gone = [pb.name for pb in arm.pose.bones if pb.get('levi_blender_only')]
+        for c in [c for c in pb.constraints if c.name == KNEE_PREBEND_NAME]:
+            # the knee's IK prebend (Blender's solver only): mmd_tools would read it as the
+            # PMX knee link's limit
+            pb.driver_remove(f'constraints["{c.name}"].influence')
+            pb.constraints.remove(c)
+    gone =[pb.name for pb in arm.pose.bones if pb.get('levi_blender_only')]
     for n in gone:
         arm.pose.bones[n].driver_remove('rotation_quaternion')
     if arm.animation_data:          # (the capsule pushes' influence drivers on the probes)
@@ -2478,7 +2528,8 @@ def _secondary_bones(parts, core):
         drape = {}
         if SKIRT_DRAPE and chains:
             th = byname['足.L']
-            drape = _skirt_drape(chains, pts, cy, np.array(th.head), np.array(th.tail), verts('body'))
+            drape = _skirt_drape(chains, pts, cy, np.array(th.head),
+                                 np.array(th.tail) + np.array((0.0, -DRAPE_KNEE_FWD, 0.0)), verts('body'))
         for k, (ang, joints) in enumerate(chains):
             hem_r = max(0.03, math.hypot(joints[-1].x, joints[-1].y - cy) * math.pi / SKIRT_SECTORS)
             # the chain hangs from two follow bones that add a share of each thigh's
@@ -3210,13 +3261,21 @@ def _split_joint_aux(w, co, bones, band):
     for j, b in enumerate(bones):
         if 'joint_aux' in b.meta and not b.meta.get('hat'):
             joints.setdefault(b.meta['joint_aux'][1], []).append(j)
+    for b in bones:
+        # an along-limb joint without helpers (JOINT_ALONG) splits upper / lower limb alone
+        if b.name.split('.')[0] in JOINT_ALONG and b.name not in joints and b.parent in col:
+            joints[b.name] = []
     for lower, aux in joints.items():
         if lower not in col:
             continue
         aux.sort(key=lambda j: bones[j].meta.get('aux_share', 0.0))
-        b = bones[aux[0]]
-        upper = b.meta['joint_aux'][0]
-        stem = b.name.split('.')[0]
+        along = JOINT_ALONG.get(lower.split('.')[0])
+        if aux:
+            b = bones[aux[0]]
+            upper = b.meta['joint_aux'][0]
+            stem = b.name.split('.')[0]
+        else:
+            upper, stem = (bones[col[lower]].parent,), lower.split('.')[0]
         before, after = JOINT_BAND_BY_AUX.get(stem, band)
         up = [col[n] for n in upper if n in col]
         # the limb and what it carries rigidly; secondary chains (sleeve drapes) keep their own weights
@@ -3228,20 +3287,19 @@ def _split_joint_aux(w, co, bones, band):
         t = (co - np.array(lb.head)) @ d
         lat_d = np.linalg.norm((co - np.array(lb.head)) - t[:, None] * d, axis=1)
         scale = JOINT_FRONT_BACK.get(stem)
-        hinge = JOINT_HINGE.get(stem)
-        if hinge is not None:
-            # hinge partition (JOINT_HINGE): the share follows an angle around the joint,
-            # atan2(t, d), with d long in front (the kneecap's arc spreads its stretch),
-            # shorter behind (the hollow folds instead of collapsing a long band), varying
-            # smoothly round the limb so neighbouring columns don't shear
-            (d_f, d_s, d_b), deg, hfwd = hinge
-            if len(deg) != len(aux) + 2:
-                raise ValueError(f'JOINT_HINGE[{stem!r}]: {len(deg)} knots for {len(aux)} helpers')
+        if along is not None:
+            # along-limb partition (JOINT_ALONG): knots in metres along the limb from the
+            # pivot, their own at the front, the sides and the back, interpolated round the
+            # limb as a quadratic in the cosine of the direction from the axis to `forward`,
+            # so neighbouring columns don't shear (each knot must stay below the next one
+            # all round the limb).
+            kf, ks, kb, fwd = along
+            if not len(kf) == len(ks) == len(kb) == len(aux) + 2:
+                raise ValueError(f'JOINT_ALONG[{lower!r}]: knots for {len(aux)} helpers need {len(aux) + 2}')
             lat = (co - np.array(lb.head)) - t[:, None] * d
-            c = (lat @ np.array(hfwd, dtype=float)) / np.maximum(np.linalg.norm(lat, axis=1), 1e-6)
-            dist = d_s + 0.5 * (d_f - d_b) * c + (0.5 * (d_f + d_b) - d_s) * c * c
-            t = np.degrees(np.arctan2(t, dist))
-            knots = list(deg)
+            c = (lat @ np.array(fwd, dtype=float)) / np.maximum(np.linalg.norm(lat, axis=1), 1e-6)
+            # per-vertex knots: the smoothsteps below run between them
+            knots = [s_ + 0.5 * (f_ - b_) * c + (0.5 * (f_ + b_) - s_) * c * c for f_, s_, b_ in zip(kf, ks, kb)]
         elif scale is not None:
             # the band is wider over the front of the joint (the kneecap wraps round) and
             # narrower behind it (the hollow creases instead of pinching): t is divided by
@@ -3251,17 +3309,10 @@ def _split_joint_aux(w, co, bones, band):
             front = (lat @ fwd) / np.maximum(np.linalg.norm(lat, axis=1), 1e-6)
             k = scale[1] + (scale[0] - scale[1]) * _smoothstep(-1.0, 1.0, front)
             t = t / k
-        if hinge is None:
+        if along is None:
             knots = [-before] + [bones[j].meta.get('aux_at', 0.0) for j in aux] + [after]
         steps = [_smoothstep(k0, k1, t) for k0, k1 in zip(knots, knots[1:])]
         f = [1.0 - steps[0]] + [s0 - s1 for s0, s1 in zip(steps, steps[1:])] + [steps[-1]]
-        if hinge is not None and JOINT_HINGE_CAP:
-            # a long band behind the joint never reaches the ankle or the hip: beyond these
-            # distances along the limb the skin is all upper / all lower limb
-            along = (co - np.array(lb.head)) @ d
-            g = _smoothstep(JOINT_HINGE_CAP[0], JOINT_HINGE_CAP[1], np.abs(along))
-            hard = [np.where(along < 0, 1.0, 0.0)] + [np.zeros(len(co))] * (len(f) - 2) + [np.where(along < 0, 0.0, 1.0)]
-            f = [fi * (1.0 - g) + hi * g for fi, hi in zip(f, hard)]
         cols = up + lo + aux
         old = w[:, cols].copy()
         su, sl = w[:, up].sum(1), w[:, lo].sum(1)
@@ -5432,6 +5483,8 @@ def _create_armature(bones):
         knee.use_ik_limit_x = True
         knee.ik_min_x, knee.ik_max_x = KNEE_IK_MIN, math.pi
         knee.ik_stretch = 0.0
+        if KNEE_IK_PREBEND:
+            _knee_prebend(arm, knee, arm.pose.bones[f'足首.{t}'])
         thigh = arm.pose.bones[f'足.{t}']
         thigh.ik_stretch = 0.0
         # Blender's solver, given the knee limit, may twist the thigh about its length to
