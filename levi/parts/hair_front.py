@@ -50,9 +50,12 @@ def smooth01(t):
 # bangs; the sides stay out as the hair beside the cheeks.
 # spec.L['head_center_y'] (-38 px) / 'head_top_z' (row 30) are ~3 px and
 # ~15 px off the hair mass measured here, so the cap uses its own numbers.
-# hair_back reads CAP_PROFILE / CAP_EXP (measurement data, keep the names).
+# Round 10: this sheet table is the procedural base (CAP_PROFILE_SHEET); the cap
+# takes its crown from the shape master on top of it (see "shape master" below),
+# and CAP_PROFILE, which hair_back reads with CAP_EXP, is measured on that
+# reshaped cap (same layout: row, half width, front col, back col).
 CAP_TOP = (14, 287)          # (row, side column) of the cap apex
-CAP_PROFILE = [
+CAP_PROFILE_SHEET = [
     # row, half-width, side front col, side back col
     # Round 4: the crown clumps that used to sit ~4 px proud of the cap are
     # gone, so the front of rows 17-50 moves forward by that much to keep the
@@ -128,14 +131,15 @@ def _pchip_slopes(xs, ys):
     return m
 
 
-_ROWS = [r[0] for r in CAP_PROFILE]
-_COLS = [[r[c] for r in CAP_PROFILE] for c in (1, 2, 3)]
+_ROWS = [r[0] for r in CAP_PROFILE_SHEET]
+_COLS = [[r[c] for r in CAP_PROFILE_SHEET] for c in (1, 2, 3)]
 _SLOPES = [_pchip_slopes(_ROWS, c) for c in _COLS]
 _APEX = (0.0, CAP_TOP[1], CAP_TOP[1])     # half width, front col, back col at the apex
 
 
 def _profile(row):
-    """(half width, side front col, side back col) of the cap at `row`."""
+    """(half width, side front col, side back col) of the sheet (procedural) cap
+    at `row`."""
     t = _ROWS
     if row <= t[0]:
         # dome: v = apex + a sqrt(d) + b d, matching value and slope at row t[0]
@@ -167,30 +171,345 @@ def _se(v):
 HEAD_AXIS = P(0, 95, 292)
 
 
+def sheet_point(az, row):
+    """Point on the procedural (sheet) cap. az: 0 = +X, -90 = front (-Y)."""
+    w, f, b = _profile(row)
+    a = math.radians(az)
+    return P(w * _se(math.cos(a)), row, (f + b) / 2 + (b - f) / 2 * _se(math.sin(a)))
+
+
+def _axis_foot(p):
+    """The head-axis point the cap's radial directions start from (head_normal)."""
+    return Vector((0.0, HEAD_AXIS.y, min(p.z, HEAD_AXIS.z)))
+
+
+# ---------------------------------------------------------------- shape master (round 10)
+# The crown takes part of its shape from the shape master (levi/shape.py): on a
+# grid of sheet-cap points (az, row), a ray cast in along the cap's radial
+# direction (head_normal) finds the target's outermost hair surface, and the cap
+# moves along that direction by
+#     offset = FIT_STRENGTH(row) x weight x (target - FIT_INSET - sheet cap),
+# smoothed to the mass (FIT_D_SMOOTH, then FIT_MASS_SMOOTH: the target's lock
+# relief is left out, the procedural crown grooves stay).
+#  - weight 1 where the target's outermost surface is front hair (or the head
+#    label, which also covers bang surfaces over the face: the labels there come
+#    from the nearest of our objects); 0 where the target's back hair is
+#    outermost (hair_back owns that mass) and under the target's leaves and
+#    flowers (ours sit there); smoothed (FIT_W_SMOOTH) and faded out below the
+#    crown over FIT_ROWS (the face, the fringe, the hanging locks and the back
+#    hair take over there; the sheet cap stays under them).
+#  - FIT_STRENGTH: the target's crown is lower and flatter than ours (2-3 cm at
+#    the front top); in pairwise review the full fit (and every stronger variant)
+#    lost to the rounder sheet dome; this setting (a quarter of the way at the
+#    apex, half from row 40) still lost 0-26 with both models.
+#  - FIT is therefore off (round 10 decision: naturalness ranks above fidelity):
+#    the cap, CAP_PROFILE (= CAP_PROFILE_SHEET) and everything on it are main's,
+#    and no fit table is computed. FIT = True turns the reshape back on.
+# Everything that sits on the cap (the fringe roots, ahoge, the side locks'
+# roots) moves with the same offset field (cap_shift), and the cap is kept
+# FACE_CLEAR off the forehead (_clear_face).
+FIT = False                     # round 10 decision: off (see the note above)
+FIT_AZ = 256                    # grid sections (the cap itself: CAP_AZ)
+FIT_ROW_STEP = 1.0              # px
+FIT_LABELS = ('hair_front', 'head')
+FIT_REACH = 0.06                # m: rays start this far outside the sheet cap
+FIT_ROWS = (72.0, 94.0)         # weight 1 above, 0 below
+FIT_INSET = 0.0015              # m under the target (the settled roots, the outline)
+FIT_STRENGTH = ((14.0, 0.25), (40.0, 0.5))   # (row, share of the way to the target)
+FIT_W_SMOOTH = (6.0, 3.0)       # deg, rows (Gaussian sigma on the weight)
+FIT_D_SMOOTH = (1.6, 1.0)       # deg, rows (on the raw offset)
+FIT_MASS_SMOOTH = (8.0, 5.0)    # deg, rows (on the offset applied: the mass only)
+FACE_ROWS = (44.0, 102.0)       # rows where the cap is kept off the forehead ...
+FACE_FADE = 6.0                 # (fading in / out over the first / last rows)
+FACE_CLEAR = 0.002              # ... by this much (m)
+APEX_ROWS = 9.0                 # rows below the apex over which the offset leaves the ring mean
+
+_FIT = {}
+
+
+def _gauss_ring_rows(a, s_az, s_row, step_az, step_row):
+    """Gaussian blur of a (rows, az) table: circular along az, clamped along rows."""
+    import numpy as np
+    out = np.asarray(a, dtype=np.float64)
+    for axis, s, step, circ in ((1, s_az, step_az, True), (0, s_row, step_row, False)):
+        sig = s / step
+        if sig <= 0:
+            continue
+        k = int(math.ceil(3 * sig))
+        w = np.exp(-0.5 * (np.arange(-k, k + 1) / sig) ** 2)
+        w /= w.sum()
+        if circ:
+            pad = np.concatenate([out[:, -k:], out, out[:, :k]], axis=1) if k else out
+            out = sum(w[i] * pad[:, i:i + out.shape[1]] for i in range(2 * k + 1))
+        else:
+            pad = np.concatenate([np.repeat(out[:1], k, 0), out, np.repeat(out[-1:], k, 0)], axis=0)
+            out = sum(w[i] * pad[i:i + out.shape[0]] for i in range(2 * k + 1))
+    return out
+
+
+def _fit_table():
+    """(rows, az, offset (m), sheet points, sheet normals) on the fit grid,
+    computed once from the shape master."""
+    if 'tab' in _FIT:
+        return _FIT['tab']
+    import numpy as np
+    from .. import shape
+    rows = np.arange(CAP_TOP[0], CAP_BOTTOM[0] + 1e-6, FIT_ROW_STEP)
+    azs = -90.0 + 360.0 * np.arange(FIT_AZ) / FIT_AZ
+    nr, na = len(rows), len(azs)
+    pts = np.zeros((nr, na, 3))
+    nrm = np.zeros((nr, na, 3))
+    rad = np.zeros((nr, na))
+    for i, r in enumerate(rows):
+        for j, a in enumerate(azs):
+            p = sheet_point(a, r)
+            d = p - _axis_foot(p)
+            pts[i, j] = p
+            rad[i, j] = d.length
+            nrm[i, j] = d.normalized() if d.length > 1e-9 else (0.0, 0.0, 1.0)
+    if not FIT:
+        _FIT['tab'] = (rows, azs, np.zeros((nr, na)), pts, nrm)
+        return _FIT['tab']
+    foot = pts - nrm * rad[..., None]
+    reach = rad + FIT_REACH
+    hit, dist, _n, who = shape.ray(None, (foot + nrm * reach[..., None]).reshape(-1, 3),
+                                   (-nrm).reshape(-1, 3), max_d=float(reach.max()) + 0.01, occluders=False)
+    r_t = (reach.reshape(-1) - dist).reshape(nr, na)
+    who = np.array([w or '' for w in who]).reshape(nr, na)
+    r_t[~(r_t > 0.02)] = np.nan              # (a miss, or through to the far side)
+    hair = np.isin(who, FIT_LABELS) & np.isfinite(r_t)
+    step_az = 360.0 / FIT_AZ
+    wt = _gauss_ring_rows(hair.astype(np.float64), FIT_W_SMOOTH[0], FIT_W_SMOOTH[1], step_az, FIT_ROW_STEP)
+    wt = np.clip((wt - 0.15) / 0.7, 0.0, 1.0)
+    wt = wt * wt * (3 - 2 * wt)
+    wt *= (1.0 - shape.smoothstep(FIT_ROWS[0], FIT_ROWS[1], rows))[:, None]
+    raw = np.where(hair, r_t, np.nan) - FIT_INSET - rad
+    # offsets where the target is not hair: interpolated (they only matter where
+    # the smoothed weight reaches over them)
+    for i in range(nr):
+        if np.isfinite(raw[i]).any():
+            raw[i] = shape.fill_ring(raw[i])
+        else:
+            raw[i] = np.nan
+    raw = np.nan_to_num(shape.fill_rows(raw, axis=0))
+    raw = _gauss_ring_rows(raw, FIT_D_SMOOTH[0], FIT_D_SMOOTH[1], step_az, FIT_ROW_STEP)
+    strength = np.interp(rows, [r for r, _ in FIT_STRENGTH], [k for _, k in FIT_STRENGTH])
+    off = _gauss_ring_rows(strength[:, None] * wt * raw, FIT_MASS_SMOOTH[0], FIT_MASS_SMOOTH[1],
+                           step_az, FIT_ROW_STEP)
+    # the apex is one point: the ring mean there, blended out over APEX_ROWS
+    a = shape.smoothstep(rows[0], rows[0] + APEX_ROWS, rows)[:, None]
+    ring_mean = off.mean(axis=1, keepdims=True)
+    off = ring_mean + a * (off - ring_mean)
+    off = _clear_face(rows, pts, nrm, off)
+    _FIT['tab'] = (rows, azs, off, pts, nrm)
+    return _FIT['tab']
+
+
+def _head_bvh():
+    """BVH of unit `head`'s smooth surface (head.ring, a pure surface function)
+    over its upper rings, closed at the crown."""
+    from . import head as _head
+    rows = list(_head.RING_ROWS)
+    ang = _head.ring_angles(72)
+    verts, faces = [], []
+    for r in rows:
+        verts += [tuple(p) for p in _head.ring(r, ang, detail=False)]
+    n = len(ang)
+    for i in range(len(rows) - 1):
+        for j in range(n):
+            k = (j + 1) % n
+            faces.append((i * n + j, i * n + k, (i + 1) * n + k, (i + 1) * n + j))
+    top = Vector(verts[0]) * 0.0
+    for v in verts[:n]:
+        top += Vector(v) / n
+    verts.append(tuple(top))
+    faces += [(len(verts) - 1, k, (k + 1) % n) for k in range(n)]
+    return BVHTree.FromPolygons(verts, faces)
+
+
+def _clear_face(rows, pts, nrm, off):
+    """Keep the cap FACE_CLEAR outside unit `head`'s surface over FACE_ROWS (the
+    fitted cap would otherwise sink into the forehead between the fringe tips):
+    a smooth maximum, so it binds without a crease, faded out above the brows."""
+    out = off.copy()
+    bvh = _head_bvh()
+    k = FACE_CLEAR / 2
+    for i, r in enumerate(rows):
+        if not FACE_ROWS[0] <= r <= FACE_ROWS[1]:
+            continue
+        fade = (smooth01((r - FACE_ROWS[0]) / FACE_FADE)
+                * (1.0 - smooth01((r - FACE_ROWS[1] + FACE_FADE) / FACE_FADE)))
+        for j in range(pts.shape[1]):
+            p, n = Vector(pts[i, j]), Vector(nrm[i, j])
+            foot = _axis_foot(p)
+            far = foot + n * ((p - foot).length + 0.1)
+            hit = bvh.ray_cast(far, -n, 0.2)
+            if hit[0] is None:
+                continue
+            # offset that puts the cap there, never past the sheet cap (where the
+            # sheet cap already tucked under the skin it stays there)
+            t = min((hit[0] - p).dot(n) + FACE_CLEAR, 0.0)
+            a = out[i, j]
+            out[i, j] = a + fade * ((a + t + math.sqrt((a - t) ** 2 + k * k)) / 2 - a)
+    return out
+
+
+def _fit_lookup(az, row):
+    """Bilinear lookup of the fit offset (m) at (az, row)."""
+    if not FIT:
+        return 0.0
+    rows, azs, a = _fit_table()[:3]
+    x = (row - rows[0]) / FIT_ROW_STEP
+    i0 = int(max(0, min(len(rows) - 2, math.floor(x))))
+    u = max(0.0, min(1.0, x - i0))
+    y = ((az - azs[0]) / (360.0 / FIT_AZ)) % FIT_AZ
+    j0 = int(math.floor(y)) % FIT_AZ
+    j1 = (j0 + 1) % FIT_AZ
+    v = y - math.floor(y)
+    return float((a[i0, j0] * (1 - v) + a[i0, j1] * v) * (1 - u)
+                 + (a[i0 + 1, j0] * (1 - v) + a[i0 + 1, j1] * v) * u)
+
+
 def cap_point(az, row, grow=0.0):
     """Point on the cap surface. az: 0 = +X, -90 = front (-Y); row: panel row.
 
+    The sheet cap moved along its radial direction by the shape-master offset.
     grow: outward offset in metres (radial from the head axis)."""
-    w, f, b = _profile(row)
-    a = math.radians(az)
-    p = P(w * _se(math.cos(a)), row, (f + b) / 2 + (b - f) / 2 * _se(math.sin(a)))
+    p = sheet_point(az, row)
+    n = p - _axis_foot(p)
+    n = n.normalized() if n.length > 1e-9 else Vector((0.0, 0.0, 1.0))
+    p = p + n * _fit_lookup(az, row)
     if grow:
-        q = Vector((0.0, HEAD_AXIS.y, min(p.z, HEAD_AXIS.z)))
-        p = p + (p - q).normalized() * grow
+        p = p + (p - _axis_foot(p)).normalized() * grow
     return p
 
 
+def cap_shift(p):
+    """Move a point placed against the sheet cap (a strand control point) with the
+    cap: along head_normal by the fit offset at the nearest sheet-cap grid point
+    (inverse-distance blend of the 4 nearest), so roots stay on the reshaped scalp
+    and hanging points below the crown (offset 0) stay put."""
+    if not FIT:
+        return Vector(p)
+    if 'kd' not in _FIT:
+        from mathutils.kdtree import KDTree
+        tab = _fit_table()
+        pts = tab[3].reshape(-1, 3)
+        kd = KDTree(len(pts))
+        for k, q in enumerate(pts):
+            kd.insert(q, k)
+        kd.balance()
+        _FIT['kd'] = (kd, tab[2].reshape(-1))
+    kd, off = _FIT['kd']
+    acc = wsum = 0.0
+    for _co, k, d in kd.find_n(p, 4):
+        w = 1.0 / max(d, 1e-4)
+        acc += w * off[k]
+        wsum += w
+    p = Vector(p)
+    return p + head_normal(p) * (acc / wsum if wsum else 0.0)
+
+
+def _front_at(fx, row):
+    """Front-half cap point on sheet row `row` whose x is fx (px): bisection in az."""
+    w = _profile(row)[0]
+    if w <= 1e-6:
+        return cap_point(-90.0, row)
+    lo, hi = -180.0, 0.0                 # front half: x rises from -w to +w
+    x = max(-w, min(w, fx)) * PX
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        if cap_point(mid, row).x < x:
+            lo = mid
+        else:
+            hi = mid
+    return cap_point((lo + hi) / 2, row)
+
+
 def cap_front_sc(fx, row):
-    """Side-view column of the cap's front surface at front offset fx."""
-    w, f, b = _profile(row)
-    u = min(1.0, abs(fx) / max(w, 1e-6))
-    return (f + b) / 2 - (b - f) / 2 * (1 - u ** CAP_EXP) ** (1 / CAP_EXP)
+    """Side-view column of the cap's front surface at front offset fx (px) and the
+    height of panel row `row`. The fit offset moves cap points along head_normal,
+    off their sheet row (on the dome mostly down), so the sheet row whose moved
+    point lies at that height is solved for first."""
+    z = (spec.SHEET_GROUND_Y - row) * PX
+    r = row
+    p = _front_at(fx, r)
+    for _ in range(12):
+        dz = p.z - z
+        if abs(dz) < 1e-5:
+            break
+        r = max(CAP_TOP[0], min(CAP_BOTTOM[0], r + dz / PX))
+        p = _front_at(fx, r)
+    return p.y / PX + MID
 
 
-def _crown_frame():
-    """(skull centre, whorl axis, forward and sideways unit vectors around it)."""
+PROFILE_DENSE_TO = 116.0       # CAP_PROFILE rows every 4 px above this row
+PROFILE_LOG = None     # a list collects (row, containment growth) for diagnostics
+
+
+def _measure_profile():
+    """CAP_PROFILE of the reshaped cap: per sheet-table row, the half width and
+    the front / back columns of its horizontal section, with the half width and
+    the back column grown until the superellipse (CAP_EXP) on them contains the
+    section's back half (hair_back's envelope sits ENV_OFF over that superellipse)."""
+    import numpy as np
+    tab = _fit_table()
+    rows, azs, off, pts, nrm = tab
+    new = pts + nrm * off[..., None]
+    out = []
+    # the reshaped apex can lie below the sheet table's first rows: start just
+    # under it (denser over the dome), then the sheet rows
+    top = spec.SHEET_GROUND_Y - float(new[0, 0, 2]) / PX
+    # (every 4 rows down to the sheet rows past the fit, so hair_back's linear
+    # lookup between them stays within its ENV_OFF over the reshaped cap)
+    rows_out = ([top + d for d in (1.5, 4.0, 8.0, 13.0)]
+                + [float(r) for r in np.arange(top + 17.0, PROFILE_DENSE_TO, 4.0)]
+                + [r for r in _ROWS if r >= PROFILE_DENSE_TO])
+    for R in rows_out:
+        z = (spec.SHEET_GROUND_Y - R) * PX
+        sec = []
+        for j in range(len(azs)):
+            zz = new[:, j, 2]               # falls with the row
+            k = np.nonzero((zz[:-1] >= z) & (zz[1:] < z))[0]
+            if not len(k):
+                continue
+            k = k[0]
+            u = (zz[k] - z) / (zz[k] - zz[k + 1])
+            sec.append(new[k, j] * (1 - u) + new[k + 1, j] * u)
+        sec = np.array(sec)
+        xs = np.abs(sec[:, 0]) / PX
+        cols = sec[:, 1] / PX + MID
+        w, f, b = float(xs.max()), float(cols.min()), float(cols.max())
+        mid, hd = (f + b) / 2, (b - f) / 2
+        back = cols > mid
+        s = (xs[back] / w) ** CAP_EXP + ((cols[back] - mid) / hd) ** CAP_EXP
+        k = float(s.max()) ** (1.0 / CAP_EXP) if len(s) else 1.0
+        if k > 1.0:
+            # grow about the section's middle: hair_back reads only the middle,
+            # the half depth and the half width
+            w, hd = w * k, hd * k
+            f, b = mid - hd, mid + hd
+        if PROFILE_LOG is not None:
+            PROFILE_LOG.append((R, k))
+        out.append((round(R, 2), round(w, 2), round(f, 2), round(b, 2)))
+    return out
+
+
+def __getattr__(name):
+    # CAP_PROFILE is measured on the reshaped cap, on first use (hair_back
+    # imports it); the shape master is only read inside Blender.
+    if name == 'CAP_PROFILE':
+        if 'profile' not in _FIT:
+            _FIT['profile'] = _measure_profile() if FIT else [tuple(r) for r in CAP_PROFILE_SHEET]
+        return _FIT['profile']
+    raise AttributeError(name)
+
+
+def _crown_frame(at=None):
+    """(skull centre, whorl axis, forward and sideways unit vectors around it).
+    at: the cap point function (default cap_point; sheet_point for the sheet cap)."""
     c = Vector((0.0, HEAD_AXIS.y, HEAD_AXIS.z))
-    a = (cap_point(*CROWN_WHORL) - c).normalized()
+    a = ((at or cap_point)(*CROWN_WHORL) - c).normalized()
     e1 = Vector((0.0, -1.0, 0.0))
     e1 = (e1 - a * e1.dot(a)).normalized()
     return c, a, e1, a.cross(e1).normalized()
@@ -221,6 +540,37 @@ def crown_groove(p, frame):
     return CROWN_DEPTH * env * g, env
 
 
+def _sheet_cap_bvh():
+    """BVH of the sheet (procedural, unfitted) cap with its crown grooves: the
+    cheek wisps settle on it (see build)."""
+    frame = _crown_frame(sheet_point)
+    verts, faces = [P(0, *CAP_TOP)], []
+    rows = []
+    for r0, r1 in zip(CAP_RINGS, CAP_RINGS[1:] + (None,)):
+        rows.append(r0)
+        if r1 is not None and r1 <= CROWN_RING_SPLIT[0] and r1 - r0 > CROWN_RING_SPLIT[1]:
+            rows.append((r0 + r1) / 2)
+    for r in rows:
+        for i in range(CAP_AZ):
+            p = sheet_point(-90 + 360.0 * i / CAP_AZ, r)
+            verts.append(p - head_normal(p) * crown_groove(p, frame)[0])
+    verts.append(P(0, *CAP_BOTTOM))
+    n = CAP_AZ
+    for i in range(n):
+        k = (i + 1) % n
+        faces.append((0, 1 + k, 1 + i))
+        for j in range(len(rows) - 1):
+            faces.append((1 + j * n + i, 1 + j * n + k, 1 + (j + 1) * n + k, 1 + (j + 1) * n + i))
+        last = 1 + (len(rows) - 1) * n
+        faces.append((last + i, last + k, len(verts) - 1))
+    bm = bmesh.new()
+    bv = [bm.verts.new(v) for v in verts]
+    for fc in faces:
+        bm.faces.new([bv[i] for i in fc])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return BVHTree.FromBMesh(bm)
+
+
 def build_cap(col, mat):
     """The scalp cap. Returns (object, BVH of its surface) so the strands can
     settle their roots onto it. Round 9: the crown grooves (crown_groove) are
@@ -234,7 +584,7 @@ def build_cap(col, mat):
         v = bm.verts.new(p - head_normal(p) * dep)
         v[klay] = VOL_KEEP + (CROWN_KEEP - VOL_KEEP) * env
         return v
-    top = vert(P(0, *CAP_TOP))
+    top = vert(cap_point(-90.0, CAP_TOP[0]))
     bot = vert(P(0, *CAP_BOTTOM))
     rows = []
     for r0, r1 in zip(CAP_RINGS, CAP_RINGS[1:] + (None,)):
@@ -529,6 +879,34 @@ def settle(bm, st, cap_bvh, emerge, depth=1.5, squash=0.35):
                 v[llay] = smooth01((s - LINE_ON) / LINE_RAMP)
 
 
+def orient_outward(bm):
+    """Round 10: recalc_face_normals orients each closed strand consistently but
+    can pick the inside of a thin, curved crescent (a fringe clump lying close
+    over the cap came out inside out: dark, with its outline hull inside). Flip
+    every island whose enclosed (signed) volume is negative."""
+    seen = set()
+    for f0 in bm.faces:
+        if f0 in seen:
+            continue
+        island, stack = [], [f0]
+        seen.add(f0)
+        while stack:
+            f = stack.pop()
+            island.append(f)
+            for e in f.edges:
+                for g in e.link_faces:
+                    if g not in seen:
+                        seen.add(g)
+                        stack.append(g)
+        vol = 0.0
+        for f in island:
+            vs = [v.co for v in f.verts]
+            for a, b in zip(vs[1:], vs[2:]):
+                vol += vs[0].dot(a.cross(b))
+        if vol < 0:
+            bmesh.ops.reverse_faces(bm, faces=island)
+
+
 def finish(col, name, bm, mat, angle=70, keep=VOL_KEEP, line_min=None):
     """Mesh object from bm. toon_grad comes from the strands' own arc-length
     ramp (strand(grad=...)).
@@ -539,6 +917,7 @@ def finish(col, name, bm, mat, angle=70, keep=VOL_KEEP, line_min=None):
     line_min: thin the outline where settle() buried a root (outline width
     x line_min there, full on the free strand); None = uniform outline."""
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    orient_outward(bm)
     llay = bm.verts.layers.float.get(LINE_ATTR)
     lw = [v[llay] for v in bm.verts] if llay is not None else None
     obj = common.new_object(col, name, bm, [mat])
@@ -572,7 +951,9 @@ def mirror_pts(pts):
 def cap_front_point(fx, row, grow):
     """Point on the cap's front surface at front offset fx, moved `grow` px
     outward along head_normal (negative = buried inside the cap)."""
-    p = P(fx, row, cap_front_sc(fx, row))
+    w, f, b = _profile(row)
+    u = min(1.0, abs(fx) / max(w, 1e-6))
+    p = cap_shift(P(fx, row, (f + b) / 2 - (b - f) / 2 * (1 - u ** CAP_EXP) ** (1 / CAP_EXP)))
     return p + head_normal(p) * (grow * PX)
 
 
@@ -714,11 +1095,13 @@ def ahoge(bm, cap_bvh):
     """Two crown tufts. They leave the scalp tangentially just behind the
     apex and curve forward and away from it, so the top reads as a tuft on a
     round crown rather than as the cap's own spike."""
-    st = strand(bm, [P(-2, 34, 304), P(-2, 22, 292), P(-1, 15, 279), P(1, 11, 268), P(3, 11, 261)],
+    sh = cap_shift      # round 10: the tufts ride the reshaped crown
+    st = strand(bm, [sh(P(-2, 34, 304)), sh(P(-2, 22, 292)), sh(P(-1, 15, 279)), sh(P(1, 11, 268)),
+                     sh(P(3, 11, 261))],
                 0.016, 0.007, segs=14, n=8, base_taper=0.6, tip_pow=0.8, ogive=1.6, tip_dense=0.4,
                 tip_from=0.35, normal=lambda p: Vector((1, 0, 0)))
     settle(bm, st, cap_bvh, 14 * PX, depth=1.0)
-    st = strand(bm, [P(4, 36, 308), P(6, 25, 296), P(6, 19, 283), P(8, 17, 276)],
+    st = strand(bm, [sh(P(4, 36, 308)), sh(P(6, 25, 296)), sh(P(6, 19, 283)), sh(P(8, 17, 276))],
                 0.012, 0.006, segs=10, n=8, base_taper=0.6, tip_pow=0.8, ogive=1.4,
                 tip_dense=0.3, tip_from=0.3, normal=lambda p: Vector((1, 0, 0)))
     settle(bm, st, cap_bvh, 12 * PX, depth=1.0)
@@ -831,13 +1214,14 @@ def lock_normal(p, forward=1.2, lateral=False):
     return (n.normalized() + Vector((0, -forward, 0))).normalized()
 
 
+LOCK_SHIFT = (1.0, 1.0, 0.5)    # share of cap_shift on the root, the first and second points
 ROOT_SINK = 5.0         # px the first control point is pushed into the cap
 ROOT_BURY = (12, 4)     # extra root point: px back up along the cap, px into it
 LOCK_EMERGE = 10.0      # px of arc past the first visible control point over
                         # which settle() lets the lock lift off the cap
 
 
-def side_set(bm, defs, segs, thick, mirror, forward=1.2, lateral=False, cap_bvh=None, **kw):
+def side_set(bm, defs, segs, thick, mirror, forward=1.2, lateral=False, cap_bvh=None, shift=True, **kw):
     """forward: how much the ribbons turn to face the front (0 = face out
     sideways, broad in the side view). Other keywords go to strand().
 
@@ -848,7 +1232,8 @@ def side_set(bm, defs, segs, thick, mirror, forward=1.2, lateral=False, cap_bvh=
     LOCK_EMERGE px past the first visible control point. The strand's
     arc-length fractions (tip_from, grad, keep) include this hidden ~12-17 px
     root, so the visible ramps start a little earlier than the numbers; they
-    are tuned per family."""
+    are tuned per family.
+    shift: move the root with the reshaped cap (cap_shift, LOCK_SHIFT)."""
     def nfn(p):
         return lock_normal(p, forward, lateral)
     for ctrl, w in defs:
@@ -863,9 +1248,13 @@ def side_set(bm, defs, segs, thick, mirror, forward=1.2, lateral=False, cap_bvh=
         root = p0 + up * (ROOT_BURY[0] * PX)
         root = root - head_normal(root) * (ROOT_BURY[1] * PX)
         pts = [root, p0] + pts[1:]
-        emerge = _polyline_len(pts[:2]) + LOCK_EMERGE * PX
         if mirror:
             pts = mirror_pts(pts)
+        # round 10: the buried root and the first visible point ride the reshaped
+        # cap of their own side (after mirroring); the rest of the lock keeps its path
+        if shift:
+            pts = [p.lerp(cap_shift(p), k) for p, k in zip(pts, LOCK_SHIFT)] + pts[len(LOCK_SHIFT):]
+        emerge = _polyline_len(pts[:2]) + LOCK_EMERGE * PX
         st = strand(bm, pts, w, thick, segs=segs, normal=nfn, **kw)
         if cap_bvh is not None:
             settle(bm, st, cap_bvh, emerge, depth=1.0)
@@ -882,6 +1271,12 @@ def build(col):
     mat = common.toon_material('hair', gradient='hair_tip')
 
     cap_bvh = build_cap(col, mat)[1]
+    # Round 10: the cheek wisps keep round 9's roots exactly (settled on the sheet
+    # cap, no cap_shift): their roots at the temple moved ~4 mm with the reshaped cap
+    # and that alone took their pen_frac in dance_heart / idol_dance@48 from 2.0-2.5%
+    # (minor) to 3.2-3.8% (major). The fitted cap differs from the sheet cap there by
+    # a few mm at most.
+    sheet_bvh = _sheet_cap_bvh()
 
     bm = bmesh.new()
     ahoge(bm, cap_bvh)
@@ -902,10 +1297,10 @@ def build(col):
         # the temple locks swell out of the cap over ~35% of their length
         # (no broad shoulder where they surface)
         side_set(bm, CHEEK_LOCKS, 18, 0.0125, mirror, forward=0.7, lateral=True, n=12,
-                 cap_bvh=cap_bvh, base_taper=0.2, swell=0.35, tip_pow=0.6, ogive=1.8, tip_dense=0.4,
+                 cap_bvh=sheet_bvh, shift=False, base_taper=0.2, swell=0.35, tip_pow=0.6, ogive=1.8, tip_dense=0.4,
                  tip_from=0.55, back=0.7, wrap=0.1, tip_thick=0.15, grad=(0.5, 1.0),
                  frame_smooth=0.08, thin=(0.6, 0.75), keep=LOCK_KEEP)
-        side_set(bm, WISP_LOCKS, 16, 0.011, mirror, forward=0.6, n=10, cap_bvh=cap_bvh,
+        side_set(bm, WISP_LOCKS, 16, 0.011, mirror, forward=0.6, n=10, cap_bvh=sheet_bvh, shift=False,
                  base_taper=0.2, swell=0.35, tip_pow=0.6, ogive=1.9, tip_dense=0.5, tip_from=0.45,
                  back=0.8, wrap=0.08, tip_thick=0.15, grad=(0.55, 1.0),
                  frame_smooth=0.08, keep=LOCK_KEEP)
