@@ -12,6 +12,7 @@ Runs in any Python 3.9+ (stdlib only), including Blender's bundled one. Steps:
      (with region labels) and in --clay; the --rig .blend in a few POSES
      (front + 3/4); --turntable N extra angles
   3. tools/compare.py on the sheet views (IoU / per-region report -> metrics.txt)
+     and tools/shape_fit.py (per-part fit to the shape master -> shape_fit.txt)
   4. this file again inside Blender (--stage sheets): contact sheets
        01_ortho_sbs.png   reference (top) vs cel render (bottom): front, side, back
        02_angles_cel.png  cel: q34_front_left, q34_back_right, high
@@ -23,7 +24,7 @@ Runs in any Python 3.9+ (stdlib only), including Blender's bundled one. Steps:
      look should stay mostly lit, with a similar balance, at every angle), and
      shade_islands.txt: per-view, per-region count / area of small shade
      islands (regions.shade_islands: specks and slivers; fewer is cleaner)
-     (--baseline DIR) metrics_delta.md: metrics.txt / shade_islands.txt changes
+     (--baseline DIR) metrics_delta.md: metrics.txt / shade_islands.txt / shape_fit.txt changes
      against an earlier review dir, also appended to summary.md
   5. Codex: every --models model reviews the sheets concurrently (real child
      processes, waited on, --timeout s each), read-only, structured JSON output
@@ -547,6 +548,38 @@ def parse_metrics(out):
 DELTA_FIELDS = ('iou', 'tol', 'dE', 'dEi', 'shade', 'islands', 'island_px')
 
 
+def parse_fit(out):
+    """shape_fit.txt of a review dir -> {part: (target->ours p50, p90, covered)}."""
+    res = {}
+    try:
+        with open(os.path.join(out, 'shape_fit.txt'), encoding='utf-8') as f:
+            for line in f:
+                t = line.split()
+                if t[:1] == ['FIT'] and 'target->ours' in t and 'covered' in t:
+                    i = t.index('target->ours')
+                    res[t[1]] = (float(t[i + 1]), float(t[i + 3]), float(t[t.index('covered') + 1]))
+    except (OSError, ValueError):
+        pass
+    return res
+
+
+def fit_delta(base_dir, out):
+    """Markdown table: shape-master fit per part vs a baseline review dir."""
+    old, new = parse_fit(base_dir), parse_fit(out)
+    if not new:
+        return ''
+    lines = ['## Shape-master fit vs baseline', '',
+             'target->ours distance (mm, down is better) and covered share (up is better), '
+             'from tools/shape_fit.py: `new (delta)`.', '',
+             '| part | p50 mm | p90 mm | covered |', '|---|---|---|---|']
+    for part, (p50, p90, cov) in new.items():
+        o = old.get(part)
+        cells = [f'{v:.1f} ({v - w:+.1f})' if o else f'{v:.1f}' for v, w in zip((p50, p90), o or (0, 0))]
+        cells.append(f'{cov:.3f} ({cov - o[2]:+.3f})' if o else f'{cov:.3f}')
+        lines.append(f'| {part} | ' + ' | '.join(cells) + ' |')
+    return '\n'.join(lines) + '\n'
+
+
 def metrics_delta(base_dir, out):
     """Markdown table: current metrics vs a baseline review dir, rows with any change."""
     old, new = parse_metrics(base_dir), parse_metrics(out)
@@ -621,7 +654,7 @@ def blender(args, exe, log_path, step=''):
     return txt
 
 
-DOC_TEXT = ('summary.md', 'metrics_delta.md', 'metrics.txt', 'shade_stats.txt', 'shade_islands.txt',
+DOC_TEXT = ('summary.md', 'metrics_delta.md', 'metrics.txt', 'shape_fit.txt', 'shade_stats.txt', 'shade_islands.txt',
             'timing.txt')
 
 
@@ -772,6 +805,11 @@ def main():
                       a.blender, log, 'compare')
         with open(os.path.join(out, 'metrics.txt'), 'w', encoding='utf-8') as f:
             f.write(''.join(l + '\n' for l in txt.splitlines() if l.startswith(('IOU', 'REGION'))))
+        if os.path.isfile(os.path.join(ROOT, 'assets', 'shape', 'levi_shape.npz')):
+            print('SHAPE FIT', flush=True)
+            txt = blender([blend, '-P', 'tools/shape_fit.py'], a.blender, log, 'shape fit')
+            with open(os.path.join(out, 'shape_fit.txt'), 'w', encoding='utf-8') as f:
+                f.write(''.join(l + '\n' for l in txt.splitlines() if l.startswith('FIT')))
     print('SHEETS', flush=True)
     names = list(SHEET_NAMES)
     for n in names + ['shade_stats.txt', 'shade_islands.txt', 'metrics_delta.md', 'timing.txt']:
@@ -788,7 +826,7 @@ def main():
     if not a.turntable:
         sheets = [s for s in sheets if not s.endswith('turntable.png')]
     metrics = ''
-    for n in ('metrics.txt', 'shade_stats.txt', 'shade_islands.txt'):
+    for n in ('metrics.txt', 'shape_fit.txt', 'shade_stats.txt', 'shade_islands.txt'):
         p = os.path.join(out, n)
         if os.path.isfile(p):
             with open(p, encoding='utf-8') as f:
@@ -796,6 +834,8 @@ def main():
     delta = ''
     if a.baseline:
         delta = metrics_delta(abspath(a.baseline), out)
+        fd = fit_delta(abspath(a.baseline), out)
+        delta = delta + ('\n' if delta and fd else '') + fd
         if delta:
             with open(os.path.join(out, 'metrics_delta.md'), 'w', encoding='utf-8') as f:
                 f.write(delta)

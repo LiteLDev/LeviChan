@@ -1,8 +1,25 @@
 # LeviChan — procedural Levi model
 
-Levi is modeled **from scratch** with Blender Python (`bpy` + `bmesh`), about 30k faces. The cel-shaded orthographic renders must line up with the three-view `ref/levi_threeview.png`: FRONT / SIDE / BACK. No geometry is imported from other models; the old Nahida-based model under `ref/legacy/` is a visual reference only.
+Levi is modeled procedurally with Blender Python (`bpy` + `bmesh`), within `spec.TOTAL_BUDGET` (200k) faces. Since round 10 each part samples its shape from the shape master (below); the cel-shaded orthographic renders are compared with the three-view `ref/levi_threeview.png` (FRONT / SIDE / BACK). No mesh is imported (the shape master is sampled by the parts' own functions, never copied); the old Nahida-based model under `ref/legacy/` is a visual reference only.
 
 Blender: `C:/Program Files/Blender Foundation/Blender 5.2/blender.exe` (written as `$B` below). numpy is bundled; PIL and scipy are not.
+
+Priorities (the owner's): (1) the model looks natural in 3D, (2) skeletal animation has no problems, (3) fidelity. Since round 10 the three-view is a reference, below the model's own quality: report IoU changes, don't chase them.
+
+## Shape master (round 10)
+- `assets/shape/levi_shape.npz` is the shape target: an image-to-3D Levi (one fused 1.5M-triangle shell, unrigged, no eyes, no colour), decimated to 400k triangles, aligned to our frame and skeleton, each triangle labelled with the part that owns it. `tools/prep_shape.py` makes it from the FBX and our build (`blender -b out/levi_plain.blend -P tools/prep_shape.py -- --fbx <fbx> --sheet out/shape_labels`): lower-leg y offset, a few degrees of arm turn about the shoulder, nearest-object labels checked against the sheet's colour regions, crease-aware smoothing. `docs/pr/r10-phase0/labels.jpg` shows the labels; known stray patches: the ends of the front ribbon tails on the skirt, small petticoat / back-hair patches on the skirt's sides and back.
+- `levi/shape.py` queries it: `radial(part, centre, dirs, r_max)` (outermost-surface radius, cast inward, NaN where another part is outermost), `ray`, `nearest`, `inside`, `fill_ring` / `fill_rows`. It only reads the npz.
+- Parts take its shape **by sampling it inside their own section functions** (blend the procedural default and the sample by a weight that is 1 where the target is reliable and visible, 0 where it is not), never by moving vertices after the build. So topology, loops, attributes, the rig contracts below and the head's morph targets (absolute positions from `face_point` / `surf`) all follow. Raise ring / grid density within budget for relief; update layout asserts (`skirt.py` checks its vertex count).
+- The shell has outer surfaces only: no body under the clothes, the hair welded to the back, blank eye sockets, mitten-like hands. Hidden layers keep their procedural shape, kept inside the outer layer's target minus a clearance. Keep ours where it is better (eyes, lids and mouth area, separate fingers, crossed lacing with eyelets, the stiletto, the paired head leaves) and ignore the target's design slips (flower rosettes on the sleeves, ribbed lacing).
+- Cross-part exports (`skirt.profiles` / `front_surface_y` / `section`, `body.leg_section` / `FOOT` / `build_torso`, `bodice.profile`, `hair_front.CAP_PROFILE`) must return the reshaped surface, so dependants follow it.
+- Rig contracts a reshape must keep:
+  - five separate finger islands per hand (`rig.fit_fingers`);
+  - every back-hair lock its own long, narrow island (≥ `rig.HAIR_LOCK_LEN`, < `HAIR_LOCK_SPAN`, ≥ 24 vertices);
+  - `hair_<cheek|lock|curl|curtain>_<L|R>` object names;
+  - `sleeve_balloon` the sleeve object with the most vertices, and `levi_sleeve_s` recomputed for the new centreline (`_write_sleeve_param` skips objects that already have it);
+  - body `levi_joints` (knee, ankle) and `levi_socket_s`, head `levi_eye_pivot` / `levi_eye_radius`, recomputed from the new functions;
+  - loose pieces under `rig.RIGID_ISLAND` stay rigid; the `shoes_shell`, `shoes_leaves`, `acc_choker`, `acc_halter`, `bodice_leaves` prefixes.
+- `tools/shape_fit.py` measures each part against its labelled target (target->ours and ours->target mm, covered share); `review.py` runs it into `shape_fit.txt` and puts its delta in `metrics_delta.md`. Round-9 baseline: `docs/pr/r10-phase0/shape_fit_r9.txt`.
 
 ## Layout
 - `levi/spec.py`: the single source of truth.
@@ -231,7 +248,7 @@ python tools/review.py [--blend out/levi.blend] [--rig out/levi_rig.blend] [--bu
 - Materials always come from `toon_material`. Every visible mesh gets `add_outline` unless it sets `obj["no_outline"] = True` (e.g. eye decals).
 - Stay within `spec.BUDGET[part]`, which counts evaluated faces excluding the outline hull.
 - Builds must be deterministic and repeatable. No randomness without a fixed seed.
-- Don't edit `spec.py`, `common.py`, `toon.py` or another part from a part PR. If a landmark is off, put a local correction in your part and explain it in the PR.
+- Don't edit `spec.py`, `common.py`, `toon.py`, `shape.py`, `assets/shape/` or another part from a part PR (a part PR may change its own section of `rig.py`). If a landmark is off, put a local correction in your part and explain it in the PR.
 - Never commit `.blend` files or `out/`. PR screenshots go under `docs/pr/<part>/`.
   - Keep PR images small: JPEG (quality ~85) or downscaled PNG, at most ~1.5 MB per PR in total. Contact sheets can be downscaled to ~1200 px wide; `tools/review.py --docs` does this for you.
 - No Claude/AI attribution in commits or PRs.
