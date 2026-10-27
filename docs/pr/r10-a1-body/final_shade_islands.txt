@@ -1,0 +1,8 @@
+# small shade islands per region: count / area px (4-80 px shade patches cut off from the broad shade; fewer = cleaner cel shading)
+view                   skin        hair       dress       green   petticoat        shoe       total
+front                 9/308       6/165        6/31      16/394        1/15        1/31      39/944
+side                  5/192      15/200       6/141       8/218         0/0         0/0      34/751
+back                  3/151      22/414       4/164         1/4       3/157         0/0      33/890
+q34_front_left       13/403      12/154       3/150      12/128        1/50        2/19      43/904
+q34_back_right         2/40      13/286       2/117        1/77        3/48        1/68      22/636
+high                   3/99      13/176       6/146      16/357         0/0         0/0      38/778
