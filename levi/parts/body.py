@@ -24,7 +24,7 @@ the calf fullness at the back, a gluteal fold under the buttock, the armpit
 hollow, and dense loops over the elbow and wrist.
 
 Round 11 (upper body; 风堇 has no torso, shoulders or elbows to reuse): the neck,
-shoulder and upper-chest rings carry twice the vertices across their front and back
+shoulder and upper-chest rings carry twice the vertices across the middle of their front
 (TORSO_DENSE), the exposed upper chest rises evenly into the bust instead of stepping
 forward at the bodice's top edge (UPPER_CHEST), and soft anatomy relief sits on the
 shape master's surface: collarbones, the hollow above them, the notch at the base of the
@@ -355,14 +355,15 @@ NECK_TILT_END = 178.0
 TORSO_N = 32
 # Round 11: the rings down to TORSO_DENSE_LAST (neck, shoulders, upper chest and back,
 # under the bodice down to the bust) carry TORSO_DENSE x the vertices across their front
-# and back arcs (between the shoulder sockets), so the collarbones, the
-# notch at the base of the neck and the shoulder blades are sampled ~1 cm apart: 48
-# vertices instead of 32. The socket arcs and the arcs' first and last steps keep their
-# TORSO_N spacing (the 24-vertex socket border and the skin beside it are unchanged).
+# arc's middle (between the shoulder sockets), so the notch at the base of the neck, its
+# tendons and the inner collarbones are sampled ~1 cm apart: 36 vertices instead of 32
+# (the front arc's middle 4 steps are split). The socket arcs, the steps beside them and
+# the back keep their TORSO_N spacing, so the 24-vertex socket border and the skin round
+# the shoulders and the armpits are unchanged; see _ring_arcs.
 # The next ring has TORSO_N again; the band between them (hidden under the bodice) joins
 # each pair of dense segments to one with a quad and a triangle.
 TORSO_DENSE = 2
-TORSO_DENSE_KEEP = 2
+TORSO_DENSE_KEEP = (3, 5)    # plain TORSO_N steps kept at each end of the (front, back) arc
 TORSO_DENSE_LAST = 256
 # Loft rows: the TORSO table sampled (linearly) at these rows. Every table row
 # outside the shoulder band is kept, so the surface between them is unchanged;
@@ -413,22 +414,42 @@ def _ring_arcs(dense):
     """Arcs of a torso ring from the left side (k = 0) round the front: (TORSO_N index
     steps, vertices per step): the left socket's front half, the front arc, the right
     socket, the back arc, the left socket's back half. A dense ring splits the front and
-    back arcs' steps except the first and last (TORSO_DENSE_KEEP), so the skin next to
-    the socket border, where the staged shoulder helpers hand over, keeps round 10's
-    spacing (split there, the half-width edges of the back armpit stretched x2.25 in
-    arms_up, round 10 x1.78)."""
+    back arcs' steps except TORSO_DENSE_KEEP steps at each end, so the skin next to the
+    socket border, where the staged shoulder helpers hand over, keeps round 10's spacing
+    and weights. The rig's weight smoothing reads the mesh graph, so a denser patch
+    beside the shoulder shifts the shrug / stage weights round it: split up to the border,
+    the back armpit stretched x2.25 in arms_up (round 10 x1.78); with two plain steps the
+    肩 weight spread over the back (x2.05-2.13 in dance_sway / idol_dance) and the front
+    socket edge (x1.80 in hands_behind_head, round 10 x1.70). With three plain steps in
+    front and a plain back these are back at round 10's values."""
     n, K = TORSO_N, SOCKET_K
     a = n // 2 - 2 * K
     if not dense:
         return ((K, 1), (a, 1), (2 * K, 1), (a, 1), (K, 1))
-    e, m = TORSO_DENSE_KEEP, TORSO_DENSE
-    arc = ((e, 1), (a - 2 * e, m), (e, 1))
-    return ((K, 1),) + arc + ((2 * K, 1),) + arc + ((K, 1),)
+    m = TORSO_DENSE
+
+    def arc(e):
+        e = min(e, a // 2)
+        return tuple(s for s in ((e, 1), (a - 2 * e, m), (e, 1)) if s[0] > 0)
+    front, back = TORSO_DENSE_KEEP
+    return ((K, 1),) + arc(front) + ((2 * K, 1),) + arc(back) + ((K, 1),)
 
 
 def ring_size(dense):
     """Vertices per torso ring (TORSO_N, or the dense rings' count)."""
     return sum(a * m for a, m in _ring_arcs(dense))
+
+
+def ring_index(k, dense):
+    """Ring vertex index of the plain ring's (integer) index k on a socket arc (the mirror
+    of coarse_index there)."""
+    j, c = 0, 0
+    for a, m in _ring_arcs(dense):
+        if k <= c + a:
+            return j + (k - c) * m
+        j += a * m
+        c += a
+    return j
 
 
 def coarse_index(j, dense):
@@ -446,7 +467,7 @@ def _torso_thetas(table):
     """Per-ring vertex angles. Rings in the shoulder band put vertices
     +-1..+-SOCKET_K (each side) at even fractions of the socket's depth; above
     and below the band they ease back to uniform spacing (the dense neck rings: uniform
-    over all their vertices; below the band: a plain ring's angles, the dense arcs split
+    over each half; below the band: a plain ring's angles, the dense arcs split
     evenly, so the last dense ring's even vertices sit on the plain ring's)."""
     n, K = TORSO_N, SOCKET_K
     h = n // 2
@@ -457,7 +478,9 @@ def _torso_thetas(table):
         m = ring_size(dense)
         kc = [coarse_index(j, dense) for j in range(m)]
         if row < r_top:
-            uni = [2 * math.pi * j / m for j in range(m)]
+            # uniform over each half (the front and back arcs may differ in density)
+            r = ring_index(h, dense)
+            uni = [math.pi * j / r if j <= r else math.pi + math.pi * (j - r) / (m - r) for j in range(m)]
             w = smoothstep(r_top - 9, r_top, row)
         else:
             uni = [2 * math.pi * k / n for k in kc]
@@ -649,7 +672,7 @@ CLAVICLE_AMP = (1.6, 2.6, 4.5, (4.0, 12.0), (46.0, 58.0))
 SUPRACLAV = (2.4, 28.0, 8.0, 187.5, 2.8)
 NOTCH = (1.6, 194.0, 183.0, 4.0, 0.4)
 SCM = (0.6, (7.0, 193.0), (14.0, 178.0), 2.8)
-SPINE = (0.7, 3.5, (186.0, 196.0), (240.0, 250.0))
+SPINE = (0.5, 6.0, (186.0, 196.0), (240.0, 250.0))
 SCAPULA = (1.1, (16.0, 0.25), (54.0, -0.5), (200.0, 210.0, 238.0, 250.0), 205.0)
 TRAPEZIUS = (1.6, (166.0, 176.0), (182.0, 189.0))
 RELIEF_SOCKET = (0.5, 2.5, 176.0, 182.0, 238.0, 244.0)   # dk fade (from K+, to K+), rows in, out
@@ -681,7 +704,7 @@ def _relief_back(ax, row, phi):
     xm = m0 + mk * (row - top)
     xl = l0 + lk * (row - top)
     if xl > xm:
-        f += (a * smoothstep(xm - 2, xm + 4, ax) * (1 - smoothstep(xl - 8, xl + 2, ax))
+        f += (a * smoothstep(xm - 4, xm + 6, ax) * (1 - smoothstep(xl - 10, xl + 2, ax))
               * smoothstep(t0, t1, row) * (1 - smoothstep(b0, b1, row)))
     return f
 
@@ -790,11 +813,12 @@ def cut_socket(bm, rings, side):
     ri = [rows.index(r) for r in SOCKET_ROWS]
     i0, i4 = ri[0], ri[-1]
     # the socket rings' vertex count (round 11: the dense rings; the socket arcs keep their
-    # TORSO_N spacing, so k = -K..K still spans the socket)
+    # TORSO_N spacing, so k = -K..K still spans the socket) and the right side's index
     n, K = len(rings[i0]), SOCKET_K
+    r = ring_index(TORSO_N // 2, n != TORSO_N)
 
-    def K_(k):  # left ring index -> this side's
-        return k % n if side > 0 else (n // 2 - k) % n
+    def K_(k):  # left ring index -> this side's (the ring is mirror symmetric about x = 0)
+        return k % n if side > 0 else (r - k) % n
     faces = []
     for i in range(i0, i4):
         for k in range(-K, K):
