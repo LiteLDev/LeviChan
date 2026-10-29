@@ -608,9 +608,11 @@ def _join_dense(bm, a, b):
 # slope above the start and its three-point slope at the end (through the start and the
 # next ring), so the upper chest rises evenly into the bust (the upper pole of the
 # breast). Columns near the sockets (UPPER_CHEST_EDGE TORSO_N steps from the socket
-# border) blend out.
+# border) blend out. (Over 2.5 steps, the fuller skin beside the armpit under the halter
+# strap gave the strap steeper shoulder weights: x2.14 in idol_dance@78, round 10 x1.64;
+# over 4 steps x1.91, and the chest looks the same.)
 UPPER_CHEST = (203.0, 235.0)
-UPPER_CHEST_EDGE = 2.5
+UPPER_CHEST_EDGE = 4.0
 
 
 def _upper_chest(table, rings):
