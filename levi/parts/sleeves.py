@@ -619,7 +619,7 @@ def _lobe(th, k, phase, irr=0.0, pinch=1.6, var=0.22):
 
 
 def _frill_ring(c, e, ra, rb, n, k=0, amp=0.0, lift_dir=None, lift=0.0, phase=0.0, irr=0.0,
-                pinch=1.6, curl=0.0, girth=None, ripple=None, rnd=0.0, ths=None, var=0.22):
+                pinch=1.6, curl=0.0, girth=None, ripple=None, rnd=0.0, ths=None, var=0.22, amp_w=None):
     """Ellipse (e, b) of radii ra, rb around c; k rounded lobes push the ring
     out radially by amp and along lift_dir by lift at their crests (and pull
     it in / down in the valleys between them); curl pushes the crests alone
@@ -637,7 +637,8 @@ def _frill_ring(c, e, ra, rb, n, k=0, amp=0.0, lift_dir=None, lift=0.0, phase=0.
     flutes turned both into points, which read end-on as a cut star.
     ths: the vertices' ring parameters (default even, 2 pi j / n; see
     _even_params, which spaces them evenly along the deepest ring instead, so
-    the round crests get as many vertices as the flanks)."""
+    the round crests get as many vertices as the flanks). amp_w: a factor per
+    vertex on the lobes' depth, rise and curl (and the ripple)."""
     b = Y.copy()
     if lift_dir is not None:
         b = b - lift_dir * b.dot(lift_dir)
@@ -646,10 +647,12 @@ def _frill_ring(c, e, ra, rb, n, k=0, amp=0.0, lift_dir=None, lift=0.0, phase=0.
     for j in range(n):
         th = 2 * math.pi * j / n if ths is None else ths[j]
         g = _lobe(th, k, phase, irr, pinch, var) if k else 0.0
+        if amp_w is not None:
+            g *= float(amp_w[j])
         g2 = 0.0
         if ripple and k:
             k2, a2, l2, ph2 = ripple
-            g2 = math.cos(k2 * _warp(th, irr) + ph2)
+            g2 = math.cos(k2 * _warp(th, irr) + ph2) * (1.0 if amp_w is None else float(amp_w[j]))
         w = ((1.0 + amp * g + curl * max(g, 0.0) ** 2 + (ripple[1] * g2 if g2 else 0.0))
              * (1.0 if girth is None else float(girth[j])))
         tp = th + (rnd / (2 * k)) * math.sin(2 * (k * _warp(th, irr) + phase)) if k and rnd else th
@@ -723,12 +726,14 @@ TIE_R = 22.0                  # px, drawstring radius (covers the balloon's ~19 
 # Axis at the rim: tilted toward the body, flatter than the band (the sheet's
 # side lobes slope down toward the body).
 RIM_NORMAL = Vector((-0.2, 0.0, 0.98)).normalized()
-RUFFLE_SHIFT = Vector((px(1.5), 0.0, 0.0))   # rim centre offset (round 10: 3 px)
+RUFFLE_SHIFT = Vector((px(3.0), 0.0, 0.0))   # rim centre offset (front: ~col 418)
 # The frame turns from the band axis (34 deg) to RIM_NORMAL (11.5 deg) up the frill, which
 # lays the outer side's wall over (and stands the inner side's up): with the taller, deeper
 # flutes the outer ones flared out flat as ears. The outer side's radius is taken in by up
 # to RUFFLE_TAPER toward the rim (fading round to none on the inner side), so its wall
-# rises at ~55-65 deg like the rest.
+# rises at ~50-65 deg like the rest. On the inner side, against the chest and the armpit,
+# the flutes lie flatter (RUFFLE_INNER_FLAT of their depth less), as cloth pressed against
+# the body does: full-depth flutes there reached 7.8 mm into the skin at rest.
 # (height along the axis px, radius front px, radius side px, lobe amp, lobe lift px)
 RUFFLE_PROFILE = (
     (0.0, TIE_R, TIE_R, 0.03, 0.0),       # cinched by the drawstring
@@ -746,7 +751,8 @@ RUFFLE_PROFILE = (
     (28.2, 37.3, 38.8, 0.165, 3.4),       # ... and ends ~3 px under it
 )
 RUFFLE_N = 120
-RUFFLE_TAPER = 0.15
+RUFFLE_TAPER = 0.18
+RUFFLE_INNER_FLAT = 0.6
 RUFFLE_LOBES = 9              # ~13 ring vertices per flute
 RUFFLE_PINCH = 1.35           # broad, rounded flute tops and narrower dips (the sheet's side view)
 RUFFLE_IRR = 0.35             # somewhat uneven flute widths and heights (see _lobe)
@@ -797,6 +803,7 @@ def _ruffle_rings(k=RUFFLE_LOBES, q=None, taper=True, depth=1.0):
         if taper:
             tp = 1.0 - RUFFLE_TAPER * s * (1.0 + np.cos(np.array(ths))) / 2.0
             g = tp if g is None else g * tp
+        aw = 1.0 - RUFFLE_INNER_FLAT * _smooth(0.0, 0.5, s) * ((1.0 - np.cos(np.array(ths))) / 2.0) ** 2
         # the rolled hem keeps the rim's curl and ripple, so the fold stays even round each flute
         hh = RUFFLE_PROFILE[top][0] if i >= top else h
         share = amp / amp_rim
@@ -804,7 +811,7 @@ def _ruffle_rings(k=RUFFLE_LOBES, q=None, taper=True, depth=1.0):
                                  RUFFLE_IRR, RUFFLE_PINCH,
                                  curl=depth * RUFFLE_CURL * _smooth(RUFFLE_CURL_FROM, RUFFLE_PROFILE[top][0], hh),
                                  girth=g, ripple=(k2, depth * a2 * share, px(depth * l2 * share), 1.9),
-                                 rnd=RUFFLE_ROUND * share, ths=ths, var=RUFFLE_VAR))
+                                 rnd=RUFFLE_ROUND * share, ths=ths, var=RUFFLE_VAR, amp_w=aw))
         centres.append(c)
     return rings, centres
 
