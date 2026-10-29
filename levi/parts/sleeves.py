@@ -1031,7 +1031,10 @@ BACK_TAILS = [
     [(436, 312), (451, 335), (455, 372), (441, 401), (431, 441)],
     [(428, 316), (427, 347), (414, 373), (417, 400), (417, 426)],
 ]
-TAIL_SUB = 7                  # Catmull-Rom points per tail polyline gap (round 10: 4; ~4 px apart)
+# Catmull-Rom points per tail polyline gap (as round 10): 7 (~4 px apart) let the thin tails
+# follow the bag's local folds closely enough to fold over themselves (flipped faces 20-96 in
+# arms_forward, hands_behind_head, idol_dance; round 10: 0-28)
+TAIL_SUB = 4
 TAIL_SIDES = 6
 TAIL_TIP = (0.35, 0.07)       # the tail narrows to this share of its width over this share of its length
 
@@ -1045,9 +1048,11 @@ def _section(hw, ht, sides):
     """Stadium cross-section, (offset along the width, along the thickness) in
     loop order: two flat faces joined by rounded edges with (sides - 4) / 2
     points on each edge's arc (sides 4: a flat rectangle)."""
+    if sides == 4:
+        return [(hw, ht), (hw, -ht), (-hw, -ht), (-hw, ht)]
     h = min(ht, 0.8 * hw)
     c = hw - h
-    m = max(0, (sides - 4) // 2)
+    m = (sides - 4) // 2
     arc = [math.pi / 2 - math.pi * (k + 1) / (m + 1) for k in range(m)]
     out = [(c, h)] + [(c + h * math.cos(a), h * math.sin(a)) for a in arc] + [(c, -h), (-c, -h)]
     out += [(-c - h * math.cos(a), -h * math.sin(a)) for a in arc] + [(-c, h)]
