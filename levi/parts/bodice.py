@@ -259,7 +259,10 @@ TAIL_THICK = 0.0011
 # 6.5 px left 12-22 mm between stations across the skirt chains' hand-over below the
 # waist, and a lifted skirt stretched those long edges x2.0.
 TAIL_SAMPLES = 40
-TAIL_STEP = (3.0, 4.0)
+# round 11: 3 px on the thin strands too (round 10: 4 px). With the stations moved by the
+# twist sampling, 4 px left 9 mm edges on L_thin across the skirt chains' first segment,
+# which stretched x2.32 in sit_stand@60 (round 10: x2.26); at 3 px x2.27.
+TAIL_STEP = (3.0, 3.0)
 TWIST_MAX = math.radians(50)
 # px: twist ~ the turn over this much ribbon (times 1.6 * gain); fitted to the
 # round-4 twist of these paths
