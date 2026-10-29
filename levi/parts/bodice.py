@@ -34,6 +34,7 @@ import math
 
 import bmesh
 import bpy
+import numpy as np
 from mathutils import Vector
 
 from levi import common, spec
@@ -166,6 +167,27 @@ NECK_LEAN = 3.0
 # Princess seams: |x| offset (px from centre) per row.
 SEAM = [(236, 36.5), (250, 36.5), (266, 36.0), (278, 30.5), (290, 24.5), (300, 21.5),
         (320, 20.0), (348, 19.0)]
+# Round 11: the back (plain until now; the hair hides it at rest, turns and spins show it)
+# gets a centre-back seam and two princess seams, curving in from the shoulder blades to
+# the waist (|x| px from the centre per row), welts like the front's. They end under the
+# waist piping.
+BACK_SEAM = [(244, 31.0), (262, 29.5), (280, 26.0), (300, 22.0), (320, 19.5), (345, 19.0)]
+SEAM_END = 1.6            # px the welts run on below the waist seam line (into the piping and skirt)
+
+# Waist piping (round 11): a round cord along the line where the skirt comes out of the
+# bodice (waist_seam(): the crossing of the two cloth surfaces, low at the front and high
+# at the centre back, where the skirt's waist rim used to peak through the bodice and broke
+# the outline over 4-5 cm). It stands proud of both, so the outline runs unbroken round the
+# waist and the layer step reads; self fabric (white) like the sheet's plain waist.
+PIPE_R = 0.00125          # m: cord radius (2.5 mm across)
+PIPE_SIDES = 8
+PIPE_N = 192              # stations round the waist (~2.4 mm apart)
+PIPE_FIT = 0.85           # share of the distance at which the cord would just touch both cloths
+PIPE_SOFT = 1.0           # px: softness of the max of the bodice and skirt radii it rides
+PIPE_LINE = 0.0011        # outline width (the cord's top edge is the waist line)
+SEAM_PSI = 720            # section angles the seam line is solved at
+SEAM_ROW_STEP = 0.5       # px between the rows its crossing is bracketed on
+SEAM_SMOOTH = 4.0         # deg: Gaussian on the seam row round the waist (the skirt is a polygon)
 
 # Lacing (front view, measured at 7x on ref/front.png).
 DIAMOND = (291.8, 11.2, 6.4)                 # centre row, half-width, half-height
@@ -199,6 +221,21 @@ BOW_TILT_OUT = math.radians(44)   # ... less on the outgoing span, which shows i
 BOW_RETURN = 2.6          # px the returning half of each loop sits behind the outgoing half
 BOW_THICK = 0.0011        # ribbon thickness (m)
 BOW_HALF_DEPTH = 0.5 * BOW_W * math.sin(BOW_TILT)
+# Round 11: the loops start inside the knot (their first control point lay just outside its
+# end, so the cut root showed beside it); this point is put before BOW_LOOP_L's first.
+BOW_ROOT = (319.6, 338.8)
+# Knot (round 11): a closed, wrapped knot of the old size. A short band wraps round the
+# gathered loop roots; at each end its edge rolls under into a crease, and the bunched loop
+# fabric fills the wrap and swells out of it as a low dome the loops leave from (round 10:
+# an open 8-sided barrel, through whose ends the loop roots and the cut lacing cords
+# showed from 3/4 and side views). Profile from the middle out to the end's pole: (px
+# along the knot's axis from its centre, share of the wrap's middle half depth / height).
+KNOT_R = (2.6, 3.5)       # px: half depth (y) and half height of the wrap's middle
+KNOT_PROFILE = [(0.0, 1.0), (0.8, 0.988), (1.45, 0.955), (1.9, 0.905), (2.2, 0.84),
+                (2.42, 0.75), (2.52, 0.655), (2.47, 0.565), (2.32, 0.5),      # the edge rolls under
+                (2.36, 0.43), (2.5, 0.35), (2.62, 0.25), (2.69, 0.13)]       # the bunched fabric's dome
+KNOT_POLE = 2.71          # px: the dome's pole
+KNOT_NT = 24              # samples round the knot's axis
 
 # Ribbon tails (front view, px). Two strands per side meet at the tip.
 # name: (control points, ribbon width px, twist gain)
@@ -226,6 +263,32 @@ TWIST_MAX = math.radians(50)
 # px: twist ~ the turn over this much ribbon (times 1.6 * gain); fitted to the
 # round-4 twist of these paths
 TWIST_SPAN = 9.2
+# Round 11 (clothes-detail review: a hard kink where the twist starts, square stubs at the
+# tips and at the roots below the knot):
+# - the twist is worked out on the dense path and a station is also kept wherever it has
+#   turned TWIST_STEP since the last one, so the stations crowd where the twist changes;
+#   it saturates smoothly (C1) toward TWIST_MAX from TWIST_KNEE of it (round 10 clamped
+#   hard at TWIST_MAX), and the edge-on lift off the skirt uses a rounded |sin| (round 10:
+#   |sin|, a kink in the ribbon's depth wherever the twist changes sign);
+# - each strand starts inside the knot (TAIL_ROOT_ROW, TAIL_ROOT_IN of the way to its
+#   centre) instead of 1-6 px below it;
+# - the tip narrows only to TAIL_TIP_W and is cut at an angle, over TAIL_CUT widths, the
+#   point on the edge toward the other strand of its side (the two meet at the tip), so
+#   the pair ends in one point as on the sheet (round 10: both strands tapered to 25 %
+#   and stopped in square stubs side by side). The cut is sampled TAIL_CUT_STEP px apart.
+TWIST_STEP = math.radians(4.0)
+TWIST_KNEE = 0.7
+TWIST_SIGN_SOFT = 0.12
+TAIL_ROOT_ROW = KNOT[1] + 1.0
+TAIL_ROOT_IN = 0.6
+TAIL_TIP_W = 0.7
+TAIL_CUT = 2.2
+TAIL_CUT_STEP = 1.0
+# px: over the last TAIL_OVER_LEN px the thin strand rises onto the wide one (one ribbon
+# thickness and a little), so the two meet at the tip without passing through each other
+TAIL_OVER = TAIL_THICK / PX + 0.25
+TAIL_OVER_LEN = 26.0
+TAIL_PAIRS = {'L_wave': 'L_thin', 'L_thin': 'L_wave', 'R_wave': 'R_thin', 'R_thin': 'R_wave'}
 # Tails sit TAIL_PROUD px in front of the skirt's cloth surface, taken from
 # levi.parts.skirt.front_surface_y() (its godet folds included; tail x is
 # world x, the same frame the skirt uses), plus HIP_LIFT px around the hip,
@@ -646,19 +709,178 @@ def shell_path(a, b, n, lift_px):
             for s in range(n + 1)]
 
 
+def back_psi(dx_px, row):
+    """Back-half section angle (0..pi) whose x is dx_px (front-view px)."""
+    hw = profile(row)[0] / PX
+    t = max(-0.999, min(0.999, dx_px / hw))
+    return math.acos(_sp(t, P_BACK / 2.0))
+
+
+def shell_normal_psi(psi, row):
+    """Outward unit normal of the shell at section angle psi and row."""
+    du = section_point(psi + 1e-3, row) - section_point(psi - 1e-3, row)
+    dv = section_point(psi, row + 0.5) - section_point(psi, row - 0.5)
+    n = dv.cross(du).normalized()
+    return n if n.dot(outward_at(psi, row)) > 0 else -n
+
+
+def seam_row(psi):
+    """Row of the waist seam line (waist_seam()) at section angle psi."""
+    ps, rows = waist_seam()
+    return float(np.interp((psi + 0.5 * math.pi) % (2 * math.pi) - 0.5 * math.pi, ps, rows,
+                           period=2 * math.pi))
+
+
+def welt(pts, normals):
+    """A seam welt along `pts`: a low rounded strip whose broad face follows the
+    shell, fading in under the turned edge."""
+    n = len(pts) - 1
+    widths = [0.5 + 0.5 * smoothstep(0.0, 2.5, s) for s in range(n + 1)]
+    return band(pts, 0.0011, 0.0006, widths=widths, sides=6, faces=normals)
+
+
 def build_seams(col, mat):
     bms = []
+    n = 16
     for sx in (-1, 1):
         start = neck_row_at_dx(SEAM[0][1]) + 0.9     # tucked under the rolled lip
-        n = 16
         rows = [start + (348 - start) * s / n for s in range(n + 1)]
-        pts = [on_shell(sx * smooth_interp(SEAM, r), r, 0.4) for r in rows]
-        # fades in under the turned edge
-        widths = [0.5 + 0.5 * smoothstep(0.0, 2.5, s) for s in range(n + 1)]
-        # a low rounded welt: its broad face follows the shell, its edges are soft
-        bms.append(band(pts, 0.0011, 0.0006, widths=widths, sides=6,
-                        faces=[shell_normal(sx * smooth_interp(SEAM, r), r) for r in rows]))
+        bms.append(welt([on_shell(sx * smooth_interp(SEAM, r), r, 0.4) for r in rows],
+                        [shell_normal(sx * smooth_interp(SEAM, r), r) for r in rows]))
+    # the back: centre-back and princess seams, from under the turned edge down into
+    # the waist piping
+    for sx in (-1, 0, 1):
+        dx = (lambda r: sx * smooth_interp(BACK_SEAM, r))   # noqa: E731
+        start = neck_row(back_psi(dx(BACK_SEAM[0][0]), BACK_SEAM[0][0])) + 0.9
+        end = seam_row(back_psi(dx(335.0), 335.0)) + SEAM_END
+        rows = [start + (end - start) * s / n for s in range(n + 1)]
+        psis = [back_psi(dx(r), r) for r in rows]
+        nrm = [shell_normal_psi(p, r) for p, r in zip(psis, rows)]
+        pts = [section_point(p, r) + q * (0.4 * PX) for p, r, q in zip(psis, rows, nrm)]
+        bms.append(welt(pts, nrm))
     return finish(col, 'bodice_seams', bms, mat, outline=0.0010, angle=80)
+
+
+# ---------------------------------------------------------------- waist seam line, piping
+def _skirt_polar(pts, row, cy):
+    """(polar angles, radii) about (0, cy) px of the skirt's outer cloth at a panel
+    row, sorted by angle; pts: skirt.profiles() points (px) of its first rings."""
+    rows = pts[:, :, 2]
+    k = np.clip((rows <= row).sum(1) - 1, 0, rows.shape[1] - 2)
+    i = np.arange(len(pts))
+    r0, r1 = rows[i, k], rows[i, k + 1]
+    f = np.clip((row - r0) / np.maximum(r1 - r0, 1e-9), 0.0, 1.0)[:, None]
+    xy = pts[i, k, :2] + (pts[i, k + 1, :2] - pts[i, k, :2]) * f
+    a = np.arctan2(xy[:, 0], -(xy[:, 1] - cy))
+    o = np.argsort(a)
+    return a[o], np.hypot(xy[:, 0], xy[:, 1] - cy)[o]
+
+
+@functools.lru_cache(maxsize=None)
+def waist_seam():
+    """(psi, row) arrays round the bodice: per section angle, the row where the
+    skirt's outer cloth (skirt.profiles(), as built) comes out of the bodice, i.e.
+    the first row from the top at which the shell lies inside it, smoothed round
+    the waist (SEAM_SMOOTH). Inside / outside is read along rays from the waist's
+    mid depth, where both sections are star-shaped."""
+    pts = skirt.profiles(skirt.fold_table())[:, :6, :]
+    psi = -0.5 * math.pi + 2 * math.pi * np.arange(SEAM_PSI) / SEAM_PSI
+    cy = _waist_cy()
+    rows = np.arange(float(pts[:, 0, 2].max()), ROW_BOT + 1e-9, SEAM_ROW_STEP)
+    f = np.zeros((len(rows), SEAM_PSI))
+    for r, row in enumerate(rows):
+        A, R = _skirt_polar(pts, row, cy)
+        P = np.array([section_point(float(p), float(row))[:2] for p in psi]) / PX
+        a = np.arctan2(P[:, 0], -(P[:, 1] - cy))
+        f[r] = np.hypot(P[:, 0], P[:, 1] - cy) - np.interp(a, A, R, period=2 * np.pi)
+    out = np.full(SEAM_PSI, float(ROW_BOT))
+    for j in range(SEAM_PSI):
+        neg = np.nonzero(f[:, j] <= 0.0)[0]
+        if not len(neg):
+            continue
+        k = neg[0]
+        if k == 0:
+            out[j] = rows[0]
+            continue
+        f0, f1 = f[k - 1, j], f[k, j]
+        out[j] = rows[k - 1] + (rows[k] - rows[k - 1]) * f0 / (f0 - f1)
+    sig = SEAM_SMOOTH / 360.0 * SEAM_PSI
+    m = int(3 * sig) + 1
+    ker = np.exp(-0.5 * (np.arange(-m, m + 1) / sig) ** 2)
+    out = np.convolve(np.concatenate([out[-m:], out, out[:m]]), ker / ker.sum(), mode='valid')
+    return psi, out
+
+
+def _waist_cy():
+    _, yf, yb = profile(340.0)
+    return 0.5 * (yf + yb) / PX
+
+
+def _skirt_r(pts, a, row, cy):
+    A, R = _skirt_polar(pts, max(row, float(pts[:, 0, 2].max())), cy)
+    return float(np.interp(a, A, R, period=2 * np.pi))
+
+
+def piping_path():
+    """(centre points, offset directions) of the waist piping, PIPE_N stations
+    evenly spaced round the waist seam line. Each station sits on the outer of
+    the two cloths there (where the skirt's waist rim stands out of the bodice
+    the cord rides its top edge) and is pushed out along the bisector of the
+    bodice's and the skirt's normals, so the cord lies in the corner between
+    them, touching both (PIPE_FIT of the tangent distance)."""
+    pts = skirt.profiles(skirt.fold_table())[:, :6, :]
+    top = float(pts[:, 0, 2].max())
+    cy = _waist_cy()
+    psi, rows = waist_seam()
+    P = [section_point(float(p), float(r)) for p, r in zip(psi, rows)]
+    arc = [0.0]
+    for a, b in zip(P, P[1:] + P[:1]):
+        arc.append(arc[-1] + (b - a).length)
+    ps = list(psi) + [psi[0] + 2 * math.pi]
+    rs = list(rows) + [rows[0]]
+    cen, dirs = [], []
+    for k in range(PIPE_N):
+        s = arc[-1] * k / PIPE_N
+        i = max(0, min(bisect.bisect_right(arc, s) - 1, len(ps) - 2))
+        f = (s - arc[i]) / max(arc[i + 1] - arc[i], 1e-12)
+        p, r = ps[i] + (ps[i + 1] - ps[i]) * f, rs[i] + (rs[i + 1] - rs[i]) * f
+        q = section_point(p, r)
+        x, y = q.x / PX, q.y / PX
+        a = math.atan2(x, -(y - cy))
+        rb = math.hypot(x, y - cy)
+        rsk = _skirt_r(pts, a, r, cy)
+        # the outer cloth (a soft max, so the cord does not kink where the rim takes over)
+        re = 0.5 * (rb + rsk + math.hypot(rb - rsk, PIPE_SOFT) - PIPE_SOFT)
+        sa, ca = math.sin(a), math.cos(a)
+        on = Vector((re * sa * PX, (cy - re * ca) * PX, q.z))
+        # skirt normal: horizontal normal of its section, tilted up by its flare
+        e = 0.01
+        r0, r1 = _skirt_r(pts, a - e, r, cy), _skirt_r(pts, a + e, r, cy)
+        dr = (r1 - r0) / (2 * e)
+        t = Vector((dr * sa + rsk * ca, -dr * ca + rsk * sa, 0.0))
+        nh = Vector((t.y, -t.x, 0.0)).normalized()
+        if nh.dot(Vector((sa, -ca, 0.0))) < 0:
+            nh = -nh
+        slope = _skirt_r(pts, a, max(r, top) + 1.0, cy) - _skirt_r(pts, a, max(r, top), cy)
+        ns = (nh + Vector((0.0, 0.0, max(slope, 0.0)))).normalized()
+        nb = shell_normal_psi(p, r)
+        o = (nb + ns).normalized()
+        half = 0.5 * nb.angle(ns)
+        d = min(PIPE_FIT * PIPE_R / max(math.cos(half), 0.5), 2.0 * PIPE_R)
+        cen.append(on + o * d)
+        dirs.append(o)
+    # a light smoothing round the loop: the seam line comes from polygons
+    n = len(cen)
+    sm = [(cen[k - 1] + 2 * cen[k] + cen[(k + 1) % n]) / 4 for k in range(n)]
+    return sm, dirs
+
+
+def build_piping(col, mat):
+    pts, dirs = piping_path()
+    bm = band(pts, 2 * PIPE_R, 2 * PIPE_R, faces=dirs, loop=True, sides=PIPE_SIDES, kind='round')
+    obj = finish(col, 'bodice_piping', [bm], mat, outline=PIPE_LINE, angle=80)
+    obj['levi_cast_shadow'] = False      # a thin cord: no hard print on the skirt
+    return obj
 
 
 def neck_row_at_dx(dx_px):
@@ -812,12 +1034,42 @@ def bow_y(dx_px, row, back=0.0):
     return min(y, lim - BOW_RETURN) + back
 
 
+def knot_bm():
+    """The closed wrapped knot: a solid of revolution about the horizontal axis
+    through KNOT (elliptic sections, KNOT_R), along KNOT_PROFILE out to a pole
+    at each end. Closed, so no view shows into it."""
+    kx = (KNOT[0] - FRONT_CX) * PX
+    ky, kr = BOW_Y_KNOT + 1.2, KNOT[1]
+    half = KNOT_PROFILE
+    prof = [(-x, r) for x, r in reversed(half[1:])] + half
+    bm = bmesh.new()
+    rings = []
+    for x, r in prof:
+        ring = []
+        for j in range(KNOT_NT):
+            a = 2 * math.pi * j / KNOT_NT        # 0 = top, -pi/2 = toward the viewer
+            ring.append(bm.verts.new(Vector((kx + x * PX, (ky + KNOT_R[0] * r * math.sin(a)) * PX,
+                                             Z(kr - KNOT_R[1] * r * math.cos(a))))))
+        rings.append(ring)
+    for a, b in zip(rings, rings[1:]):
+        for j in range(KNOT_NT):
+            k = (j + 1) % KNOT_NT
+            bm.faces.new((a[j], a[k], b[k], b[j]))
+    for ring, x in ((rings[0], -KNOT_POLE), (rings[-1], KNOT_POLE)):
+        pole = bm.verts.new(Vector((kx + x * PX, ky * PX, Z(kr))))
+        for j in range(KNOT_NT):
+            bm.faces.new((ring[j], ring[(j + 1) % KNOT_NT], pole))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return bm
+
+
 def build_bow(col, mat):
     bms = []
     kx = (KNOT[0] - FRONT_CX)
     for sx in (-1, 1):
         ctrl = [Vector((sx * (c - FRONT_CX), 0, r)) for c, r in BOW_LOOP_L]
-        path = adaptive(catmull_path(ctrl, 12), 2.8, math.radians(11))
+        root = Vector((sx * (BOW_ROOT[0] - FRONT_CX), 0, BOW_ROOT[1]))
+        path = adaptive(catmull_path([root] + ctrl, 12), 2.8, math.radians(11))
         n = len(path)
         cen = sum(ctrl[1:-1], Vector()) / (len(ctrl) - 2)
         # arc position of the loop's outer turn: the returning half sits behind
@@ -841,20 +1093,7 @@ def build_bow(col, mat):
             d = math.hypot(p.x - kx, p.z - KNOT[1])
             widths.append(0.4 + 0.6 * smoothstep(2.0, 11.0, d))
         bms.append(band(pts, BOW_W * PX, BOW_THICK, widths=widths, faces=faces, sides=10, camber=0.06))
-    # knot: a short ribbon wrapped round the gathered loop roots (a flattened
-    # ring in the YZ plane, its width along x)
-    ky, kz = BOW_Y_KNOT + 1.2, KNOT[1]
-    ring, rfaces, rw = [], [], []
-    nk = 16
-    for i in range(nk):
-        a = 2 * math.pi * i / nk
-        ry, rz = 2.3, 3.2
-        ring.append(Vector((kx * PX, (ky + ry * math.sin(a)) * PX, Z(kz + rz * math.cos(a)))))
-        rfaces.append(Vector((0, math.sin(a) / ry, -math.cos(a) / rz)).normalized())
-        # barrel-shaped: full width across the front, narrower over the top
-        # and bottom, so the knot reads round from the front
-        rw.append(0.55 + 0.45 * abs(math.sin(a)) ** 1.5)
-    bms.append(band(ring, 5.6 * PX, 0.0010, loop=True, faces=rfaces, widths=rw, sides=8))
+    bms.append(knot_bm())
     return finish(col, 'bodice_bow', bms, mat, outline=0.0011, angle=75)
 
 
@@ -888,47 +1127,104 @@ def tail_surface(dx, row, width_px):
     return min(skirt_surface_y(dx + o, row) for o in (-half, 0.0, half))
 
 
+def soft_twist(v):
+    """v clamped to +-TWIST_MAX smoothly (C1): unchanged below TWIST_KNEE of it,
+    then easing into the limit."""
+    u, k = abs(v) / TWIST_MAX, TWIST_KNEE
+    if u > k:
+        u = 1.0 if u >= 2 - k else u - (u - k) ** 2 / (4 * (1 - k))
+    return math.copysign(u * TWIST_MAX, v)
+
+
+def tail_twist(path, gain):
+    """Twist (rad) at every point of a dense front-view path (Vector(dx, 0, row)):
+    the ribbon turns toward edge-on where the path bends, with the bend's sign, so
+    a zigzag twists one way and back. The curvature (turn per px of ribbon) is
+    smoothed over ~7 px: independent of the sampling."""
+    P = np.array([(p.x, p.z) for p in path])
+    d = np.diff(P, axis=0)
+    turn = np.zeros(len(P))
+    a, b = d[:-1], d[1:]
+    turn[1:-1] = np.arctan2(a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0], (a * b).sum(1))
+    arc = np.concatenate([[0.0], np.cumsum(np.linalg.norm(d, axis=1))])
+    ds = 0.5 * (arc[np.minimum(np.arange(len(P)) + 1, len(P) - 1)] - arc[np.maximum(np.arange(len(P)) - 1, 0)])
+    w = np.exp(-((arc[None, :] - arc[:, None]) / 7.0) ** 2)
+    sm = (w @ turn) / np.maximum(w @ ds, 1e-9) * TWIST_SPAN
+    return [soft_twist(1.6 * gain * float(v)) for v in sm], arc.tolist()
+
+
+def tail_stations(path, phi, arc, max_step, max_turn, fine_from):
+    """Indices of the dense path kept as ribbon stations: both ends, and a point
+    once the path has run max_step px, turned max_turn or twisted TWIST_STEP
+    since the last kept one (every TAIL_CUT_STEP px past arc fine_from)."""
+    keep = [0]
+    run = turn = 0.0
+    prev_d = None
+    n = len(path)
+    step = max_step
+    for i in range(1, n - 1):
+        d = path[i] - path[i - 1]
+        run += d.length
+        if prev_d is not None and d.length > 1e-9 and prev_d.length > 1e-9:
+            turn += prev_d.angle(d)
+        prev_d = d
+        step = TAIL_CUT_STEP if arc[i] >= fine_from else max_step
+        if run >= step or turn >= max_turn or abs(phi[i] - phi[keep[-1]]) >= TWIST_STEP:
+            keep.append(i)
+            run = turn = 0.0
+    if len(keep) > 1 and arc[-1] - arc[keep[-1]] < 0.35 * step:
+        keep.pop()
+    keep.append(n - 1)
+    return keep
+
+
+def _x_at_row(path, row):
+    """Front-view dx of a dense path where it crosses `row` last (nearest row if none)."""
+    best = None
+    for a, b in zip(path, path[1:]):
+        if (a.z - row) * (b.z - row) <= 0 and a.z != b.z:
+            best = a.x + (b.x - a.x) * (row - a.z) / (b.z - a.z)
+    return best if best is not None else min(path, key=lambda p: abs(p.z - row)).x
+
+
 def build_tails(col, mat):
     bms = []
+    dense = {}
     for name, (ctrl, width_px, gain) in TAILS.items():
         cpts = [Vector((c - FRONT_CX, 0, r)) for c, r in ctrl]
-        path = catmull_path(cpts, TAIL_SAMPLES)
-        path = adaptive(path, TAIL_STEP[0] if width_px > 3 else TAIL_STEP[1], math.radians(9))
+        # the strand starts inside the knot, so no cut end shows below it
+        kx = KNOT[0] - FRONT_CX
+        root = Vector((cpts[0].x + (kx - cpts[0].x) * TAIL_ROOT_IN, 0, TAIL_ROOT_ROW))
+        dense[name] = (catmull_path([root] + cpts, TAIL_SAMPLES), width_px, gain)
+    for name, (dpath, width_px, gain) in dense.items():
+        phi_d, arc_d = tail_twist(dpath, gain)
+        total = arc_d[-1]
+        arc0 = arc_d[TAIL_SAMPLES]          # the traced start (end of the span from the root)
+        cut = TAIL_CUT * width_px * TAIL_TIP_W
+        s0 = total - 2.0 * cut               # the cut is spread over the last 2 * cut px
+        keep = tail_stations(dpath, phi_d, arc_d, TAIL_STEP[0] if width_px > 3 else TAIL_STEP[1],
+                             math.radians(9), s0 - TAIL_CUT_STEP)
+        path = [dpath[i] for i in keep]
+        phi = [phi_d[i] for i in keep]
+        arc = [arc_d[i] for i in keep]
         n = len(path)
-        # twist: the ribbon turns toward edge-on where the path bends; the
-        # sign follows the bend, so a zigzag twists one way and back
-        turn = [0.0] * n
-        for i in range(1, n - 1):
-            a = path[i] - path[i - 1]
-            b = path[i + 1] - path[i]
-            turn[i] = math.atan2(a.x * b.z - a.z * b.x, a.x * b.x + a.z * b.z)
-        # curvature (turn per px of ribbon, each station's turn over the arc
-        # it stands for), smoothed over ~7 px: independent of how densely the
-        # path is sampled
-        arc = [0.0]
-        for a, b in zip(path, path[1:]):
-            arc.append(arc[-1] + (b - a).length)
-        ds = [0.5 * (arc[min(j + 1, n - 1)] - arc[max(j - 1, 0)]) for j in range(n)]
-        sm = []
-        for i in range(n):
-            wsum = vsum = 0.0
-            for j in range(n):
-                w = math.exp(-((arc[j] - arc[i]) / 7.0) ** 2)
-                wsum += w * ds[j]
-                vsum += w * turn[j]
-            sm.append(vsum / max(wsum, 1e-9) * TWIST_SPAN)
-        phi = [max(-TWIST_MAX, min(TWIST_MAX, 1.6 * gain * v)) for v in sm]
-        total = arc[-1]
+        # the edge that runs on to the point: the one toward the other strand of the side
+        partner = dense[TAIL_PAIRS[name]][0]
+        row_q = path[-1].z - 12.0
+        toward = _x_at_row(partner, row_q) - _x_at_row(path, row_q)
         pts, faces, widths = [], [], []
         for i, p in enumerate(path):
             dx, row = p.x, p.z
-            y_skirt = tail_surface(dx, row, width_px)
             nrm = surface_normal_px(dx, row, lambda a, r: tail_surface(a, r, width_px))
             h, c, w = HIP_LIFT
             proud = TAIL_PROUD + h * math.exp(-((row - c) / w) ** 2)
-            # an edge-on ribbon stands its half width off the skirt; the
-            # offset is along the skirt's normal
-            off = proud + 0.5 * width_px * abs(math.sin(phi[i]))
+            if width_px < 3:
+                # the thin strand lies over the wide one where they meet at the tip
+                proud += TAIL_OVER * smoothstep(TAIL_OVER_LEN, 0.0, total - arc[i])
+            # an edge-on ribbon stands its half width off the skirt (a rounded |sin|:
+            # no kink where the twist changes sign); the offset is along the skirt's normal
+            s = math.sin(phi[i])
+            off = proud + 0.5 * width_px * (math.hypot(s, TWIST_SIGN_SOFT) - TWIST_SIGN_SOFT)
             # start from the skirt point that the offset carries back onto the
             # traced front-view position (dx, row)
             y = tail_surface(dx - nrm.x * off, row + nrm.z * off, width_px) + nrm.y * off
@@ -940,13 +1236,54 @@ def build_tails(col, mat):
             tng = Vector((tng.x, 0.0, -tng.z)).normalized()
             side = tng.cross(nrm).normalized()
             faces.append((nrm * math.cos(phi[i]) + side * math.sin(phi[i])).normalized())
-            # taper: gathered under the knot, narrowing to a point at the tip
-            ws = 0.7 + 0.3 * smoothstep(0.0, 14.0, arc[i])
-            ws *= 0.25 + 0.75 * smoothstep(0.0, 22.0, total - arc[i])
+            # taper: gathered under the knot, narrowing a little toward the cut tip
+            ws = 0.7 + 0.3 * smoothstep(0.0, 14.0, arc[i] - arc0)
+            ws *= TAIL_TIP_W + (1.0 - TAIL_TIP_W) * smoothstep(0.0, 22.0, total - arc[i])
             widths.append(ws)
-        bms.append(band(pts, width_px * PX, TAIL_THICK, widths=widths, faces=faces,
-                        sides=8 if width_px > 3 else 6))
+        bms.append(cut_band(pts, arc, width_px * PX, TAIL_THICK, widths, faces,
+                            8 if width_px > 3 else 6, s0, cut, toward))
     return finish(col, 'bodice_ribbon_tails', bms, mat, outline=OUTLINE_FINE, angle=75)
+
+
+def cut_band(pts, arc, width, thick, widths, faces, sides, s0, cut, toward):
+    """band() along `pts` whose end is cut at an angle: past arc s0 every section
+    point slides back along the ribbon by its share of the cut, so the end runs
+    on along the edge whose width direction points toward front-view x sign
+    `toward` and the other edge stops `cut` (px of arc) short of it."""
+    n = len(pts)
+    T, B, N, W = [], [], [], []
+    for i, p in enumerate(pts):
+        t = (pts[min(i + 1, n - 1)] - pts[max(i - 1, 0)]).normalized()
+        b = faces[i] - t * faces[i].dot(t)
+        b = (b if b.length > 1e-6 else t.orthogonal()).normalized()
+        T.append(t)
+        B.append(b)
+        N.append(t.cross(b).normalized())
+        W.append(width * widths[i] / 2)
+    h = thick / 2
+    total = arc[-1]
+    sgn = 1.0 if N[-1].x * toward >= 0 else -1.0
+
+    def at(s):
+        k = max(0, min(bisect.bisect_right(arc, s) - 1, n - 2))
+        f = max(0.0, min(1.0, (s - arc[k]) / max(arc[k + 1] - arc[k], 1e-9)))
+        lerp = lambda u, v: u + (v - u) * f   # noqa: E731
+        return lerp(pts[k], pts[k + 1]), lerp(N[k], N[k + 1]).normalized(), \
+            lerp(B[k], B[k + 1]).normalized(), lerp(W[k], W[k + 1])
+
+    rings = []
+    for i in range(n):
+        ring = []
+        for a, c in section(W[i], h, sides):
+            if arc[i] <= s0:
+                ring.append(pts[i] + N[i] * a + B[i] * c)
+                continue
+            an = max(-1.0, min(1.0, a / W[i]))
+            s_end = total - cut * (1.0 - sgn * an) / 2.0
+            p, nn, bb, ww = at(s0 + (arc[i] - s0) * (s_end - s0) / (total - s0))
+            ring.append(p + nn * (an * ww) + bb * c)
+        rings.append(ring)
+    return common.loft(rings, closed=True, cap_start=True, cap_end=True)
 
 
 # ---------------------------------------------------------------- leaves
@@ -1023,6 +1360,7 @@ def build(col):
     leaf = common.toon_material('leaf')
     build_shell(col, dress)
     build_seams(col, dress)
+    build_piping(col, dress)
     build_facings(col, dress)
     build_diamond(col, green)
     build_lacing(col, green)
