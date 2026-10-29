@@ -950,8 +950,13 @@ DRAPE_LEG_EXT = 1.45
 DRAPE_SHIN_R = 0.05
 # (m from the hip joint along the thigh, the thigh's skin weight there): measured on the
 # round-6 body (足 vs 下半身, mean round the thigh); the obstacle near the groin moves as
-# much as the blended skin does
-DRAPE_SKIN_W = ((0.0, 0.5), (0.05, 0.6), (0.10, 0.75), (0.14, 0.97), (0.17, 1.0))
+# much as the blended skin does. Round 11 (风堇's continuous pelvis and the wider crotch
+# smoothing, CROTCH_SMOOTH / CROTCH_ZONE): re-measured as 足 + HIP_AUX x 足補助 round the
+# thigh (0.48 / 0.49 / 0.59 / 0.72 / 0.82 / 0.90 at 0 / 5 / 10 / 14 / 17 / 20 cm; the
+# round-10 body read 0.54 / 0.63 / 0.69 / 0.91 / ~0.96 / 1.0) and the round-6 table moved
+# by the difference
+DRAPE_SKIN_W = ((0.0, 0.44), (0.05, 0.47), (0.10, 0.65), (0.14, 0.77), (0.17, 0.87), (0.20, 0.91),
+                (0.25, 1.0))
 DRAPE_RES = 2.0             # deg: resolution of the clearance search (round 7: 1)
 DRAPE_SLACK = 0.004         # m: where nothing clears, the least turn within this of the best depth
 DRAPE_SMOOTH = 8            # [1 2 1] passes over the pitch samples (~11 deg; round 7: 5, which left a 6 mm pop rising from the seat)
@@ -3533,9 +3538,17 @@ def _hair_head_fade(w, co, bones):
 # round 7: wider and smoother (round 6: 4.5 cm over a 7 cm half width, 22 cm deep): the
 # pelvis / thigh change spreads over the buttocks and the groin, x2.0-2.1 -> 1.7-1.8 in
 # high_kick, the lunges and kneeling (with the hip helpers)
-CROTCH_SMOOTH = 0.06           # weight smoothing radius (m) at the crotch
+# Round 11: 风堇's pelvis and legs are one surface through the crotch (round 10's leg tubes
+# overlapped a torso block, whose bottom took both thighs half and half while each tube was
+# all its own thigh: the change of hands happened between pieces, out of sight). Now the
+# skin from one inner thigh to the other carries it, over her narrow crotch (~1-5 mm edges
+# there, which the diffusion crosses slowly): 0.06 m tore it x3.2-5.2 in run, high_kick,
+# deep_lunge and cross_legged. 0.12 m spreads it (x2.0-2.2, cross_legged x2.9); 0.15 m pulled
+# the other thigh's weight down the thighs (x2.3-3.1); the zone runs 5 cm deeper with a
+# wider fade, so its edge is not a second change of hands (0.20 deep: x2.3-3.0).
+CROTCH_SMOOTH = 0.12           # weight smoothing radius (m) at the crotch
 CROTCH_PARTS = ('body', '_proxy')   # skin only: garments there follow the skirt chains
-CROTCH_ZONE = (0.12, 0.25, 0.06)   # half width, depth below the hip joints, vertical fade
+CROTCH_ZONE = (0.12, 0.30, 0.08)   # half width, depth below the hip joints, vertical fade
 
 
 def _crotch_mask(co, bones):
