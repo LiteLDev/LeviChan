@@ -733,7 +733,8 @@ RUFFLE_SHIFT = Vector((px(3.0), 0.0, 0.0))   # rim centre offset (front: ~col 41
 # to RUFFLE_TAPER toward the rim (fading round to none on the inner side), so its wall
 # rises at ~50-65 deg like the rest. On the inner side, against the chest and the armpit,
 # the flutes lie flatter (RUFFLE_INNER_FLAT of their depth less), as cloth pressed against
-# the body does: full-depth flutes there reached 7.8 mm into the skin at rest.
+# the body does: full-depth flutes there reached 7.8 mm into the skin at rest (and 0.6 left
+# the seiza pose's frill 3.4% newly inside the chest, 0.9 3.0%).
 # (height along the axis px, radius front px, radius side px, lobe amp, lobe lift px)
 RUFFLE_PROFILE = (
     (0.0, TIE_R, TIE_R, 0.03, 0.0),       # cinched by the drawstring
@@ -752,7 +753,7 @@ RUFFLE_PROFILE = (
 )
 RUFFLE_N = 120
 RUFFLE_TAPER = 0.18
-RUFFLE_INNER_FLAT = 0.6
+RUFFLE_INNER_FLAT = 0.9
 RUFFLE_LOBES = 9              # ~13 ring vertices per flute
 RUFFLE_PINCH = 1.35           # broad, rounded flute tops and narrower dips (the sheet's side view)
 RUFFLE_IRR = 0.35             # somewhat uneven flute widths and heights (see _lobe)
