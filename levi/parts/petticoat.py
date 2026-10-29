@@ -272,6 +272,8 @@ CORE_RX = L['waist_half_w'] * 1.40   # core top ring round the hips (m)
 CORE_RY = 0.065
 CORE_CY = L['waist_center_y'] * 0.6
 CORE_N = 96            # core columns
+CORE_SIDE_P = 4        # the core's lower edge follows the inner tier's built seam by cos(angle) ** this
+                       # (1 at the sides, ~0 front and back; see _core)
 CORE_T = (0.0, 0.16, 0.33, 0.5, 0.67, 0.84, 1.0)   # core rings (share of the hip-to-seam drop)
 CORE_FOLD = 4          # core columns per gather (the core's own gathers from the hips)
 CORE_DEPTH = 4.5       # px, half the crest-to-valley depth of the core's gathers ...
@@ -872,7 +874,7 @@ def _finish(col, mat, name, loops, soft, line):
 def _core(col, mat, inners):
     """The core: a cone from the hips (CORE_RX / CORE_RY ring) down its
     straight lines to the inner tier's seam (_SEAM2), CORE_N columns, CORE_T
-    rings, kept inside the skirt and the outer and middle tiers. Gathers (CORE_FOLD columns
+    rings, kept inside the skirt. Gathers (CORE_FOLD columns
     each) open from the hips and fade out above the middle tier's seam, so
     the tiers sewn on below lie on a smooth cone. It is its own object: merged
     with the inner tier's dense frill, the rig smoothed its long, sparse edges
@@ -882,12 +884,21 @@ def _core(col, mat, inners):
     nf = n // CORE_FOLD
     phis = [2 * math.pi * i / n for i in range(n)]
     tops = [_core_top(p) for p in phis]
-    # the lower edge is the inner tier's seam as built (it rises where that
-    # tier's hem tucks up, and the clearance may have drawn it in under the
-    # skirt's raised sides), so the core never runs on below or outside it
+    # the lower edge: down the cone's generator to the inner tier's seam
+    # height (it rises where that tier's hem tucks up) and, towards the sides,
+    # onto that seam as built: under the skirt's raised sides the clearance
+    # draws the tiers in, and the cone ran on outside them (through the inner
+    # tiers by up to 2-3 cm, as in round 10). Front and back keep the cone:
+    # drawn in there too, the core's lower rings met the rising thighs (2.1 cm
+    # into the body in squat; the core's weights, smoothed up to the hips,
+    # follow the skirt chains' lift less than the tiers do).
     a2, ring2 = _SEAM2
-    bots = [Vector([float(np.interp(p, a2, ring2[:, c], period=2 * math.pi)) for c in range(3)])
-            for p in phis]
+    bots = []
+    for p, t in zip(phis, tops):
+        b = _core_bottom(p)
+        built = Vector([float(np.interp(p, a2, ring2[:, c], period=2 * math.pi)) for c in range(3)])
+        cone = t.lerp(b, min(1.0, (t.z - built.z) / max(t.z - b.z, 1e-9)))
+        bots.append(cone.lerp(built, math.cos(p) ** CORE_SIDE_P))
     z1 = [float(np.interp(p, _SEAM1[0], _SEAM1[1], period=2 * math.pi)) * spec.PX_PER_M for p in phis]
     out = {1.0: [], 0.0: []}
     for t in CORE_T:
@@ -936,5 +947,4 @@ def build(col):
         obj = _finish(col, mat, tier[0], gathered, smooth, _line_weights(len(gathered)))
         obj['levi_cast_shadow'] = CAST_TIERS[idx]
         inners = inners + [_tier_inner(obj)]
-    # inside the skirt and the outer and middle tiers (sewn onto it)
-    _core(col, mat, inners[:3])
+    _core(col, mat, inners[:1])
