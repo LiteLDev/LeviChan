@@ -907,11 +907,13 @@ ARM_R = [
 # A-pose carrying angle); round 10 swept straight rings along the shoulder -> elbow ->
 # wrist polyline, an angular mitre with no elbow point or crook. Now the loft's centre
 # line rounds the corner over ELBOW_FILLET px each side (a quadratic Bezier; the joint
-# centre moves ~3 mm into the bend), and the rings carry the joint's landmarks as ring-local
-# bumps (px outward; along the arm: centre px from ELBOW, sigma px; round the ring: the
-# lobe's centre direction (side: + outer, up: + front) and exponent): the olecranon (the
-# elbow point, at the back), the two epicondyles (inner larger) and the soft crook in front.
-ELBOW_FILLET = 16.0
+# centre moves ~1.5 mm into the bend), and the rings carry the joint's landmarks as
+# ring-local bumps (px outward; along the arm: centre px from ELBOW, sigma px; round the
+# ring: the lobe's centre direction (side: + outer, up: + front) and exponent): the
+# olecranon (the elbow point, at the back), the two epicondyles (inner larger) and the soft
+# crook in front. (A 16 px fillet, rounder at rest, spread the bent elbow's turn: the
+# motion report's elbow span rose 1.16 -> 1.35 in hands_behind_head; 8 px: 1.21.)
+ELBOW_FILLET = 8.0
 ELBOW_BUMPS = (
     (1.6, -2.0, 5.0, (0.0, -1.0), 4.0),      # olecranon
     (0.8, 1.0, 4.5, (-0.85, -0.5), 6.0),     # medial epicondyle
