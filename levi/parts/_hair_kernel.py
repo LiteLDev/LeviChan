@@ -45,6 +45,32 @@ Conventions
   both faces, so the ring has no seam), v along the strand (arc / length).
 - Each tube is closed: a ladder cap across the root (n/2-1 quads that follow
   the crescent) and a fan to an apex at the tip. Sub-tips share the split ring.
+- Left / right pairs: build one side and use mirrored(st) for the other. B is
+  not mirror-symmetric (B = T x N flips under a mirror), so a rebuilt mirror
+  needs curl toward '+B' <-> '-B' and split shares reversed.
+- width / wrap callables take a numpy array of u and return an array.
+- A part may edit st.rings before emit() (e.g. settle a root into the scalp);
+  call validate(st) again afterwards.
+
+API (all lengths in m, angles in deg)
+-------------------------------------
+strand(points, *, width, facing, name, thick | aspect, mode, anchors, tangents,
+       swell, tip, wrap, k_in, t_rim, n, curl, split, lift, grad, attrs, check)
+                                  -> Strand   one validated crescent tube
+curl(turn, toward, face, radius, core, lead, exp, taper, pitch, rho) -> dict
+split(at, shares, diverge, lengths) -> dict
+emit(bm, st, uv, grad_attr, root_cap) -> {'rings', 'apex', 'tips', 'faces'}
+validate(st, limits, raise_) -> summary dict (raises HairKernelError)
+rest_on(upper, lowers, gap, smooth, root_fade) -> Lift (callable of u)
+strand_on(lowers, gap, max_overlap, smooth, root_fade, iters, strict, **strand kwargs)
+                                  -> Strand resting on the lowers (meta overlap / lift_max)
+mirrored(st, name) -> Strand
+centreline(points, ...) -> Curve;  relax(curve, kmax, ...) -> Curve
+frames(curve, facing, ...) -> dict U, V, theta, N, B;  rmf(P, T, U0)
+section(n, w, t, wrap, k_in, t_rim, p, s, top) -> x, y;  ring_params(n);  taper(u, swell, tip)
+thickness(w, t_mid, w_max);  limit_decay(w, s);  ring_count(w_max)
+Strand.at(u) -> frame dict;  Strand.surface(u, s, face) -> point;  Strand.face_count();
+Strand.triangles();  Strand.all_tubes()
 """
 import math
 
@@ -1521,9 +1547,11 @@ def strand_on(lowers, *, gap=0.00075, max_overlap=0.30, smooth=0.02, root_fade=0
               **kw):
     """strand(**kw) resting on `lowers` (shingled layers): build, measure with
     rest_on(), rebuild lifted, repeat until the underside clears (iters). The
-    result's meta holds 'lift_max' (m) and 'overlap' (share of the width over
-    the lower layers at the worst ring); strict raises when overlap > max_overlap
-    (a lock should cover at most ~30% of its neighbour below)."""
+    result's meta holds 'lift_max' (m), 'overlap' (share of the width over the
+    lower layers at the worst ring) and 'residual' / 'residual_root' (m the
+    underside still lacks of `gap`, past / within root_fade); strict raises when
+    overlap > max_overlap (a lock should cover at most ~30% of its neighbour
+    below) or the lock proper still lacks clearance."""
     name = kw.get('name', 'strand')
     st = strand(**kw)
     total = None
@@ -1537,10 +1565,17 @@ def strand_on(lowers, *, gap=0.00075, max_overlap=0.30, smooth=0.02, root_fade=0
     lf = rest_on(st, lowers, gap=gap, smooth=smooth, root_fade=root_fade)
     st.meta['lift_max'] = 0.0 if total is None else float(total.max())
     st.meta['overlap'] = lf.overlap
-    st.meta['residual'] = float(lf.need.max())
+    # residual: how far (m) the underside still lacks gap over the layer below,
+    # past the root fade (the lock proper) and within it (a root left buried)
+    free = st.arc > root_fade
+    st.meta['residual'] = float(lf.need[:len(free)][free].max()) if free.any() else 0.0
+    st.meta['residual_root'] = float(lf.need[:len(free)][~free].max()) if (~free).any() else 0.0
     if strict and lf.overlap > max_overlap:
         raise HairKernelError(f'{name}: rests {100 * lf.overlap:.0f}% of its width on the layer below '
                               f'(max {100 * max_overlap:.0f}%): space the locks wider')
+    if strict and st.meta['residual'] > 0.5 * gap:
+        raise HairKernelError(f'{name}: still {1000 * st.meta["residual"]:.1f} mm short of clearing the layer '
+                              f'below after {iters} lifts: raise iters or smooth less')
     return st
 
 
@@ -1618,5 +1653,5 @@ def emit(bm, st, *, uv='UVMap', grad_attr=GRAD_ATTR, root_cap=True, _parent=None
 __all__ = [
     'HairKernelError', 'Curve', 'Strand', 'Lift', 'LIMITS',
     'centreline', 'relax', 'rmf', 'frames', 'ring_params', 'section', 'taper', 'thickness', 'ring_count',
-    'curl', 'split', 'strand', 'strand_on', 'rest_on', 'validate', 'mirrored', 'emit', 'smooth01',
+    'curl', 'split', 'strand', 'strand_on', 'rest_on', 'validate', 'mirrored', 'emit', 'smooth01', 'limit_decay',
 ]

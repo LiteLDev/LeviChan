@@ -97,7 +97,8 @@ def build_demo(outdir):
                      f'folds {v["folds"]}  twist {v["max_twist"]:4.1f} deg  wratio {v["wratio"][0]:.2f}-'
                      f'{v["wratio"][1]:.2f}  gap {1000 * v["min_gap"]:.1f}-{1000 * v["max_gap"]:.1f} mm'
                      + (f'  overlap {100 * st.meta["overlap"]:.0f}%  lift {1000 * st.meta["lift_max"]:.1f} mm'
-                        if 'overlap' in st.meta else ''))
+                        f'  short of the gap {1000 * st.meta["residual"]:.2f} mm (root fade zone '
+                        f'{1000 * st.meta["residual_root"]:.2f} mm)' if 'overlap' in st.meta else ''))
         for tb in st.all_tubes():
             rings_dump[f'{name}|{tb.name}'] = tb.rings + np.array([x, 0.0, 0.0])
             rings_dump[f'{name}|{tb.name}|N'] = tb.N
