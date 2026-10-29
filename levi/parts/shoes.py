@@ -958,14 +958,20 @@ def _ribbons(bm, sx, line):
     # the inner side, as on the sheet), reaches the far side of the leg and
     # runs round behind the ankle into the wrap. The second lace rides one
     # ribbon thickness higher where they cross.
+    # Round 11: the lace reaching the outer side ends in the knot the leaves and the long
+    # end spring from (as on the sheet's side view, where it runs up to the leaves' base),
+    # not just behind it: the rig takes the leaves' root weights from the nearest larger
+    # skinned piece, and this lace is it (passing 7 mm under the root, it handed the root
+    # 20% foot and stretched the blades x1.58 in kneel_one).
     for s, lift in ((1, 0.0), (-1, RIB_CROSS)):
         want = ank(-78.0 * s, 908.0, o, sx)
         anchor = min(line, key=lambda q: (q - want).length)
         th0, row0, off0 = _to_leg(anchor, sx)
+        back = ([(112.0, 857.5, o), (LEAF_THETA, _band_row(LEAF_THETA) + 0.5, o)] if s > 0 else
+                [(-125.0, 856.0, o), (-150.0, _band_row(-150.0) + 1.0, o)])
         laces[f'instep{s:+d}'] = _on_leg(
             bm, [(th0, row0, off0 - RIM_T * 0.5), (CROSS[0], CROSS[1], o + lift),
-                 (72 * s, 866.0, o + lift), (125 * s, 856.0, o),
-                 (150 * s, _band_row(150 * s) + 1.0, o)], sx)
+                 (72 * s, 866.0, o + lift)] + back, sx)
     # back X above the heel counter: wrap sides -> across the back -> tab top. The outer
     # lace rides over the inner one where they cross behind the tendon (round 8's lift
     # left their centre lines 0.5 mm apart: the 0.9 mm laces cut through each other).
