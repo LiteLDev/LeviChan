@@ -2037,7 +2037,13 @@ def _hair_colliders(arm, parts, bones, want=(), blender=True):
             cap = None
             if in_blender and blender and cname in HAIR_COLLIDE_CAPSULES and pname in names:
                 bn = arm.data.bones[pname]
-                cap = _Capsule.fit(pname, pts, np.array(bn.head_local), np.array(bn.tail_local))
+                fit = pts
+                if cname == 'hand' and len(pts):
+                    # round 11: 风堇's subdivided hand has ~5x the forearm's vertices per area, so
+                    # the raw percentiles followed the fingers' spread (r 2.4 -> 2.9 cm, pushing the
+                    # side locks into the head in dance_heart); fit the surface, like the hulls
+                    fit = np.unique(np.round(pts / HAIR_COLLIDE_GRID).astype(np.int64), axis=0) * HAIR_COLLIDE_GRID
+                cap = _Capsule.fit(pname, fit, np.array(bn.head_local), np.array(bn.tail_local))
                 if cap:
                     out[cname + sfx] = (None, cap, None)
                     print(f'rig hair capsule {cname + sfx}: r {cap.r * 100:.1f} cm, '
@@ -4385,8 +4391,9 @@ HINT_TWIST = {'手捩1': 0.25, '手捩2': 0.5, '手捩3': 0.75, '手捩': 1.0}
 HINT_FALLBACK = {'手捩': 'ひじ'}     # a missing bone's share goes here (fingers: 手首)
 # m: her weights are smoothed this far over the hand (on its own ~2 mm edges): her joint blends
 # were drawn on a cage ~4x coarser, and the subdivided crease edges at a curled finger's root
-# stretched x1.88 in the fist pose
-HINT_SMOOTH = 0.003
+# stretched x1.88 and folded to x0.08 in the fist pose (3 mm: x1.48 / x0.11; 5 mm: x1.53 /
+# x0.12, the knuckles still defined)
+HINT_SMOOTH = 0.005
 
 
 def _hints(obj, n):
