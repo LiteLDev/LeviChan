@@ -1155,7 +1155,7 @@ def build(col):
         for tip, hw, roll, twist in LEAVES:
             _leaf(leaf_bm, root, P(*tip), hw, roll, sx, twist)
         if sx > 0:
-            near = [r for r in lace_report(laces) if r[0] < RIB_T * 1000 * 1.2 and r[1] != 'knot']
+            near = [r for r in lace_report(laces) if r[0] < RIB_T * 1000 and 'knot' not in r[1:3]]
             print(f'SHOES tread at {floor * PX * 1000:.2f} mm; laces closer than the lace '
                   f'thickness: {len(near)}', ' '.join(f'{a}x{b} {d:.2f}mm' for d, a, b, _ in near[:6]))
     # the outsoles, heels and lifts are closed: let bmesh orient them; the open shells
