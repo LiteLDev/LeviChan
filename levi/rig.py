@@ -252,16 +252,62 @@ FINGER_NAMES = (('親指', 'Thumb'), ('人指', 'IndexFinger'), ('中指', 'Midd
                 ('薬指', 'RingFinger'), ('小指', 'LittleFinger'))
 
 
+# Round 11: the body's hands are 风堇's (levi/parts/_body_hand.py), one piece with the palm,
+# so the fingers are no longer loose parts. The body stores the chains it placed from her
+# bones (FINGER_CHAINS_PROP, left side, world) and a finger id per vertex (the int point
+# attribute named by FINGER_ATTR_PROP: 0 palm, 1 thumb .. 5 little). fit_fingers takes the
+# stored chains; without them it fits loose parts split by the finger id (then plain loose
+# parts, the round-10 contract). _island_rules applies its finger rule per finger region.
+FINGER_CHAINS_PROP = 'levi_fingers'
+FINGER_ATTR_PROP = 'levi_finger_attr'
+FINGER_SRC = {}     # how the last fit_fingers found its chains (for the build log)
+
+
+def _finger_ids(obj, n):
+    """(n,) finger id per vertex from the attribute named by obj[FINGER_ATTR_PROP], else None."""
+    name = obj.get(FINGER_ATTR_PROP)
+    attr = obj.data.attributes.get(name) if name else None
+    if attr is None or attr.domain != 'POINT' or len(attr.data) != n or attr.data_type != 'INT':
+        return None
+    v = np.empty(n, dtype=np.int32)
+    attr.data.foreach_get('value', v)
+    return v.astype(np.int64)
+
+
+def _part_labels(obj, co, labels):
+    """Loose-part labels, each finger region (finger id > 0) of a loose part its own label."""
+    fid = _finger_ids(obj, len(co))
+    if fid is None or not fid.any():
+        return labels
+    _, out = np.unique(labels.astype(np.int64) * 8 + fid, return_inverse=True)
+    return out.reshape(-1)
+
+
 def _mesh_islands(objs):
-    """[(world points (n, 3))] per loose part of the meshes `objs`."""
+    """[(world points (n, 3))] per loose part of the meshes `objs` (finger regions split off)."""
     out = []
     for o in objs:
         co = _world_verts([o])
         if not len(co):
             continue
-        lab = _islands(len(co), _topology(o, co))
+        lab = _part_labels(o, co, _islands(len(co), _topology(o, co)))
         out += [co[lab == k] for k in np.unique(lab)]
     return out
+
+
+def _stored_fingers(body_objs):
+    """{jp: [knuckle, joint, joint, tip]} a body object stores (FINGER_CHAINS_PROP), else {}."""
+    for o in body_objs:
+        d = o.get(FINGER_CHAINS_PROP)
+        if not d:
+            continue
+        try:
+            out = {jp: [Vector(tuple(p)) for p in d[jp]] for jp, _ in FINGER_NAMES}
+        except (KeyError, TypeError, ValueError):
+            continue
+        if all(len(v) == 4 and all(len(p) == 3 for p in v) for v in out.values()):
+            return out
+    return {}
 
 
 def _finger_line(pts, d):
@@ -288,7 +334,15 @@ def fit_fingers(body_objs, J):
     The hand's five fingers are the loose parts lying past the wrist within reach of
     the fingertip; the thumb is the one most angled away from the hand direction, the
     others are ordered from the thumb side. Both hands are fitted (the right one
-    mirrored) and averaged. Returns {} unless every finger is found."""
+    mirrored) and averaged. Returns {} unless every finger is found.
+
+    Round 11: the chains the body stores (FINGER_CHAINS_PROP: 风堇's finger bones, placed on
+    the hand) come first; the loose parts are split by the finger id (_part_labels)."""
+    FINGER_SRC.clear()
+    stored = _stored_fingers(body_objs)
+    if stored:
+        FINGER_SRC['src'] = 'stored by the body'
+        return stored
     wr, tip = J['wrist'], J['fingertip']
     d = (tip - wr).normalized()
     hand_len = (tip - wr).length
@@ -311,6 +365,7 @@ def fit_fingers(body_objs, J):
         sides.append([found[i][0] for i in [thumb] + rest])
     if not sides:
         return {}
+    FINGER_SRC['src'] = 'loose parts'
     return {jp: [sum((sd[i][k] for sd in sides), Vector()) / len(sides) for k in range(4)]
             for i, (jp, _) in enumerate(FINGER_NAMES)}
 
@@ -681,6 +736,18 @@ def _core_bones(J=None, H=None, F=None):
         # body mesh gives one (fit_fingers), each bone's Z rolled to the palm side so a
         # positive turn about its local X curls it toward the palm
         palm = d.cross(f).normalized()
+        thumb_z = palm
+        if F:
+            # round 11: the palm normal from the chains' knuckle line (index - little), not the
+            # generic forward x hand direction (~42 deg off on Levi's hand, turned toward the
+            # thigh, so fingers curled sideways); the thumb's pad faces between the palm and
+            # the index knuckle, so it closes over the fingers
+            kn = F['人指'][0] - F['小指'][0]
+            kn = kn - d * kn.dot(d)
+            if kn.length > 1e-6:
+                palm = d.cross(kn).normalized()
+                tz = F['人指'][0] - F['親指'][1]
+                thumb_z = (palm + tz.normalized()).normalized() if tz.length > 1e-6 else palm
         for jp, en, pts in finger_chains(F, wr, d, f, hand_len, palm_end, fingers):
             parent = '手首' + sfx
             thumb = jp == '親指'
@@ -689,7 +756,7 @@ def _core_bones(J=None, H=None, F=None):
                 add(Bone(nm + sfx, jp_side + nm, f'{en}{i if thumb else i + 1}' + en_sfx, _mx(pts[i], s),
                          _mx(pts[i + 1], s), parent, connect=i > 0, r=0.014 if thumb else 0.012,
                          r_end=0.01 if thumb else 0.008, group='Fingers',
-                         meta={'align_z': tuple(_mx(palm, s)), 'finger': jp}))
+                         meta={'align_z': tuple(_mx(thumb_z if thumb else palm, s)), 'finger': jp}))
                 parent = nm + sfx
 
         hip, knee, ankle, toe = J['hip'], J['knee'], J['ankle'], J['toe']
@@ -2852,6 +2919,13 @@ SMOOTH_RADIUS = {     # metres of weight smoothing along the surface, per part
     'body': 0.009, 'head': 0.01, 'shoes': 0.012, 'accessories': 0.012, 'bodice': 0.035,
     'hair_front': 0.025, 'hair_back': 0.03, 'sleeves': 0.065, 'skirt': 0.03, 'petticoat': 0.06,
 }
+# Round 11: the reference edge (m) a part's smoothing radii were tuned on, used in place of the
+# mesh's median edge. The body's radii (SMOOTH_RADIUS, CROTCH_SMOOTH, ARMPIT_SMOOTH,
+# PRUNE_SMOOTH) were tuned on the round-10 body's 9.35 mm median; 风堇's subdivided hands
+# (~2 mm edges, over half the body's vertices) brought it to 4.3 mm, which re-tuned the whole
+# skin (arms_up's armpit x1.78 -> x2.39; the hand-free median, 11.0 mm, still x2.04). Her
+# hands take her own weights (_hand_hint), so their smoothing does not matter.
+SMOOTH_REF = {'body': 0.00935}
 # (petticoat, round 7: 0.04 -> 0.06. Its gathered inner tiers sit ~16 cm from the axis,
 # where neighbouring skirt chains are only ~6.5 cm apart, and a draped chain turning more
 # than its neighbour stretched them x2.2-3.2; 0.08 made the layers part in cross_legged.)
@@ -2916,12 +2990,13 @@ def _side_mask(co, labels, bones, per_vertex):
     return m
 
 
-def _smooth(w, co, edges, radius):
+def _smooth(w, co, edges, radius, ref=None):
     """Laplacian smoothing of the weight rows along the mesh edges, about `radius` metres.
 
     Each edge pulls with (median edge / its length)^2 (at most 1), so every iteration
     spreads about one median edge length in metres whatever the edge: long edges down
-    a thin ribbon don't carry weights much farther than `radius`."""
+    a thin ribbon don't carry weights much farther than `radius`. `ref`: the reference
+    edge in place of the mesh's median (SMOOTH_REF)."""
     if radius <= 0 or not len(edges):
         return w
     # only the bones this mesh uses: the rest stay zero under any averaging
@@ -2929,7 +3004,7 @@ def _smooth(w, co, edges, radius):
     if not len(act):
         return w
     out = w.copy()
-    out[:, act] = _smooth_ml(w[:, act], co, edges, radius, 0)
+    out[:, act] = _smooth_ml(w[:, act], co, edges, radius, 0, ref)
     return out
 
 
@@ -2978,15 +3053,18 @@ def _match(co, edges, ln):
 SMOOTH_DIRECT = 64   # iterations above which smoothing runs on a coarsened mesh first
 
 
-def _smooth_ml(w, co, edges, radius, depth):
+def _smooth_ml(w, co, edges, radius, depth, ref_edge=None):
     """Smoothing about `radius` metres whatever the mesh density. Within SMOOTH_DIRECT
     iterations of the plain diffusion (_diffuse) it runs directly; otherwise neighbouring
     vertices are paired (_match), the cluster averages are smoothed on the coarse graph
     (recursively), the coarse change is added back to every vertex of its cluster, and a
     short diffusion on the fine mesh (about one coarse edge) evens out the cluster steps.
     Diffusion radii add in squares, so the two passes together give `radius`. Cost stays
-    about linear in the vertex count."""
+    about linear in the vertex count. ref_edge: the fine level's reference edge in place of
+    the median (SMOOTH_REF)."""
     ln, ref = _edge_ref(co, edges)
+    if ref_edge:
+        ref = ref_edge
     if ref <= 0.0:
         return w
     # fractional (round 9): a whole number of steps made a small radius jump with the mesh's
@@ -4296,10 +4374,74 @@ def _skin_ornament_weights(w, co, labels, part, bones, roots):
     return np.where(s > 1e-12, out / np.maximum(s, 1e-12), w)
 
 
+# Round 11: the body's hands carry 风堇's own weights (levi/parts/_body_hand.py) as hints:
+# float point attributes, named by obj[HAND_HINT_PROP] = {attribute: her bone name without
+# side}, summing to a in 0..1 (1 on her hand and forearm stub, falling to 0 across the bridge
+# to the procedural arm). _hand_hint blends them in last (after the smoothing and the finger
+# rule), so her finger webs, knuckles and wrist deform as she was weighted. Her staged twist
+# 手捩k (付与 k/4 of 手捩, children of ひじ) maps onto our 手捩 / ひじ split by that share.
+HAND_HINT_PROP = 'levi_hand_weights'
+HINT_TWIST = {'手捩1': 0.25, '手捩2': 0.5, '手捩3': 0.75, '手捩': 1.0}
+HINT_FALLBACK = {'手捩': 'ひじ'}     # a missing bone's share goes here (fingers: 手首)
+# m: her weights are smoothed this far over the hand (on its own ~2 mm edges): her joint blends
+# were drawn on a cage ~4x coarser, and the subdivided crease edges at a curled finger's root
+# stretched x1.88 in the fist pose
+HINT_SMOOTH = 0.003
+
+
+def _hints(obj, n):
+    """[(her bone name, (n,) weights)] of the hand hint attributes of `obj` (HAND_HINT_PROP)."""
+    out = []
+    for attr_name, bone in dict(obj.get(HAND_HINT_PROP) or {}).items():
+        attr = obj.data.attributes.get(attr_name)
+        if attr is None or attr.domain != 'POINT' or len(attr.data) != n:
+            continue
+        v = np.empty(n)
+        attr.data.foreach_get('value', v)
+        if v.any():
+            out.append((bone, v))
+    return out
+
+
+def _hand_hint(obj, w, co, bones, edges=None):
+    """w <- (1 - a) w + hint on the vertices carrying hand weight hints (HAND_HINT_PROP),
+    the hints smoothed HINT_SMOOTH along the surface (`edges`)."""
+    hs = _hints(obj, len(co))
+    if not hs:
+        return w
+    col = {b.name: j for j, b in enumerate(bones)}
+    H = np.zeros_like(w)
+    left = co[:, 0] >= 0.0
+    for bone, v in hs:
+        k = HINT_TWIST.get(bone)
+        targets = [('手捩', k), ('ひじ', 1.0 - k)] if k is not None else [(bone, 1.0)]
+        for tag, m in (('L', left), ('R', ~left)):
+            for name, share in targets:
+                j = col.get(f'{name}.{tag}')
+                if j is None:
+                    j = col.get(f"{HINT_FALLBACK.get(name, '手首')}.{tag}")
+                if j is not None and share > 0.0:
+                    H[m, j] += v[m] * share
+    a = H.sum(1)
+    if not a.any():
+        return w
+    if edges is not None and len(edges) and HINT_SMOOTH > 0:
+        inside = (a[edges[:, 0]] > 0.0) & (a[edges[:, 1]] > 0.0)
+        ref = _edge_ref(co, edges[inside])[1] if inside.any() else 0.0
+        if ref > 0.0:
+            H = _smooth(H, co, edges, HINT_SMOOTH, ref)
+            a = H.sum(1)
+    a = np.clip(a, 0.0, 1.0)
+    out = w * (1.0 - a)[:, None] + H
+    s = out.sum(1, keepdims=True)
+    return np.where(s > 1e-12, out / np.maximum(s, 1e-12), w)
+
+
 def _island_rules(w, co, labels, bones, part):
     """Per loose part: a finger part belongs to its own finger chain only (neighbouring
     finger envelopes overlap at ~1 cm), and small ornaments (bows, leaves, beads) take
-    their island's average weights so they move as one piece."""
+    their island's average weights so they move as one piece. Labels may split a loose
+    part into finger regions (_part_labels): the finger rule then holds per region."""
     chains = {}
     col = {b.name: j for j, b in enumerate(bones)}
     for j, b in enumerate(bones):
@@ -4537,17 +4679,18 @@ def _weights(obj, part, co, bones):
     w = np.where(ok[:, None], masked, w)
     w = w / w.sum(1, keepdims=True)
     radius = SLEEVE_SMOOTH if part == 'sleeves' and SLEEVE_BUILD else SMOOTH_RADIUS.get(part, DEFAULT_SMOOTH)
-    w = _smooth(w, co, edges, radius)
+    ref = SMOOTH_REF.get(part)
+    w = _smooth(w, co, edges, radius, ref)
     m = _crotch_mask(co, bones) if part in CROTCH_PARTS and CROTCH_SMOOTH > 0 else None
     if m is not None and m.max() > 0:
         # the crotch is pulled between both thighs in a stride: spread its L/R weight
         # change over a wider band than the rest of the skin
-        w = w * (1.0 - m[:, None]) + _smooth(w, co, edges, CROTCH_SMOOTH) * m[:, None]
+        w = w * (1.0 - m[:, None]) + _smooth(w, co, edges, CROTCH_SMOOTH, ref) * m[:, None]
     m = _armpit_mask(co, bones) if part in CROTCH_PARTS and ARMPIT_SMOOTH > 0 else None
     if m is not None and m.max() > 0:
         # a raised arm pulls the armpit skin between the ribs and the arm: spread the
         # torso / arm weight change over a wider band there too
-        w = w * (1.0 - m[:, None]) + _smooth(w, co, edges, ARMPIT_SMOOTH) * m[:, None]
+        w = w * (1.0 - m[:, None]) + _smooth(w, co, edges, ARMPIT_SMOOTH, ref) * m[:, None]
     if part in CROTCH_PARTS and HIP_AUX:
         _hat_remap(w, bones)
     if part == 'hair_back':
@@ -4564,12 +4707,13 @@ def _weights(obj, part, co, bones):
         roots = np.array([tuple(obj.matrix_world @ Vector(p)) for p in obj.get('levi_attach_points', [])]).reshape(-1, 3)
         w = _skin_ornament_weights(w, co, labels, part, bones, roots)
     else:
-        w = _island_rules(w, co, labels, bones, part)
+        w = _island_rules(w, co, _part_labels(obj, co, labels), bones, part)
+    w = _hand_hint(obj, w, co, bones, edges)
     if part in RIGID_FOOT and obj.name.startswith(RIGID_FOOT[part]):
         _rigid_foot(w, bones)
     # which bones a vertex keeps is decided on a wider-smoothed copy of its weights, so
     # the set changes gradually along the surface instead of wherever two weak bones swap
-    guide = _smooth(w, co, edges, PRUNE_SMOOTH) if PRUNE_SMOOTH > 0 and radius > 0 else None
+    guide = _smooth(w, co, edges, PRUNE_SMOOTH, ref) if PRUNE_SMOOTH > 0 and radius > 0 else None
     if guide is not None and part in SHELL_PARTS:
         guide = _shell_share(guide, co, bones)
     return _prune(w, bones, guide, co)
@@ -5587,7 +5731,8 @@ def build_rig():
     _HEAD_OBJS = list(parts.get('head', []))
     H = fit_head(parts.get('head', []))
     F = fit_fingers(parts.get('body', []), J)
-    print(f"rig fingers    {'mesh' if F else 'spec'}  ({len(F)} chains fitted to the body's fingers)")
+    src = f", {FINGER_SRC['src']}" if F and FINGER_SRC.get('src') else ''
+    print(f"rig fingers    {'mesh' if F else 'spec'}  ({len(F)} chains fitted to the body's fingers{src})")
     core = _core_bones(J, H, F)
     by = {b.name: b for b in core}
     hd, ey = by['頭'].head, by['目.L'].head

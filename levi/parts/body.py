@@ -18,6 +18,11 @@ of the chest and the inner arm. The torso rings bunch their vertices around
 the socket's front and back edges (the armpit folds), and the shoulder joint
 sits inside the deltoid volume.
 
+Round 11: the palms and fingers are 风堇's hand (levi/parts/_body_hand.py, from
+assets/hyacine/hands.npz), placed on hand_frame() at WRIST and bridged to the arm, which
+then stops before the rig's wrist band; the procedural hand below (HAND_R, FINGERS,
+THUMB) is the LEVI_HYACINE_HANDS=0 fallback.
+
 Joint anatomy carried by the loops: a rounded kneecap dome and a shallow crease
 behind the knee (where the fold forms in a squat), a straight shin front with
 the calf fullness at the back, a gluteal fold under the buttock, the armpit
@@ -52,6 +57,7 @@ from mathutils import Matrix, Vector
 from mathutils.kdtree import KDTree
 
 from .. import common, spec
+from . import _body_hand
 
 MARGIN = 1.0  # px pulled in so the outline hull lands on the reference line
 
@@ -898,8 +904,11 @@ def arm_rings(loop, tans):
     return trans + rings, frames
 
 
-def build_arm(bm, loop, tans, side):
-    """Arm + hand + fingers for one side (+1 left, -1 right) from its socket."""
+def build_arm(bm, loop, tans, side, hands=None):
+    """Arm + hand + fingers for one side (+1 left, -1 right) from its socket.
+
+    hands (round 11, _body_hand.Hands): 风堇's hand instead of the procedural palm and
+    fingers, bridged to the arm, which then stops before the wrist band."""
     mirror = side < 0
     # socket data are in world space; design the left arm, mirror for the right
     if mirror:
@@ -908,6 +917,13 @@ def build_arm(bm, loop, tans, side):
     else:
         lp = [v.co.copy() for v in loop]
     rings, frames = arm_rings(lp, tans)
+    if hands is not None:
+        S, E, W = P(*SHOULDER), P(*ELBOW), P(*WRIST)
+        n = _body_hand.keep_stations(ARM_STATIONS, S, E, W, px(1))
+        vr = skin_rings(bm, [loop] + rings[:len(SOCKET_STEPS) + n], mirror=mirror)
+        hands.build(bm, vr[-1], rings[len(SOCKET_STEPS) + n - 1], rings[len(SOCKET_STEPS) + n - 2],
+                    W, hand_frame(), E, mirror)
+        return
     skin_rings(bm, [loop] + rings, frames, cap1='pole', cap1_len=px(2), mirror=mirror)
     W = P(*WRIST)
     d, w, n = hand_frame()
@@ -1492,17 +1508,23 @@ def build(col):
     rings = build_torso(bm)
     sockets = [(cut_socket(bm, rings, s), s) for s in (1, -1)]
     arms = []
+    hands = _body_hand.Hands() if _body_hand.ENABLED else None
     for (loop, tans), s in sockets:
         before = set(bm.verts)
-        build_arm(bm, loop, tans, s)
+        build_arm(bm, loop, tans, s, hands)
         arms.append((loop, set(bm.verts) - before, s))
     _socket_param(bm, arms)
+    if hands is not None:
+        hands.write_layers(bm)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     obj = common.new_object(col, 'body', bm, [common.toon_material('skin')])
     obj['levi_socket_param'] = SOCKET_PARAM_ATTR
     joints = {'knee': tuple(knee_joint()), 'ankle': tuple(ankle_joint())}
     if SHOULDER_JOINT is not None:
         joints['shoulder_joint'] = tuple(P(*SHOULDER_JOINT))
+    if hands is not None:
+        hands.store(obj, joints)
+        print(f"BODY hands (风堇): {hands.info}")
     obj['levi_joints'] = joints
     if MASTER:
         print(f"BODY shape master: hand scale (palm width, palm thickness, finger thickness) "
