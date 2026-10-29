@@ -88,7 +88,7 @@ Source: the clothes-detail review (round 11 analysis). The band bow read as a gr
   - reach_up_back 2 → 13;
   - idol_dance 28 → 62.
 - Several ribbon stretch / compress rows got better (arms_up, arms_forward, dance_point, idol_dance).
-- Frill: seiza pen_frac 0.012 → 0.030 (minor, at the threshold). With round 10's tilt and full-depth inner flutes it was 0.053 (major).
+- Frill: seiza pen_frac 0.012 → 0.030 (minor, at the threshold). Earlier iterations: 0.053 with full-depth flutes on the inner side, 0.034 with them 60% flatter (both major).
 
 **Effects on other parts (all parts: 152 / 332 → 162 / 331)**
 - `hair_curtain_R` pen_frac is new major in dance_sway (0 → 0.057) and idol_dance (0.007 → 0.071), 1.0–1.2 cm deep.
