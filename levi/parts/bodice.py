@@ -16,8 +16,15 @@ Form (round 3):
 - The bow is a flat ribbon: each loop is a strip pinched into a wrapped knot,
   its face tilted so the loop has depth (a cone, not a wire), the returning
   half of the loop set behind the outgoing one.
-- The tails are flat ribbons with width that twist at their bends and taper
-  at the ends. They lie on the skirt's own cloth surface
+- Round 11 (clothes-detail review; same sizes, closure / sampling / silhouette
+  only): the knot is a closed wrapped solid whose edges roll under into a
+  crease round the bunched loop fabric (loop, tail and lacing ends start inside
+  it); the tails end in angled cuts meeting at one point per side; the back has
+  a centre-back and two princess seams; a 2.5 mm piping cord runs round the
+  waist on the line where the skirt comes out of the bodice (waist_seam(),
+  solved against skirt.profiles()).
+- The tails are flat ribbons with width that twist at their bends and narrow
+  a little toward their cut tips. They lie on the skirt's own cloth surface
   (levi.parts.skirt.front_surface_y), lifted a little more around the hip so
   that the skirt bending at the hip (the rig hands the tails over to the skirt
   weights there) does not swallow them.
