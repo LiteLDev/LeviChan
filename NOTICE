@@ -1,0 +1,29 @@
+Third-party material
+====================
+
+星穹铁道—风堇 (Honkai: Star Rail — Hyacine) MMD model
+------------------------------------------------------
+
+Model copyright: miHoYo. MMD edit: 流云景.
+
+From round 11, Levi's body, joints, hands, feet and head reuse geometry (and
+data derived from it, such as skin weights and expression morphs) from this
+model. The derived data lives in assets/hyacine/ and in the code that reads it;
+every .blend or .pmx built from this repository contains it.
+
+The model's terms (from its PMX comment):
+
+    允许改造，优化骨骼和刚体，重制UV
+    请勿二次配布
+    请勿用于18禁作品，极端宗教宣传，血腥恐怖猎奇作品，人身攻击等
+    请勿用于商业用途
+    他人使用本模型所造成的一切不良后果，不由模型改造者与miHoYo承担，请向使用者追究全部责任
+    模型版权所属miHoYo
+
+In English: modification is allowed (bones, rigid bodies, UVs). Do not
+redistribute it. Do not use it in R-18 works, extreme religious propaganda,
+gore, horror or grotesque works, or personal attacks. Do not use it
+commercially. The editor and miHoYo bear no responsibility for any
+consequences of its use; the user bears it all.
+
+These terms apply to the derived data and to anything built from it.
