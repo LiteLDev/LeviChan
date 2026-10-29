@@ -177,16 +177,18 @@ PALETTE = {k: {**v, **PALETTE_TUNING.get(k, {})} for k, v in SHEET_PALETTE.items
 BUDGET = {
     'body': 24000,
     'head': 18000,
-    'hair_front': 18000,
-    'hair_back': 40000,
+    'hair_front': 16000,
+    'hair_back': 34000,
     'accessories': 8000,
     'bodice': 14000,
     'skirt': 24000,
-    'petticoat': 18000,
+    'petticoat': 28000,
     'sleeves': 18000,
     'shoes': 8000,
 }
-TOTAL_BUDGET = 200000  # user-approved round 6; per-part sum 190,000 leaves 10,000 reserve
+TOTAL_BUDGET = 200000  # user-approved round 6 and again round 11; per-part sum 192,000 leaves 8,000 reserve
+# Round 11: petticoat 18k -> 28k (three scalloped tiers), hair 58k -> 50k (the rebuilt hair
+# needs ~46k: no buried geometry).
 
 # Outline (inverted hull) thickness in metres, per part default. The sheet's
 # strokes are ~1-1.5 px at 643 px/m; the ortho renders are 1:1 with the panel,

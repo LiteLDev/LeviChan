@@ -1,10 +1,16 @@
 # LeviChan — procedural Levi model
 
-Levi is modeled procedurally with Blender Python (`bpy` + `bmesh`), within `spec.TOTAL_BUDGET` (200k) faces. Since round 10 each part samples its shape from the shape master (below); the cel-shaded orthographic renders are compared with the three-view `ref/levi_threeview.png` (FRONT / SIDE / BACK). No mesh is imported (the shape master is sampled by the parts' own functions, never copied); the old Nahida-based model under `ref/legacy/` is a visual reference only.
+Levi is modeled procedurally with Blender Python (`bpy` + `bmesh`), within `spec.TOTAL_BUDGET` (200k) faces. Since round 10 each part samples its shape from the shape master (below); the cel-shaded orthographic renders are compared with the three-view `ref/levi_threeview.png` (FRONT / SIDE / BACK). Apart from the 风堇 assets below (round 11), no mesh is imported (the shape master is sampled by the parts' own functions, never copied); the old Nahida-based model under `ref/legacy/` is a visual reference only.
 
 Blender: `C:/Program Files/Blender Foundation/Blender 5.2/blender.exe` (written as `$B` below). numpy is bundled; PIL and scipy are not.
 
 Priorities (the owner's): (1) the model looks natural in 3D, (2) skeletal animation has no problems, (3) fidelity. Since round 10 the three-view is a reference, below the model's own quality: report IoU changes, don't chase them.
+
+## 风堇 assets (round 11)
+- The owner allowed reusing the 风堇 (Hyacine, HSR) MMD model's mesh where it is not character-specific design: body, joints, hands, feet and head. Her model has hands (with about 3 cm of forearm), a pelvis and legs (tights, open at the waist and inside the shoe), a neck tube and a front face mask (no skull); it has no torso, shoulders, elbows, forearms or feet, so those stay procedural. Her hair and clothes are references for technique only, never copied.
+- Her data reaches the build only through committed, deterministic assets under `assets/hyacine/`, made offline by `tools/prep_hyacine_*.py` from the PMX, which stays outside the repo (`--pmx <path>`; `tools/pmxread.py` reads it). Parts read the npz / images, never the PMX. Our frame is Blender (x, y, z) = MMD (x, z, y) × 0.08 with the triangle winding reversed.
+- Character-specific design stays Levi's: eye colours and pattern, lash shape, the painted face texture, expression decals, her hip / thigh proportions, loafers, bows, metal trims. Her parts are re-posed and warped to Levi's joints and proportions inside the part's own functions (shape-master sampling still applies to the warp).
+- Licence: the repo is UNLICENSED (all rights reserved); `NOTICE` carries her terms (no redistribution, no 18+, no commercial use, © miHoYo, MMD edit 流云景). Keep `NOTICE` current when more of her data is used.
 
 ## Shape master (round 10)
 - `assets/shape/levi_shape.npz` is the shape target: an image-to-3D Levi (one fused 1.5M-triangle shell, unrigged, no eyes, no colour), decimated to 400k triangles, aligned to our frame and skeleton, each triangle labelled with the part that owns it. `tools/prep_shape.py` makes it from the FBX and our build (`blender -b out/levi_plain.blend -P tools/prep_shape.py -- --fbx <fbx> --sheet out/shape_labels`): lower-leg y offset, a few degrees of arm turn about the shoulder, nearest-object labels checked against the sheet's colour regions, crease-aware smoothing. `docs/pr/r10-phase0/labels.jpg` shows the labels; known stray patches: the ends of the front ribbon tails on the skirt, small petticoat / back-hair patches on the skirt's sides and back.
