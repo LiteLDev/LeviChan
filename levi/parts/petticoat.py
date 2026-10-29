@@ -19,12 +19,12 @@ puffed scallops (~1.3-1.6 cm) hanging in bell-shaped clusters under the
 skirt's raised arches. Round 11 builds that (rounds 6-10 had two tiers of
 6-7.5 cm folds that read as plain bands):
 
-- Frill: each tier is gathered into ~1.6 cm flutes (one per scallop, SPF
+- Frill: each tier is gathered into ~1.7 cm flutes (one per scallop, SPF
   samples across, unevenly wide and deep, VAR_SMOOTH), shallow up the band
-  and opening in the frill near the hem (FLUTE_SEAM, FLUTE_POW). The flutes are puffed,
-  not a sine wave: across a flute the cloth bulges as 2 sin(pi phase) **
-  PUFF_P - 1, so the crest is a round puff and the valley between two
-  scallops a pinched pleat, as in the art's radial pleat lines.
+  and opening in the frill near the hem (FLUTE_SEAM, FLUTE_POW). The flutes
+  are puffed, not a sine wave: across a flute the cloth bulges as
+  2 sin(pi phase) ** PUFF_P - 1, so the crest is a round puff and the valley
+  between two scallops a pinched pleat, as in the art's radial pleat lines.
 - Hem: one round scallop per flute, the notch over the pleat (the lobe a
   circular arc, ROUND). The edge rolls under in a half circle
   (HEM_ROLL px, ROLL_DEG) and runs a little way back up inside (RET_UP), so
@@ -75,7 +75,7 @@ It was measured on ref/{front,side,back}.png (panel rows, HEM_FRONT /
 HEM_SIDE) instead of using the single spec.L['petticoat_hem_z'] landmark,
 which only gives one height.
 
-Shadows: see CAST_TIERS (render.py reads obj['levi_cast_shadow']).
+Shadows: see CAST_TIERS / CAST_CORE (render.py reads obj['levi_cast_shadow']).
 
 Rigging: the rig weights every skirt-family layer by angle x height to the
 skirt chains, which follow the thighs (levi/rig.py). Every tier wraps round
@@ -212,8 +212,8 @@ CAST_CORE = True
 # core cone (the inner the tier, the lower): from below every tier reads as
 # one continuous gathered panel nested inside the one around it. The inner
 # tier hangs from the core's lower edge (the core mesh ends at its seam).
-# Scallops: about 1.5-1.7 cm each at the built hem (the outer tier's hem
-# runs ~1.8 m round, the inner ~1.35 m).
+# Scallops: about 1.7 cm each at the built hem (notch to notch; the hems run
+# ~2.2, 1.9 and 1.8 m round).
 # Lift: under the middle of the skirt, front and back, the sheet shows the
 # legs from the skirt hem down, so within x0 px of the midline (front view)
 # a tier's hem rises to its lift row (front, back), behind the skirt's centre
@@ -225,11 +225,11 @@ CAST_CORE = True
 # scallops (a feathered wedge from the side).
 TIERS = (
     ('petticoat_tier0', (HALF_W, FRONT_D, BACK_D, 2.0), (40, 110, 600, 586), ('free', 52, 0.86),
-     116, 2.5, 4.2, 1, 12.0),
+     132, 2.5, 4.2, 1, 12.0),
     ('petticoat_tier1', (0.87 * HALF_W, 0.87 * FRONT_D, 0.87 * BACK_D, 2.1), (40, 110, 603, 588), ('core', 22),
-     100, 2.3, 4.0, 2, 6.0),
+     116, 2.3, 4.0, 2, 6.0),
     ('petticoat_tier2', (0.83 * HALF_W, 0.83 * FRONT_D, 0.83 * BACK_D, 2.2), (40, 110, 606, 590), ('core', 0),
-     84, 2.1, 3.8, 3, 0.0),
+     108, 2.1, 3.8, 3, 0.0),
 )
 # Exposure (round 6): the tiers show as rounded frill clusters under the
 # skirt's raised arches, and as a narrower band under its lobes (see
