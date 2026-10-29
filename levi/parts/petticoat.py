@@ -559,9 +559,10 @@ def _lift_pinch(x, lift):
 # ---------------------------------------------------------------- core
 # The outer tier's seam height (world z) by ellipse angle, (angles, z) sorted,
 # set by build() once the outer tier is built (its seam rises where its hem
-# tucks up); the core cone ends CORE_TUCK px below it. _SEAM1 / _SEAM2: the
-# middle tier's seam on the core (the core's gathers have faded out above
-# it) and the inner tier's, where the core mesh ends.
+# tucks up); the core cone ends CORE_TUCK px below it. _SEAM1: the middle
+# tier's seam on the core (the core's gathers have faded out above it);
+# _SEAM2: the inner tier's seam ring as built (angles, points), where the core
+# mesh ends.
 _SEAM0 = None
 _SEAM1 = None
 _SEAM2 = None
@@ -870,9 +871,8 @@ def _finish(col, mat, name, loops, soft, line):
 
 def _core(col, mat, inners):
     """The core: a cone from the hips (CORE_RX / CORE_RY ring) down its
-    straight generators to the lower edge the outer tier's seam sets
-    (_core_bottom) or, above it, the inner tier's seam (_SEAM2), CORE_N
-    columns, CORE_T rings. Gathers (CORE_FOLD columns
+    straight lines to the inner tier's seam (_SEAM2), CORE_N columns, CORE_T
+    rings, kept inside the skirt and the outer and middle tiers. Gathers (CORE_FOLD columns
     each) open from the hips and fade out above the middle tier's seam, so
     the tiers sewn on below lie on a smooth cone. It is its own object: merged
     with the inner tier's dense frill, the rig smoothed its long, sparse edges
@@ -881,13 +881,13 @@ def _core(col, mat, inners):
     n = CORE_N
     nf = n // CORE_FOLD
     phis = [2 * math.pi * i / n for i in range(n)]
-    tops, bots = [_core_top(p) for p in phis], []
-    for p, t in zip(phis, tops):
-        # down the cone's generator to the inner tier's seam (which rises
-        # where that tier's hem tucks up), so the core never runs on below it
-        b = _core_bottom(p)
-        z2 = float(np.interp(p, _SEAM2[0], _SEAM2[1], period=2 * math.pi))
-        bots.append(t.lerp(b, min(1.0, (t.z - z2) / max(t.z - b.z, 1e-9))))
+    tops = [_core_top(p) for p in phis]
+    # the lower edge is the inner tier's seam as built (it rises where that
+    # tier's hem tucks up, and the clearance may have drawn it in under the
+    # skirt's raised sides), so the core never runs on below or outside it
+    a2, ring2 = _SEAM2
+    bots = [Vector([float(np.interp(p, a2, ring2[:, c], period=2 * math.pi)) for c in range(3)])
+            for p in phis]
     z1 = [float(np.interp(p, _SEAM1[0], _SEAM1[1], period=2 * math.pi)) * spec.PX_PER_M for p in phis]
     out = {1.0: [], 0.0: []}
     for t in CORE_T:
@@ -903,7 +903,10 @@ def _core(col, mat, inners):
             wave = math.cos(2 * math.pi * j * nf / n)
             for k in (1.0, 0.0):
                 loops[k].append(p + r * (k * wave * reach[-1] * PX))
-        gathered, smooth = _clamp_ring(band, inners, reach, apply_to=(loops[1.0], loops[0.0]))
+        if t < 1.0:     # (the lower edge stays on the inner tier's seam)
+            gathered, smooth = _clamp_ring(band, inners, reach, apply_to=(loops[1.0], loops[0.0]))
+        else:
+            gathered, smooth = loops[1.0], loops[0.0]
         out[1.0].append(gathered)
         out[0.0].append(smooth)
     obj = _finish(col, mat, 'petticoat_core', out[1.0], out[0.0], [0.0] * len(CORE_T))
@@ -921,14 +924,17 @@ def build(col):
     # tiers are sewn onto the core, each inside the tiers around it
     inners = [skirt_in]
     for idx, tier in enumerate(TIERS):
-        (gathered, smooth), seam, _ = _tier(idx, inners, folds, *tier)
+        (gathered, smooth), seam, hem = _tier(idx, inners, folds, *tier)
         if idx == 0:
             _SEAM0 = seam
         if idx == 1:
             _SEAM1 = seam
         if idx == 2:
-            _SEAM2 = seam
+            # its first ring (every second sample, COARSE_S) by ellipse angle
+            ring = sorted((_ellipse_angle(*h[0]), tuple(p)) for h, p in zip(hem[::2], gathered[0]))
+            _SEAM2 = (np.array([a for a, _ in ring]), np.array([p for _, p in ring]))
         obj = _finish(col, mat, tier[0], gathered, smooth, _line_weights(len(gathered)))
         obj['levi_cast_shadow'] = CAST_TIERS[idx]
         inners = inners + [_tier_inner(obj)]
-    _core(col, mat, [skirt_in])
+    # inside the skirt and the outer and middle tiers (sewn onto it)
+    _core(col, mat, inners[:3])
