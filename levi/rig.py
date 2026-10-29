@@ -799,6 +799,15 @@ def _band_chain(pts, z_top, z_bot, nseg):
     return joints
 
 
+def _grid_points(pts, cell):
+    """The first point (in order) in each cell of a cell-sized grid: an even sample of the
+    cloth whatever each mesh's vertex density (see DRAPE_GRID)."""
+    if cell <= 0 or not len(pts):
+        return pts
+    _, first = np.unique(np.floor(pts / cell).astype(np.int64), axis=0, return_index=True)
+    return pts[np.sort(first)]
+
+
 def _sector_chains(pts, center, root_z, n_sectors, nseg, min_len, min_pts=24):
     """Chains hanging from root_z, one per angular sector around a vertical axis
     through `center` (x, y). Angle 0 is +Y (behind), +90 deg is +X (character's left)."""
@@ -997,6 +1006,14 @@ DRAPE_INWARD = 2.0
 DRAPE_SWEEPS = 16           # coordinate descent sweeps (alternating direction)
 DRAPE_PTS = 300             # cloth points per chain sector the clearance tests
 DRAPE_INNER = 10.0          # percentile of the sector's radius taken as its innermost cloth (rest ring)
+# The drape sees the cloth thinned to one point per DRAPE_GRID cell (_grid_points), so its
+# sector samples (DRAPE_PTS, taken evenly by index) and innermost-cloth percentiles
+# (DRAPE_INNER) do not depend on each mesh's vertex density (round 11: the round-10
+# petticoat with 2.5x the columns, same shape, lowered the seated front drape by ~10 cm
+# and pushed the petticoat 2.4-3.2 cm into the thighs in sit_chair / run; thinned, the
+# denser copy keeps round 10's penetrations, and round 10's own model keeps them within
+# 0.1 cm, its seated front drape within 2.5 cm)
+DRAPE_GRID = 0.012
 # Early lift: below DRAPE_EARLY_MAX deg of pitch a segment turns at least DRAPE_EARLY x the
 # pitch x its steepest later turn per deg (its table made star-shaped from rest), so a
 # stride starts the cloth moving with the thigh instead of only past the clearance
@@ -2528,7 +2545,7 @@ def _secondary_bones(parts, core):
         drape = {}
         if SKIRT_DRAPE and chains:
             th = byname['足.L']
-            drape = _skirt_drape(chains, pts, cy, np.array(th.head),
+            drape = _skirt_drape(chains, _grid_points(pts, DRAPE_GRID), cy, np.array(th.head),
                                  np.array(th.tail) + np.array((0.0, -DRAPE_KNEE_FWD, 0.0)), verts('body'))
         for k, (ang, joints) in enumerate(chains):
             hem_r = max(0.03, math.hypot(joints[-1].x, joints[-1].y - cy) * math.pi / SKIRT_SECTORS)
