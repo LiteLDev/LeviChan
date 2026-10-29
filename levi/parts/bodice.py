@@ -184,7 +184,8 @@ PIPE_SIDES = 8
 PIPE_N = 192              # stations round the waist (~2.4 mm apart)
 PIPE_FIT = 0.85           # share of the distance at which the cord would just touch both cloths
 PIPE_SOFT = 1.0           # px: softness of the max of the bodice and skirt radii it rides
-PIPE_LINE = 0.0011        # outline width (the cord's top edge is the waist line)
+PIPE_LINE = 0.0016        # outline width (the cord's top edge is the waist line)
+PIPE_SHADE = 0.3          # share of the cord's own roundness in its shading normals (the rest: the cloth's)
 SEAM_PSI = 720            # section angles the seam line is solved at
 SEAM_ROW_STEP = 0.5       # px between the rows its crossing is bracketed on
 SEAM_SMOOTH = 4.0         # deg: Gaussian on the seam row round the waist (the skirt is a polygon)
@@ -878,8 +879,21 @@ def piping_path():
 def build_piping(col, mat):
     pts, dirs = piping_path()
     bm = band(pts, 2 * PIPE_R, 2 * PIPE_R, faces=dirs, loop=True, sides=PIPE_SIDES, kind='round')
-    obj = finish(col, 'bodice_piping', [bm], mat, outline=PIPE_LINE, angle=80)
+    obj = finish(col, 'bodice_piping', [bm], mat, outline=PIPE_LINE, angle=180)
     obj['levi_cast_shadow'] = False      # a thin cord: no hard print on the skirt
+    # shading normals mostly those of the cloth corner it lies in (the bisector), so
+    # the cord's underside does not break into shade specks along the waist; the
+    # outline draws the cord
+    cen = np.array([tuple(p) for p in pts])
+    out = []
+    for v in obj.data.vertices:
+        co = np.array(v.co[:])
+        k = int(np.argmin(((cen - co) ** 2).sum(1)))
+        t = Vector(cen[(k + 1) % len(cen)] - cen[k - 1]).normalized()
+        r = Vector(co - cen[k])
+        r = (r - t * r.dot(t)).normalized()
+        out.append(tuple((PIPE_SHADE * r + (1.0 - PIPE_SHADE) * dirs[k]).normalized()))
+    obj.data.normals_split_custom_set_from_vertices(out)
     return obj
 
 
