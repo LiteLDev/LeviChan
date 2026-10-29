@@ -2,33 +2,44 @@
 at the front of each ankle and a pair of leaves at the back/outer side of each
 ankle.
 
-Construction (left shoe, +X, mirrored for the right one):
+Construction (left shoe, +X, mirrored for the right one; round 11 after 风堇's
+shoe build: a separate sole slab with a step, a heel cap, closed bows):
   * shell: one smooth upper from the pointed toe to the rounded heel counter.
     A hand-measured station table is resampled with a monotone cubic along the
     shoe, so the toe box, the arch and the heel curve have no kinks. Each
-    section is a superellipse that is boxy below (flat sole with a defined
-    edge, resting level on the ground: no keel) and round above (toe box),
+    section is a superellipse that is a rounded box below (the upper comes down
+    the side and turns under onto the outsole) and round above (toe box),
     turning into a plain ellipse round the heel cup. The toe tapers almost
     linearly in plan into a soft point a few px ahead of the foot (pumps have
     empty toe room). The topline dips over the rear quarters and rises into a
-    narrow tab at the back (the sheet's back view). The underside from the
-    ball to the heel seat and the lining are the sheet's tan `sole` key.
+    narrow tab at the back (the sheet's back view).
   * topline: the open edge of the shell is rolled over into a short inner
     lining (green rim, tan lining), so the upper reads as a material with
     thickness, not a paper sheet.
+  * outsole: a 2.3 mm slab from the toe point to under the heel seat, its top
+    inside the shell's turned-under edge, its square edge standing a step proud
+    of the upper along the feather line; green walls, the sheet's tan `sole`
+    tread (seen from behind between green rims either side of the heel).
   * stiletto: a tapered solid whose top is a broad heel-seat footprint sunk
-    into the shell, narrowing smoothly to a small top lift.
+    into the shell (and over the outsole's heel end), narrowing smoothly to its
+    tip, which stands in a 3 mm tan top lift level with the outsole's tread.
   * laces: rounded straps (a flattened hexagonal section, shaded with flat
     strap normals so each broad face reads as one tone, as the sheet paints
-    them) kept at a constant small offset from the leg. They start under the topline on
-    both sides of the vamp, cross on the instep, wrap the ankle, cross again
-    behind it above the heel counter, and are tied in a bow at the front (two
-    full teardrop loops, a domed knot band, two ends falling away); one long
-    end hangs at the outer back.
+    them) kept at a constant small offset from the leg, laid out by controls,
+    then smoothed along their length and resampled closer where they bend.
+    They start under the topline on both sides of the vamp, cross on the
+    instep, wrap the ankle, cross again behind it above the heel counter (each
+    crossing one lace over the other), and are tied in a bow at the front (two
+    full teardrop loops, a band wrapped round the wrap and the loop roots, two
+    ends falling away); one long end hangs at the outer back.
   * leaves: two ovate, cupped blades with a midrib groove and a short narrow
     stalk, springing from one point on top of the ankle wrap at the outer
     back (where the long lace end also leaves the wrap), each rolled its own
     way and twisting gradually toward the tip so the pair fans.
+
+The shoes follow the body only through its exports: body.FOOT (the shell keeps
+the foot inside it), LEG_FRONT / LEG_SIDE / LEG_ROWS / MARGIN and leg_section /
+leg_offset (the shell's topline and the laces keep off the leg's skin).
 
 Every shell section keeps the body's foot (body.FOOT, imported so a foot
 change cannot make skin poke through) inside it with FOOT_CLEAR px to spare.
@@ -48,8 +59,10 @@ Local landmark corrections (spec.L is a +-3 px first pass):
   * heel seat at row 899 -> heel height ~49 px (spec heel_height = 55 px).
   * the side panel's soles sit at row ~945 while the front/back toe and heel
     tips reach row 951 (the sheet is drawn with a slight top-down
-    perspective).  Rows below 850 are squeezed so the sole lands ~4 px above
-    the ground: within 3 px of the side profile and of the front/back tips.
+    perspective).  Rows below 850 are squeezed so the shell's sole lands ~4 px
+    above the ground: within 3 px of the side profile and of the front/back
+    tips. Round 11's outsole and top lift reach 0.75 mm / 1.5 mm lower: the
+    tread is 4.7 mm above the ground (round 10: 5.4 mm toe, 6.2 mm heel tip).
     (Grounding the sole, SOLE_LIFT 0.5, was tried in round 4: it costs
     0.035 side / 0.009 front shoe IoU, so the lift stays a sheet
     calibration; a ground offset belongs in the rig/export.)
@@ -85,6 +98,17 @@ def P(x, y, row, sx=1):
     return Vector((sx * x * PX, y * PX, zrow(row)))
 
 
+def Pz(x, y, zpx, sx=1):
+    """Panel px with the height in true px above the ground (not a row) -> world."""
+    return Vector((sx * x * PX, y * PX, zpx * PX))
+
+
+def row_of(zpx):
+    """Inverse of zrow: true height (px) -> reference row."""
+    top = spec.SHEET_GROUND_Y - SQUEEZE_ROW
+    return spec.SHEET_GROUND_Y - zpx if zpx >= top else SQUEEZE_ROW + (top - zpx) / _K
+
+
 def _pchip(xs, ys, x):
     """Monotone cubic (Fritsch-Carlson) through (xs, ys) at x: no overshoot,
     flat runs stay exactly flat."""
@@ -116,8 +140,8 @@ def _pchip(xs, ys, x):
 #   y, centre x, half width, sole row, top row, opening angle (fraction of pi),
 #   inward skew of the sole (px; kept <= 1: a larger skew read as a keel),
 #   pinch (0..1: the upper half narrows toward the opening -> tapered heel cup
-#   in the back view), keel (px the sole corners are lifted; kept <= 1 so the
-#   forefoot rests level instead of on a V-shaped keel), inner-wall raise (px:
+#   in the back view), keel (px the sole corners were lifted, rounds 4-10; unused
+#   since round 11: the flat outsole is the bottom), inner-wall raise (px:
 #   the inner side of the opening sits higher than the outer one, hidden in
 #   the side view)
 # Closed toe box: frac = 1 (ring ends meet on the top centre line, top row =
@@ -158,15 +182,15 @@ SAMPLES = (-94.5, -91.0, -87.0, -83.0, -78.5, -74.0, -69.5, -65.0, -60.5, -56.0,
 TOE_TIP = (14.8, -97.0, 941.6)
 BACK_Y = 22.8      # heel back spine (centre line)
 RING = 21          # verts per cross-section (20 segments: round toe box, smooth sole edge)
-SQ_LO = 0.7        # superellipse exponent of the lower half: flat sole, defined edge
+# Round 11: the lower half is a rounded box (0.7 -> 0.36): the upper comes down the
+# side nearly upright and turns under onto the outsole along a feather line, as a
+# lasted upper does, instead of rounding into the bottom like a boat (no sole edge).
+SQ_LO = 0.36       # superellipse exponent of the lower half: upright side, turned-under edge
 SQ_UP = 0.9        # upper half: rounded toe box / quarters
 SQ_HEEL = 1.0      # ... both blend to a plain ellipse round the heel cup
 HEEL_ROUND = (-4.0, 12.0)  # y range (px) of that blend
-SOLE_Y = (-24.0, 6.0)  # the arch underside between these y is tan
-SOLE_HALF = 0.15   # ... within this fraction of pi of the bottom centre (4 of 20 faces,
-                   # the same faces on every span: the tan edge runs along the shoe;
-                   # the whole flat underside, 8 faces, was tried in round 5: the tan
-                   # then reads as a broad inset panel from behind, unlike the sheet)
+# (Round 5-10 painted the middle of the arch underside tan. Round 11: the outsole slab
+# below carries the tan underside; the shell's underside is inside it.)
 # Waist: the lower half of each section narrows toward the sole through the
 # shank (fraction of the half width at the bottom centre), so the arch reads
 # as a slim sole bridging to the heel seat instead of a filled wedge, and the
@@ -217,14 +241,22 @@ def _foot_section(y):
 
 
 def _clear_foot(x, y, zpx):
-    """Push a shell point (panel px, true z px) out of the foot by FOOT_CLEAR."""
+    """Push a shell point (panel px, true z px) out of the foot by FOOT_CLEAR.
+
+    Above the foot's centre the clearance scales with the section (FOOT_CLEAR over its
+    smaller half axis, as in rounds 4-10). Below it, round 11 keeps the same clearance
+    sideways but only FOOT_CLEAR px under the foot's sole: the scaled clearance put the
+    shell 5 px under the tall slices at the ball (half height 39 px against a half width
+    of 14) and pushed a 2 mm bulge into the sole there."""
     sec = _foot_section(y)
     if sec is None:
         return x, zpx
     cx, hw, cz, hh = sec
     dx, dz = x - cx, zpx - cz
-    r = (abs(dx / hw) ** FOOT_P + abs(dz / hh) ** FOOT_P) ** (1.0 / FOOT_P)
     need = 1.0 + FOOT_CLEAR / min(hw, hh)
+    if dz < 0.0:
+        hw, hh, need = hw * need, hh + FOOT_CLEAR, 1.0
+    r = (abs(dx / hw) ** FOOT_P + abs(dz / hh) ** FOOT_P) ** (1.0 / FOOT_P)
     if r < need and r > 1e-6:
         k = need / r
         return cx + dx * k, cz + dz * k
@@ -301,9 +333,8 @@ def _ring(st, sx):
             xo *= 1.0 - waist * c ** 1.5
         x = cx + xo - skew * ((1 + c) / 2) ** 1.5
         z = zmid - hh * _spow(c, sq)
-        if c > 0.0:     # lower half: keel (sole corners lifted -> V bottom)
-            z += keel * PX * (abs(xo) / hw) ** 1.5 * min(1.0, c / 0.45)
-        elif s < 0.0:   # inner upper quarter: raised inner side wall
+        # (round 11: no keel; the flat outsole is the bottom, the shell turns under onto it)
+        if c <= 0.0 and s < 0.0:   # inner upper quarter: raised inner side wall
             z += rin * PX * min(1.0, -c / cend)
         if closed and k in (0, RING - 1):
             x = cx - skew * ((1 + c) / 2) ** 1.5      # exact top centre: ends merge
@@ -334,11 +365,9 @@ def _shell(bm, sx):
         ring = [bm.verts.new(p) for p in pts[:-1]]
         ring.append(ring[0] if st[5] >= 0.999 else bm.verts.new(pts[-1]))
         rings.append(ring)
-    for i, (a, b) in enumerate(zip(rings, rings[1:])):
-        under = SOLE_Y[0] <= stations[i][0] and stations[i + 1][0] <= SOLE_Y[1]
+    for a, b in zip(rings, rings[1:]):
         for j in range(RING - 1):
-            mid = abs((j + 0.5) / (RING - 1) * 2.0 - 1.0) * stations[i][5]
-            face((a[j], a[j + 1], b[j + 1], b[j]), 1 if under and mid < SOLE_HALF else 0)
+            face((a[j], a[j + 1], b[j + 1], b[j]))
     tip = bm.verts.new(P(*TOE_TIP, sx))
     r0 = rings[0]
     for j in range(RING - 1):
@@ -388,6 +417,111 @@ def _shell(bm, sx):
     return line
 
 
+# ---------------------------------------------------------------- outsole
+# Round 11, after 风堇's shoes (a separate sole slab under the upper, with a step): a thin
+# slab from the toe point to under the heel seat. At each shell station its top lies
+# SOLE_EMBED px above the shell's lowest point, so the shell's turned-under edge is inside
+# it and the upper meets it along a feather line; there its edge stands SOLE_STEP px proud
+# of the upper, a crisp ledge. Square edges, green walls, the sheet's tan `sole` underneath
+# (the sheet's back view shows that tan between green rims either side of the heel). It
+# runs on under the heel seat inside the stiletto's top, so no end face shows at the heel
+# breast. It is part of shoes_shell: rigid on the foot (rig.RIGID_FOOT).
+SOLE_T = 0.0023     # m: slab thickness, normal to the sole line
+SOLE_EMBED = 1.0    # px: slab top above the shell's lowest point (vertical)
+SOLE_STEP = 0.5     # px: slab edge beyond the upper at the feather line ...
+SOLE_STEP_TOE = (0.4, 16.0)  # ... narrowing to this share of it at the toe point, over
+                             # this many px (the slab's point stays under the upper's)
+SOLE_END = 15.0     # px: the slab's last station (y), inside the stiletto's top
+SOLE_TIP_DROP = 0.3  # px: at the toe point the slab's top stays this far under the shell's tip
+SOLE_TIP_N = 6       # segments of the slab's rounded point
+
+
+def _feather(ring, z):
+    """Outermost x where a shell ring ((x, z) px pairs, left shoe) crosses height z."""
+    xs = []
+    for (x0, z0), (x1, z1) in zip(ring, ring[1:]):
+        if (z0 - z) * (z1 - z) <= 0.0 and abs(z1 - z0) > 1e-9:
+            xs.append(x0 + (x1 - x0) * (z - z0) / (z1 - z0))
+    return min(xs), max(xs)
+
+
+def _outsole_sections():
+    """Slab sections toe -> heel (left shoe, px): (y, top z, inner x, outer x) at the
+    feather line, the slab's edge already SOLE_STEP outside the upper."""
+    ys = [y for y in SAMPLES if y < SOLE_END] + [SOLE_END]
+    out = []
+    for y in ys:
+        ring = [(p.x / PX, p.z / PX) for p in _ring(_station(y), 1)]
+        zb = min(z for _, z in ring)
+        zt = zb + SOLE_EMBED
+        xl, xr = _feather(ring, zt)
+        st = _sole_step(y)
+        out.append((y, zt, xl - st, xr + st))
+    return out
+
+
+def _sole_step(y):
+    k, span = SOLE_STEP_TOE
+    t = min(1.0, max(0.0, (y - TOE_TIP[1]) / span))
+    return SOLE_STEP * (k + (1.0 - k) * t * t * (3.0 - 2.0 * t))
+
+
+def _outsole(bm, sx):
+    """Closed outsole slab of one shoe; returns (faces, the tread's lowest z in px)."""
+    secs = _outsole_sections()
+    t = SOLE_T / PX
+    # the slab's thickness is laid off along the sole line's normal (in the side view), so
+    # it stays SOLE_T thick up the steep shank
+    nrm = []
+    for i, (y, zt, _, _) in enumerate(secs):
+        a, b = secs[max(i - 1, 0)], secs[min(i + 1, len(secs) - 1)]
+        d = Vector((b[0] - a[0], b[1] - a[1])).normalized()
+        nrm.append(Vector((d.y, -d.x)))     # (dy, dz): down, and back up the shank
+    rings = []
+    for (y, zt, xl, xr), n in zip(secs, nrm):
+        yb, zb = y + n.x * t, zt + n.y * t
+        rings.append([bm.verts.new(Pz(xl, y, zt, sx)), bm.verts.new(Pz(xr, y, zt, sx)),
+                      bm.verts.new(Pz(xr, yb, zb, sx)), bm.verts.new(Pz(xl, yb, zb, sx))])
+    faces = []
+
+    def face(vs, mat):
+        f = bm.faces.new(vs)
+        f.material_index = mat
+        faces.append(f)
+    # ring corners: 0 top inner, 1 top outer, 2 bottom outer, 3 bottom inner;
+    # material per side: top (hidden but for the ledge) and walls green, tread tan
+    for a, b in zip(rings, rings[1:]):
+        for j, mat in ((0, 0), (1, 0), (2, 1), (3, 0)):
+            k = (j + 1) % 4
+            face((a[j], a[k], b[k], b[j]), mat)
+    # toe point: the slab's outline rounds into a point a little ahead of the shell's tip
+    # (a single apex read as a sawn-off plank end), its top a little under the tip; the
+    # top and the tread there are planes (the sole line's slope at the first station)
+    (y0, zt0, xl0, xr0), (y1, zt1, _, _) = secs[0], secs[1]
+    ytip = TOE_TIP[1] - _sole_step(TOE_TIP[1])
+    zt_tip = min(zt0 + (zt0 - zt1) / (y1 - y0) * (y0 - ytip), zrow(TOE_TIP[2]) / PX - SOLE_TIP_DROP)
+    n = nrm[0]
+    cx0, hw0, L = (xl0 + xr0) / 2, (xr0 - xl0) / 2, y0 - ytip
+    r0 = rings[0]
+    tops, bots = [r0[1]], [r0[2]]
+    for k in range(1, SOLE_TIP_N):
+        f = math.pi * k / SOLE_TIP_N
+        y = y0 - L * math.sin(f) ** 0.6
+        x = cx0 + (TOE_TIP[0] - cx0) * math.sin(f) ** 2 + hw0 * math.cos(f)
+        zt = zt0 + (zt_tip - zt0) * (y0 - y) / L
+        tops.append(bm.verts.new(Pz(x, y, zt, sx)))
+        bots.append(bm.verts.new(Pz(x, y + n.x * t, zt + n.y * t, sx)))
+    tops.append(r0[0])
+    bots.append(r0[3])
+    face(tops, 0)
+    face(list(reversed(bots)), 1)
+    for a, b, c, d in zip(tops, bots, tops[1:], bots[1:]):
+        face((a, c, d, b), 0)
+    face(list(reversed(rings[-1])), 0)
+    floor = min(v.co.z for r in rings for v in r) / PX
+    return faces, floor
+
+
 # ---------------------------------------------------------------- heel
 # Stiletto, rows top -> bottom: (row, centre y, half depth y, half width x).
 # The top ring is the heel-seat footprint, sunk into the shell above its
@@ -410,18 +544,36 @@ HEEL_X = 29.5
 HEEL_SIDES = 14
 HEEL_SQ = 0.8      # shaft section: a rounded box (broad back face, tight sides: no wide
                    # shade strip down the shaft from behind)
+# Round 11 (风堇's heels end in a cap): a top lift, a separate tan block under the shaft's
+# tip, standing LIFT_STEP proud of it with a crisp top edge and a small chamfer round
+# the tread. Its tread is level with the outsole's (both rest on the floor); the shaft
+# ends LIFT_SINK px inside it.
+LIFT_H = 0.003     # m: top-lift height
+LIFT_STEP = 0.15   # px the lift stands out round the shaft's tip
+LIFT_BEVEL = 0.2   # px: chamfer round the tread
+LIFT_SINK = 0.2    # px the shaft's tip reaches into the lift
 
 
-def _heel(bm, sx):
-    """Closed stiletto; returns its faces (normals fixed by the caller)."""
-    rings = []
-    for row, cy, ry, rx in HEEL:
-        ring = []
-        for i in range(HEEL_SIDES):
-            a = 2 * math.pi * (i + 0.5) / HEEL_SIDES
-            ring.append(bm.verts.new(Vector((sx * (HEEL_X + rx * _spow(math.cos(a), HEEL_SQ)) * PX,
-                                             (cy + ry * _spow(math.sin(a), HEEL_SQ)) * PX, zrow(row)))))
-        rings.append(ring)
+def _heel_at(row):
+    """(centre y, half depth, half width) of the stiletto at `row` (linear in the table,
+    extended past its ends)."""
+    rows = HEEL
+    i = 0 if row <= rows[0][0] else min(len(rows) - 2, max(k for k in range(len(rows) - 1) if rows[k][0] <= row))
+    (r0, *a), (r1, *b) = rows[i], rows[i + 1]
+    t = (row - r0) / (r1 - r0)
+    return tuple(u + (v - u) * t for u, v in zip(a, b))
+
+
+def _heel_ring(bm, sx, zpx, cy, ry, rx):
+    ring = []
+    for i in range(HEEL_SIDES):
+        a = 2 * math.pi * (i + 0.5) / HEEL_SIDES
+        ring.append(bm.verts.new(Pz(HEEL_X + rx * _spow(math.cos(a), HEEL_SQ),
+                                    cy + ry * _spow(math.sin(a), HEEL_SQ), zpx, sx)))
+    return ring
+
+
+def _close_tube(bm, rings):
     faces = []
     for a, b in zip(rings, rings[1:]):
         for j in range(HEEL_SIDES):
@@ -430,6 +582,22 @@ def _heel(bm, sx):
     faces.append(bm.faces.new(rings[0]))
     faces.append(bm.faces.new(list(reversed(rings[-1]))))
     return faces
+
+
+def _heel(bm, sx, floor):
+    """Closed stiletto and its top lift, whose tread is at `floor` (true z px); returns
+    (shaft faces, lift faces) (normals fixed by the caller)."""
+    top = floor + LIFT_H / PX                       # the lift's top
+    tip_row = row_of(top - LIFT_SINK)               # the shaft's tip, inside the lift
+    table = [h[1:] + (zrow(h[0]) / PX,) for h in HEEL if h[0] < tip_row - 0.5]
+    table.append(_heel_at(tip_row) + (top - LIFT_SINK,))
+    shaft = _close_tube(bm, [_heel_ring(bm, sx, z, cy, ry, rx) for cy, ry, rx, z in table])
+    cy, ry, rx = _heel_at(row_of(top))
+    s, b = LIFT_STEP, LIFT_BEVEL
+    lift = _close_tube(bm, [_heel_ring(bm, sx, top, cy, ry + s, rx + s),
+                            _heel_ring(bm, sx, floor + b, cy, ry + s, rx + s),
+                            _heel_ring(bm, sx, floor, cy, ry + s - b, rx + s - b)])
+    return shaft, lift
 
 
 # ---------------------------------------------------------------- ribbons
@@ -443,12 +611,15 @@ RIB_N_ATTR = 'shoe_rib_n'
 RIB_REACH = math.cos(math.pi / RIB_SIDES) ** RIB_SQ
 
 
-def _ribbon(bm, pts, nrms, w, th, closed=False, taper=1.0, swell=None):
+def _ribbon(bm, pts, nrms, w, th, closed=False, taper=1.0, swell=None, frac=None):
     """Lace along pts (world): a rounded strap section `w` wide and `th`
     thick, its broad faces toward +-nrms (pass nrms pointing away from the
-    skin). `taper` scales the width at the far end of an open ribbon; `swell`
+    skin). `taper` scales the width at the far end of an open ribbon (by `frac`,
+    each point's share of the length, default its index share); `swell`
     (optional, one factor per point) scales width and thickness locally."""
     m = len(pts)
+    if frac is None:
+        frac = [i / (m - 1) for i in range(m)]
     nl = bm.verts.layers.float_vector.get(RIB_N_ATTR) or bm.verts.layers.float_vector.new(RIB_N_ATTR)
     rings = []
     prev = None
@@ -465,7 +636,7 @@ def _ribbon(bm, pts, nrms, w, th, closed=False, taper=1.0, swell=None):
         prev = n
         b = t.cross(n)
         k = swell[i] if swell is not None else 1.0
-        hw = 0.5 * w * k * (1.0 + (taper - 1.0) * (i / (m - 1) if not closed else 0.0))
+        hw = 0.5 * w * k * (1.0 + (taper - 1.0) * (frac[i] if not closed else 0.0))
         ht = 0.5 * th * k
         ring = []
         for j in range(RIB_SIDES):
@@ -520,7 +691,8 @@ RIB_OFF = 1.7      # ribbon centre offset above the skin, px
 RIB_W = 0.0023     # ribbon width, m
 RIB_T = 0.0009     # ribbon thickness, m
 RIB_CROSS = RIB_T / PX + 0.15   # px the upper lace rides above the lower where they cross
-RIB_KNOT_W = 1.9   # the ankle knot band's width, in ribbon widths
+RIB_KNOT_W = 1.4   # the ankle knot band's width, in ribbon widths (round 11: a band wrapped
+                   # round the gathered loops; round 10's 1.9-wide patch read as a cube)
 
 
 def _leg_sec(row):
@@ -553,6 +725,13 @@ def _skin_points(row):
         for k in range(144):
             a = 2 * math.pi * k / 144
             pts.append(((xi + xo) / 2 + (xo - xi) / 2 * math.sin(a), (yf + yb) / 2 - (yb - yf) / 2 * math.cos(a)))
+    # round 11: and the leg's real outline (leg_section + leg_offset: malleoli, tendon,
+    # heel), so a lace never runs closer than RIB_OFF to a bump the ellipse misses (the
+    # outer malleolus came within 0.3 mm of the instep laces)
+    out = _leg_outline(spec.SHEET_GROUND_Y - zpx)
+    if out is not None:      # 72 points round: four between each for _skin_radius's 0.7 px rays
+        nxt = np.roll(out, -1, axis=0)
+        pts += [tuple(p) for k in range(4) for p in out + (nxt - out) * (k / 4)]
     y = -88.0
     while y <= 17.0:
         sec = _foot_section(y)
@@ -606,8 +785,7 @@ def ank(theta, row, off=RIB_OFF, sx=1):
 def _to_leg(p, sx):
     """(theta, row, off) such that ank(theta, row, off, sx) == world point p."""
     x, y, zpx = sx * p.x / PX, p.y / PX, p.z / PX
-    top = spec.SHEET_GROUND_Y - SQUEEZE_ROW
-    row = spec.SHEET_GROUND_Y - zpx if zpx >= top else SQUEEZE_ROW + (top - zpx) / _K
+    row = row_of(zpx)
     sec = _ankle_sec(row)
     cx, cy, rx, ry = sec[:4]
     d = Vector((x - cx, y - cy))
@@ -617,9 +795,104 @@ def _to_leg(p, sx):
     return th, row, dist - _skin_radius(sec, d.x, d.y)
 
 
-def _on_leg(bm, ctrl, sx, n=3, closed=False, w=RIB_W, taper=1.0, around=False, swell=None):
-    """Ribbon through (theta, row, off) controls around the skin. `around`: a
-    closed loop whose theta runs once round the leg (wraps at 360 degrees)."""
+# Round 11: a lace is no longer a polyline through 2-4 projected samples per control span
+# (a visible kink about every 1 cm, the skin tables' facets on top). Its controls are
+# sampled densely, projected onto the skin, smoothed along the lace (Gaussian, LACE_SIGMA;
+# open ends stay put) and resampled by arc length, closer where it bends: at most
+# LACE_TURN per sample and LACE_STEP apart on straight runs.
+LACE_DENSE = 48      # Catmull-Rom samples per control span before smoothing
+LACE_SIGMA = 2.0     # px: smoothing along the lace
+LACE_STEP = 3.2      # px: longest step between samples (straight runs)
+LACE_MIN = 0.5       # px: shortest step (the bow loops' tight ends)
+LACE_TURN = 7.0      # degrees: most a lace turns between two samples
+
+
+def _arclen(P, closed):
+    seg = np.linalg.norm((np.roll(P, -1, 0) if closed else P[1:]) - P[:-1 if not closed else None], axis=1)
+    return seg, np.concatenate([[0.0], np.cumsum(seg)])
+
+
+def _smooth_line(P, sigma, closed):
+    """Gaussian smoothing of a polyline along its arc length (sigma in m). Open ends are
+    padded by point reflection, which keeps each end point and its direction."""
+    seg, s = _arclen(P, closed)
+    if closed:
+        L = s[-1]
+        s = s[:-1]
+        d = s[None, :] - s[:, None]
+        d = (d + L / 2) % L - L / 2
+        ds = (seg + np.roll(seg, 1)) / 2
+        w = np.exp(-0.5 * (d / sigma) ** 2) * ds[None, :]
+        return (w @ P) / w.sum(1, keepdims=True)
+    L = s[-1]
+    k0 = max(1, int(np.searchsorted(s, 3 * sigma)))
+    k1 = max(1, int(len(s) - np.searchsorted(s, L - 3 * sigma)))
+    k0, k1 = min(k0, len(P) - 1), min(k1, len(P) - 1)
+    EP = np.concatenate([2 * P[0] - P[k0:0:-1], P, 2 * P[-1] - P[-2:-k1 - 2:-1]])
+    ES = np.concatenate([-s[k0:0:-1], s, 2 * L - s[-2:-k1 - 2:-1]])
+    ds = np.gradient(ES)
+    w = np.exp(-0.5 * ((ES[None, :] - s[:, None]) / sigma) ** 2) * ds[None, :]
+    out = (w @ EP) / w.sum(1, keepdims=True)
+    out[0], out[-1] = P[0], P[-1]
+    return out
+
+
+def _resample(P, closed, step=LACE_STEP, turn=LACE_TURN, least=LACE_MIN):
+    """Arc-length parameters (m) for samples along polyline P: at most `turn` degrees of
+    bend and `step` px apart, never closer than `least` px."""
+    seg, s = _arclen(P, closed)
+    Q = np.vstack([P, P[:1]]) if closed else P
+    tng = np.diff(Q, axis=0)
+    tng /= np.maximum(np.linalg.norm(tng, axis=1, keepdims=True), 1e-12)
+    prev = np.roll(tng, 1, 0) if closed else np.vstack([tng[:1], tng[:-1]])
+    ang = np.arccos(np.clip((tng * prev).sum(1), -1.0, 1.0))      # bend at each segment's start
+    kappa = ang / np.maximum((seg + (np.roll(seg, 1) if closed else np.r_[seg[:1], seg[:-1]])) / 2, 1e-9)
+    # density (samples per m), smoothed so the spacing changes gradually
+    rho = np.maximum(kappa / math.radians(turn), 1.0 / (step * PX))
+    sig = 2.0 * PX
+    mid = s[:-1] + seg / 2
+    if closed:
+        L = s[-1]
+        d = (mid[None, :] - mid[:, None] + L / 2) % L - L / 2
+    else:
+        d = mid[None, :] - mid[:, None]
+    w = np.exp(-0.5 * (d / sig) ** 2) * seg[None, :]
+    rho = np.minimum((w @ rho) / w.sum(1), 1.0 / (least * PX))
+    cost = np.concatenate([[0.0], np.cumsum(rho * seg)])
+    n = max(int(math.ceil(cost[-1])), 8 if closed else 2)
+    tgt = np.linspace(0.0, cost[-1], n, endpoint=False) if closed else np.linspace(0.0, cost[-1], n + 1)
+    return np.interp(tgt, cost, s), s
+
+
+def _at(P, s, closed, si):
+    """Points of polyline P (arc lengths s) at arc lengths si."""
+    Q = np.vstack([P, P[:1]]) if closed else P
+    return np.stack([np.interp(si, s, Q[:, k]) for k in range(3)], 1)
+
+
+def _lace(bm, pts, nrms, closed=False, w=RIB_W, taper=1.0, swell=None, sigma=LACE_SIGMA, least=LACE_MIN):
+    """Smooth, resample and build a lace from a dense centre line `pts` (N x 3, m) with
+    outward normals `nrms` (N x 3). `swell(f)` scales the section by the arc-length
+    share f (0..1, closed: 1 is the start again)."""
+    P = _smooth_line(np.asarray(pts, float), sigma * PX, closed)
+    N = _smooth_line(np.asarray(nrms, float), sigma * PX, closed) if len(nrms) > 1 else None
+    si, s = _resample(P, closed, least=least)
+    pts = [Vector(p) for p in _at(P, s, closed, si)]
+    if N is None:
+        nn = [Vector(nrms[0])] * len(pts)
+    else:
+        nn = [Vector(n).normalized() for n in _at(N, s, closed, si)]
+    frac = list(si / s[-1])
+    sw = [swell(f) for f in frac] if swell else None
+    _ribbon(bm, pts, nn, w, RIB_T, closed=closed, taper=taper, swell=sw, frac=frac)
+    return pts
+
+
+def _leg_line(ctrl, sx, closed=False, around=False):
+    """Dense centre line and outward normals (N x 3 arrays) of a lace through
+    (theta, row, off) controls round the skin. `around`: a closed loop whose theta runs
+    once round the leg (wraps at 360 degrees)."""
+    n = LACE_DENSE
     if around:
         m = len(ctrl)
         ext = ([(ctrl[-1][0] - 360.0,) + tuple(ctrl[-1][1:])] + list(ctrl)
@@ -628,10 +901,14 @@ def _on_leg(bm, ctrl, sx, n=3, closed=False, w=RIB_W, taper=1.0, around=False, s
     else:
         samples = _catmull(ctrl, n, closed)
     pts = [ank(th, r, off, sx) for th, r, off in samples]
-    nrms = [(ank(th, r, off + 1.0, sx) - ank(th, r, off, sx)).normalized() for th, r, off in samples]
-    span = len(samples) if closed else max(len(samples) - 1, 1)   # closed: f=1 is the start again
-    sw = [swell(i / span) for i in range(len(samples))] if swell else None
-    _ribbon(bm, pts, nrms, w, RIB_T, closed=closed, taper=taper, swell=sw)
+    nrms = [(ank(th, r, off + 1.0, sx) - p).normalized() for (th, r, off), p in zip(samples, pts)]
+    return np.array([tuple(p) for p in pts]), np.array([tuple(v) for v in nrms])
+
+
+def _on_leg(bm, ctrl, sx, closed=False, w=RIB_W, taper=1.0, around=False, swell=None):
+    """Lace through (theta, row, off) controls around the skin (see _leg_line)."""
+    pts, nrms = _leg_line(ctrl, sx, closed, around)
+    return _lace(bm, pts, nrms, closed=closed or around, w=w, taper=taper, swell=swell)
 
 
 KNOT = (-12.0, 832.0)  # bow knot (theta, row)
@@ -643,11 +920,39 @@ def _band_row(theta):
     return 841.0 - 9.0 * math.cos(math.radians(theta - KNOT[0]))
 
 
+# The bow's knot (round 11): a short band wrapped right round the wrap and the gathered
+# loop roots and ends (a closed ribbon about the around-the-leg direction), so the bow
+# shows no open end and no block: its section is an ellipse KNOT_A px (out from the skin,
+# along the leg) about a centre KNOT_OFF px off the skin; the loops and ends are gathered
+# KNOT_ROOT px off it, just outside the wrap they are tied from.
+KNOT_OFF = RIB_OFF + 0.5
+KNOT_A = (1.1, 1.2)
+KNOT_ROOT = RIB_OFF + 0.75
+
+
+def _knot(bm, sx):
+    kth, krow = KNOT
+    c = ank(kth, krow, KNOT_OFF, sx)
+    out = (ank(kth, krow, KNOT_OFF + 1.0, sx) - c).normalized()
+    along = ank(kth + 1.0, krow, KNOT_OFF, sx) - ank(kth - 1.0, krow, KNOT_OFF, sx)
+    along = (along - out * along.dot(out)).normalized()
+    up = along.cross(out).normalized()
+    a, b = KNOT_A[0] * PX, KNOT_A[1] * PX
+    pts, nrms = [], []
+    for i in range(96):
+        t = 2 * math.pi * i / 96
+        pts.append(tuple(c + out * (a * math.cos(t)) + up * (b * math.sin(t))))
+        nrms.append(tuple((out * (math.cos(t) / a) + up * (math.sin(t) / b)).normalized()))
+    return _lace(bm, pts, nrms, closed=True, w=RIB_W * RIB_KNOT_W, sigma=0.01, least=0.22)
+
+
 def _ribbons(bm, sx, line):
+    """All laces of one shoe; returns their centre lines by name (for the clearance report)."""
     o = RIB_OFF
+    laces = {}
     # ankle wrap
-    _on_leg(bm, [(th, _band_row(th), o) for th in range(-180, 180, 60)], sx, n=2,
-            closed=True, around=True)
+    laces['wrap'] = _on_leg(bm, [(th, _band_row(th), o) for th in range(-180, 180, 60)], sx,
+                            around=True)
     # instep criss-cross: each lace starts tucked under the rolled topline on
     # one side of the vamp, climbs across the instep (crossing a little to
     # the inner side, as on the sheet), reaches the far side of the leg and
@@ -657,13 +962,18 @@ def _ribbons(bm, sx, line):
         want = ank(-78.0 * s, 908.0, o, sx)
         anchor = min(line, key=lambda q: (q - want).length)
         th0, row0, off0 = _to_leg(anchor, sx)
-        _on_leg(bm, [(th0, row0, off0 - RIM_T * 0.5), (CROSS[0], CROSS[1], o + lift),
-                     (72 * s, 866.0, o + lift), (125 * s, 856.0, o),
-                     (150 * s, _band_row(150 * s) + 1.0, o)], sx, n=4)   # ~0.5 cm samples through the ankle bend
-    # back X above the heel counter: wrap sides -> across the back -> tab top
+        laces[f'instep{s:+d}'] = _on_leg(
+            bm, [(th0, row0, off0 - RIM_T * 0.5), (CROSS[0], CROSS[1], o + lift),
+                 (72 * s, 866.0, o + lift), (125 * s, 856.0, o),
+                 (150 * s, _band_row(150 * s) + 1.0, o)], sx)
+    # back X above the heel counter: wrap sides -> across the back -> tab top. The outer
+    # lace rides over the inner one where they cross behind the tendon (round 8's lift
+    # left their centre lines 0.5 mm apart: the 0.9 mm laces cut through each other).
     for s in (1, -1):
-        _on_leg(bm, [(115 * s, _band_row(115 * s), o), (165 * s, 853.0, o + 0.35 * (s + 1)),
-                     (192 * s, 859.0, o + 0.7)], sx, n=2)
+        hi = RIB_CROSS if s > 0 else 0.0
+        laces[f'back{s:+d}'] = _on_leg(
+            bm, [(115 * s, _band_row(115 * s), o), (165 * s, 853.0, o + hi),
+                 (192 * s, 859.0, o + hi + 0.3)], sx)
     # bow: two full loops spreading sideways from the knot at the front of
     # the ankle and lifting off the skin toward their ends (a soft teardrop:
     # narrow at the knot, round at the far end), a gathering knot and two
@@ -676,17 +986,17 @@ def _ribbons(bm, sx, line):
             u = (1 - math.cos(t)) / 2                       # 0 at the knot, 1 at the far end
             th = kth + s * span * u
             row = krow - 3.5 * u - hgt * math.sin(t) * (0.35 + 0.65 * u ** 0.7) * s
-            ctrl.append((th, row, o + 0.8 + 5.0 * u * u))
+            # the roots are gathered in the knot band, just outside the wrap
+            ctrl.append((th, row, o + 0.8 + (KNOT_ROOT - o - 0.8) * (1 - u) + 5.0 * u * u))
         # the ribbon is a little narrower where it is gathered into the knot
-        _on_leg(bm, ctrl, sx, n=2, closed=True,
-                swell=lambda f: 0.8 + 0.2 * (1 - math.cos(2 * math.pi * f)) / 2)
+        laces[f'loop{s:+d}'] = _on_leg(bm, ctrl, sx, closed=True,
+                                       swell=lambda f: 0.8 + 0.2 * (1 - math.cos(2 * math.pi * f)) / 2)
     for s in (1, -1):
-        _on_leg(bm, [(kth + 2 * s, krow + 1.0, o + 1.3), (kth + 8 * s, krow + 6.5, o + 1.6),
-                     (kth + 15 * s, krow + 13.0, o + 1.7), (kth + 21 * s, krow + 19.0, o + 1.5)],
-                sx, n=2, taper=0.55)
-    # knot: a short band wrapped round the gathered loops, domed off the skin
-    _on_leg(bm, [(kth - 4.5, krow, o + 1.3), (kth, krow, o + 1.9), (kth + 4.5, krow, o + 1.3)],
-            sx, n=2, w=RIB_W * RIB_KNOT_W)
+        laces[f'end{s:+d}'] = _on_leg(
+            bm, [(kth + 2 * s, krow + 1.0, KNOT_ROOT), (kth + 8 * s, krow + 6.5, o + 1.6),
+                 (kth + 15 * s, krow + 13.0, o + 1.7), (kth + 21 * s, krow + 19.0, o + 1.5)],
+            sx, taper=0.55)
+    laces['knot'] = _knot(bm, sx)
     # long end hanging at the outer back below the leaves, swinging out a
     # little (kept close to the heel: further back it crosses the ankle's
     # knee/ankle weight blend and stretches when the foot points)
@@ -696,8 +1006,32 @@ def _ribbons(bm, sx, line):
     tail = [(47.0, 9.0, 853.5), (52.2, 14.5, 866.0), (53.6, 18.0, 881.0),
             (51.5, 19.2, 899.0)]
     ctrl = [tuple(wrap_point(RIB_OFF, sx))] + [tuple(P(*p, sx)) for p in tail]
-    pts = [Vector(c) for c in _catmull(ctrl, 2)]
-    _ribbon(bm, pts, [Vector((sx, 0.35, 0.0)).normalized()] * len(pts), RIB_W, RIB_T, taper=0.6)
+    laces['tail'] = _lace(bm, _catmull(ctrl, LACE_DENSE), [tuple(Vector((sx, 0.35, 0.0)).normalized())],
+                          taper=0.6)
+    return laces
+
+
+def lace_report(laces, reach=0.002):
+    """Closest approach (mm) of every pair of laces, away from their ends (where a lace
+    joins the wrap or the knot on purpose): (distance, name a, name b, world point)."""
+    out = []
+    names = sorted(laces)
+    for i, a in enumerate(names):
+        A = np.array([tuple(p) for p in laces[a]])
+        for b in names[i + 1:]:
+            B = np.array([tuple(p) for p in laces[b]])
+            d = np.linalg.norm(A[:, None] - B[None], axis=2)
+            ea = np.minimum(np.linalg.norm(A - A[0], axis=1), np.linalg.norm(A - A[-1], axis=1)) > reach
+            eb = np.minimum(np.linalg.norm(B - B[0], axis=1), np.linalg.norm(B - B[-1], axis=1)) > reach
+            if a in ('wrap', 'knot') or a.startswith('loop'):
+                ea[:] = True
+            if b in ('wrap', 'knot') or b.startswith('loop'):
+                eb[:] = True
+            d = np.where(ea[:, None] & eb[None], d, np.inf)
+            k = np.unravel_index(np.argmin(d), d.shape)
+            if np.isfinite(d[k]):
+                out.append((d[k] * 1000, a, b, tuple(np.round(A[k[0]], 4))))
+    return sorted(out)
 
 
 # ---------------------------------------------------------------- leaves
@@ -807,18 +1141,26 @@ def _strap_normals(me):
 
 def build(col):
     shell_bm, rib_bm, leaf_bm = bmesh.new(), bmesh.new(), bmesh.new()
-    heel_faces = []
+    solids = []
     # leaf root in left-shoe coordinates: _leaf mirrors its points itself
     root = wrap_point(RIB_OFF + LEAF_ROOT_OFF)
     for sx in (1, -1):
         line = _shell(shell_bm, sx)
-        heel_faces += _heel(shell_bm, sx)
-        _ribbons(rib_bm, sx, line)
+        sole, floor = _outsole(shell_bm, sx)
+        shaft, lift = _heel(shell_bm, sx, floor)
+        for f in lift:
+            f.material_index = 1
+        solids += sole + shaft + lift
+        laces = _ribbons(rib_bm, sx, line)
         for tip, hw, roll, twist in LEAVES:
             _leaf(leaf_bm, root, P(*tip), hw, roll, sx, twist)
-    # heels are closed: let bmesh orient them; the open shells are wound
-    # outward by construction (_shell)
-    bmesh.ops.recalc_face_normals(shell_bm, faces=heel_faces)
+        if sx > 0:
+            near = [r for r in lace_report(laces) if r[0] < RIB_T * 1000 * 1.2 and r[1] != 'knot']
+            print(f'SHOES tread at {floor * PX * 1000:.2f} mm; laces closer than the lace '
+                  f'thickness: {len(near)}', ' '.join(f'{a}x{b} {d:.2f}mm' for d, a, b, _ in near[:6]))
+    # the outsoles, heels and lifts are closed: let bmesh orient them; the open shells
+    # are wound outward by construction (_shell)
+    bmesh.ops.recalc_face_normals(shell_bm, faces=solids)
     bmesh.ops.remove_doubles(shell_bm, verts=shell_bm.verts, dist=1e-7)
     _finish(rib_bm)
     _finish(leaf_bm)
