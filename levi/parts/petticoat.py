@@ -89,7 +89,10 @@ Shadows: see CAST_TIERS / CAST_CORE (render.py reads obj['levi_cast_shadow']).
 Rigging: the rig weights every skirt-family layer by angle x height to the
 skirt chains, which follow the thighs (levi/rig.py); the tiers' weights are
 blended toward each other where they lie within ~1 cm (rig.LAYER_PARTS), so
-the nested tiers move together.
+the nested tiers move together. The core takes the plain angle x height blend
+(rig.PLAIN_OBJECTS: at most four bones, no smoothing, prune or refit, so it
+does not depend on the drape tables), and the tiers take it at their seams
+on the core (rig.LAYER_SEAM).
 Every tier wraps round both legs, well clear of them; none passes between
 the thighs.
 

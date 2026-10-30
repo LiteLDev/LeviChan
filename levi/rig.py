@@ -1004,7 +1004,16 @@ DRAPE_GATHER_W = (2.0, 0.5, 0.05, 0.1, 0.2)
 DRAPE_MOVE_FREE = 0.25
 DRAPE_INWARD = 2.0
 DRAPE_SWEEPS = 16           # coordinate descent sweeps (alternating direction)
-DRAPE_PTS = 300             # cloth points per chain sector the clearance tests
+DRAPE_PTS = 300             # cloth points per chain sector the clearance tests (without DRAPE_BIN)
+# Round 11: the clearance tests the innermost cloth point of each DRAPE_BIN cell (deg round
+# the chain x m of height) of the sector, over the skirt and the petticoat's full meshes.
+# The DRAPE_PTS points taken evenly by index were a different few hundred whenever a point
+# entered or left the sector (the mean centre cy moves with any cloth edit), and the
+# petticoat grid (DRAPE_GRID, first object first) dropped the inner tiers where they lie
+# within a cell of the outer one: one skirt edit under the right hand changed the front
+# chains' clearance by 20-40 deg and the inner tiers went 2.8 cm into the raised thigh in
+# the run clip.
+DRAPE_BIN = (2.0, 0.01)
 DRAPE_INNER = 10.0          # percentile of the sector's radius taken as its innermost cloth (rest ring)
 # The chains and the drape see the petticoat's cloth thinned to one point per DRAPE_GRID
 # cell (_grid_points), so its share of the sector samples (DRAPE_PTS, taken evenly by
@@ -1338,7 +1347,7 @@ def _drape_gather(Pm, J, rest, sg, init, cy=0.0):
     return A, psi, (A, psi)
 
 
-def _skirt_drape(chains, pts, cy, hip, knee, body):
+def _skirt_drape(chains, pts, cy, hip, knee, body, inner=None):
     """Drape table of the skirt chains: {chain k: {'L'|'R': (nseg, len(DRAPE_PHI)) absolute
     forward turn (rad) of each segment, 'yL'|'yR': (len(DRAPE_PHI),) the chain's yaw
     (rad, _yaw)}} for that thigh pitched alone by each DRAPE_PHI, and under 'La' / 'Ra'
@@ -1385,12 +1394,24 @@ def _skirt_drape(chains, pts, cy, hip, knee, body):
     Js = np.array([[tuple(j) for j in joints] for _, joints in chains])     # (K, n + 1, 3)
     n = Js.shape[1] - 1
     # each chain's sector of cloth (subsampled), its segment and rest clearance
+    cpts = pts if inner is None or not DRAPE_BIN else inner
+    cang = np.degrees(np.arctan2(cpts[:, 0], cpts[:, 1] - cy))
     secs = []
     for k, (a, joints) in enumerate(chains):
         J = Js[k]
-        d = (ang - a + 180.0) % 360.0 - 180.0
-        sel = pts[np.abs(d) < 0.6 * step]
-        if len(sel) > DRAPE_PTS:
+        d = (cang - a + 180.0) % 360.0 - 180.0
+        m = np.abs(d) < 0.6 * step
+        sel = cpts[m]
+        if DRAPE_BIN and len(sel):
+            # the innermost point of each (angle, height) cell (see DRAPE_BIN)
+            rad = np.hypot(sel[:, 0], sel[:, 1] - cy)
+            ka = np.floor(d[m] / DRAPE_BIN[0]).astype(np.int64)
+            kz = np.floor(sel[:, 2] / DRAPE_BIN[1]).astype(np.int64)
+            o = np.lexsort((rad, kz, ka))
+            first = np.ones(len(o), dtype=bool)
+            first[1:] = (ka[o][1:] != ka[o][:-1]) | (kz[o][1:] != kz[o][:-1])
+            sel = sel[np.sort(o[first])]
+        elif len(sel) > DRAPE_PTS:
             sel = sel[np.linspace(0, len(sel) - 1, DRAPE_PTS).astype(int)]
         zj = J[:, 2]
         u = np.interp(-sel[:, 2], np.maximum.accumulate(-zj), np.arange(n + 1.0))
@@ -2548,7 +2569,8 @@ def _secondary_bones(parts, core):
         if SKIRT_DRAPE and chains:
             th = byname['足.L']
             drape = _skirt_drape(chains, pts, cy, np.array(th.head),
-                                 np.array(th.tail) + np.array((0.0, -DRAPE_KNEE_FWD, 0.0)), verts('body'))
+                                 np.array(th.tail) + np.array((0.0, -DRAPE_KNEE_FWD, 0.0)), verts('body'),
+                                 inner=verts('skirt', 'petticoat'))
         for k, (ang, joints) in enumerate(chains):
             hem_r = max(0.03, math.hypot(joints[-1].x, joints[-1].y - cy) * math.pi / SKIRT_SECTORS)
             # the chain hangs from two follow bones that add a share of each thigh's
@@ -3117,7 +3139,7 @@ def _fold_targets(bones):
     return out
 
 
-def _prune(w, bones=None, guide=None, co=None):
+def _prune(w, bones=None, guide=None, co=None, motion=None):
     """Keep at most MAX_INFLUENCE bones per vertex, continuously and without crushing the
     kept ones. With t the 5th-largest weight (at least MIN_WEIGHT), every bone folds away
     the share 1 - smoothstep(t, PRUNE_FOLD * t, w) of its weight w: all of it at or below t
@@ -3162,32 +3184,63 @@ def _prune(w, bones=None, guide=None, co=None):
     idx = np.argsort(-out, axis=1, kind='stable')[:, :kk]
     ww = np.take_along_axis(out, idx, axis=1)
     ww = ww / np.maximum(ww.sum(1, keepdims=True), 1e-12)
-    if co is not None and bones is not None and _MOTION:
-        ww = _motion_refit(w, idx, ww, co, bones, fold.sum(1) > 1e-9)
+    if motion is None and _MOTION_CHAIN and bones is not None and _chain_cloth(bones):
+        motion = _MOTION_CHAIN
+    motion = motion or _MOTION
+    if co is not None and bones is not None and motion:
+        ww = _motion_refit(w, idx, ww, co, bones, fold.sum(1) > 1e-9, motion)
     return idx, ww
 
 
+def _chain_cloth(bones):
+    """Whether `bones` are a skirt-family part's candidates (_candidates: 上半身 / 下半身 and
+    the skirt chains), which _prune refits with MOTION_CHAIN_POSES as well."""
+    return any(b.group == MOTION_CHAIN_GROUP for b in bones) and \
+        all(b.group == MOTION_CHAIN_GROUP or b.name in MOTION_CHAIN_BODY for b in bones)
+
+
 _MOTION = {}          # deform bone name -> (K, 3, 4) skinning matrices in the sample poses (build_rig)
+# Skirt-family refit (round 11): of the generic samples only the few that turn the thighs,
+# the torso and all chain roots together move the skirt chains, so a vertex blending three
+# chains had about as many informative samples as kept weights, and its refit followed
+# whatever the drape tables did in those few (neighbouring petticoat-core vertices ended
+# on chain 4 vs chain 6: x3.2 in cross_legged, and any change of the drape moved the cliff).
+# The skirt and petticoat are refitted with MOTION_CHAIN_POSES as well: each thigh on its
+# own and both together, forward, back and out ((bone, how, deg), as MOTION_POSES), the
+# skirt chains following through their drape drivers, so the kept bones match the
+# unpruned blend over the drape's range instead of a few samples.
+MOTION_CHAIN_GROUP = 'Skirt'          # the chains' bone group ...
+MOTION_CHAIN_BODY = ('上半身', '下半身')  # ... and the body bones a skirt-family part may take
+_FWD, _BACK = (0, -1, 0), (0, 1, 0)
+MOTION_CHAIN_POSES = (
+    (('足.L', _FWD, 45),), (('足.R', _FWD, 45),), (('足.L', _FWD, 90),), (('足.R', _FWD, 90),),
+    (('足.L', _FWD, 120),), (('足.R', _FWD, 120),), (('足.L', _BACK, 30),), (('足.R', _BACK, 30),),
+    (('足.L', 'side', 35),), (('足.R', 'side', 35),), (('足.L', 'side', -35),), (('足.R', 'side', -35),),
+    (('足.L', _FWD, 80), ('足.R', _FWD, 80)),
+    (('足.L', _FWD, 60), ('足.R', _BACK, 25)), (('足.R', _FWD, 60), ('足.L', _BACK, 25)),
+)
+_MOTION_CHAIN = {}    # as _MOTION, plus the chain samples (build_rig)
 MOTION_D = 0.01       # m: motion error that weighs as much as moving a kept weight by its own size
 MOTION_TOP = 8        # strongest unpruned bones whose motion the refit matches
 
 
-def _motion_refit(w, idx, ww, co, bones, folded):
+def _motion_refit(w, idx, ww, co, bones, folded, motion=None):
     """Re-weight the kept bones of each pruned vertex so it moves as the unpruned blend
     did in the sample poses (_motion_samples): least squares over the poses, sum 1,
     regularized toward the folded weights, the more strongly the smaller a kept weight
     is (a bone entering the set enters at zero: no jump). Folding a few % of torso weight
     on a raised upper arm into the arm moves the skin centimetres; this puts it back.
     Only vertices that lost weight in the prune are touched."""
+    motion = motion or _MOTION
     rows = np.nonzero(folded)[0]
     if not len(rows):
         return ww
-    shape = next(iter(_MOTION.values())).shape
+    shape = next(iter(motion.values())).shape
     S = np.zeros((len(bones),) + shape)
     have = np.zeros(len(bones), dtype=bool)
     for j, b in enumerate(bones):
-        if b.name in _MOTION:
-            S[j] = _MOTION[b.name]
+        if b.name in motion:
+            S[j] = motion[b.name]
             have[j] = True
     K = shape[0]
     m = min(MOTION_TOP, w.shape[1])
@@ -4092,7 +4145,9 @@ def _shell_share(w, co, bones):
 # leg poses (one weight field of angle and height shared by all the objects instead mixed
 # 5-6 chain bones round the narrow hips and stretched the core x4-5 in high_kick). The
 # core, sewn to the middle tier, keeps its own: shared, its sparse rings' pruned weights
-# carried their steps into the tier's seam (x2.7 in walk).
+# carried their steps into the tier's seam (x2.7 in walk). Since the integration of round
+# 11 the core takes the plain blend (PLAIN_OBJECTS) and the tiers take it at their seams
+# onto the core (LAYER_SEAM).
 LAYER_PARTS = {'petticoat': 'petticoat_tier'}    # part -> name prefix of its layer objects
 LAYER_REACH = 0.012
 LAYER_K = 6
@@ -4100,6 +4155,32 @@ LAYER_ITERS = 2
 LAYER_SMOOTH = 0.02  # m: the blend's change is smoothed along each layer (no steps where the nearest vertices switch)
 _LAYER_SRC = {}      # part -> its objects (build_rig)
 _LAYER = {}          # (part, bone names) -> {object name: shared weights}
+# Skirt-family objects weighted by the plain angle x height blend of _skirt_weights alone:
+# no smoothing, so at most four bones (two chains x two segments) by construction, and no
+# prune or motion refit (_plain_weights). Round 11: the petticoat core's sparse rings,
+# smoothed 6 cm, carried 6-12 bones per vertex; the refit picked four of them per vertex
+# from the few generic samples that move the chains, so neighbouring vertices could land on
+# different chains (chain 4 vs chain 6: x3.2 in cross_legged, x2.9 in lie_back_elbows),
+# and where they did changed with every drape table (a skirt edit under the right hand
+# moved the cliff onto the core). The plain blend stretches the core x1.6-2.0 in the same
+# poses and does not depend on the drape at all.
+PLAIN_OBJECTS = ('petticoat_core',)
+# ... and the layers sewn onto them take the same plain blend at the seam: a layer's weights
+# blend from the plain ones within LAYER_SEAM[0] of a PLAIN_OBJECTS mesh to their own
+# (shared, smoothed) ones beyond LAYER_SEAM[1] (smoothstep), so the seam does not open (the
+# middle and inner tiers' tops stood 1.5-2 cm off the plain core in walk and run, against
+# 0.5-1 cm when the core was smoothed too and 0.3-0.6 cm with the tiers fully plain, which
+# stretched the inner tier's hem more: x2.05 in jump_tuck).
+LAYER_SEAM = (0.005, 0.025)
+
+
+def _plain_weights(w):
+    """(idx, ww) of the MAX_INFLUENCE largest weights of each row, renormalized: for weights
+    that already have at most that many bones (PLAIN_OBJECTS), no fold and no refit."""
+    k = min(MAX_INFLUENCE, w.shape[1])
+    idx = np.argsort(-w, axis=1, kind='stable')[:, :k]
+    ww = np.take_along_axis(w, idx, axis=1)
+    return idx, ww / np.maximum(ww.sum(1, keepdims=True), 1e-12)
 
 
 def _layer_shared(part, bones):
@@ -4110,12 +4191,13 @@ def _layer_shared(part, bones):
     if key in _LAYER:
         return _LAYER[key]
     objs = [o for o in _LAYER_SRC.get(part, []) if len(o.data.vertices) and o.name.startswith(LAYER_PARTS[part])]
-    co, w, edges = {}, {}, {}
+    co, w, edges, base = {}, {}, {}, {}
     for o in objs:
         c = _world_verts([o])
         edges[o.name] = _topology(o, c)
         ww = _base_weights(part, c, bones)
         ww = ww / np.maximum(ww.sum(1, keepdims=True), 1e-12)
+        base[o.name] = ww
         co[o.name], w[o.name] = c, _smooth(ww, c, edges[o.name], SMOOTH_RADIUS.get(part, DEFAULT_SMOOTH))
     own = dict(w)
     near = {}       # (a, b) -> (indices (V, K), factors (V, K)) of b's vertices near a's
@@ -4150,6 +4232,18 @@ def _layer_shared(part, bones):
         w[a] = own[a] + _smooth(w[a] - own[a], co[a], edges[a], LAYER_SMOOTH)
         w[a] = np.maximum(w[a], 0.0)
         w[a] /= np.maximum(w[a].sum(1, keepdims=True), 1e-12)
+    # at the seam onto a plain layer, the plain blend (LAYER_SEAM)
+    seam = [o for o in _LAYER_SRC.get(part, []) if len(o.data.vertices) and o.name.startswith(PLAIN_OBJECTS)]
+    if seam and LAYER_SEAM:
+        pc = _world_verts(seam)
+        tree = KDTree(len(pc))
+        for i, p in enumerate(pc):
+            tree.insert(p, i)
+        tree.balance()
+        for a in w:
+            d = np.array([tree.find(p)[2] for p in co[a]])
+            s = 1.0 - _smoothstep(LAYER_SEAM[0], LAYER_SEAM[1], d)
+            w[a] = (1.0 - s)[:, None] * w[a] + s[:, None] * base[a]
     _LAYER[key] = w
     return w
 
@@ -4627,6 +4721,8 @@ def _weights(obj, part, co, bones):
     ok = masked.sum(1) > 1e-9
     w = np.where(ok[:, None], masked, w)
     w = w / w.sum(1, keepdims=True)
+    if obj.name.startswith(PLAIN_OBJECTS):
+        return _plain_weights(w)
     radius = SLEEVE_SMOOTH if part == 'sleeves' and SLEEVE_BUILD else SMOOTH_RADIUS.get(part, DEFAULT_SMOOTH)
     shared = _layer_shared(part, bones).get(obj.name) if part in LAYER_PARTS else None
     w = _smooth(w, co, edges, radius) if shared is None or len(shared) != len(co) else shared
@@ -5651,6 +5747,45 @@ def _motion_samples(arm):
     return {k: np.array(v) for k, v in out.items()}
 
 
+def _motion_chain_samples(arm):
+    """{deform bone: (K', 3, 4)} skinning matrices in MOTION_CHAIN_POSES, evaluated like
+    _motion_samples (the drape drivers follow the thighs; IK muted, pose reset after)."""
+    from mathutils import Quaternion
+    pbs = arm.pose.bones
+    muted = [c for pb in pbs for c in pb.constraints if c.type == 'IK' and not c.mute]
+    for c in muted:
+        c.mute = True
+    deform = [pb for pb in pbs if pb.bone.use_deform]
+    out = {pb.name: [] for pb in deform}
+    for sample in MOTION_CHAIN_POSES:
+        for pb in pbs:
+            pb.matrix_basis.identity()
+        for name, how, deg in sample:
+            pb = pbs.get(name)
+            if pb is None:
+                continue
+            side = -1.0 if name.endswith('.R') else 1.0
+            ax = pb.bone.matrix_local.to_3x3()
+            if how == 'side':
+                axis = Vector((0.0, side, 0.0))
+            else:
+                tgt = Vector(how)
+                tgt.x *= side
+                axis = ax.col[1].cross(tgt)
+            local = (ax.inverted() @ axis).normalized()
+            pb.rotation_mode = 'QUATERNION'
+            pb.rotation_quaternion = Quaternion(local, math.radians(deg)) @ pb.rotation_quaternion
+        bpy.context.view_layer.update()
+        for pb in deform:
+            out[pb.name].append(np.array(pb.matrix @ pb.bone.matrix_local.inverted())[:3])
+    for pb in pbs:
+        pb.matrix_basis.identity()
+    for c in muted:
+        c.mute = False
+    bpy.context.view_layer.update()
+    return {k: np.array(v) for k, v in out.items()}
+
+
 def bone_table(arm=None):
     """[(blender_name, jp, en)] for the rig in the scene (for export)."""
     arm = arm or bpy.data.objects[ARM_NAME]
@@ -5687,8 +5822,12 @@ def build_rig():
     print(f"rig head  目.L           {H.get('eye_src', 'mesh') if 'eye' in H else 'spec'}  ({ey.x:+.3f}, {ey.y:+.3f}, {ey.z:+.3f})")
     bones = core + _secondary_bones(parts, core)
     arm = _create_armature(bones)
-    global _ATTACH_HOST, _PARENTS, _MOTION
+    global _ATTACH_HOST, _PARENTS, _MOTION, _MOTION_CHAIN
     _MOTION = _motion_samples(arm) if PRUNE_MOTION else {}
+    _MOTION_CHAIN = {}
+    if _MOTION and MOTION_CHAIN_POSES:
+        extra = _motion_chain_samples(arm)
+        _MOTION_CHAIN = {b: np.concatenate([m, extra[b]]) for b, m in _MOTION.items() if b in extra}
     _PARENTS = {b.name: b.parent for b in bones}
     host = []
     for objs in parts.values():
