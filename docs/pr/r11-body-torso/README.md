@@ -3,8 +3,9 @@
 风堇 has no torso, shoulders, elbows or forearms, so Levi's upper body stays procedural. This
 branch fixes the defects the round-11 analysis found there. It also adds the anatomy that the
 strapless dress shows, kept soft enough that the cel ramp draws at most one clean terminator
-per form. Only `levi/parts/body.py` changes. It now reads the bodice's pure surface functions
-(see "Cross-part").
+per form. `levi/parts/body.py` changes, and the integration fix below also widens the neck's
+weight split in `levi/rig.py` (`NECK_KNOTS`). The body reads the bodice's pure surface
+functions (see "Cross-part").
 
 The review of the first pass found four problems, and this pass fixes them:
 
@@ -12,6 +13,87 @@ The review of the first pass found four problems, and this pass fixes them:
 - the faired chest hid the bodice's rim line;
 - the rounded elbow cost bend span;
 - the neck contract could not be met at the chin.
+
+## Integration fix: the neck in head turns
+
+The full merge (r11/integrate 1b06af3, every round-11 lane) read the body's neck at x1.63 in
+look_over_shoulder (round 10 1.49, minor level 1.60) and x1.39 / x0.77 in head_left / right
+(round 10 1.31 / 0.81).
+
+**Diagnosis** (the posed body's worst edges, each split into the turn of every bone that
+weights it; heat maps of edge stretch in `neck_heat.jpg`):
+
+- The worst edge sat at the nape's back-left, 145° round the neck, between rings 178 and 180:
+  a 3.8 mm column edge across the 首 → 頭 weight ramp (頭 0.36 → 0.23). A head turn moves
+  its upper end round the neck further than its lower end. Round 10 had the same edge,
+  4.7 mm long, at x1.40.
+- This branch's trapezius relief moved the skin along the surface normal. On the neck
+  base's flare that normal tilts up, so the relief lifted ring 180 to 1.6 rows below
+  ring 178 there, and out sideways. The edge became shorter and helical, and a twist
+  stretches a helical edge to first order. With the trapezius off, the pose reads x1.49.
+- The head merge (i12 1.594 → i13 1.626) moved 頭 1 mm back (`rig.fit_head` reads the new
+  face), which tilts 首 and shifts the ramp a little along that edge.
+- head_left's x0.77 is on ring 170's sides. The ring is tilted (the jaw tilt fades out to
+  row 178), so it runs across the ramp and a head turn squeezes it.
+
+**Fix** (two commits; `levi/parts/body.py` and `rig.NECK_KNOTS`):
+
+- `_torso_relief`: the back's terms (trapezius, spine, shoulder blades) move the skin by the
+  level part of the normal, so the nape's rings keep their rows. The neck's base behind
+  (rows 178–180, 120–150°) is 0.25–0.7 px slimmer; rows 148–176 are unchanged (0.03 px).
+- `rig.NECK_KNOTS`: 首 → 頭 over t 0.4–1.2 along 首 (was 0.5–1.15), so a turn of the head
+  alone is shared over a quarter more of the neck. The chin stays 頭 (99% at t 1.16). The
+  split also applies to head_face's neck tube and jaw underside (`NECK_PARTS`), so the tube
+  stays inside the body's neck.
+
+**Tried and dropped:**
+
+- Levelling the neck rings below row 170 (`NECK_TILT_END` 170): body x1.51, head_left
+  1.30 / 0.82. But the table rows the tilt had carried up the nape moved down, so the neck
+  under the choker was 0.3–0.7 px slimmer. The choker followed it into the hair: forward_bend
+  hair × garment crossings 33 → 48 (a new minor), curtsy 36 → 43.
+- Refilling the table there to keep the surface still gave forward_bend 34 hair × choker
+  pairs, against 20.
+- Knots up to t 1.3–1.4: the body at x1.21, but the chin took 首 (head_face x1.41–1.49).
+- A lower start, t 0.3: 頭 reaches the shoulder base (x1.61).
+- Widening `NECK_REACH` was not pursued: it moves weight onto the trapezius.
+
+**Results** (the motion report's numbers; `integ_motion_report.md` is the full merge on 78bca50):
+
+| | round 10 | r11/integrate | fix |
+|---|---|---|---|
+| look_over_shoulder body stretch | 1.491 | 1.626 | **1.549** |
+| head_left / right body stretch | 1.309 | 1.389 | **1.318** |
+| head_left / right body compress | 0.813 | 0.771 | **0.793** |
+| head_left choker stretch / compress | 1.263 / 0.562 | 1.326 / 0.478 | 1.264 / 0.549 |
+| head_left halter stretch / compress | 1.294 / 0.759 | 1.395 / 0.604 | 1.363 / 0.581 |
+| head_left head_face stretch / compress | 1.368 / 0.688 | 1.209 / 0.691 | 1.201 / 0.729 |
+| look_over_shoulder choker stretch / compress | 1.189 / 0.753 | 1.238 / 0.708 | 1.197 / 0.748 |
+| look_over_shoulder head_face compress | 0.844 | 0.788 | 0.818 |
+| forward_bend body / halter | 1.286 / 0.944 | 1.283 / 0.873 | 1.283 / 0.881 |
+
+- The look_over_shoulder maximum is now round 10's shoulder-base cluster: rows 184–189,
+  where 首's weight fades out radially (`NECK_REACH`) under 肩. The nape edge reads x1.53.
+- Two full motion reports were run: 1b06af3 + fix, and the latest r11/integrate (78bca50,
+  with the hair_back plate and hair_front ahoge) + fix against 78bca50 alone.
+  - Issue counts: 481 → 479 and 487 → 485. Body minor and accessories minor each drop by 1.
+    No new issue anywhere.
+  - With a 3% tolerance, no body, accessories, head or hair metric is worse, and 17 are
+    better.
+- Hair × garment crossings, already above the minor level in these poses: head_left
+  110 → 114 and 118 → 133, head_right 107 → 112, look_over_shoulder 108 → 119, test
+  110 → 116 and dance_point 130 → 147 (on 78bca50). Others are lower: hug_self 59 → 42,
+  lie_back_elbows 119 → 107, spin 77 → 69.
+  - By object (1b06af3): the knots let the choker's front turn a little more with the
+    head (head_left choker pairs 88 → 92), and the halter's crossings in
+    look_over_shoulder go 20 → 29.
+  - The horizontal relief alone changes none of them (88 / 22).
+- Core gate (`final_core_gate.txt`): head_left / right x1.40 / 1.41 (hair_back, as before),
+  hair_cap pen 0.38 → 0.31 cm.
+- `neck_turn.jpg`: no visible change in clay or cel at the front, the side or under the
+  jaw.
+- `neck_heat.jpg`: the nape's hot spot is gone in both poses, and the side's squeeze in
+  head_left is lighter.
 
 ## What changed
 
@@ -77,10 +159,15 @@ The review of the first pass found four problems, and this pass fixes them:
 
 ## Gates (cluster, Blender 5.2.3, final code)
 
+This table is the part lane's, on its own branch before the merge. On the integrated
+branch with the integration fix: check.py OK (body 14,799 / 24,000, total 153,186 /
+200,000) and rig_check OK with the repeat build (`final_core_gate.txt`). The neck contract
+below and every rig joint are as before; the IoU was not re-measured.
+
 | | r11/base | first pass | this branch |
 |---|---|---|---|
 | check.py | OK, body 7,417 | OK, 7,569 | OK, body 7,569 / 24,000, total 108,120 / 200,000 |
-| rig_check, 17 core, with the repeat build | OK | OK | OK (`final_core_gate.txt`) |
+| rig_check, 17 core, with the repeat build | OK | OK | OK |
 | core stretch: arms_up / fist / squat / side_bend | 1.78 / 1.86 / 1.85 / 1.47 | 1.77 / 1.86 / 1.85 / 1.46 | 1.78 / 1.86 / 1.85 / 1.47 |
 | core pen cm: arms_forward / head_left / side_bend | 0.44 / 0.21 / 1.76 | 0.48 / 0.26 / 1.76 | 0.44 / 0.26 / 1.76 |
 | rig joints | | elbow 1.4 mm out | all identical to r11/base |
@@ -151,7 +238,10 @@ radius (px) of the build's surface about that axis, by row and direction (0° = 
 | 172 | 13.9 | 13.7 | 13.4 | 13.7 | 14.7 | 15.1 | 14.3 |
 | 176 | 14.4 | 14.2 | 14.0 | 14.6 | 15.7 | 16.2 | 15.1 |
 
-The rings rise toward the back: ring 161 spans rows 151.8 (back) to 161 (front).
+The rings rise toward the back: ring 161 spans rows 151.8 (back) to 161 (front). The
+integration fix leaves rows 148–176 as they were (within 0.03 px); only the neck's base
+behind (rows 178–180, 120–150°) is 0.25–0.7 px slimmer, where the back relief no longer
+lifts ring 180.
 
 - **From the crease down, the head stays inside.** The head's surface must be at most
   12.2 px (19 mm) from the axis, at least 1 px inside the body (the body's outline hull
@@ -176,7 +266,15 @@ r11/bodice does not change these functions.
 
 ## Sheets
 
-All sheets compare round 10 (r11/base), the first pass and the final build.
+All sheets except the two `neck_*` ones compare round 10 (r11/base), the first pass and
+the final build of the part lane.
+
+- `neck_turn.jpg` (integration fix): the neck in look_over_shoulder (`los_`) and head_left
+  (`hl_`) from the front, the left side and below, clay (body and head only) and cel
+  (dressed), r11/integrate 1b06af3 (`i14`) beside the fix.
+- `neck_heat.jpg` (integration fix): edge stretch on the body (white 1.0, red toward 1.6
+  with darker steps at 1.3 / 1.45 / 1.6, blue below 0.75) at the nape, the side and under
+  the jaw in both poses, and the rest nape in clay and cel.
 
 - `halter.jpg`: the strap close-up (cel, clay), the strap from the side, and the halter
   from the front.
@@ -187,7 +285,8 @@ All sheets compare round 10 (r11/base), the first pass and the final build.
   Columns: round 10 clay, final clay, wireframe and cel.
 - `poses.jpg`: round 10 vs final, clay and cel: idol_dance@78, reach_up_back, arms_up,
   hands_behind_head (back) and look_over_shoulder (neck).
-- `final_core_gate.txt`, `final_motion_report.md`, `final_metrics_delta.md`.
+- `final_core_gate.txt` (the integration fix), `final_motion_report.md` and `final_metrics_delta.md`
+  (the part lane), `integ_motion_report.md` (the full merge with the integration fix).
 
 ## Not run
 
