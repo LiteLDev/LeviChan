@@ -2020,6 +2020,30 @@ HAIR_CAPSULE_FADE = (0.1, 0.45)
 # the face); this way the push stays under ~0.15 of the radius and below the cap.
 HAIR_CAPSULE_FADE_BY = {'hair_cheek': (0.5, 1.0)}
 HAIR_COLLIDE_REACH = 0.12   # m: trunk / skirt / head hulls farther than this from a probe at rest are not tested
+# Round 11: an arm swung behind her (idol_dance@77, the run and walk strides) passed through the
+# back locks and the lining riding them, the bag of the sleeve showing in patches between the
+# locks (idol_dance@77: 5.3 m of crossing curve with the sleeve). The back-hair locks below
+# HAIR_COLLIDE_BACK_TOP now meet the upper arm and forearm as capsules of their own, as fat as
+# the sleeve's bag (HAIR_COLLIDE_BACK_Q-th percentile of the skin and sleeve's distance from the
+# bone, not the side locks' HAIR_CAPSULE_Q), so the locks lie over the bag. The capsule's fade
+# (HAIR_CAPSULE_FADE) keeps an arm sweeping right through from flinging them across, and the
+# push and turn caps hold. Above that height an arm reaches the back hair only overhead or
+# behind the head, where the hair is the head's (HAIR_HEAD_FADE) and cannot give way.
+HAIR_COLLIDE_BACK_ARMS = ('upperarm', 'forearm')
+HAIR_COLLIDE_BACK_Q = 85.0
+HAIR_COLLIDE_BACK_TOP = L['shoulder_z'] - 0.08
+HAIR_COLLIDE_BACK_PREFIX = 'back_'     # collider name prefix of those capsules
+# ... and where the arm lies close behind her they push only outward: a lock whose unpushed
+# point lies between the arm and her (seen from above, round the trunk's axis at 上半身's head)
+# is left where it is, under the arm, rather than pushed into her back (a forearm folded
+# behind her back put a central lock through the bodice and the skirt's waist). The push
+# fades in as the cosine between the arm-to-lock and trunk-to-arm directions rises between
+# HAIR_COLLIDE_BACK_SIDE (0: the lock beside the arm), or as the arm's axis lies farther than
+# HAIR_COLLIDE_BACK_ROOM plus the kept distance from the trunk's axis (room to push inward:
+# an arm swung back at her side pushes the outer locks in toward her back).
+HAIR_COLLIDE_BACK_SIDE = (-0.35, 0.05)
+HAIR_COLLIDE_BACK_ROOM = (0.12, 0.16)
+HAIR_COLLIDE_BACK_TRUNK = '上半身'
 # (not normalised, on purpose: pushed alike with both neighbours a segment moves 1.3x its push,
 # which is spare clearance; normalised, an isolated push was resolved only by half)
 
@@ -2206,6 +2230,14 @@ def _hair_colliders(arm, parts, bones, want=(), blender=True):
                           f'{cap.t0 * 100:.1f}-{cap.t1 * 100:.1f} cm along {pname}')
                 else:
                     print(f'rig hair collider {cname + sfx}: no capsule ({len(pts)} points), hull instead')
+                if cname in HAIR_COLLIDE_BACK_ARMS:
+                    # (round 11) the back locks' capsule of this limb: as fat as the sleeve's bag
+                    bag = _Capsule.fit(pname, fit, np.array(bn.head_local), np.array(bn.tail_local),
+                                       q=HAIR_COLLIDE_BACK_Q)
+                    if bag:
+                        out[HAIR_COLLIDE_BACK_PREFIX + cname + sfx] = (None, bag, None)
+                        print(f'rig hair capsule {HAIR_COLLIDE_BACK_PREFIX + cname + sfx}: r {bag.r * 100:.1f} cm, '
+                              f'{bag.t0 * 100:.1f}-{bag.t1 * 100:.1f} cm along {pname} (back hair)')
             if in_blender and cap is None:
                 add(cname + sfx, pts, pname)
             if pmx and pname in names and len(pts) >= 8:
@@ -2387,11 +2419,15 @@ def _hair_collision(arm, bones, parts):
         low = at[2] < L['shoulder_z'] - 0.10     # far below the neck: the head and neck are out of reach
         # the limbs first, the trunk last: squeezed between a raised arm and the chest, the
         # hair ends outside the trunk (the larger, slower surface) rather than inside it
-        order = ('hand', 'forearm', 'upperarm', 'shoulder', 'skirt', 'waist', 'chest', 'neck', 'head')
+        order = (HAIR_COLLIDE_BACK_PREFIX, 'hand', 'forearm', 'upperarm', 'shoulder', 'skirt', 'waist', 'chest',
+                 'neck', 'head')
         for cname, (obj, bvh, info) in sorted(colliders.items(), key=lambda kv: (
                 next((i for i, p in enumerate(order) if kv[0].startswith(p)), len(order)), kv[0])):
             if info is not None and cname != mine:
                 continue
+            if cname.startswith(HAIR_COLLIDE_BACK_PREFIX):
+                if not b.name.startswith('後髪') or at[2] > HAIR_COLLIDE_BACK_TOP:
+                    continue       # (see HAIR_COLLIDE_BACK_ARMS)
             if cname.startswith(HAIR_COLLIDE_LIMBS) and (b.name.startswith('後髪') or (
                     at[2] > HAIR_COLLIDE_ARM_Z + (HAIR_COLLIDE_CAP_ABOVE if cname.startswith('shoulder') else 0.0))):
                 continue           # (see HAIR_COLLIDE_LIMBS)
@@ -2578,6 +2614,25 @@ def _hair_collision(arm, bones, parts):
                         for tg, bn in zip(v.targets, (anchor, centre)):
                             tg.id, tg.bone_target, tg.transform_space = arm, bn, 'WORLD_SPACE'
                         drv.expression = f'smoothstep({fade[0] * r:.4f}, {fade[1] * r:.4f}, d)'
+                        if cname.startswith(HAIR_COLLIDE_BACK_PREFIX) and HAIR_COLLIDE_BACK_TRUNK in arm.pose.bones:
+                            # (see HAIR_COLLIDE_BACK_SIDE) outward only, seen from above
+                            # u, v: the unpushed point; x, y: its point on the axis; s, t: the trunk's
+                            for vn, bn, ch in (('u', anchor, 'X'), ('v', anchor, 'Y'), ('x', centre, 'X'),
+                                               ('y', centre, 'Y'), ('s', HAIR_COLLIDE_BACK_TRUNK, 'X'),
+                                               ('t', HAIR_COLLIDE_BACK_TRUNK, 'Y')):
+                                var = drv.variables.new()
+                                var.name, var.type = vn, 'TRANSFORMS'
+                                tg = var.targets[0]
+                                tg.id, tg.bone_target = arm, bn
+                                tg.transform_type, tg.transform_space = 'LOC_' + ch, 'WORLD_SPACE'
+                            lo, hi = HAIR_COLLIDE_BACK_SIDE
+                            r0, r1 = (dist + q for q in HAIR_COLLIDE_BACK_ROOM)
+                            # (pow, not **: a simple expression, evaluated without Python)
+                            drv.expression += (f'*max(smoothstep({lo},{hi},((u-x)*(x-s)+(v-y)*(y-t))/'
+                                               f'(sqrt((pow(u-x,2)+pow(v-y,2))*(pow(x-s,2)+pow(y-t,2)))+1e-6)),'
+                                               f'smoothstep({r0:.4f},{r1:.4f},sqrt(pow(x-s,2)+pow(y-t,2))))')
+                            if not drv.is_simple_expression:
+                                print(f'rig hair collision: {b.name} {cname}: not a simple driver expression')
                         for m in list(fc.modifiers):
                             fc.modifiers.remove(m)
                     continue
