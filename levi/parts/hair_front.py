@@ -1212,7 +1212,8 @@ BANG_ASPECT = 5.0       # width / thickness at the widest ring
 BANG_SWELL = (0.35, 0.30)
 BANG_TIP_B = 0.75
 BANG_WRAP = (0.22, 0.14)  # rim curl-back at the root and the tip (x width)
-BANG_COMMA = 3.0        # px the tip control vertex moves in toward the face (the comma)
+BANG_COMMA = 0.0        # px the tip control vertex moves in toward the face (0: the tips keep
+                        # BANG_TIP_GAP; at 3 px some tips met the brow)
 # The crescent's outer face stands 0.625 x its thickness over the spine; the spine
 # moves back by this share of the outer half over BANG_REF_HALF (px scale: root /
 # forehead, mid-fringe, tip), so the fringe keeps round 10's outline and its tips
@@ -1395,7 +1396,7 @@ CURL_IN = (92.0, 0.9)
 # 1.2): in front of the shoulder a front-facing ribbon read as a thin strip in profile.
 CURL_FORWARD = 0.7
 CURL_SPIRAL = dict(turn=235, toward=(-0.5, 0.0, -0.87), face='plane', radius=0.021, core=0.4, lead=1.5,
-                   exp=0.8, taper=(1.6, 0.8))
+                   exp=0.8, taper=(1.4, 1.2))   # (taper exponent > 1: the end closes to a point)
 
 
 def _curl_lock():
