@@ -29,8 +29,12 @@ Layout (back view, the character's left = image left):
   - OUTER locks (OUTER, both sides): the wave lock over the back of the upper arm and the
     crescent past the sleeve (a flat C-blade) under the mass's outer locks; the side
     lock down the side of the mass, facing out (the side view reads full from her back
-    to the hair's back); the shoulder flick on top, a narrow lock whose green end flicks
-    back and up in its own plane.
+    to the hair's back); the shoulder flick on top, a narrow accent lock whose green end
+    lies along the mass in a soft point (never pointing at a viewer: seen end-on, a
+    curled end reads as a dot with an outline ring).
+Lock ends that do not curl close in a cubic Hermite point (TIP_*), so the kernel's apex
+fan is a small point, not a flat cone with a crease and straight edges; the curls close
+as (1 - psi)^1.5 (CURL_TAPER), so they and their sub-tips end in points too.
 Every lock settles two-sided onto the layers under it (_settle: lifted where it cuts
 into them, lowered where a whole ring floats, each one smooth displacement of the spine),
 then the underside of each ring sinks onto what it bridges (_drape_section), so the
@@ -389,12 +393,16 @@ def grad_global(bx, row):
 # - above the skull centre, the skull ellipsoid (as hair_front);
 # - below it, a vertical elliptic cylinder, blended in over VOL_BLEND_ROWS
 #   rows so there is no crease at the skull's equator;
-# - from the shoulder blades down, the cylinder splits into the sheet's two
-#   lobes (VOL_LOBES): two cylinders that meet in a soft valley at the lobes'
-#   parting (the sheet's long shade wedge beside the parting).
+# - from the shoulder blades down, the normal turns gently toward the lobes' parting
+#   (VOL_LOBES): the slope of a Gaussian groove, steepest `sigma` px to either side of
+#   the parting. It stays under the cel threshold in the sheet's light, so the sheet's
+#   shade wedge beside the parting is left out rather than drawn badly: round 11 first
+#   blended two lobe cylinders' normals there, which swung the normal by ~140 deg within
+#   28 mm of the parting (a bright ridge at its bottom), a crease that a lock's 9-14 mm
+#   vertex spacing drew as a polygonal, saw-toothed shade patch at 4x.
 VOL_AXES_LOW = (92.0, 80.0)    # single cylinder half axes (X, Y) px below the skull
 VOL_BLEND_ROWS = 40.0
-VOL_LOBES = dict(offset=50.0, axes=(42.0, 110.0), valley=18.0, rows=(165.0, 285.0))
+VOL_LOBES = dict(sigma=24.0, slope=1.45, rows=(165.0, 285.0))
 VOL_KEEP = 0.25     # own-normal share of the under-layer (and the floor of the blend)
 KEEP_TOP = 0.3      # ... of a lock high up,
 KEEP_LOW = 0.55     # ... on its free lower length (KEEP_ROWS) ...
@@ -404,21 +412,14 @@ SIDE_KEEP = 0.6     # the outer side locks
 
 
 def _lobe_normal(dx, dy, single):
-    """Normal of the two-lobe volume: each lobe's inner flank (towards the
-    parting) turns into the valley; its outer flank keeps the single
-    cylinder's normal (`single`), so the mass's outer sides shade as before."""
+    """`single` turned about the vertical toward the parting by the groove's slope
+    (VOL_LOBES): odd and smooth in the distance from the parting, zero on it and
+    fading out over a few sigma, so the field has no crease anywhere."""
     lb = VOL_LOBES
-    xs = CX - VALLEY[0] - SKULL_C[0]               # parting, X px from the axis
-    ax, ay = lb['axes']
-    s = smooth01((dx - xs) / lb['valley'] + 0.5)   # 1 on the character's left lobe
-    out = Vector((0.0, 0.0, 0.0))
-    for side, wgt in ((1.0, s), (-1.0, 1.0 - s)):
-        xc = xs + side * lb['offset']
-        n = Vector(((dx - xc) / ax ** 2, dy / ay ** 2, 0.0))
-        inner = smooth01(0.5 - side * (dx - xc) / lb['valley'])
-        n = (n.normalized() if n.length > 1e-12 else single) * inner + single * (1.0 - inner)
-        out += n * wgt
-    return out
+    u = (dx - (CX - VALLEY[0] - SKULL_C[0])) / lb['sigma']
+    a = math.atan(lb['slope'] * u * math.exp(0.5 * (1.0 - u * u)))   # + : toward -X (the parting, from her left)
+    c, s = math.cos(a), math.sin(a)
+    return Vector((single.x * c - single.y * s, single.x * s + single.y * c, single.z))
 
 
 def volume_normal(co, lobes=True):
@@ -729,10 +730,26 @@ PRIM_ASPECT = 4.0            # width / thickness at the widest point (back prima
 PRIM_WRAP = (0.15, 0.12)     # crescent wrap at the root (hugging the skull) and down the lock
 PRIM_WAVE = (6.0, 170.0)     # sideways amplitude px, wavelength rows
 PRIM_WAVE_ROWS = (205.0, 285.0)   # rows over which the wave fades in
-TIP_LEN = 0.09               # m over which a lock without a curl closes into its blade
+TIP_LEN = 0.09               # m over which a lock without a curl closes into its blade (at least)
+# A blade tip closes over TIP_K x its width (at least TIP_LEN) as a cubic Hermite in
+# the distance from the point: tangent to the lock's sides where it starts, and
+# TIP_SLOPE (full width per length) at the point, so its sides converge at ~30 deg and
+# never faster than the kernel's apex rule (last ring >= 1.2 x its width before the
+# apex): the kernel rings it to within a few mm of the apex, whose fan is a small
+# point. (Round 11's (1 - x^2.2)^0.7 ogive closed too steeply near the end: the kernel
+# put the last ring where the taper began, so C and E ended in 30-65 mm flat fans, a V
+# / an arrowhead with a crease where they met the lock and long straight edges.)
+TIP_K = 1.6
+TIP_SLOPE = 0.55
 CURL_TILT = 50.0             # deg a back-view curl turns out of the image plane (away from her): seen
                              # as an arc from behind and from the side, never edge-on
 N_RING = 16                  # vertices round a primary (12 / 14 / 16 by width otherwise)
+# A curl's width over its turn (hk.curl taper: w_c (1 - psi^a)^b, psi 0 -> 1): as wide as
+# before through the middle of the turn, closing as (1 - psi)^1.5 at the end, so the kernel's
+# decay limit (x0.84 per mm) no longer holds the last few mm wide: the curls and their
+# sub-tips end in points (round 11's (1.5, 0.8) ended them 6-9 mm wide, a square-cut stub
+# with an outline at 4x)
+CURL_TAPER = (2.0, 1.5)
 FLAT_TOP = (0.5, (140.0, 280.0))  # a primary's thickness share above the first row, full by the second
 
 # One entry per primary, the character's left to right. f: place across the mass;
@@ -751,8 +768,8 @@ PRIMS = [
     dict(name='D', f=0.6, layer=0, wf=1.0, ph=165.0, end=448,
          keys=[(332, 240), (335, 290), (334, 330), (334, 368), (339, 404), (346, 428), (352, 448)],
          curl=(30.0, 190.0, -1, 0.72), split=(0.95, (0.55, 0.45), 4.0, (1.0, 0.75))),
-    dict(name='E', f=0.8, layer=1, wf=1.0, ph=185.0, end=380,
-         keys=[(374, 290), (382, 326), (393, 354), (404, 380)]),
+    dict(name='E', f=0.8, layer=1, wf=1.0, ph=185.0, end=405,
+         keys=[(374, 290), (382, 326), (392, 354), (401, 380), (407, 405)]),
     dict(name='F', f=1.0, layer=0, wf=1.0, ph=205.0, end=442,
          keys=[(392, 248), (398, 290), (408, 330), (416, 370), (420, 404), (424, 424), (427, 442)],
          curl=(22.0, 165.0, -1, 0.72)),
@@ -883,12 +900,20 @@ def _resample(pts, spacing):
 
 def _width_fn(U, w_px, taper_len=None, length=None):
     """Kernel width callable (u -> m) from a width profile over the arc fraction U,
-    closed into a blade over the last taper_len m of a lock of `length` m."""
+    closed into a pointed blade over the last taper_len m (or longer) of a lock of
+    `length` m (see TIP_*)."""
     w_m = np.asarray(w_px, float) / PX
     if taper_len is None:
         return lambda u: np.interp(u, U, w_m)
-    ut = max(0.4, 1.0 - taper_len / length)
-    return lambda u: np.interp(u, U, w_m) * hk.taper(u, swell=None, tip=(ut, 2.2, 0.7))
+    w_end = float(w_m[-1])
+    lt = min(max(taper_len, TIP_K * w_end), 0.5 * length)
+    m0 = min(TIP_SLOPE * lt / w_end, 3.0)            # the point's slope, in units of w_end / lt
+
+    def width(u):
+        u = np.asarray(u, float)
+        x = np.clip((1.0 - u) * length / lt, 0.0, 1.0)
+        return np.interp(u, U, w_m) * (x * x * (3.0 - 2.0 * x) + m0 * x * (1.0 - x) ** 2)
+    return width
 
 
 def _curl_params(c, w_end_px):
@@ -906,7 +931,7 @@ def _curl_params(c, w_end_px):
     w_c = core * w_end_px / PX
     # (a flat blade bending in its own plane: rho = (w / 2) / R, so R >= 1.25 w at rho 0.4)
     return hk.curl(turn=turn, toward=toward, face=face, radius=max(R / PX, 1.3 * w_c) if face == 'plane' else R / PX,
-                   core=core, lead=1.8, taper=(1.5, 0.8))
+                   core=core, lead=1.8, taper=CURL_TAPER)
 
 
 def mass_lock_kwargs(d):
@@ -941,16 +966,17 @@ def _end_narrow(U, L, share=0.62, length=0.14):
 # and hang along the back of the sleeve. Points as in the module docstring; w: width
 # px per point; face: the outer face's direction (world, character's left side).
 OUTER = [
-    # shoulder flick: a narrow lock down the outer edge of the mass over the shoulder blade,
-    # its green end turning back and up in one open flick in its own plane (the sheet's
-    # green flick at sx ~400, row ~225 in the side view); it narrows to under half its width
-    # before the flick (a blade, not a spoon) and rests on the locks under it; it reaches
-    # 0.2 m below eye level, so it is a lock with its own chain (see _check_islands)
+    # shoulder flick: a narrow accent lock down the outer edge of the mass over the shoulder
+    # blade, resting on the locks under it, its green end a soft point lying along the
+    # mass. (Its end used to turn back and up 100 deg toward the viewer behind her: from
+    # the back and the 3/4 back views the curl was seen end-on, a dot with its own outline
+    # ring.) It reaches 0.2 m below eye level, so it is a lock with its own chain (see
+    # _check_islands); it does not cast (obj): its shadow printed a hard, aliased band on
+    # the lock beside it.
     dict(name='flick', pts=[('s', 84, 86), (250, 322, 130), (245, 330, 160), (239, 340, 192), (233, 350, 220),
-                            (228, 358, 242), (225, 364, 256)],
-         w=[8, 11, 13, 13, 12, 10, 8], face=(0.45, 1.0, 0.0), aspect=3.2, gr=(185, 250),
-         curl=dict(turn=100.0, toward=(0.1, 1.0, 0.8), face='plane', radius=0.02, core=0.6, lead=1.8,
-                   taper=(1.3, 0.9))),
+                            (228, 358, 242), (224, 364, 258), (221, 368, 272)],
+         w=[8, 11, 13, 13, 12, 11, 10, 9], face=(0.45, 1.0, 0.0), aspect=3.2, gr=(185, 250), tip=0.07,
+         obj='hair_back'),
     # wave lock: spreads over the back of the upper arm in two soft S lobes (the
     # green-tipped waves beside the sleeve top in the front view) and closes in a blade
     dict(name='wave', pts=[('s', 80, 98), (250, 326, 158), (236, 347, 200), (206, 353, 240),
@@ -963,13 +989,15 @@ OUTER = [
                                (188, 368, 298), (156, 375, 340), (124, 378, 380), (104, 381, 410)],
          w=[15, 18, 20, 22, 21, 20, 18, 16], face=(0.3, 1.0, 0.0), aspect=4.2, gr=(300, 395),
          curl=dict(turn=200.0, toward=(1.0, 0.15, 0.0), face='plane', radius=0.026, core=0.62, lead=1.8,
-                   taper=(1.6, 0.8))),
+                   taper=CURL_TAPER)),
     # side lock: down the side of the mass between the crescent and the outer primary,
     # facing out to the side: seen from the side the mass reads full from her back to the
-    # hair's back (the sheet), seen from behind it closes the gap beside the mass
+    # hair's back (the sheet), seen from behind it closes the gap beside the mass; it lies on
+    # the mass and does not cast (obj: its shadow printed an aliased wedge on the locks beside it)
     dict(name='side', pts=[('s', 82, 102), (248, 340, 170), (242, 354, 210), (234, 366, 250),
                            (226, 375, 290), (220, 381, 325), (216, 385, 352), (214, 388, 378)],
-         w=[15, 22, 30, 34, 34, 31, 26, 16], face=(0.8, 0.6, 0.0), aspect=3.5, gr=(285, 380), tip=0.08),
+         w=[15, 22, 30, 34, 34, 31, 26, 16], face=(0.8, 0.6, 0.0), aspect=3.5, gr=(285, 380), tip=0.08,
+         obj='hair_back'),
 ]
 OUTER_BY = {d['name']: d for d in OUTER}
 
@@ -1395,12 +1423,13 @@ def outline_weights(meshes, vols):
 
 
 # ---------------------------------------------------------------- build
-# Three objects. The locks of the mass ('hair_back') do not cast sun shadows: at the
-# low key light every lock edge printed a hard 1 px shadow copy of itself onto the
-# lock beside it. The under-layer ('hair_back_shell') casts for the whole mass
-# instead, so the hair still shadows the dress and back behind it. The curled
-# primaries and the outer side locks ('hair_back_side') do cast: their curls shadow
-# the skirt below them and the side locks the sleeves, as on the sheet.
+# Three objects. The locks of the mass ('hair_back': the six primaries, the side locks and
+# the flicks) do not cast sun shadows: at the low key light every lock edge printed a
+# hard shadow copy of itself onto the lock beside it (at 4x a thin grey streak with an
+# aliased, saw-tooth edge). The under-layer ('hair_back_shell') casts for the whole mass
+# instead, so the hair still shadows the dress and back behind it (the skirt takes
+# no hair shadows anyway: render.CASTER_POLICY). The outer locks over the arms
+# ('hair_back_side': wave, crescent) do cast: they shadow the sleeves, as on the sheet.
 def build_strands():
     """All back-hair strands, in build (layer) order: [(object, strand, kind, info)] and
     the under-layer grids."""
@@ -1415,7 +1444,7 @@ def build_strands():
     def side(d):
         for sd in (1, -1):
             st, info = _settle(side_lock_kwargs(d, sd), lowers)
-            built.append(('hair_back_side', st, ('side', d), info))
+            built.append((d.get('obj', 'hair_back_side'), st, ('side', d), info))
             lowers.append(st)
     side(OUTER_BY['wave'])
     side(OUTER_BY['crescent'])
@@ -1423,7 +1452,7 @@ def build_strands():
     for layer in (0, 1):
         for d in (d for d in defs if d['layer'] == layer):
             st, info = _settle(mass_lock_kwargs(d), lowers)
-            built.append(('hair_back_side' if d['curled'] else 'hair_back', st, 'mass', info))
+            built.append(('hair_back', st, 'mass', info))
             lowers.append(st)
     side(OUTER_BY['side'])
     side(OUTER_BY['flick'])
