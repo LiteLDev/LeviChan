@@ -2032,6 +2032,13 @@ HAIR_COLLIDE_REACH = 0.12   # m: trunk / skirt / head hulls farther than this fr
 HAIR_COLLIDE_BACK_ARMS = ('upperarm', 'forearm')
 HAIR_COLLIDE_BACK_Q = 85.0
 HAIR_COLLIDE_BACK_TOP = L['shoulder_z'] - 0.08
+# ... only the locks hanging at least this far round from straight back (lock_angle, deg): the
+# ones beside the arms, which an arm swinging back meets alongside. The primaries behind her
+# (and the lining riding them, hair_back's FOLLOW_ANGLE) are left to pass through an arm
+# folded behind her back: it sweeps across them, and a kinematic push dragged the central
+# lock 19 cm sideways and let it snap back in a frame (idol_dance@74-78: a 376 mm pop at its
+# tip, the lining torn x3.1 and 201 faces flipped).
+HAIR_COLLIDE_BACK_MIN_ANGLE = 40.0
 HAIR_COLLIDE_BACK_PREFIX = 'back_'     # collider name prefix of those capsules
 # ... and where the arm lies close behind her they push only outward: a lock whose unpushed
 # point lies between the arm and her (seen from above, round the trunk's axis at 上半身's head)
@@ -2426,7 +2433,8 @@ def _hair_collision(arm, bones, parts):
             if info is not None and cname != mine:
                 continue
             if cname.startswith(HAIR_COLLIDE_BACK_PREFIX):
-                if not b.name.startswith('後髪') or at[2] > HAIR_COLLIDE_BACK_TOP:
+                if (not b.name.startswith('後髪') or at[2] > HAIR_COLLIDE_BACK_TOP
+                        or b.meta.get('lock_angle', 0.0) < HAIR_COLLIDE_BACK_MIN_ANGLE):
                     continue       # (see HAIR_COLLIDE_BACK_ARMS)
             if cname.startswith(HAIR_COLLIDE_LIMBS) and (b.name.startswith('後髪') or (
                     at[2] > HAIR_COLLIDE_ARM_Z + (HAIR_COLLIDE_CAP_ABOVE if cname.startswith('shoulder') else 0.0))):
