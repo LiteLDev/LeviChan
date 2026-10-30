@@ -502,7 +502,8 @@ BASE = [(0, -2.6), (110, -2.6), (122, -2.2), (134, -1.8), (165, -2.6), (210, -3.
 # Under-layer: rows UNDER_ROWS every UNDER_STEP px, UNDER_COLS columns across. Its outer
 # face is BASE, its middle UNDER_T px thick (thinner at its top edge on the cap, UNDER_T_TOP
 # rows), thinning to UNDER_RIM px at its side edges, and it keeps UNDER_CAP_GAP px off the
-# cap. Half width per row in the back view: UNDER_HW.
+# cap. Half width per row in the back view: UNDER_HW (it spans well over rig.HAIR_LOCK_SPAN
+# round the head, so the rig hangs it from the sector chains, never a lock chain).
 UNDER_ROWS = (110.0, 370.0)
 UNDER_STEP = 8.0
 UNDER_TOP_ROWS = (110.0, 128.0, 146.0, 164.0, 184.0, 205.0)
@@ -511,8 +512,8 @@ UNDER_T = 1.6
 UNDER_T_TOP = (110.0, 142.0, 0.3)
 UNDER_RIM = 0.4
 UNDER_CAP_GAP = 0.4
-UNDER_HW = [(110, 70), (130, 72), (170, 70), (210, 68), (250, 70), (290, 76), (320, 76),
-            (345, 66), (360, 50), (370, 30)]
+UNDER_HW = [(110, 76), (130, 78), (170, 76), (210, 76), (250, 82), (290, 90), (320, 92),
+            (345, 84), (360, 66), (370, 42)]
 
 
 def cap_sx(bx, row):
@@ -630,7 +631,7 @@ PRIMS = [
          curl=(40.0, 205.0, 1, 0.72), split=(0.86, (0.56, 0.44), 8.0, (1.0, 0.72))),
     dict(name='L1', f=0.21, layer=0, wf=1.0, ph=20.0, end=380,
          keys=[(266, 300), (262, 335), (262, 360), (265, 380)],
-         curl=(19.0, 200.0, (0.35, 1.0, 0.7), 0.7)),
+         curl=(19.0, 200.0, (0.8, 1.0, 0.6), 0.7)),
     dict(name='C', f=0.42, layer=1, wf=0.95, ph=40.0, end=402),
     dict(name='D', f=0.6, layer=0, wf=1.0, ph=165.0, end=448,
          keys=[(332, 240), (335, 290), (334, 330), (334, 368), (339, 404), (346, 428), (352, 448)],
@@ -1187,6 +1188,44 @@ def build_strands():
     return built, (outer, inner)
 
 
+# The rig's lock test (rig._hair_locks, HAIR_LOCK_LEN / HAIR_LOCK_SPAN / 24 vertices),
+# repeated here so a build that would change the rig's lock / sector split fails loudly.
+LOCK_LEN = 0.2
+LOCK_SPAN = 70.0
+UNDER_SPAN_MIN = 76.0       # the under-layer keeps this margin over LOCK_SPAN (a sector island)
+
+
+def _island_test(p):
+    """(length below eye level m, span deg round the skull) of a loose part's points."""
+    ang = np.degrees(np.arctan2(p[:, 0], p[:, 1] - spec.L['head_center_y']))
+    c = math.degrees(math.atan2(float(np.sin(np.radians(ang)).mean()), float(np.cos(np.radians(ang)).mean())))
+    dev = (ang - c + 180.0) % 360.0 - 180.0
+    span = float(np.percentile(dev, 95) - np.percentile(dev, 5))
+    return min(spec.L['eye_z'], float(p[:, 2].max())) - float(p[:, 2].min()), span
+
+
+def _check_islands(outer, inner, built):
+    """Every primary and every wave / crescent lock passes the rig's lock test (its own
+    chain); the under-layer fails it with a margin (the sector chains)."""
+    errs = []
+    _ln, span = _island_test(np.concatenate([outer.reshape(-1, 3), inner.reshape(-1, 3)]))
+    print(f'HAIR_BACK {len(built)} strands, under-layer {span:.0f} deg round the head, largest lift '
+          f'{1000 * max(i.get("lift_max", 0.0) for _o, _s, _k, i in built):.0f} mm, skirt shortfall '
+          f'{max(i.get("skirt_short_px", 0.0) for _o, _s, _k, i in built):.1f} px')
+    if span < UNDER_SPAN_MIN:
+        errs.append(f'the under-layer spans {span:.0f} deg round the head (< {UNDER_SPAN_MIN:.0f}): it would '
+                    'be rigged as a lock')
+    for _obj, st, kind, _info in built:
+        if kind != 'mass' and kind[1]['name'] == 'flick':
+            continue                # (a short lock: the sector chains carry it, as in round 10)
+        p = np.concatenate([tb.rings.reshape(-1, 3) for tb in st.all_tubes()])
+        ln, span = _island_test(p)
+        if ln < LOCK_LEN or span >= LOCK_SPAN or len(p) < 24:
+            errs.append(f'{st.name}: {ln:.2f} m below eye level, {span:.0f} deg round the head: not a lock')
+    if errs:
+        raise ValueError('hair_back islands break the rig contract:\n  ' + '\n  '.join(errs))
+
+
 def build(col):
     mat = common.toon_material('hair', gradient='hair_tip')
     built, (outer, inner) = build_strands()
@@ -1200,6 +1239,7 @@ def build(col):
     pid = 0
     _emit_grid_shell(bms['hair_back_shell'][0], outer, inner, grad_global, VOL_KEEP)
     bms['hair_back_shell'][1] += [pid] * len(bms['hair_back_shell'][0].verts)
+    _check_islands(outer, inner, built)
     for obj_name, st, kind, info in built:
         pid += 1
         if kind == 'mass':
