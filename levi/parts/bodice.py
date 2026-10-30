@@ -17,12 +17,14 @@ Form (round 3):
   its face tilted so the loop has depth (a cone, not a wire), the returning
   half of the loop set behind the outgoing one.
 - Round 11 (clothes-detail review; same sizes, closure / sampling / silhouette
-  only): the knot is a closed wrapped solid whose edges roll under into a
-  crease round the bunched loop fabric (loop, tail and lacing ends start inside
-  it); the tails end in angled cuts meeting at one point per side; the back has
-  a centre-back and two princess seams; a 2.5 mm piping cord runs round the
-  waist on the line where the skirt comes out of the bodice (waist_seam(),
-  solved against skirt.profiles()).
+  only): the knot is a closed wrapped solid whose edges turn in to a crease
+  round the bunched loop fabric (loop, tail and lacing ends start inside it;
+  the rig skins the bow rigidly and gives those ends the knot's weights, see
+  KNOT_ATTR); the tails end in angled cuts meeting at one point per side, the
+  thin strand lying over the wide one; the back has a centre-back and two
+  princess seams; a 2.5 mm piping cord runs round the waist on the line where
+  the skirt comes out of the bodice (waist_seam(), solved against
+  skirt.profiles()).
 - The tails are flat ribbons with width that twist at their bends and narrow
   a little toward their cut tips. They lie on the skirt's own cloth surface
   (levi.parts.skirt.front_surface_y), lifted a little more around the hip so
