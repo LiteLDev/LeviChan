@@ -1585,6 +1585,10 @@ def _hair_locks(objs):
         co = _world_verts([o])
         if not len(co):
             continue
+        # (at the points the part names for weighting, if any: hair_back's lining is
+        # weighted at its outer face below the head fade band, and its chains hang there)
+        wco = _point_vec(o, co, 'levi_weight_co')
+        co = co if wco is None else wco
         lab = _islands(len(co), _topology(o, co))
         for k in np.unique(lab):
             p = co[lab == k]
