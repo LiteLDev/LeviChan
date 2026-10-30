@@ -1233,9 +1233,10 @@ BANG_TIP_GAP = 5        # px in front of the skin at the tips
 # ... and this much more where a tip ends over an eye (its upper lid and lashes stand
 # in front of the skin table; round 11 review: with the r11 head a primary's tip lay
 # 0.2 mm in front of the right upper lash): full within BANG_EYE_REACH px of the eye
-# centre column (spec eye_x) and over BANG_EYE_ROWS, fading out over BANG_EYE_FADE px.
+# centre column (spec eye_x, out to the outer corners) and over BANG_EYE_ROWS, fading
+# out over BANG_EYE_FADE px.
 BANG_EYE_GAP = 1.5
-BANG_EYE_REACH = 10.0
+BANG_EYE_REACH = 18.0
 BANG_EYE_ROWS = (90.0, 112.0)
 BANG_EYE_FADE = 8.0
 BANG_BULGE = 8          # px in front of the skin where the fringe arches out (row 84)
@@ -1397,18 +1398,20 @@ def bangs(cap_bvh):
 AHOGE_ROOT = (0.0, 265.0)       # (front-view px, side-view col) of the root on the cap top
 AHOGE_HEADING = 180.0   # deg from straight forward toward +X (seen from above): back
 AHOGE_RISE = 22.0       # deg over the scalp's tangent plane where it leaves the cap
-AHOGE_BEND = -30.0      # deg the spine turns down over its length (a circular arc in its
+AHOGE_BEND = -22.0      # deg the spine turns down over its length (a circular arc in its
                         # vertical plane; it ends still rising, so the tip is the highest point)
 AHOGE_LENGTH = 0.034    # m of free spine (plus the buried root)
 AHOGE_WIDTH = 0.015
 AHOGE_ASPECT = 2.6
 AHOGE_FACE_FWD = 0.0    # forward lean of the broad side (added to the scalp normal)
-AHOGE_TIP = (0.35, 1.6, 1.0)    # kernel tip taper from 35 % of the length: (1 - x^1.6), no kink where it starts, a point at the end
-AHOGE_SWELL = (0.75, 0.25)  # root width share, over this share of the length (a gentle swell ending
+AHOGE_TIP = (0.30, 1.15, 1.0)   # kernel tip taper from 30 % of the length, (1 - x^1.15): nearly straight
+                                # sides to a point (x^1.6 read as a round knob from the front), no kink
+                                # where it starts (x^1 turned the rims there)
+AHOGE_SWELL = (0.7, 0.22)   # root width share, over this share of the length (a gentle swell ending
                             # before the taper starts: (0.6, 0.25) turned the rims 20 deg per ring)
 AHOGE_BURY = 0.0025     # m the root ring starts under the scalp
-AHOGE_EMERGE = 0.012    # m of arc over which settle() lets the root surface
-AHOGE_SQUASH = 0.8      # ... from this share of its height over the cap (a short tuft has few rings
+AHOGE_EMERGE = 0.014    # m of arc over which settle() lets the root surface
+AHOGE_SQUASH = 0.9      # ... from this share of its height over the cap (a short tuft has few rings
                         # there: flattened to 0.35 its top creased 20 deg between two of them)
 AHOGE_MIN_RISE = 20.0   # deg: the tuft leaves the scalp at least this steeply (checked)
 AHOGE_MAX_HEIGHT = 10.0  # px: the tip stands at most this far over the cap below it (checked)
