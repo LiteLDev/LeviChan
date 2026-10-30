@@ -8,7 +8,10 @@ strands that narrow before an end curl tightens, blade tips, and a validator
 that fails the build on any strand past the limits. Overlapping clumps nest (an
 upper clump rests on the ones below it) instead of cutting through each other.
 The scalp cap is a grid around the crown whorl, so the crown's grooves run along
-its columns as smooth pleats. Roots are pressed into the cap along the smooth
+its columns as smooth pleats; its crown is a round dome (CROWN_DOME: the round-10
+table made it a pointed tent), and the ahoge is two small pinches of the scalp
+shell (AHOGE_PINCH), the way 风堇's model raises its forehead crescent out of the
+hood, not tubes stood on the scalp. Roots are pressed into the cap along the smooth
 radial direction (settle), and after that every strand's root ring must start
 inside the cap and its surface turn at most SURFACE_TURN per ring outside it
 (check_surface), so no root stands proud of the scalp or creases where it meets it.
@@ -58,14 +61,15 @@ def smooth01(t):
 # takes its crown from the shape master on top of it (see "shape master" below),
 # and CAP_PROFILE, which hair_back reads with CAP_EXP, is measured on that
 # reshaped cap (same layout: row, half width, front col, back col).
-CAP_TOP = (14, 287)          # (row, side column) of the cap apex
-CAP_PROFILE_SHEET = [
+CAP_TOP_R10 = (14, 287)      # (row, side column) of the round-4..10 cap apex
+CAP_TABLE_R10 = [
     # row, half-width, side front col, side back col
     # Round 4: the crown clumps that used to sit ~4 px proud of the cap are
     # gone, so the front of rows 17-50 moves forward by that much to keep the
     # sheet's crown outline; rows 72-86 are set back 2-3 px so the fringe over
     # them reads less like a visor (the forehead skin stays >= 10 px behind).
     # Round 5: rows 17-29 are ~1 px fuller so the crown closes as a dome.
+    # (Round 11: the rows above 72 are replaced by the round crown, see CROWN_DOME.)
     (17, 9, 263, 310),
     (20, 15, 254, 320),
     (24, 22, 247, 329),
@@ -85,6 +89,26 @@ CAP_PROFILE_SHEET = [
 ]
 CAP_BOTTOM = (178, 305)
 CAP_EXP = 2.3
+# Round 11 (crown): the old table's half widths over the crown grew linearly (row 17:
+# 9 px, 20: 15, 24: 22, 29: 28 ... 60: 55), a tent with straight ~48 deg flanks and an
+# apex radius of 13-19 px in the front and back views (the circle through the apex and
+# the outline at +-45 px: 47 px), a ridge running front to back (3D apex radii 22 x 150
+# mm): the head read pointed. The sheet's crown is a round dome (front / back outline:
+# a circle of R 52-55 px) and so is 风堇's hood (apex radius ~0.9 x its half width).
+# Rows above CROWN_DOME['blend'][1] now follow a superellipse quadrant
+#     w(row) = W (1 - ((R - row) / (R - apex))^p)^(1/p)
+# through the apex and (W, R) (p = 2: an ellipse of apex radius W^2 / (R - apex); a
+# little over 2 flattens the very top, as the sheet draws it), blended into the
+# measured rows over CROWN_DOME['blend']. Built: front / back outline apex radius
+# 50 px against 54 px for the circle through the apex and the outline at +-45 px
+# (round 10: 13-19 against 47), 3D apex radii 78 x 183 mm (check_cap_round). The
+# outline stands 1.5-3 px outside the sheet's at +-20..40 px (round 10: 1-4 px inside
+# it; p 2.1, W 64, R 100: 3-4 px outside). The apex drops from row 14 to 17 (the sheet:
+# front ~17-18, side ~15-16); the side view keeps its dome (already round: apex radius
+# ~100 px), its columns read on the old profile `shift` rows higher, shift = (apex - 14)
+# fading out by row side_fade (so the front of the crown above the fringe stays where
+# it was from row ~24 down). The skull (unit head) lies 4.4 cm under the old apex.
+CROWN_DOME = dict(apex=17.0, p=2.05, w=58.0, row=84.0, blend=(60.0, 72.0), side_fade=26.0)
 # Round 5: ring rows (denser toward the apex, where the dome turns fastest)
 # and sections around. The profile between the measured rows is a monotone
 # cubic (no creases where the slope changes); above the first measured row a
@@ -135,36 +159,80 @@ def _pchip_slopes(xs, ys):
     return m
 
 
+def _make_profile(top, table):
+    """The profile function of a cap table: row -> (half width, side front col, side
+    back col), a monotone cubic through the rows, closed above the first row by a sqrt
+    dome with a vertical tangent at the apex `top` (row, side col)."""
+    t = [r[0] for r in table]
+    cols = [[r[c] for r in table] for c in (1, 2, 3)]
+    slopes = [_pchip_slopes(t, c) for c in cols]
+    apex = (0.0, top[1], top[1])     # half width, front col, back col at the apex
+
+    def profile(row):
+        if row <= t[0]:
+            # dome: v = apex + a sqrt(d) + b d, matching value and slope at row t[0]
+            d0 = t[0] - top[0]
+            d = max(0.0, row - top[0])
+            out = []
+            for c, (ys, ms) in enumerate(zip(cols, slopes)):
+                delta, s = ys[0] - apex[c], ms[0]
+                a = (delta - d0 * s) / (math.sqrt(d0) / 2)
+                b = s - a / (2 * math.sqrt(d0))
+                out.append(apex[c] + a * math.sqrt(d) + b * d)
+            return tuple(out)
+        if row >= t[-1]:
+            return tuple(c[-1] for c in cols)
+        i = next(k for k in range(len(t) - 1) if row <= t[k + 1])
+        h = t[i + 1] - t[i]
+        u = (row - t[i]) / h
+        h00, h10 = 2 * u ** 3 - 3 * u ** 2 + 1, u ** 3 - 2 * u ** 2 + u
+        h01, h11 = -2 * u ** 3 + 3 * u ** 2, u ** 3 - u ** 2
+        return tuple(h00 * ys[i] + h10 * h * ms[i] + h01 * ys[i + 1] + h11 * h * ms[i + 1]
+                     for ys, ms in zip(cols, slopes))
+    return profile
+
+
+# rows of the round crown in CAP_PROFILE (denser than the old table near the apex, so
+# the cubic, and hair_back's piecewise-linear lookup of it, follow the dome)
+CROWN_ROWS = (17.5, 18.5, 20.0, 22.0, 24.0, 26.5, 29.0, 32.0, 35.0, 38.5, 42.0, 46.0, 50.0,
+              55.0, 60.0, 66.0, 72.0)
+
+
+def _crown_table():
+    """CAP_PROFILE_SHEET: CAP_TABLE_R10 with the rows above CROWN_DOME['blend'][1]
+    replaced by the round crown (see CROWN_DOME)."""
+    D = CROWN_DOME
+    apex, p, W, R = D['apex'], D['p'], D['w'], D['row']
+    b0, b1 = D['blend']
+    old = _make_profile(CAP_TOP_R10, CAP_TABLE_R10)
+    out = []
+    for r in (r for r in CROWN_ROWS if r > apex + 0.25):
+        u = (R - r) / (R - apex)
+        w = W * (1.0 - u ** p) ** (1.0 / p)
+        k = smooth01((r - b0) / (b1 - b0))
+        w = w * (1.0 - k) + old(r)[0] * k
+        shift = (apex - CAP_TOP_R10[0]) * (1.0 - smooth01((r - apex) / (D['side_fade'] - apex)))
+        _w, f, bk = old(r - shift)
+        out.append((r, round(w, 2), round(f, 2), round(bk, 2)))
+    return out + [tuple(t) for t in CAP_TABLE_R10 if t[0] > b1]
+
+
+CAP_TOP = (CROWN_DOME['apex'], CAP_TOP_R10[1])     # (row, side column) of the cap apex
+CAP_PROFILE_SHEET = _crown_table()
 _ROWS = [r[0] for r in CAP_PROFILE_SHEET]
-_COLS = [[r[c] for r in CAP_PROFILE_SHEET] for c in (1, 2, 3)]
-_SLOPES = [_pchip_slopes(_ROWS, c) for c in _COLS]
-_APEX = (0.0, CAP_TOP[1], CAP_TOP[1])     # half width, front col, back col at the apex
+_profile = _make_profile(CAP_TOP, CAP_PROFILE_SHEET)
+_profile.__doc__ = """(half width, side front col, side back col) of the sheet (procedural) cap at `row`."""
+_profile_r10 = _make_profile(CAP_TOP_R10, CAP_TABLE_R10)
 
 
-def _profile(row):
-    """(half width, side front col, side back col) of the sheet (procedural) cap
-    at `row`."""
-    t = _ROWS
-    if row <= t[0]:
-        # dome: v = apex + a sqrt(d) + b d, matching value and slope at row t[0]
-        d0 = t[0] - CAP_TOP[0]
-        d = max(0.0, row - CAP_TOP[0])
-        out = []
-        for c, (ys, ms) in enumerate(zip(_COLS, _SLOPES)):
-            delta, s = ys[0] - _APEX[c], ms[0]
-            a = (delta - d0 * s) / (math.sqrt(d0) / 2)
-            b = s - a / (2 * math.sqrt(d0))
-            out.append(_APEX[c] + a * math.sqrt(d) + b * d)
-        return tuple(out)
-    if row >= t[-1]:
-        return tuple(c[-1] for c in _COLS)
-    i = next(k for k in range(len(t) - 1) if row <= t[k + 1])
-    h = t[i + 1] - t[i]
-    u = (row - t[i]) / h
-    h00, h10 = 2 * u ** 3 - 3 * u ** 2 + 1, u ** 3 - 2 * u ** 2 + u
-    h01, h11 = -2 * u ** 3 + 3 * u ** 2, u ** 3 - u ** 2
-    return tuple(h00 * ys[i] + h10 * h * ms[i] + h01 * ys[i + 1] + h11 * h * ms[i + 1]
-                 for ys, ms in zip(_COLS, _SLOPES))
+def crown_widen(row):
+    """Half width of the round crown over the round-10 cap's at `row` (1 below the crown):
+    the fringe's root stations scale their front offset by it, so they keep their place
+    on the dome (round 11 crown: unscaled, the temple clumps' roots moved from the side of
+    the head to its front and the clumps shortened 213 -> 180 mm)."""
+    if row >= CROWN_DOME['blend'][1]:
+        return 1.0
+    return _profile(row)[0] / max(_profile_r10(row)[0], 1e-6)
 
 
 def _se(v):
@@ -744,6 +812,80 @@ def cap_profile_error():
             k = ((x / w) ** CAP_EXP + (abs(y) / hd) ** CAP_EXP) ** (1.0 / CAP_EXP)
             worst = max(worst, (k - 1.0) * min(w, hd) * PX)
     return worst
+
+
+# Round 11 (crown): build-time roundness checks on the built cap (the round-10 cap was a
+# tent: outline apex radius 13-19 px against a 47 px circle, 3D apex radii 22 x 150 mm).
+#  - front / back outline: its apex radius (a parabola fitted over |x| <= CAP_ROUND_HALF
+#    px) at least CAP_ROUND_MIN x the radius of the circle through the apex and the
+#    outline at +-CAP_ROUND_AT px;
+#  - 3D: the apex's principal radii (a quadric fitted to the cap within CAP_APEX_FIT m
+#    of its highest point) no more than 1 : 1 / CAP_APEX_ASPECT_MIN apart (no ridge).
+CAP_ROUND_HALF = 15.0
+CAP_ROUND_AT = 45.0
+CAP_ROUND_MIN = 0.85
+CAP_APEX_FIT = 0.015
+CAP_APEX_ASPECT_MIN = 0.4
+
+
+def _cap_top_z(bvh, x, y):
+    """Height (m) of the cap's top surface over (x, y), or None."""
+    hit = bvh.ray_cast(Vector((x, y, 2.5)), Vector((0.0, 0.0, -1.0)), 2.0)
+    return None if hit[0] is None else hit[0].z
+
+
+def check_cap_round(bvh):
+    """The cap's crown roundness (see above); raises past the limits."""
+    xs = np.arange(-CAP_ROUND_AT - 3.0, CAP_ROUND_AT + 3.01, 0.5)              # px
+    ys = (np.arange(200.0, 380.0, 0.5) - MID) * PX                              # m
+    out = []
+    for x in xs:
+        zs = [_cap_top_z(bvh, x * PX, y) for y in ys]
+        zs = [z for z in zs if z is not None]
+        out.append(max(zs) * spec.PX_PER_M if zs else np.nan)
+    z = np.array(out)                                     # px, up
+    ia = int(np.nanargmax(z))
+    xa, za = xs[ia], z[ia]
+    sel = np.isfinite(z) & (np.abs(xs - xa) <= CAP_ROUND_HALF)
+    c2 = np.polyfit(xs[sel] - xa, z[sel], 2)[0]
+    r_apex = -1.0 / (2.0 * c2) if c2 < 0 else float('inf')
+    rc = []
+    for side in (-1.0, 1.0):
+        k = int(np.argmin(np.abs(xs - side * CAP_ROUND_AT)))
+        dx, dz = abs(xs[k] - xa), za - z[k]
+        rc.append((dx * dx + dz * dz) / (2.0 * dz))
+    r_circle = float(np.mean(rc))
+    # 3D apex: highest point, then a quadric z = c + g.(x, y) + (x, y) Q (x, y)^T around it
+    yb = None
+    zb = -1.0
+    for y in ys:
+        zz = _cap_top_z(bvh, xa * PX, y)
+        if zz is not None and zz > zb:
+            zb, yb = zz, y
+    g = np.linspace(-CAP_APEX_FIT, CAP_APEX_FIT, 21)
+    rows = []
+    for dx in g:
+        for dy in g:
+            if dx * dx + dy * dy > CAP_APEX_FIT ** 2:
+                continue
+            zz = _cap_top_z(bvh, xa * PX + dx, yb + dy)
+            if zz is not None:
+                rows.append((dx * dx, dx * dy, dy * dy, dx, dy, 1.0, zz))
+    M = np.array(rows)
+    (qa, qb, qc, _gx, _gy, _c), *_ = np.linalg.lstsq(M[:, :6], M[:, 6], rcond=None)
+    lam, vec = np.linalg.eigh(np.array([[qa, qb / 2], [qb / 2, qc]]))
+    radii = [-1.0 / (2.0 * l) if l < 0 else float('inf') for l in lam]
+    across = radii[int(np.argmax(np.abs(vec[0])))]        # principal direction nearer x
+    along = radii[1 - int(np.argmax(np.abs(vec[0])))]
+    res = dict(apex_row=spec.SHEET_GROUND_Y - za, r_apex=r_apex, r_circle=r_circle, ratio=r_apex / r_circle,
+               r_across=across, r_along=along, aspect=min(radii) / max(radii))
+    if res['ratio'] < CAP_ROUND_MIN:
+        raise hk.HairKernelError(f"hair_front cap: the crown's outline apex radius is {res['ratio']:.2f} x "
+                                 f"its circle's (< {CAP_ROUND_MIN}): a pointed head")
+    if res['aspect'] < CAP_APEX_ASPECT_MIN:
+        raise hk.HairKernelError(f"hair_front cap: apex radii {1000 * across:.0f} x {1000 * along:.0f} mm "
+                                 f"(ratio {res['aspect']:.2f} < {CAP_APEX_ASPECT_MIN}): a ridge")
+    return res
 
 
 # ---------------------------------------------------------------- normals
@@ -1351,7 +1493,7 @@ def bang_points(fx0, fx1, row1, wpx, lift, kind, thick):
     rows, share = ROOTS[kind]
     fxr = fx0 * share
     s0, s1, s2 = (k * sink for k in BANG_SINK)
-    ctrl = [cap_front_point(fxr + (fx0 - fxr) * a + (fx1 - fx0) * b, row, g0 + g1 * lift - s0)
+    ctrl = [cap_front_point((fxr + (fx0 - fxr) * a + (fx1 - fx0) * b) * crown_widen(row), row, g0 + g1 * lift - s0)
             for row, (g0, g1), a, b in zip(rows, ROOT_GROW, ROOT_FX, ROOT_FX_TIP)]
     emerge = _polyline_len(ctrl[:BANG_EMERGE_AT]) * BANG_EMERGE
     ctrl += [P(fxm, 84, bulge + s0),
@@ -1386,38 +1528,48 @@ def bangs(cap_bvh):
 
 
 # ---------------------------------------------------------------- ahoge
-# Round 11: one short tuft, the sheet's pointed peak on the crown. It leaves the
-# front slope of the crown at AHOGE_RISE (>= AHOGE_MIN_RISE to the scalp) with only
-# its first few mm buried and the broad side up (round 10's tufts were settled into
-# the cap edge-on and read as a slit, D9), sweeps back over the crown in one arc
-# (AHOGE_BEND) that still rises at its tip, and narrows to a point from AHOGE_TIP
-# on. Seen from the front its sections stack into a pointed peak (the highest,
-# narrowest one on top); from the side it is a short blade lying close over the
-# crown (tip <= AHOGE_MAX_HEIGHT over the cap). Review of the first round-11 build:
-# two tufts arching 1.5-3 cm over the crown toward the front camera, one seen
-# end-on at its full width as a flat-topped stub, the other hooking down like a
-# claw; a forward tuft that rises to its tip is still seen end-on from the front
-# and the 3/4 views (a stub), so this one sweeps back.
-AHOGE_ROOT = (0.0, 265.0)       # (front-view px, side-view col) of the root on the cap top
-AHOGE_HEADING = 180.0   # deg from straight forward toward +X (seen from above): back
-AHOGE_RISE = 22.0       # deg over the scalp's tangent plane where it leaves the cap
-AHOGE_BEND = -22.0      # deg the spine turns down over its length (a circular arc in its
-                        # vertical plane; it ends still rising, so the tip is the highest point)
-AHOGE_LENGTH = 0.034    # m of free spine (plus the buried root)
-AHOGE_WIDTH = 0.015
-AHOGE_ASPECT = 2.6
-AHOGE_FACE_FWD = 0.0    # forward lean of the broad side (added to the scalp normal)
-AHOGE_TIP = (0.30, 1.15, 1.0)   # kernel tip taper from 30 % of the length, (1 - x^1.15): nearly straight
-                                # sides to a point (x^1.6 read as a round knob from the front), no kink
-                                # where it starts (x^1 turned the rims there)
-AHOGE_SWELL = (0.7, 0.22)   # root width share, over this share of the length (a gentle swell ending
-                            # before the taper starts: (0.6, 0.25) turned the rims 20 deg per ring)
-AHOGE_BURY = 0.0025     # m the root ring starts under the scalp
-AHOGE_EMERGE = 0.014    # m of arc over which settle() lets the root surface
-AHOGE_SQUASH = 0.9      # ... from this share of its height over the cap (a short tuft has few rings
-                        # there: flattened to 0.35 its top creased 20 deg between two of them)
-AHOGE_MIN_RISE = 20.0   # deg: the tuft leaves the scalp at least this steeply (checked)
-AHOGE_MAX_HEIGHT = 10.0  # px: the tip stands at most this far over the cap below it (checked)
+# Round 11 (crown): the sheet's ahoge is two small tufts at the top front of the crown,
+# curving forward and up: two small points in the side view (cols ~257 / 269), one
+# small point on the round dome in the front and back views. 风堇 has no tuft, but her
+# forehead crescent shows how her model raises a lock: not a tube stood on the scalp
+# but the single-sided hood shell itself folded up, its root rising out of the hood
+# with no burial and no slit. Each tuft here is such a pinch of the scalp: a
+# single-sided patch over an egg-shaped footprint on the cap (`across` either side,
+# `front` / `back` along the hair's flow toward the face), conforming to the cap and
+# rising to its tip as h = H (1 - r)^AHOGE_K (concave flanks; the tip rounded over the
+# first AHOGE_ROUND of r, so it is sharp but not a needle), its top leaning forward by
+# AHOGE_LEAN H (h / H)^1.5 (a lock lifting off the crown and curling forward: a long
+# gentle back, a short steep front), the rim sunk AHOGE_SINK r^6 under the cap (no
+# edge where it leaves the scalp) and its outline faded out toward the rim. The front
+# tuft stands higher, so the front and back views see one point.
+# Rounds 10-11 built the ahoge as kernel tufts (closed tubes): buried in the cap they
+# read as a slit (D9); at the sheet's size (<= 25 mm, 6-7 px tall) a tube gets 3-12
+# rings and read as a faceted stub end-on from the front, a thorn or a crest; the
+# round-11 swept-back tuft (38 mm) lay on the ridge of the old pointed cap.
+AHOGE_PINCH = (
+    # centre (front-view px, side-view col) on the cap, heading (deg from forward toward +X,
+    # seen from above), footprint (m), height (m)
+    dict(name='ahoge_front', at=(-0.6, 261.0), heading=-5.0, across=0.0085, front=0.0085, back=0.0240,
+         height=0.0097),
+    dict(name='ahoge_back', at=(0.6, 271.5), heading=6.0, across=0.0065, front=0.0070, back=0.0180,
+         height=0.0050),
+)
+AHOGE_K = 2.0
+AHOGE_LEAN = 0.25       # x H (<= front / 3 H: the front flank does not overhang)
+AHOGE_ROUND = 0.12
+AHOGE_SINK = 0.0006     # m
+AHOGE_LINE = (0.55, 0.9)    # outline weight 1 -> 0 over this share of r
+AHOGE_KEEP = (0.6, VOL_KEEP)    # own-normal share at the tip, at the rim (the cap's)
+AHOGE_RINGS = 16        # rings at r = (i / AHOGE_RINGS)^AHOGE_REXP (denser toward the tip)
+AHOGE_REXP = 1.2
+AHOGE_SPOKES = 32
+# Build-time checks (HairKernelError past them)
+AHOGE_MAX_HEIGHT = 7.0      # px: a tip stands at most this far over the cap below it
+AHOGE_TIP_COLS = (257.0, 269.0)     # side-view columns of the sheet's two points ...
+AHOGE_TIP_TOL = 4.0                 # ... the tips lie within this many px of them
+AHOGE_MAX_WIDTH = 14.0      # px: front-view width of the raised part (h > AHOGE_SINK)
+AHOGE_RIM_OUT = 0.001       # m: no rim vertex stands further outside the cap
+AHOGE_MAX_BURIED = 0.2      # share of a tuft's vertices under the cap
 AHOGE_LOG = {}
 
 
@@ -1429,47 +1581,125 @@ def _cap_below(cap_bvh, p):
     return hit[0], hit[1]
 
 
-def ahoge(cap_bvh):
-    fx, sc = AHOGE_ROOT
-    p, n = _cap_below(cap_bvh, P(fx, CAP_TOP[0], sc))
-    h = math.radians(AHOGE_HEADING)
-    head = Vector((math.sin(h), -math.cos(h), 0.0))
-    head = (head - n * head.dot(n)).normalized()           # in the scalp's tangent plane
-    r = math.radians(AHOGE_RISE)
-    d0 = (head * math.cos(r) + n * math.sin(r)).normalized()
-    up = Vector((0.0, 0.0, 1.0))
-    up = (up - d0 * up.dot(d0)).normalized()
-    b = math.radians(AHOGE_BEND)
-    R = AHOGE_LENGTH / abs(b) if abs(b) > 1e-6 else None
-    path = []
-    for k in range(1, 7):
-        s_ = AHOGE_LENGTH * k / 6
-        if R is None:
-            path.append(p + d0 * s_)
-        else:
-            phi = s_ / R
-            path.append(p + d0 * (R * math.sin(phi)) + up * (math.copysign(1.0, b) * R * (1 - math.cos(phi))))
-    rise = math.degrees(math.asin(max(-1.0, min(1.0, d0.dot(n)))))
-    if rise < AHOGE_MIN_RISE:
-        raise RuntimeError(f'hair_front ahoge: leaves the scalp at {rise:.1f} deg (< {AHOGE_MIN_RISE})')
-    p0 = p - n * AHOGE_BURY - d0 * (0.5 * AHOGE_BURY / math.sin(math.radians(rise)))
-    pts = [A(p0), A(p)] + [A(q) for q in path]
+def _pinch_r(rr):
+    """Footprint parameter -> profile parameter: rr, rounded off over the first AHOGE_ROUND."""
+    e = AHOGE_ROUND
+    return (math.sqrt(rr * rr + e * e) - e) / (math.sqrt(1.0 + e * e) - e)
 
-    def face(q):
-        # broad side up, off the scalp (AHOGE_FACE_FWD leans it forward)
-        return A((head_normal(Vv(q)) + Vector((0.0, -AHOGE_FACE_FWD, 0.0))).normalized())
-    st = hk.strand(pts, name='ahoge', width=AHOGE_WIDTH, aspect=AHOGE_ASPECT, facing=face,
-                   tangents=(A(d0), None), swell=AHOGE_SWELL, tip=AHOGE_TIP, wrap=0.15,
-                   attrs={KEEP_ATTR: -1.0, LINE_ATTR: 1.0})
-    settle(st, cap_bvh, AHOGE_EMERGE, depth=0.6, squash=AHOGE_SQUASH)
-    tip = Vv(st.apex)
-    under, _n = _cap_below(cap_bvh, tip)
-    height = (tip.z - under.z) * spec.PX_PER_M
-    top = max(float(c[2]) for c in st.centres)
-    AHOGE_LOG.update(rise=rise, height=height, tip_highest=bool(tip.z >= top - 1e-4))
+
+def pinch(bm, cap_bvh, t):
+    """One ahoge tuft as a pinch of the scalp (see above), emitted into bm. Returns its
+    log entry (tip landmarks, raised width, buried share, worst turn along a spoke)."""
+    fx, sc = t['at']
+    c0, _n = _cap_below(cap_bvh, P(fx, CAP_TOP[0], sc))
+    n0 = head_normal(c0)
+    hd = math.radians(t.get('heading', 0.0))
+    fwd = Vector((math.sin(hd), -math.cos(hd), 0.0))
+    e1 = (fwd - n0 * fwd.dot(n0)).normalized()         # forward, in the scalp's tangent plane
+    e2 = n0.cross(e1).normalized()
+    H, af, ab, b = t['height'], t['front'], t['back'], t['across']
+
+    def place(rr, th):
+        a = 0.5 * (af + ab) + 0.5 * (af - ab) * math.cos(th)     # egg: front reach at 0, back at pi
+        q = c0 + (e1 * (math.cos(th) * a) + e2 * (math.sin(th) * b)) * rr
+        nq = head_normal(q)
+        hit = cap_bvh.ray_cast(q + nq * 0.03, -nq, 0.08)
+        s = hit[0] if hit[0] is not None else q
+        h = H * (1.0 - _pinch_r(rr)) ** AHOGE_K
+        return s + head_normal(s) * (h - AHOGE_SINK * rr ** 6) + e1 * (AHOGE_LEAN * H * (h / H) ** 1.5)
+
+    klay = _layer(bm, KEEP_ATTR, -1.0)
+    llay = _layer(bm, LINE_ATTR, 1.0)
+    glay = bm.verts.layers.float.get(common.GRAD_ATTR) or bm.verts.layers.float.new(common.GRAD_ATTR)
+    uvl = bm.loops.layers.uv.get('UVMap') or bm.loops.layers.uv.new('UVMap')
+    uv = {}
+
+    def vert(rr, th):
+        v = bm.verts.new(place(rr, th))
+        v[klay] = AHOGE_KEEP[1] + (AHOGE_KEEP[0] - AHOGE_KEEP[1]) * (1.0 - smooth01(rr / 0.8))
+        v[llay] = 1.0 - smooth01((rr - AHOGE_LINE[0]) / (AHOGE_LINE[1] - AHOGE_LINE[0]))
+        v[glay] = 0.0                   # the hair's base colour (no mint on the crown)
+        uv[v] = (0.5 + 0.5 * rr * math.cos(th), 0.5 + 0.5 * rr * math.sin(th))
+        return v
+    S = AHOGE_SPOKES
+    ths = [2.0 * math.pi * j / S for j in range(S)]
+    tip = vert(0.0, 0.0)
+    rings = [[vert((i / AHOGE_RINGS) ** AHOGE_REXP, th) for th in ths] for i in range(1, AHOGE_RINGS + 1)]
+    faces = []
+    for j in range(S):
+        k = (j + 1) % S
+        faces.append(bm.faces.new((tip, rings[0][j], rings[0][k])))
+        for ra, rb in zip(rings, rings[1:]):
+            faces.append(bm.faces.new((ra[j], rb[j], rb[k], ra[k])))
+    for f in faces:
+        f.normal_update()
+    if sum(f.normal.dot(head_normal(f.calc_center_median())) for f in faces) < 0:
+        bmesh.ops.reverse_faces(bm, faces=faces)
+        for f in faces:
+            f.normal_update()
+    for f in faces:
+        for lp in f.loops:
+            lp[uvl].uv = uv[lp.vert]
+
+    # checks
+    def over(p):
+        hgt, _nrm = _cap_height(cap_bvh, p)
+        return hgt if hgt is not None else 0.0
+    tipc = Vector(tip.co)
+    under, _ = _cap_below(cap_bvh, tipc)
+    height = (tipc.z - under.z) * spec.PX_PER_M
+    col = tipc.y * spec.PX_PER_M + MID
+    row = spec.SHEET_GROUND_Y - tipc.z * spec.PX_PER_M
+    allv = [tip] + [v for r in rings for v in r]
+    hs = [over(v.co) for v in allv]
+    raised = [v.co.x for v, h in zip(allv, hs) if h > AHOGE_SINK]
+    width = (max(raised) - min(raised)) * spec.PX_PER_M if raised else 0.0
+    rim = max(over(v.co) for v in rings[-1])
+    buried = sum(1 for h in hs if h < 0.0) / len(hs)
+    # turn per ring along each spoke, past the rounded tip (there the spokes turn over
+    # its ~0.5 mm radius by construction; tip_turn logs it)
+    turn = tip_turn = 0.0
+    turn_at = 0
+    rr_of = [0.0] + [(i / AHOGE_RINGS) ** AHOGE_REXP for i in range(1, AHOGE_RINGS + 1)]
+    for j in range(S):
+        line = [tipc] + [Vector(r[j].co) for r in rings]
+        for i, (p0, p1, p2) in enumerate(zip(line, line[1:], line[2:])):
+            d0, d1 = p1 - p0, p2 - p1
+            if d0.length > 1e-9 and d1.length > 1e-9:
+                a = math.degrees(d0.angle(d1))
+                if rr_of[i + 1] <= 2.0 * AHOGE_ROUND:
+                    tip_turn = max(tip_turn, a)
+                elif a > turn:
+                    turn, turn_at = a, i + 1
+    facing = min(f.normal.dot(head_normal(f.calc_center_median())) for f in faces)
+    log = dict(name=t['name'], height=height, col=col, row=row, width=width, rim=rim, buried=buried,
+               turn=turn, turn_at=turn_at, tip_turn=tip_turn, facing=facing, faces=len(faces))
+    target = min(AHOGE_TIP_COLS, key=lambda c: abs(c - col))
+    errs = []
     if height > AHOGE_MAX_HEIGHT:
-        raise RuntimeError(f'hair_front ahoge: tip {height:.1f} px over the cap (> {AHOGE_MAX_HEIGHT})')
-    return [st]
+        errs.append(f'tip {height:.1f} px over the cap (> {AHOGE_MAX_HEIGHT})')
+    if abs(col - target) > AHOGE_TIP_TOL:
+        errs.append(f'tip at side col {col:.1f} (sheet {target:.0f} +- {AHOGE_TIP_TOL:.0f})')
+    if width > AHOGE_MAX_WIDTH:
+        errs.append(f'raised part {width:.1f} px wide in the front view (> {AHOGE_MAX_WIDTH})')
+    if rim > AHOGE_RIM_OUT:
+        errs.append(f'rim {1000 * rim:.2f} mm outside the cap (> {1000 * AHOGE_RIM_OUT:.1f})')
+    if buried > AHOGE_MAX_BURIED:
+        errs.append(f'{100 * buried:.0f} % of it under the cap (> {100 * AHOGE_MAX_BURIED:.0f})')
+    if turn > SURFACE_TURN:
+        errs.append(f'a spoke turns {turn:.1f} deg at ring {turn_at} (> {SURFACE_TURN})')
+    if facing <= 0.0:
+        errs.append(f'a face turns into the head (facing {facing:.2f})')
+    if errs:
+        raise hk.HairKernelError(f"hair_front {t['name']}: " + '; '.join(errs))
+    return log
+
+
+def ahoge(bm, cap_bvh):
+    """The two ahoge tufts (AHOGE_PINCH) into bm; AHOGE_LOG gets their checks."""
+    AHOGE_LOG.clear()
+    AHOGE_LOG['tufts'] = [pinch(bm, cap_bvh, t) for t in AHOGE_PINCH]
+    return AHOGE_LOG['tufts']
 
 
 # ---------------------------------------------------------------- side locks
@@ -1690,9 +1920,9 @@ def build(col):
     sheet_bvh = _sheet_bvh()
 
     bm = bmesh.new()
-    emit_all(bm, ahoge(cap_bvh), 'hair_crown', cap_bvh)
+    ahoge(bm, cap_bvh)
     crown = finish(col, 'hair_crown', bm, mat, line_min=LINE_MIN)
-    crown['levi_cast_shadow'] = False   # a thin tuft prints a hard sliver on the crown otherwise
+    crown['levi_cast_shadow'] = False   # a tuft prints a hard sliver on the crown otherwise
 
     bm = bmesh.new()
     emit_all(bm, bangs(cap_bvh), 'hair_bangs', cap_bvh)
@@ -1713,8 +1943,18 @@ def build(col):
     err = cap_profile_error()
     print(f'HAIR_FRONT cap: {len(cap_spokes())} spokes x {len(cap_rings())} rings; '
           f'outside CAP_PROFILE by at most {1000 * err:.2f} mm')
-    print(f"HAIR_FRONT ahoge: leaves the scalp at {AHOGE_LOG['rise']:.1f} deg, tip {AHOGE_LOG['height']:.1f} px "
-          f"over the cap, tip the highest point: {AHOGE_LOG['tip_highest']}")
+    rnd = check_cap_round(cap_bvh)
+    print(f"HAIR_FRONT cap crown: apex row {rnd['apex_row']:.2f}; front / back outline apex radius "
+          f"{rnd['r_apex']:.1f} px (|x| <= {CAP_ROUND_HALF:.0f} px) vs the circle through the apex and the "
+          f"outline at +-{CAP_ROUND_AT:.0f} px {rnd['r_circle']:.1f} px (ratio {rnd['ratio']:.2f}, min {CAP_ROUND_MIN}); "
+          f"3D apex radii {1000 * rnd['r_across']:.0f} mm across x {1000 * rnd['r_along']:.0f} mm along "
+          f"(ratio {rnd['aspect']:.2f}, min {CAP_APEX_ASPECT_MIN})")
+    for d in AHOGE_LOG['tufts']:
+        print(f"HAIR_FRONT {d['name']}: tip at side col {d['col']:.1f}, row {d['row']:.1f}, {d['height']:.1f} px over "
+              f"the cap; raised part {d['width']:.1f} px wide; rim {1000 * d['rim']:.2f} mm off the cap; "
+              f"{100 * d['buried']:.0f} % under the cap; spoke turn <= {d['turn']:.1f} deg (ring {d['turn_at']}; "
+              f"{d['tip_turn']:.0f} over the rounded tip); facing >= "
+              f"{d['facing']:.2f}; {d['faces']} faces")
     for line in LOG:
         print('HAIR_FRONT', line)
     for obj, (tot, bad) in STATS.items():
