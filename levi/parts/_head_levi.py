@@ -48,7 +48,9 @@ LID_MEET = ('まばたき', 'ウィンク', 'ウィンク右', '笑い', 'はぅ
 # upper lash thickness above the lid margin [D = iris width incl. its rim], by x' (from
 # the iris centre in D, + toward the nose): a thin even line, heavier in the outer third,
 # tapering out at the nasal end (ref/setting.png front, levelled)
-LASH_T = ((-0.85, 0.15), (-0.75, 0.17), (-0.50, 0.145), (-0.25, 0.12), (0.0, 0.115), (0.25, 0.105),
-          (0.40, 0.095), (0.50, 0.07), (0.62, 0.03))
-LASH_WALL_T = (0.06, 0.03)         # D: the outer wall line under the wing: at its top, at its lower end
+LASH_T = ((-0.85, 0.15), (-0.75, 0.17), (-0.50, 0.145), (-0.25, 0.115), (0.0, 0.10), (0.25, 0.095),
+          (0.40, 0.09), (0.50, 0.07), (0.62, 0.03))
+# (round 3: 0.015-0.01 D thinner over the iris, so the band's top runs flatter there: it crested over the
+# lid's dome; within the design's tolerance)
+LASH_WALL_T = (0.05, 0.03)         # D: the outer wall line under the wing: at its top, at its lower end
 LASH_FEATHER = (0.42, 0.62)        # x' [D]: the nasal end feathers from navy to mauve

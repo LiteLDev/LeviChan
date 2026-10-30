@@ -18,7 +18,8 @@ half-closed lashes stay seated on the lid edge:
 * k_v = target thickness / her thickness at that place along M (T / H), so the band
   keeps its curl and depth, only nearer the margin;
 * the wing (past the outer wall's top) is scaled in its own frame (base on M -> tip,
-  taken in Q): shorter and thinner, with its tip lifted a little;
+  taken in Q): shorter and thinner, tapering to a point (WING_TAPER), with its tip
+  lifted a little;
 * the inner end: the band tapers to LASH_END_T where the margin comes down below
   LASH_CUT_Z, and the columns nasal of it go (drop_tris).
 All lengths in D (the iris width incl. its rim), x' from the iris centre (+ toward
@@ -33,7 +34,10 @@ LASH_CUT_Z = 0.18       # D: nasal of x' 0.45 the band ends where the baked marg
 LASH_END_T = 0.03       # D: ... tapering to this
 WING_X = (-0.78, -0.70)  # x' [D]: the wing's own map is full from here (outer) .. none from here
 WING_Z = -0.06          # z' [D]: the wing lies above this (the wall line below)
-WING_SCALE = (0.80, 0.55)   # the wing's length, thickness (across its centreline) kept
+WING_SCALE = (0.85, 0.55)   # the wing's length, thickness (across its centreline) kept
+WING_TAPER = (0.40, 0.10)   # ... the thickness kept falls from this share of the wing's length to this share
+#                             of WING_SCALE[1] at the tip: one blade tapering to a point (her fishtail's
+#                             second prong closes onto it)
 WING_LIFT = 0.07        # D: the wing's tip lifted (at rest; along her rest frame's z)
 WING_LIFT_R = 0.25      # D: ... falling off over this distance from the tip
 
@@ -198,8 +202,10 @@ class LashMap:
         if L > 1e-9:
             ax = ax / L
             o = Q - b
-            along = (o @ ax)[:, None] * ax
-            wq = b + WING_SCALE[0] * along + WING_SCALE[1] * (o - along)
+            u = o @ ax
+            along = u[:, None] * ax
+            th = WING_SCALE[1] * (1.0 - (1.0 - WING_TAPER[1]) * _smooth(WING_TAPER[0], 1.0, u / L))
+            wq = b + WING_SCALE[0] * along + th[:, None] * (o - along)
             w = self.wing_w[:, None]
             out = out * (1.0 - w) + wq * w
         return np.where(self.upper[:, None], out, Q)

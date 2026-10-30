@@ -56,6 +56,11 @@ CHIN_FREE = (1.262, 1.250)           # z: the side pull fades out under the chee
 NOSE_TONE = (0.20, 0.0, 0.0105)     # share of the nose's relief taken out, lift [m], X sigma [m]
 NOSE_ROWS = (0.034, 0.028, 0.006, 0.0)    # m below the eye centre: the nose zone fades in (under the
 #                                           subnasal, hers at -30 mm) .. out (at the bridge's root)
+JAW_LIFT = (0.0028, (-0.114, -0.088), (1.248, 1.240), (0.046, 0.026))   # the jaw's underside lifted this
+#                                     much [m] toward the neck: from her chin's lowest point back to full by the
+#                                     second y, under the first z (full under the second), within |x| from the
+#                                     midline (full within the second): her underside, chin to neck, rose 11 deg
+#                                     in profile and read as a heavy wedge; the design's rises ~15 deg (now 15)
 INTERP_K, INTERP_SIGMA = 12, 0.003   # warp interpolation: nearest face vertices, Gaussian sigma [m]
 PROP_R = 0.022                       # m: the skull takes her border's morph motion over this distance
 # the body's neck (body.TORSO rows 148-178: half-width 13.5 px, front -44 px, back -17 px,
@@ -446,6 +451,19 @@ class LipRest:
         return LIP_TEETH * np.array([self._from_border(q) for q in Q]) + self._drop(Q)
 
 
+def jaw_lift(P):
+    """JAW_LIFT at points P (her aligned rest) [m, up]."""
+    a, (y0, y1), (z0, z1), (x0, x1) = JAW_LIFT
+    return a * smooth(y0, y1, P[:, 1]) * smooth(z0, z1, P[:, 2]) * smooth(x0, x1, np.abs(P[:, 0] - MID_X))
+
+
+def skin_vertices(fc):
+    """1.0 on the coarse face's skin vertices, 0 on the mouth cavity's only."""
+    out = np.zeros(len(fc['pos']))
+    out[np.unique(fc['tri'][fc['mat'] == 0])] = 1.0
+    return out
+
+
 class Warp:
     """W on the coarse face (exact per vertex) and interpolated elsewhere."""
 
@@ -470,6 +488,7 @@ class Warp:
             D[i] = w[i] * (hit[3] - r) * u
         nw = nose_weight(P)
         D += nw[:, None] * (NOSE_TONE[0] * (Ps - P) + np.array([0.0, 0.0, NOSE_TONE[1]]))
+        D[:, 2] += jaw_lift(P) * skin_vertices(fc)
         self.P, self.D, self.w = P, D, w
         self.kd = KDTree(len(P))
         for i, p in enumerate(P):
