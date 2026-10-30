@@ -595,8 +595,8 @@ def _paint_iris(rgba, P, painted):
     pup = smooth(1.05, 0.9, pq)[..., None]
     col = col * (1 - pup) + hexrgb(IRIS_UP) * pup
     # navy rim: thin, a little wider along the bottom
-    r0 = 0.88 - 0.04 * smooth(-0.3, -0.5, v)
-    rim = smooth(r0, r0 + 0.05, q)[..., None]
+    r0 = 0.905 - 0.04 * smooth(-0.3, -0.5, v)
+    rim = smooth(r0, r0 + 0.035, q)[..., None]
     col = col * (1 - rim) + hexrgb(RIM) * rim
     rgba[cov, :3] = col[cov]
     rgba[cov, 3] = 0.0

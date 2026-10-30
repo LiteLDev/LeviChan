@@ -1286,7 +1286,8 @@ def ear_mesh(side):
 PEROH_OPEN = 0.45                     # ぺろっ: her あ share, so the tongue comes out between the lips
 MORPH_SRC = {
     'にこり': (('手前2', 1.0),),
-    'なごみ': (('まばたき', 0.42), ('慈愛', 1.0)),
+    # なごみ at 1 lands on her full なごみ (the rest holds LID_K of it already)
+    'なごみ': (('まばたき', 0.42 * (1.0 - HL.LID_K)), ('慈愛', 1.0 - HL.LID_K)),
     'はぅ': (('笑い', 1.0),),
     'ω': (('口角上げ', 0.55), ('う', 0.2)),          # + OMEGA_LIFT: the lips' middle up, a cat's 'w'
     'にやり': (('にやり', 1.0), ('口角上げ', 0.3)),
@@ -1313,8 +1314,9 @@ HILITE_SEG = 28
 IRIS_SQUASH = (0.87, 0.0002)          # the iris dish's height kept (round, not her tall oval), and how
 #                                       far [m] its lowest point sits behind the baked lower lid's edge
 BROW_SNAP = True                      # her brows, lowered, keep her own offset off the forehead
+BROW_FLAT = 0.6                       # share of her brows' arch taken out
 HILITE_OFF = 0.003                    # ハイライト消: m behind the iris
-BROW_DROP = 0.006                     # m: her brow strips come down toward the eye (Levi's sheet)
+BROW_DROP = 0.0055                    # m: her brow strips come down toward the eye (Levi's sheet)
 TEETH_HIDE_M = (0.0016, 0.0012)       # 歯無し上: up, back [m]
 TONGUE_OUT_M = (0.0075, 0.0032, 0.012)   # ぺろっ: the tip comes forward, up [m] (out over the lower
 #                                          lip, through the parted lips); over this length from the tip
@@ -1331,7 +1333,8 @@ MOUTH_OUTLINE = (0.0025, 0.0070, (0.003, 0.007))   # m: no outline this near the
 #                                        the closed corners the hull stood out of the fold as hooks
 NECK_TURN_Z = (1.240, 1.262)           # m: her border this high (behind the jaw) leaves downward ...
 NECK_TURN = 1.0                        # ... this much (1: diagonally back and down)
-JUNCTION_R, JUNCTION_FAIR = 0.011, 25  # m round the corners behind the jaw angle faired; passes
+JUNCTION_R, JUNCTION_FAIR = 0.016, 25  # m round the corners behind the jaw angle faired; passes
+SEAM_FAIR = (0.010, 12)                # m round the zip strip and the head's lower edge faired; passes
 LOFT_FAIR_RINGS, LOFT_FAIR = 7, 30     # the neck loft's rings faired below the head's edge; passes
 SEAM_BAND, SEAM_SMOOTH = (0.005, 0.015), 60   # m round the seam, passes: its shading form is smoother
 FX_LIFT_M = 0.0002                     # m the overlays float off the skin when shown
@@ -1640,6 +1643,24 @@ def build_face(col, face_mat, mouth_mat):
     nball = G.adjacency(len(verts), allf)
     before = verts.copy()
     verts = G.laplace(verts, nball, ~free, n=JUNCTION_FAIR)
+    # and the seams themselves (positions, not only the shading form): the zip strip across
+    # the forehead and crown and the head's lower edge where the neck loft leaves it, so no
+    # ledge, dent or crease shows where the meshes meet (hair hides them in the cel model)
+    seam_v = sorted({v for t in bridge for v in t} | set(e_idx))
+    kd_z = KDTree(len(seam_v))
+    for i, v in enumerate(seam_v):
+        kd_z.insert(Vector(verts[v]), i)
+    kd_z.balance()
+    dz = np.array([kd_z.find(Vector(p))[2] for p in verts])
+    rim_v = {v for lp in holes for v in lp}
+    keep_v = np.zeros(len(verts), bool)
+    keep_v[list(rim_v)] = True
+    keep_v[[v for f, m in zip(F2, M2) if m == 1 for v in f]] = True
+    keep_v[neck_end] = True
+    free = (dz < SEAM_FAIR[0]) & ~keep_v
+    w_s = 1.0 - G.smooth(0.5 * SEAM_FAIR[0], SEAM_FAIR[0], dz)
+    faired = G.laplace(verts, nball, ~free, n=SEAM_FAIR[1])
+    verts = verts + w_s[:, None] * (faired - verts)
     moved = verts - before
     for n_ in K2:
         K2[n_] = K2[n_] + moved[:nM]
@@ -1880,8 +1901,15 @@ def _hole_loop(fc, side):
 
 
 def _snap_brows(P, brow, face_bvh):
-    """Her brow strips lowered by BROW_DROP, each point kept her own distance off the face
-    (lowered straight down on a sloping forehead they stood 3-4 mm off it)."""
+    """Her brow strips lowered by BROW_DROP, BROW_FLAT of their arch taken out (Levi's are
+    nearly straight strokes), each point kept her own distance off the face (lowered
+    straight down on a sloping forehead they stood 3-4 mm off it)."""
+    P = P.copy()
+    for side in (1, -1):
+        b = brow[(P[brow, 0] - G.MID_X) * side > 0]
+        x = P[b, 0]
+        arch = np.polyval(np.polyfit(x, P[b, 2], 2), x) - np.polyval(np.polyfit(x, P[b, 2], 1), x)
+        P[b, 2] -= BROW_FLAT * arch
     out = P.copy()
     for v in brow:
         loc, nrm, _, d = face_bvh.find_nearest(Vector(P[v]))

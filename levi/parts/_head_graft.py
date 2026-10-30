@@ -327,6 +327,7 @@ LIP_SLIT = 0.0437                      # m below the eye centre: her slit
 LIP_FIT_ZONE = (0.020, 0.062, 0.026)   # |X| <, from .. to [m below the eye centre]: the fitted lower face
 LIP_HOLE = (0.0125, 0.0060)            # half-width, half-height round the slit left out of the fit
 LIP_REACH = (0.0155, 0.0095, 2.2)      # the flattening's ellipse round the slit (half-width, half-height), gain
+LIP_TEETH = 0.3                        # share of the lips' move the teeth and tongue take
 MOUTH_DROP = 0.002                     # m the mouth slides down along the face
 MOUTH_DROP_R = (0.025, 0.010)          # its Gaussian reach: X (wide: the corners drop as the middle), z [m]
 
@@ -394,8 +395,10 @@ class LipRest:
         return MOUTH_DROP * g[:, None] * t
 
     def at(self, Q):
-        """The change at points inside the mouth (teeth, tongue): the lips' move there, and the drop."""
-        return np.array([self._from_border(q) for q in Q]) + self._drop(Q)
+        """The change at points inside the mouth (teeth, tongue): LIP_TEETH of the lips' move
+        (the lower teeth, dropped with the jaw, came through the chin's skin with all of it), and
+        the drop."""
+        return LIP_TEETH * np.array([self._from_border(q) for q in Q]) + self._drop(Q)
 
 
 class Warp:

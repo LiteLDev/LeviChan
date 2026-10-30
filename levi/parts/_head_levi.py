@@ -11,13 +11,15 @@ decal shapes.
 """
 
 # her upper lids lowered and flattened: k of her なごみ (まばたき 0.42 + 慈愛 1.0); the
-# lid edge is 5.8 mm in front of the iris, so seen from above the lid covers more
-# (the 0.24 .. 0.30 band keeps a 30-degree view awake)
-LID_K = 0.28
+# lid edge is 5.8 mm in front of the iris, so seen from above the lid covers more (0.24:
+# the lowest of the 0.24 .. 0.30 band; it puts the margin 0.356 D over the widest iris row
+# and the iris 0.83 as tall as wide in front, the design's; pairwise Codex 0.24 / 0.28: 2-2)
+LID_K = 0.24
 NEUTRAL_LID = (('まばたき', 0.42 * LID_K), ('慈愛', LID_K))
-# the mouth small and level, the brows' inner ends up (her 困る: inner end up ~16 deg / unit)
-NEUTRAL_MOUTH = (('口横缩げ', 0.8), ('口角下げ', 0.25))
-NEUTRAL_BROW = (('困る', 0.85),)
+# the mouth small and level (15.6 mm wide, the corners level with the middle); the brows'
+# inner ends up (her 困る, ~+9 deg at 1.0; pairwise Codex 0.85 over 0.70 4-0, 1.0 over 0.85 4-0)
+NEUTRAL_MOUTH = (('口横缩げ', 0.95), ('口角下げ', 0.25))
+NEUTRAL_BROW = (('困る', 1.0),)
 NEUTRAL = NEUTRAL_MOUTH + NEUTRAL_BROW
 # keys whose lids meet: on the side they close they start from her own rest lid (no lid
 # bake), so they close exactly as hers; the open side of a wink keeps the bake
