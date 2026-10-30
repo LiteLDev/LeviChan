@@ -1274,6 +1274,34 @@ def _thigh_depth(q, spheres):
     return (r - d).max(-1)
 
 
+def _smooth_above(tab, phis, i0):
+    """tab (n, P) smoothed over the pitch samples (_smooth_pitch) plus the smoothed (dilated)
+    shortfall wherever smoothing took it below itself, so the curve stays on or above the
+    table, then monotone away from rest on both sides (as _skirt_drape shapes its tables)."""
+    sgn = np.sign(phis)[None]
+    sm = _smooth_pitch(tab, i0)
+    short = np.maximum(sgn * (tab - sm), 0.0)
+    wide = np.zeros_like(short)
+    for half in (sgn > 0, sgn < 0):
+        sh = short * half
+        w = sh.copy()
+        for o in range(1, DRAPE_SMOOTH + 1):
+            w[:, o:] = np.maximum(w[:, o:], sh[:, :-o])
+            w[:, :-o] = np.maximum(w[:, :-o], sh[:, o:])
+        wide += w * half
+    return _monotone(sm + sgn * _smooth_pitch(wide, i0), i0)
+
+
+def _monotone(tab, i0):
+    """tab (n, P) made monotone away from rest (sample i0) on both sides."""
+    out = tab.copy()
+    for pi in range(i0 + 1, out.shape[1]):
+        out[:, pi] = np.maximum(out[:, pi], out[:, pi - 1])
+    for pi in range(i0 - 1, -1, -1):
+        out[:, pi] = np.minimum(out[:, pi], out[:, pi + 1])
+    return out
+
+
 def _smooth_pitch(tab, i0):
     """DRAPE_SMOOTH [1 2 1] passes along the pitch samples (axis 1), held at nought at
     rest (sample i0); the end samples keep their values."""
@@ -1673,6 +1701,17 @@ def _skirt_drape(chains, pts, cy, hip, knee, body, inner=None):
             pos = (np.maximum(F, 0.0)[None] - cone).max(1)
             neg = (np.minimum(F, 0.0)[None] + cone).min(1)
             F = np.maximum(pos, 0.0) + np.minimum(neg, 0.0)
+            if DRAPE_RING_CAP_PITCH:
+                # a cone that widens with the pitch let a hem it lifted at 48 deg drop back by
+                # 63 deg while the thigh kept rising, and the narrow cone handed a neighbour's
+                # whole rise round the side within one run frame (strain spikes of 0.27 in the
+                # run clip): where the cap is narrowed, smoothed over the pitch again (on or above
+                # the cone, as the tables were before it), and monotone away from rest. (Smoothed
+                # at every pitch, the seated tables changed too: skirt x petticoat crossings in
+                # cross_legged 226 -> 384.)
+                (p0, p1), _ = DRAPE_RING_CAP_PITCH
+                w = 1.0 - _smoothstep(p0, p1, np.degrees(np.abs(phis)))
+                F = np.stack([_monotone(F[k] + w * (_smooth_above(F[k], phis, i0) - F[k]), i0) for k in range(K)])
             for k in range(K):
                 tab = F[k]
                 for j in range(n - 2, -1, -1):
