@@ -8,7 +8,10 @@ strands that narrow before an end curl tightens, blade tips, and a validator
 that fails the build on any strand past the limits. Overlapping clumps nest (an
 upper clump rests on the ones below it) instead of cutting through each other.
 The scalp cap is a grid around the crown whorl, so the crown's grooves run along
-its columns as smooth pleats.
+its columns as smooth pleats. Roots are pressed into the cap along the smooth
+radial direction (settle), and after that every strand's root ring must start
+inside the cap and its surface turn at most SURFACE_TURN per ring outside it
+(check_surface), so no root stands proud of the scalp or creases where it meets it.
 
 Shapes are authored in reference-panel pixels so they can be fitted against
 ref/{front,side}.png:  P(fx, row, sc)
