@@ -9,12 +9,14 @@ that fails the build on any strand past the limits. Overlapping clumps nest (an
 upper clump rests on the ones below it) instead of cutting through each other.
 The scalp cap is a grid around the crown whorl, so the crown's grooves run along
 its columns as smooth pleats; its crown is a round dome (CROWN_DOME: the round-10
-table made it a pointed tent), and the ahoge is one fold of the scalp shell
-raised into two small tufts (AHOGE_TUFTS), the way 风堇's model raises its forehead crescent out of the
-hood, not tubes stood on the scalp. Roots are pressed into the cap along the smooth
-radial direction (settle), and after that every strand's root ring must start
-inside the cap and its surface turn at most SURFACE_TURN per ring outside it
-(check_surface), so no root stands proud of the scalp or creases where it meets it.
+table made it a pointed tent), and the ahoge is two short kernel blades rising from
+the front slope of the crown and curling softly up at their tips (AHOGE_LOCKS), one
+lock of the hair raised the way 风堇's model raises its forehead crescent out of the
+hood, not a bump or a tube stood on the scalp. Roots are pressed into the cap
+along the smooth radial direction (settle), and after that every strand's root
+ring must start inside the cap and its surface turn at most SURFACE_TURN per
+ring outside it (check_surface), so no root stands proud of the scalp or creases
+where it meets it.
 
 Shapes are authored in reference-panel pixels so they can be fitted against
 ref/{front,side}.png:  P(fx, row, sc)
@@ -1528,63 +1530,75 @@ def bangs(cap_bvh):
 
 
 # ---------------------------------------------------------------- ahoge
-# Round 11 (crown): the sheet's ahoge is two small tufts at the top front of the crown,
-# curving forward and up: two small points in the side view (cols ~257 / 269), one
-# small point on the round dome in the front and back views. 风堇 has no tuft, but her
-# forehead crescent shows how her model raises a lock: not a tube stood on the scalp
-# but the single-sided hood shell itself folded up, its root rising out of the hood
-# with no burial and no slit. The ahoge here is such a fold of the scalp: one
-# single-sided patch conforming to the cap (a polar grid round the front tip), raised
-# by the sum of two tuft height fields (AHOGE_TUFTS) in tandem along the hair's flow.
-# Each tuft rises over an egg-shaped footprint (`across` either side, `front` / `back`
-# along the flow toward the face) to a tip as
-#     h = H (1 - r)^2 / (1 - c r) (1 + AHOGE_BACK_FULL r behind the tip)
-# (c AHOGE_C, AHOGE_C_FRONT in front: nearly straight flanks that still meet the scalp
-# tangentially and a rounded back, so it reads as a lock lifting in profile), its tip
-# rounded over the first AHOGE_ROUND of r (sharp, not a needle), its top leaning
-# forward by AHOGE_LEAN H (h / H)^1.5 (curling forward). The rim sinks just under the
-# cap (AHOGE_SINK: the patch leaves the scalp almost tangent to it) and the outline
-# fades in with the height. The front tuft stands higher, so the front and back views
-# see one point.
-# Tried and dropped (8x close-ups; pairwise Codex, both models, both orders):
-#  - kernel tufts (closed tubes, rounds 10-11): buried in the cap they read as a slit
-#    (D9); at the sheet's size (<= 25 mm, 6-7 px tall) a tube gets 3-12 rings and read
-#    as a faceted stub end-on from the front, a thorn or a crest; round 11's single
-#    swept-back tuft (38 mm) lay on the ridge of the old pointed cap (a horn / fin, an
-#    inverted-V slit from above). Against this fold: a tie (each model preferred
-#    whichever came first).
-#  - two separate pinches: with hollow (1 - r)^2 flanks they read as dimples and
-#    slits from above and their rims crossed the cap in a crater-like ring (lost 0-4,
-#    1-3 to the kernel tuft); overlapping, the two patches crossed in a slit-like
-#    crease; a smooth maximum of the two fields still creased the notch; (1 - r)^1.3
-#    flanks creased at the base. This fold beat them 3-0 (one tie).
-AHOGE_TUFTS = (
-    # side-view col of the centre on the cap's midline, footprint (m), height (m)
-    dict(name='ahoge_front', col=261.0, across=0.0085, front=0.0100, back=0.0160, height=0.0097),
-    dict(name='ahoge_back', col=272.0, across=0.0070, front=0.0060, back=0.0140, height=0.0052),
+# Round 11 (crown): the sheet's ahoge is two small thin tufts at the top front of the
+# crown: two points in the side view (cols ~257 / 269, the front one higher, a V notch
+# between), one small point on the round dome in the front and back views; the front
+# tuft's front flank continues the forehead's ~45-50 deg slope and its back drops
+# into the notch, and in the front view its two edges converge to the tip like the
+# top of the central strand.
+# Each tuft is a kernel blade (hk.strand: a C2 centreline within the kernel's
+# curvature limits, validated; a crescent section, broad face up; a tapered blade
+# tip), the way 风堇's forehead crescent is one lock of her hood raised out of it,
+# not a bump on it. Both rise from the front slope of the crown toward the crown,
+# lying on the scalp at first (their roots settle into the cap, so they leave it with
+# no slit) and lifting their ends, each tip curling softly forward toward upright
+# over its last 40 % (AHOGE_CURL_MIN); a narrow tip closes in the kernel's blade apex.
+# The front tuft's crest is the sheet's front outline; the back tuft starts under it
+# and rises out behind its tip to the second, lower point, so the notch is the front
+# tip's end over the back tuft's crest. The crescent's wrap is fitted per section
+# (_fit_wrap) so the rims rest on the surface under them (the cap, or the back tuft
+# under the front one): no air shows under a lying blade from the side, only under
+# the lifted tips, as under any lock end. Rings every AHOGE_RING_ARC (the kernel's
+# ~0.35 w spacing gives a short, wide blade only 3-4 rings). hair_crown is its own
+# object, rigged to 頭 like the cap.
+# Tried and dropped (16x / 8x close-ups in cel, clay, geo and wire):
+#  - closed tubes stood on the cap (rounds 10-11): buried edge-on they read as a slit
+#    (D9); arching 1.5-3 cm toward the front camera they were seen end-on as a
+#    flat-topped stub and floated as antennae in the side view; one 38 mm tuft swept
+#    back over the old pointed cap read as a horn / fin.
+#  - a fold of the scalp (one single-sided patch raised by two tuft height fields):
+#    a height-field bump, not a lock: two beads / arch marks from above, its rim a
+#    blister contour in clay, its spokes turning 26 deg per ring at a 1.6 mm notch
+#    radius, and raised along each point's own normal its front flank stood at
+#    63-73 deg (a forward-facing fin), the reverse of the sheet. Two pinches: dimples
+#    and slits from above, a crater-like rim.
+#  - these blades as deep arches (wrap to 1.15) with the rims on the cap: from the side
+#    and behind, thin sails over a hollow; with the underside pressed onto the cap
+#    (solid tufts, flanks flared out to give the front view the sheet's 45 deg sides):
+#    planar walls, gabled "house" ends and doubled, stepped outlines in clay and cel;
+#    flanks continuing the rim tangent flew out as flaps. The sheet's front tuft is
+#    drawn wider (~15 px at the base) than a lock tip the kernel closes in >= 1.2 x its
+#    width can be.
+AHOGE_LOCKS = (
+    # built in this order (the front tuft rests on the back one). ctrl: (side col, row,
+    # None) on the midline, or (side col, None, px) that far over the highest surface
+    # under it along the radial direction; width and thickness (m) at the widest ring,
+    # kernel tip taper (u_t, a, b): linear, so the blade keeps its rings to near the
+    # apex (a slower close leaves a 15 mm fan), swell, ring vertex count
+    dict(name='ahoge_back',
+         ctrl=((246.0, None, -2.6), (251.5, None, 0.2), (257.5, 18.3, None), (263.5, 16.9, None),
+               (266.4, 15.8, None), (267.6, 14.3, None)),
+         width=0.0140, thick=0.0052, tip=(0.45, 1.0, 1.0), swell=(0.7, 0.3), n=14),
+    dict(name='ahoge_front',
+         ctrl=((237.0, None, -2.6), (242.5, None, 0.2), (248.0, 23.9, None), (252.3, 18.8, None),
+               (254.9, 15.3, None), (255.9, 12.5, None)),
+         width=0.0230, thick=0.0075, tip=(0.36, 1.0, 1.0), swell=(0.65, 0.3), n=16),
 )
-AHOGE_C = 0.6
-AHOGE_C_FRONT = 0.7
-AHOGE_BACK_FULL = 0.6
-AHOGE_LEAN = 0.15       # x H (<= front / 3 H: the front flank does not overhang)
-AHOGE_ROUND = 0.06
-AHOGE_TIP_ZONE = 0.002   # m round each tip where the surface turns over the rounded tip (not checked)
-AHOGE_SINK = (0.0003, 0.88)     # m the rim sinks under the cap, from this share of the footprint on
-AHOGE_LINE = (0.0006, 0.003)    # m of height over which the outline fades in
-AHOGE_KEEP = (0.6, VOL_KEEP)    # own-normal share at the tips, at the rim (the cap's)
-AHOGE_RINGS = 28        # rings at r = (i / AHOGE_RINGS)^AHOGE_REXP round the front tip, plus a few
-AHOGE_REXP = 1.2        # round the back tip (on the back spoke)
-AHOGE_SPOKES = 40
-# Build-time checks (HairKernelError past them)
-AHOGE_MAX_HEIGHT = 7.0      # px: a tip stands at most this far over the cap below it
+AHOGE_WRAP = (0.12, 0.35)   # the wrap fitted per section stays in this range
+AHOGE_SINK = 0.0004         # m the rims sink into the surface under them
+AHOGE_WRAP_SMOOTH = 0.003   # m, Gaussian sigma of the fitted wrap along the arc
+AHOGE_EMERGE = 0.014        # m of arc over which settle() lets a root surface
+AHOGE_SQUASH = 0.35
+AHOGE_RING_ARC = 0.0028     # m between rings
+AHOGE_KEEP = (0.0, 0.6, 0.15, 0.45)     # own-normal share: the cap's at the root, the blade's past it
+# Build-time checks (HairKernelError past them; the kernel validates each blade itself)
 AHOGE_TIP_COLS = (257.0, 269.0)     # side-view columns of the sheet's two points ...
 AHOGE_TIP_TOL = 4.0                 # ... the tips lie within this many px of them
-AHOGE_NOTCH = 1.0           # px: the saddle between the tips lies at least this far under the lower tip
-AHOGE_MAX_TURN = 30.0       # deg a spoke turns between two rings at most, away from the tips ...
-AHOGE_MIN_BEND = 0.0015     # ... and m of bend radius at least (the notch: ~2 mm)
-AHOGE_MAX_WIDTH = 14.0      # px: front-view width of the raised part (h > 0.5 mm)
-AHOGE_RIM_OUT = 0.001       # m: no rim vertex stands further outside the cap
-AHOGE_MAX_BURIED = 0.2      # share of the patch's vertices under the cap
+AHOGE_MAX_HEIGHT = 10.0     # px: a tip stands at most this far over the cap below it
+AHOGE_NOTCH = 1.0           # px: the notch between the tips lies at least this far under the lower tip
+AHOGE_FLANK = (40.0, 60.0)  # deg: the front tip's front flank in the side view (the forehead's slope)
+AHOGE_CURL_MIN = 8.0        # deg: each blade turns at least this much toward upright over its last 40 %
+AHOGE_MAX_BURIED = 0.2      # share of the vertices inside the cap past the roots
 AHOGE_LOG = {}
 
 
@@ -1596,177 +1610,161 @@ def _cap_below(cap_bvh, p):
     return hit[0], hit[1]
 
 
-def _pinch_r(rr):
-    """Footprint parameter -> profile parameter: rr, rounded off over the first AHOGE_ROUND."""
-    e = AHOGE_ROUND
-    return (math.sqrt(rr * rr + e * e) - e) / (math.sqrt(1.0 + e * e) - e)
+def _bvh_of(strands):
+    """BVH of the strands' closed surfaces."""
+    tris = np.concatenate([st.triangles() for st in strands], 0)
+    verts = tris.reshape(-1, 3)
+    polys = [(3 * i, 3 * i + 1, 3 * i + 2) for i in range(len(tris))]
+    return BVHTree.FromPolygons([tuple(v) for v in verts], polys)
 
 
-def _egg(u, v, af, ab):
-    """(rr, cos th) of the offset (u along the flow, v across / the across reach) in an
-    egg footprint whose reach is a(th) = (af + ab) / 2 + (af - ab) / 2 cos th:
-    (u, v) = rr (cos th a(th), sin th)."""
-    m, d = 0.5 * (af + ab), 0.5 * (af - ab)
-    th = math.atan2(v, u / m)
-    for _ in range(6):
-        th = math.atan2(v, u / (m + d * math.cos(th)))
-    c = math.cos(th)
-    return math.hypot(u / (m + d * c), v), c
+def _down_hit(bvhs, q):
+    """Highest hit straight below q among bvhs (point) or None."""
+    best = None
+    for b in bvhs:
+        hit = b.ray_cast(q + Vector((0.0, 0.0, 0.05)), Vector((0.0, 0.0, -1.0)), 0.2)
+        if hit[0] is not None and (best is None or hit[0].z > best.z):
+            best = hit[0]
+    return best
 
 
-def _tuft_h(t, u, v):
-    """Height (m) of tuft t at the offset (u, v) (m, along the flow / across) from its centre."""
-    rr, c = _egg(u, v / t['across'], t['front'], t['back'])
-    if rr >= 1.0:
-        return 0.0
-    re = _pinch_r(rr)
-    k = AHOGE_C + (AHOGE_C_FRONT - AHOGE_C) * smooth01(c)
-    return t['height'] * (1.0 - re) ** 2 / (1.0 - k * re) * (1.0 + AHOGE_BACK_FULL * smooth01(-c) * re)
+def _fit_wrap(st, bvhs):
+    """Wrap per arc fraction so each rim rests AHOGE_SINK into the nearest surface under
+    it along -N (the deeper rim decides), clamped to AHOGE_WRAP and smoothed (never
+    shallower than needed by more than 0.05): (u, wrap) arrays."""
+    c = st.curve
+    s, L = c['s'], float(c['s'][-1])
+    k_in, t_rim = st.meta['k_in'], st.meta['t_rim']
+    us = np.linspace(0.0, 1.0, 121)
+    need = np.empty_like(us)
+    for i, u in enumerate(us):
+        sa = u * L
+        Pp = np.array([np.interp(sa, s, c['P'][:, k]) for k in range(3)])
+        N = np.array([np.interp(sa, s, c['N'][:, k]) for k in range(3)])
+        B = np.array([np.interp(sa, s, c['B'][:, k]) for k in range(3)])
+        N /= np.linalg.norm(N)
+        B /= np.linalg.norm(B)
+        w = float(np.interp(sa, s, c['w']))
+        d = None
+        for sgn in (-1.0, 1.0):
+            q = Vv(Pp + sgn * 0.5 * w * B)
+            near = None
+            for b in bvhs:
+                hit = b.ray_cast(q + Vv(N) * 0.002, Vv(-N), 0.05)
+                if hit[0] is not None:
+                    near = hit[3] - 0.002 if near is None else min(near, hit[3] - 0.002)
+            if near is not None:
+                d = near if d is None else max(d, near)
+        if d is None:
+            need[i] = AHOGE_WRAP[1]
+        else:
+            need[i] = (d + AHOGE_SINK - 0.5 * k_in * t_rim) / max(0.5 * w, 1e-4)
+    need = np.clip(need, *AHOGE_WRAP)
+    sig = AHOGE_WRAP_SMOOTH / L * (len(us) - 1)
+    sm = np.maximum(hk._blur(need, sig), need - 0.05)
+    sm = hk._blur(sm, 0.5 * sig)
+    return us, np.clip(sm, *AHOGE_WRAP)
 
 
-def ahoge(bm, cap_bvh):
-    """The ahoge (see above) into bm. AHOGE_LOG gets its checks: tip landmarks, the notch
-    between the tips, raised width, rim, buried share, worst turn along a spoke, facing."""
-    tf, tb = AHOGE_TUFTS
-    c0, _n = _cap_below(cap_bvh, P(0.0, CAP_TOP[0], tf['col']))
-    n0 = head_normal(c0)
-    fwd = Vector((0.0, -1.0, 0.0))
-    e1 = (fwd - n0 * fwd.dot(n0)).normalized()         # forward, in the scalp's tangent plane
-    e2 = n0.cross(e1).normalized()
-    c2, _n = _cap_below(cap_bvh, P(0.0, CAP_TOP[0], tb['col']))
-    a2 = (c2 - c0).dot(e1)                              # the back tuft's centre (behind: < 0)
-    F, B = tf['front'], -a2 + tb['back']
-    W = max(tf['across'], tb['across'])
+def _ahoge_points(spec_, lower_bvhs):
+    pts = []
+    for sc, row, grow in spec_['ctrl']:
+        if row is not None:
+            pts.append(A(P(0.0, row, sc)))
+            continue
+        hit = _down_hit(lower_bvhs, P(0.0, 40.0, sc))
+        if hit is None:
+            raise RuntimeError(f"hair_front {spec_['name']}: nothing under side col {sc}")
+        pts.append(A(hit + head_normal(hit) * (grow * PX)))
+    return pts
 
-    def offset(rr, th):
-        return (math.cos(th) * (0.5 * (F + B) + 0.5 * (F - B) * math.cos(th)) * rr, math.sin(th) * W * rr)
 
-    def heights(u, v):
-        return _tuft_h(tf, u, v), _tuft_h(tb, u - a2, v)
+def _ahoge_strand(spec_, lower_bvhs, wrap):
+    """One tuft blade; rings every AHOGE_RING_ARC (the kernel's ring spacing is a module
+    setting: it is set for this call only)."""
+    pts = _ahoge_points(spec_, lower_bvhs)
+    saved = hk.RING_ARC, hk.RING_ARC_W
+    hk.RING_ARC, hk.RING_ARC_W = AHOGE_RING_ARC, 1.0
+    try:
+        return hk.strand(pts, name=spec_['name'], width=spec_['width'], thick=spec_['thick'],
+                         facing=lambda p: A(head_normal(Vv(p))), swell=spec_['swell'], tip=spec_['tip'],
+                         wrap=wrap, n=spec_['n'], attrs={KEEP_ATTR: keep_attr(AHOGE_KEEP), LINE_ATTR: 1.0})
+    finally:
+        hk.RING_ARC, hk.RING_ARC_W = saved
 
-    def place(rr, th):
-        u, v = offset(rr, th)
-        q = c0 + e1 * u + e2 * v
-        nq = head_normal(q)
-        hit = cap_bvh.ray_cast(q + nq * 0.03, -nq, 0.08)
-        s = hit[0] if hit[0] is not None else q
-        h1, h2 = heights(u, v)
-        h = h1 + h2
-        lean = AHOGE_LEAN * (tf['height'] * (h1 / tf['height']) ** 1.5 + tb['height'] * (h2 / tb['height']) ** 1.5)
-        sink = AHOGE_SINK[0] * smooth01((rr - AHOGE_SINK[1]) / (1.0 - AHOGE_SINK[1]))
-        return s + head_normal(s) * (h - sink) + e1 * lean, h
 
-    # rings round the front tip, refined round the back tip (on the back spoke, th = pi)
-    r2 = -a2 / B
-    base = [(i / AHOGE_RINGS) ** AHOGE_REXP for i in range(1, AHOGE_RINGS + 1)]
-    extra = [r2 + d for d in (-0.05, -0.022, 0.0, 0.022, 0.05)]
-    rings_rr = sorted([r for r in base if min(abs(r - x) for x in extra) > 0.01] + extra)
-    S = AHOGE_SPOKES
-    ths = [2.0 * math.pi * j / S for j in range(S)]
+def ahoge(cap_bvh):
+    """The two tufts (see above) as kernel strands, the front one resting on the back
+    one. AHOGE_LOG gets the checks: tip landmarks and heights, the forward curl, the
+    notch, the front flank, the buried share."""
+    out = []
+    for sp in AHOGE_LOCKS:
+        lowers = [cap_bvh] + ([_bvh_of(out)] if out else [])
+        st = _ahoge_strand(sp, lowers, 0.3)
+        for _ in range(2):
+            us, wr = _fit_wrap(st, lowers)
+            st = _ahoge_strand(sp, lowers, lambda u, us=us, wr=wr: np.interp(u, us, wr))
+        settle(st, cap_bvh, AHOGE_EMERGE, depth=1.0, squash=AHOGE_SQUASH)
+        st.meta['wrap_fit'] = (us, wr)
+        out.append(st)
+    _ahoge_checks(out, cap_bvh)
+    return out
 
-    klay = _layer(bm, KEEP_ATTR, -1.0)
-    llay = _layer(bm, LINE_ATTR, 1.0)
-    glay = bm.verts.layers.float.get(common.GRAD_ATTR) or bm.verts.layers.float.new(common.GRAD_ATTR)
-    uvl = bm.loops.layers.uv.get('UVMap') or bm.loops.layers.uv.new('UVMap')
-    uv, hgt = {}, {}
 
-    def vert(rr, th):
-        co, h = place(rr, th)
-        v = bm.verts.new(co)
-        top = max(h / tf['height'], 0.0)
-        v[klay] = AHOGE_KEEP[1] + (AHOGE_KEEP[0] - AHOGE_KEEP[1]) * smooth01(top)
-        v[llay] = smooth01((h - AHOGE_LINE[0]) / (AHOGE_LINE[1] - AHOGE_LINE[0]))
-        v[glay] = 0.0                   # the hair's base colour (no mint on the crown)
-        uv[v] = (0.5 + 0.5 * rr * math.cos(th), 0.5 + 0.5 * rr * math.sin(th))
-        hgt[v] = h
-        return v
-    tip = vert(0.0, 0.0)
-    rings = [[vert(r, th) for th in ths] for r in rings_rr]
-    faces = []
-    for j in range(S):
-        k = (j + 1) % S
-        faces.append(bm.faces.new((tip, rings[0][j], rings[0][k])))
-        for ra, rb in zip(rings, rings[1:]):
-            faces.append(bm.faces.new((ra[j], rb[j], rb[k], ra[k])))
-    for f in faces:
-        f.normal_update()
-    if sum(f.normal.dot(head_normal(f.calc_center_median())) for f in faces) < 0:
-        bmesh.ops.reverse_faces(bm, faces=faces)
-        for f in faces:
-            f.normal_update()
-    for f in faces:
-        for lp in f.loops:
-            lp[uvl].uv = uv[lp.vert]
-
-    # checks
-    def over(p):
-        h, _nrm = _cap_height(cap_bvh, p)
-        return h if h is not None else 0.0
-    tip2 = rings[rings_rr.index(extra[2])][S // 2]
-    tufts = []
-    for t, v in ((tf, tip), (tb, tip2)):
-        p = Vector(v.co)
-        under, _ = _cap_below(cap_bvh, p)
-        tufts.append(dict(name=t['name'], height=(p.z - under.z) * spec.PX_PER_M, col=p.y * spec.PX_PER_M + MID,
-                          row=spec.SHEET_GROUND_Y - p.z * spec.PX_PER_M))
-    back_line = [Vector(tip.co)] + [Vector(r[S // 2].co) for r in rings]
-    i2 = 1 + rings_rr.index(extra[2])
-    notch = min(p.z for p in back_line[1:i2])
-    notch_px = (min(tip.co.z, tip2.co.z) - notch) * spec.PX_PER_M
-    allv = [tip] + [v for r in rings for v in r]
-    hs = [over(v.co) for v in allv]
-    raised = [v.co.x for v, h in zip(allv, hs) if h > 0.0005]
-    width = (max(raised) - min(raised)) * spec.PX_PER_M if raised else 0.0
-    rim = max(over(v.co) for v in rings[-1])
-    buried = sum(1 for h in hs if h < 0.0) / len(hs)
-    # bend along each spoke outside the cap, away from the rounded tips (there the spokes
-    # turn over their ~0.5 mm radius by construction; tip_turn logs it): the turn per ring
-    # and the bend radius (the rings are 0.3-1.5 mm apart, so a turn per ring alone says little)
-    turn = tip_turn = 0.0
-    bend = float('inf')
-    turn_at = (0, 0)
-    tips = [Vector(tip.co), Vector(tip2.co)]
-    for j in range(S):
-        line = [Vector(tip.co)] + [Vector(r[j].co) for r in rings]
-        for i, (p0, p1, p2) in enumerate(zip(line, line[1:], line[2:])):
-            d0, d1 = p1 - p0, p2 - p1
-            if d0.length > 1e-9 and d1.length > 1e-9:
-                a = d0.angle(d1)
-                if min((p1 - q).length for q in tips) <= AHOGE_TIP_ZONE:
-                    tip_turn = max(tip_turn, math.degrees(a))
-                    continue
-                if over(p1) < 0.0:
-                    continue                    # the rim tucked under the cap
-                if a > 1e-6:
-                    radius = 0.5 * (d0.length + d1.length) / a
-                    if radius < bend:
-                        bend, turn_at = radius, (j, i + 1)
-                turn = max(turn, math.degrees(a))
-    facing = min(f.normal.dot(head_normal(f.calc_center_median())) for f in faces)
-    log = dict(tufts=tufts, notch=notch_px, width=width, rim=rim, buried=buried, turn=turn, bend=bend,
-               turn_at=turn_at, tip_turn=tip_turn, facing=facing, faces=len(faces))
+def _ahoge_checks(sts, cap_bvh):
+    log = {'tufts': []}
     errs = []
-    for d in tufts:
+    union = [cap_bvh, _bvh_of(sts)]
+    for st in sts:
+        tip = Vv(st.apex)
+        under, _ = _cap_below(cap_bvh, tip)
+        c = st.curve
+        e = np.degrees(np.arctan2(c['T'][:, 2], c['T'][:, 1]))       # elevation from straight back (deg)
+        i6 = int(np.searchsorted(c['s'], 0.6 * c['s'][-1]))
+        d = dict(name=st.name, height=(tip.z - under.z) * spec.PX_PER_M, col=tip.y * spec.PX_PER_M + MID,
+                 row=spec.SHEET_GROUND_Y - tip.z * spec.PX_PER_M, curl=float(e[-1] - e[i6]), tilt=float(e[-1]),
+                 wrap=float(np.max(st.meta['wrap_fit'][1])))
+        log['tufts'].append(d)
         target = min(AHOGE_TIP_COLS, key=lambda c: abs(c - d['col']))
         if d['height'] > AHOGE_MAX_HEIGHT:
             errs.append(f"{d['name']} tip {d['height']:.1f} px over the cap (> {AHOGE_MAX_HEIGHT})")
         if abs(d['col'] - target) > AHOGE_TIP_TOL:
             errs.append(f"{d['name']} tip at side col {d['col']:.1f} (sheet {target:.0f} +- {AHOGE_TIP_TOL:.0f})")
-    if tufts[0]['row'] > tufts[1]['row']:
+        if d['curl'] < AHOGE_CURL_MIN:
+            errs.append(f"{d['name']} curls only {d['curl']:.1f} deg toward upright (< {AHOGE_CURL_MIN})")
+    tb, tf = log['tufts'][0], log['tufts'][1]
+    if tf['row'] > tb['row']:
         errs.append('the back tip stands higher than the front one (two points in the front view)')
+    # side-view profile round the tips: the highest surface straight below each column
+    cols = np.arange(tf['col'] - 14.0, tb['col'] + 12.0, 0.25)
+    prof = []
+    for c in cols:
+        best = None
+        for x in np.linspace(-0.006, 0.006, 7):
+            h = _down_hit(union, Vector((x, (c - MID) * PX, 1.6)))
+            if h is not None and (best is None or h.z > best):
+                best = h.z
+        prof.append(spec.SHEET_GROUND_Y - best * spec.PX_PER_M if best is not None else np.nan)
+    prof = np.array(prof)
+    between = (cols > tf['col']) & (cols < tb['col'])
+    notch = float(np.nanmax(prof[between])) if between.any() else tb['row']
+    notch_px = notch - max(tf['row'], tb['row'])
+    # front flank: the profile in front of the front tip, from 1 to 6 px under it
+    front = (cols <= tf['col']) & (prof <= tf['row'] + 6.0) & (prof >= tf['row'] + 1.0)
+    flank = math.degrees(math.atan(abs(np.polyfit(cols[front], prof[front], 1)[0]))) if front.sum() >= 2 else 90.0
+    log.update(notch=notch_px, flank=flank, profile=(cols, prof))
     if notch_px < AHOGE_NOTCH:
         errs.append(f'the notch between the tips is {notch_px:.1f} px deep (< {AHOGE_NOTCH})')
-    if width > AHOGE_MAX_WIDTH:
-        errs.append(f'raised part {width:.1f} px wide in the front view (> {AHOGE_MAX_WIDTH})')
-    if rim > AHOGE_RIM_OUT:
-        errs.append(f'rim {1000 * rim:.2f} mm outside the cap (> {1000 * AHOGE_RIM_OUT:.1f})')
-    if buried > AHOGE_MAX_BURIED:
-        errs.append(f'{100 * buried:.0f} % of it under the cap (> {100 * AHOGE_MAX_BURIED:.0f})')
-    if turn > AHOGE_MAX_TURN or bend < AHOGE_MIN_BEND:
-        errs.append(f'a spoke turns {turn:.1f} deg between rings (> {AHOGE_MAX_TURN}) / bends at a radius of '
-                    f'{1000 * bend:.2f} mm (spoke, ring {turn_at}; < {1000 * AHOGE_MIN_BEND:.1f})')
-    if facing <= 0.0:
-        errs.append(f'a face turns into the head (facing {facing:.2f})')
+    if not AHOGE_FLANK[0] <= flank <= AHOGE_FLANK[1]:
+        errs.append(f'the front tip\'s front flank stands at {flank:.0f} deg (outside {AHOGE_FLANK})')
+    tot = bad = 0
+    for st in sts:
+        t, b = buried(st, cap_bvh)
+        tot += t
+        bad += b
+    log['buried'] = bad / max(tot, 1)
+    if log['buried'] > AHOGE_MAX_BURIED:
+        errs.append(f"{100 * log['buried']:.0f} % of it inside the cap (> {100 * AHOGE_MAX_BURIED:.0f})")
     AHOGE_LOG.clear()
     AHOGE_LOG.update(log)
     if errs:
@@ -1992,7 +1990,7 @@ def build(col):
     sheet_bvh = _sheet_bvh()
 
     bm = bmesh.new()
-    ahoge(bm, cap_bvh)
+    emit_all(bm, ahoge(cap_bvh), 'hair_crown', cap_bvh)
     crown = finish(col, 'hair_crown', bm, mat, line_min=LINE_MIN)
     crown['levi_cast_shadow'] = False   # a tuft prints a hard sliver on the crown otherwise
 
@@ -2024,12 +2022,10 @@ def build(col):
     d = AHOGE_LOG
     for t in d['tufts']:
         print(f"HAIR_FRONT {t['name']}: tip at side col {t['col']:.1f}, row {t['row']:.1f}, {t['height']:.1f} px over "
-              f"the cap")
-    print(f"HAIR_FRONT ahoge: notch {d['notch']:.1f} px under the lower tip; raised part {d['width']:.1f} px wide; "
-          f"rim {1000 * d['rim']:.2f} mm off the cap; {100 * d['buried']:.0f} % under the cap; spoke turn <= "
-          f"{d['turn']:.1f} deg, bend radius >= {1000 * d['bend']:.1f} mm (spoke, ring {d['turn_at']}; "
-          f"{d['tip_turn']:.0f} deg within {1000 * AHOGE_TIP_ZONE:.0f} mm of a tip); facing >= {d['facing']:.2f}; "
-          f"{d['faces']} faces")
+              f"the cap; curls {t['curl']:.0f} deg toward upright over its last 40 % (tip {t['tilt']:.0f} deg over "
+              f"the horizontal, leaning back); crescent wrap <= {t['wrap']:.2f}")
+    print(f"HAIR_FRONT ahoge: notch {d['notch']:.1f} px under the lower tip; front flank {d['flank']:.0f} deg; "
+          f"{100 * d['buried']:.0f} % inside the cap past the roots")
     for line in LOG:
         print('HAIR_FRONT', line)
     for obj, (tot, bad) in STATS.items():
