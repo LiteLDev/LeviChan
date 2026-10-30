@@ -1274,15 +1274,13 @@ DROP_SMOOTH = 0.02        # m, sigma of the drop along the lock
 # the lock rests on the layer along its width instead of touching at one point.
 DRAPE_MAX = 2.0           # x the ring's own thickness at most
 DRAPE_SMOOTH = (1.2, 0.015)   # sigma across (vertices) and along the lock (m)
-# The sink is a smooth field held under each vertex's own clearance: a vertex whose ray
-# finds nothing below takes its ring's nearest clearances, and the field is eroded (a
-# sliding minimum, DRAPE_ERODE half widths across and along) before the blur, so the
-# blur has nothing narrow to spread and the last clamp to the clearance only trims.
-# (Round 11 R2 counted a miss as 0, blurred and clamped back to the raw clearances:
-# a ray that hit a lower lock 12 mm down beside one that missed left a 10-13 mm step
-# between neighbouring underside vertices and a 9 mm wall at lock E's rim.)
+# A vertex whose ray finds nothing below (past the edge of the lock under it) takes its
+# ring's nearest clearances, so the blurred sink, clamped to the clearance at the end,
+# has no cliff there. (Round 11 R2 counted a miss as 0: a ray that hit a lower lock
+# 12 mm down beside one that missed left a 10-13 mm step between neighbouring underside
+# vertices and a 9 mm wall at lock E's rim. Eroding the sink before the blur as well
+# smoothed it further but let the locks float: layer-gap medians 2-4 -> 3-8 mm.)
 DRAPE_RIM = 0.3           # the drape fades to the rims as (1 - s^2)^DRAPE_RIM
-DRAPE_ERODE = (1, 0.01)
 
 
 def _clearance_below(st, lowers, reach):
@@ -1348,11 +1346,8 @@ def _drape_section(st, lowers, root_fade):
     d = e * rim[None, :]
     d = np.minimum(d, DRAPE_MAX * st.thick[:nr, None])
     d *= hk.smooth01((st.arc[:nr] - root_fade) / root_fade)[:, None]
-    # erode, then smooth across (vertex index) and along (arc) the lock, then hold under
-    # the clearance
+    # smooth across (vertex index) and along (arc) the lock, then hold under the clearance
     step = float(np.median(np.diff(st.arc[:nr]))) if nr > 2 else 0.005
-    d = -_maxf(-d, DRAPE_ERODE[0], 1)
-    d = -_maxf(-d, max(1, int(round(DRAPE_ERODE[1] / max(step, 1e-4)))), 0)
     d = np.apply_along_axis(lambda v: hk._blur(v, DRAPE_SMOOTH[0]), 1, d)
     d = np.apply_along_axis(lambda v: hk._blur(v, DRAPE_SMOOTH[1] / max(step, 1e-4)), 0, d)
     d = np.minimum(d, e)
