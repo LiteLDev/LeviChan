@@ -9,9 +9,11 @@ body's neck (open only at the two eye openings and the neck's end):
   (levi/parts/_head_graft.py): in the hair-covered zone (forehead above the
   brows, temples, the sides behind the cheek) her surface is pulled onto
   Levi's round-10 skull, which every hair part is fitted to; over the eyes,
-  nose, mouth and chin it keeps her shape, the nose a little softer. Her lips
-  are flattened onto the lower face first and the mouth slid down along it
-  (_head_graft.LipRest: Levi's one receding profile line, no pout). Then her
+  nose, mouth and chin it keeps her shape, the nose a little softer. The skin
+  round her mouth (lips, the corners' pockets and dimples) is first laid on a
+  thin-plate fill of the face round it, her rolled inner lip riding its edge,
+  and the mouth slid down along it (_head_graft.LipRest: Levi's one receding
+  profile line, no pout, no corner dimples at any angle). Then her
   triangles are joined into her quads and subdivided once (every morph key
   alike).
 * Levi's skull: the round-10 ring rows (crown down to LOWER_TOP, under the
@@ -24,32 +26,42 @@ body's neck (open only at the two eye openings and the neck's end):
 The seams between the three are faired in position. Shading normals come from a
 smoothed copy without the nose or the closed lips (membranes span them)
 blended with some of the real normal: Levi's two-tone face with a dot of a
-nose. No outline hull at the eye openings and round the mouth (wider at its
-closed corners), a thin one on the nose. Levi's modelled ears stay.
+nose; round the mouth they lean on a simple curved front (MOUTH_SHADE), so no
+shade island touches a corner from above or in profile. No outline hull at
+the eye openings, their corners or the slit; a thinner one over the lips
+(the profile line runs on) and at the mouth's corners; a thin one on the nose.
+Levi's modelled ears stay.
 
 Levi's temperament on her face (round 11 face pass, ref/setting.png; the shared
-constants in _head_levi.py): her rest takes a little of her own なごみ (heavy,
-flat upper lids), 困る (the brows' inner ends up) and a small level mouth; the
+constants in _head_levi.py): her rest takes a little of her own なごみ (heavy
+upper lids; most over the iris, less toward the corners, so the lid is long
+and flat), 困る (the brows' inner ends up) and a small level mouth; the
 lid-meeting keys start from her own lids on the side they close.
 
 Eyes (from hers, recoloured to Levi's design in the atlas, all opaque):
 * head_eye_white_L / _R: her concave white cup, Levi's skin-toned sclera, shaded
   under the upper lid; rides 頭, takes the lid morphs.
-* head_eye_L / _R: her concave iris dish squashed round in its own plane (its
-  bottom on the lower lid), Levi's green iris (a crisp darker band with the
-  pupil in it, a thin navy rim); turns with 目.L / 目.R about
+* head_eye_L / _R: her concave iris dish, its rings resampled 3x (a round rim
+  in close-ups), squashed round in its own plane (its bottom on the lower lid)
+  and brought 1.2 mm nearer the lids; Levi's green iris (a crisp darker crescent
+  under the lid with the pupil in it, a thin navy rim); turns with 目.L / 目.R about
   obj['levi_eye_pivot'], her 目 bone (head-contract option A: the whole
   turn, not her 目先's 30 %).
 * head_eye_hilite_L / _R: a vertical oval highlight a little toward the nose,
-  under the lid margin, with a thin dark ring; on 目 with the iris.
+  under the lid margin, lifted off the dish, with a thin dark ring; on 目 with
+  the iris; it slides down with the lid in the keys that lower it (なごみ, じと目,
+  喜び..., not the ones that close it).
 * head_eye_lash_L / _R: her upper lash thinned to Levi's even line with one
   flat outer blade and a thin wall line (_head_lash.LashMap, the same map on
-  every key; her prong, inner hook and lash tuft go), a soft lower lid line
-  and her brows (flattened, lowered, kept on the forehead) as navy / mauve
-  strips. The lid crease and lower-lash ticks are painted on the skin.
+  every key; her prong, inner hook and lash tuft go; the wing's tail laid on
+  the skin), a soft lower lid line and her brows (straight, even, tapered
+  strokes, lowered, kept on the forehead in every key) as navy / mauve strips.
+  The lid crease and the lower lashes (a stroke on the lower lid with spikes
+  fused to it) are painted on the skin.
 Mouth: her cavity and rolled lips are part of head_face (palette 'mouth');
 head_mouth_teeth (her two strips, 'cuff') and head_mouth_tongue ride 頭 and
-move by morph only.
+move by morph only. Her loudest vowels are scaled (MORPH_SCALE), ん is closed and
+い keeps the teeth out of the slit.
 
 Morphs: every name in ALL_MORPHS, from hers where she has it (renamed),
 composed from hers otherwise (MORPH_SRC), plus her other expressions
@@ -549,7 +561,7 @@ def face_material(pixels, name='toon_face', image='levi_face_tex'):
 
     tex = nodes.new('ShaderNodeTexImage')
     tex.image = face_image(pixels, image)
-    tex.interpolation = 'Linear'
+    tex.interpolation = 'Cubic'          # the painted strokes' diagonals stair-stepped in close-ups (Linear)
     tex.extension = 'EXTEND'
     pa = spec.PALETTE['skin']
     base, shade = toon.srgb(pa['base']), toon.srgb(pa['shade'])
@@ -1301,11 +1313,18 @@ MORPH_SRC = {
     # なごみ at 1 lands on her full なごみ (the rest holds LID_K of it already)
     'なごみ': (('まばたき', 0.42 * (1.0 - HL.LID_K)), ('慈愛', 1.0 - HL.LID_K)),
     'はぅ': (('笑い', 1.0),),
-    'ω': (('口角上げ', 0.55), ('う', 0.2)),          # + OMEGA_LIFT: the lips' middle up, a cat's 'w'
+    'ω': (('口角上げ', 0.55), ('う', 0.08)),         # + OMEGA_LIFT: the lips' middle up, a cat's 'w'
+    'ん': (('口横缩げ', 0.3),),                      # closed (hers showed a white oval of teeth)
     'にやり': (('にやり', 1.0), ('口角上げ', 0.3)),
     '▲': (('あ', 0.45), ('口角下げ', 1.0), ('口横缩げ', 0.8)),
     'ぺろっ': (('あ', PEROH_OPEN),),
 }
+# her loudest vowels, scaled (face, teeth and tongue alike: the teeth stay inside the lips): at 1.0,
+# which lip sync reaches all the time, hers are a tall shout; Levi's open mouth is a small 'o'
+MORPH_SCALE = {'あ': 0.75, 'お': 0.8}
+TEETH_I = 1.0                         # い: the upper teeth this much of 歯無し上 (up behind the lip), the
+#                                       lower ones as much down (a white bar of teeth across the opening read
+#                                       as a clenched grimace; the slit now shows the mouth inside)
 # her other expressions, shipped under her (cleaned) names (export_pmx.MORPH_INFO panels)
 EXTRA_MORPHS = ('怒り右', '手前', 'やっかい', '悲しい', 'キリッ2', '喜び', '喜び2', '慈愛', '慈愛2', '驚かす',
                 'じと目2', 'ウィンク２', 'ウィンク２右', '笑い2', '笑い3', 'ムッ', '怒った', '怒った2', '口',
@@ -1320,20 +1339,27 @@ PUPIL_SQUEEZE = (0.55, 0.60, 0.92)   # 瞳小: inner iris scale, from / to share
 # the highlight (ref/setting.png): a vertical oval a little toward the nose on both eyes,
 # its top tucked just under the lowered lid margin, with a thin dark ring; in D (the iris
 # width): toward the nose, gap under the margin, half-width, half-height; lift off the dish [m]
-HILITE = (0.06, 0.02, 0.085, 0.11, 0.0004)
-HILITE_RING = (0.02, 0.0002)          # the ring: D wider than the card, m off the dish
+HILITE = (0.06, 0.045, 0.085, 0.11, 0.0015)
+#                                       (lifted 1.5 mm off the recessed dish: the lid edge is 5.8 mm in
+#                                       front of the iris, so from above the lid covered the card at once)
+HILITE_RING = (0.02, 0.0002)          # the ring: D wider than the card, m behind it
+HILITE_FOLLOW = (0.01, 0.05)          # D: in keys that lower the lid more than the first, the card slides
+#                                       down the dish with the lid's edge, its centre no lower than the
+#                                       second over the dish's centre (the half-lid keys kept no highlight)
 HILITE_SEG = 28
 IRIS_SQUASH = (0.87, 0.0002)          # the iris dish's height kept (round, not her tall oval), and how
 #                                       far [m] its lowest point sits behind the baked lower lid's edge
-BROW_SNAP = True                      # her brows, lowered, keep her own offset off the forehead
-BROW_FLAT = 0.6                       # share of her brows' arch taken out
+WING_LAY = (0.30, 0.0004)             # the lash wing's tail laid on the skin over this many D from its tip,
+#                                       this far off it [m]
+BROW_ARCH = 0.2                       # share of the (baked) brows' bend kept about their straight chord
+BROW_WIDTH = (0.00115, 0.45, 0.08, 0.62, 0.08)   # Levi's thin even stroke: width [m]; at the inner end
+#                                       this share of it, full by this share of the length; tapering
+#                                       from this share to this share of it at the outer tip
 BROW_CLEAR = 0.0006                   # m: the brows stay at least this far off the forehead in every key
 HILITE_OFF = 0.003                    # ハイライト消: m behind the iris
-BROW_DROP = 0.008                     # m: her brow strips come down toward the eye: their middle 0.35 IPD
-#                                       over the iris (the design's height) and, with the inner ends
-#                                       raised, about as much of them under the bangs as round 11's graft
-#                                       showed (5.5 mm hid the inner thirds: 3 / 13 vertices vs 8 / 13;
-#                                       pairwise Codex 8 / 5.5 mm split 2-2, sol for 8, astra for 5.5)
+BROW_DROP = 0.006                     # m: her brow strips come down toward the eye: their middle ~0.35 IPD
+#                                       over the iris and their inner thirds in the bangs' gaps as in
+#                                       round 11's graft (8 mm hid them: 6 / 13 inner-third vertices)
 TEETH_HIDE_M = (0.0016, 0.0012)       # 歯無し上: up, back [m]
 TONGUE_OUT_M = (0.0075, 0.0032, 0.012)   # ぺろっ: the tip comes forward, up [m] (out over the lower
 #                                          lip, through the parted lips); over this length from the tip
@@ -1345,9 +1371,22 @@ HAU_HIDE = (0.0, 0.035, 0.0)           # m: the はぅ strokes wait behind the e
 SHADE_SMOOTH = 16                      # Laplacian passes of the copy head_face's shading normals come from
 NOSE_ZONE = (0.013, 0.040, 0.004)      # m: |x|, below / above the eye centre: no nose in the shading form
 MOUTH_ZONE = (0.012, 0.0045)           # m: half-width, half-height round the lip line: no lips in the shading form
-MOUTH_OUTLINE = (0.0025, 0.0070, (0.003, 0.007))   # m: no outline this near the mouth (at the middle,
-#                                        at the corners; |x| from the midline where it widens): round
-#                                        the closed corners the hull stood out of the fold as hooks
+CANTHUS_OUTLINE = (0.001, 0.006)      # m: no outline this near the eyes' corners, full by the second
+MOUTH_CORNER_OUTLINE = (0.35, 0.003, 0.008)   # ... and near each corner this share of that, back to
+#                                        all of it from the first to the second distance [m]
+MOUTH_OUTLINE = (0.0003, 0.0015, 0.3, (0.013, 0.008), 1.6)   # the outline round the mouth: none on
+#                                        the slit, rising to this share by the second distance [m] from
+#                                        it, kept over the ellipse round the slit (half-width, -height)
+#                                        and full by this many times it (the profile line runs on over
+#                                        the lips, thinner; seen at 45-75 deg the far side of the mouth
+#                                        is edge-on and a full-width hull drew streaks from its corner)
+MOUTH_SHADE = (0.7, 0.016, 0.010, 1.8, 10.0, 0.050)   # round the mouth the shading normals take
+#                                        this share of a simple front's: half-width, half-height [m],
+#                                        fading out by this many times that; the front tilts this many
+#                                        degrees down and curves round a vertical axis this far behind
+#                                        it [m] (her face turns away round the lips: seen from above,
+#                                        with the key light 40 deg up, the side of a corner shaded
+#                                        alone, a smirk; in profile, rings round the lips)
 NECK_TURN_Z = (1.240, 1.262)           # m: her border this high (behind the jaw) leaves downward ...
 NECK_TURN = 1.0                        # ... this much (1: diagonally back and down)
 JUNCTION_R, JUNCTION_FAIR = 0.016, 25  # m round the corners behind the jaw angle faired; passes
@@ -1365,9 +1404,23 @@ def _neutral(getter, entries):
     return out
 
 
-def _bakes(getter):
-    """(d0, lid0): Levi's whole rest bake on one piece, and its lid part."""
-    lid0 = _neutral(getter, HL.NEUTRAL_LID)
+def _lid_w(P):
+    """HL.lid_weight at points P (her aligned frame): x' from that side's iris centre."""
+    from . import _head_lash
+    ip = G.part('iris')[0]
+    xp = np.zeros(len(P))
+    for side in (1, -1):
+        q = ip[(ip[:, 0] - G.MID_X) * side > 0]
+        c = 0.5 * (q[:, 0].min() + q[:, 0].max())
+        D = (q[:, 0].max() - q[:, 0].min()) * _head_lash.D_SHOW
+        m = (P[:, 0] - G.MID_X) * side > 0
+        xp[m] = -side * (P[m, 0] - c) / D
+    return HL.lid_weight(xp)
+
+
+def _bakes(getter, P):
+    """(d0, lid0): Levi's whole rest bake on one piece (her rest P), and its lid part."""
+    lid0 = _neutral(getter, HL.NEUTRAL_LID) * _lid_w(P)[:, None]
     return _neutral(getter, HL.NEUTRAL) + lid0, lid0
 
 
@@ -1404,6 +1457,8 @@ def _src_offsets(getter, morph, pos=None):
     for s, w in srcs:
         d = getter(s) * w
         out = d if out is None else out + d
+    if out is not None and morph in MORPH_SCALE:
+        out = out * MORPH_SCALE[morph]
     if morph == 'ω' and out is not None and pos is not None:
         out = out + _omega_lift(pos)
     return out
@@ -1527,10 +1582,12 @@ def atlas_material(name, path, image):
 def build_face(col, face_mat, mouth_mat):
     """head_face: her face (warped, subdivided) zipped into Levi's skull. Returns
     (object, warp, rest points, keys, her eye-hole loops)."""
-    lid_k = G.data().get('lid_k')
-    if lid_k is None or abs(float(lid_k) - HL.LID_K) > 1e-6:
-        raise ValueError(f'head: assets/hyacine/head.npz was painted for LID_K {lid_k}, the part bakes '
-                         f'{HL.LID_K}: rerun tools/prep_hyacine_head.py (the crease and ticks sit on the baked lid)')
+    lid_k, lid_shape = G.data().get('lid_k'), G.data().get('lid_shape')
+    if lid_k is None or abs(float(lid_k) - HL.LID_K) > 1e-6 or lid_shape is None \
+            or np.abs(np.asarray(lid_shape) - np.array(HL.LID_SHAPE)).max() > 1e-6:
+        raise ValueError(f'head: assets/hyacine/head.npz was painted for LID_K {lid_k}, LID_SHAPE {lid_shape}; the '
+                         f'part bakes {HL.LID_K}, {HL.LID_SHAPE}: rerun tools/prep_hyacine_head.py (the crease and '
+                         f'ticks sit on the baked lid)')
     fc = G.face_coarse()
     lips = G.LipRest(fc)              # Levi's lower face: flat lips, the mouth a little lower
     fc['pos'] = fc['pos'] + lips.D
@@ -1541,7 +1598,7 @@ def build_face(col, face_mat, mouth_mat):
     W.fc = fc
     keys = {}
     get = lambda s: G.face_offsets(fc, s)        # noqa: E731
-    d0, lid0 = _bakes(get)
+    d0, lid0 = _bakes(get, fc['pos'])
     W.lid_sides = _lid_sides(get, fc['pos'])
     for n in SHIP_MORPHS:
         d = _src_offsets(get, n, fc['pos'])
@@ -1773,6 +1830,18 @@ def build_face(col, face_mat, mouth_mat):
     k[list(cavity)] = 1.0
     nrm = smooth_n * (1 - k[:, None]) + real_n * k[:, None]
     nrm /= np.linalg.norm(nrm, axis=1, keepdims=True)
+    # round the mouth: the normals pulled toward the slit's middle one (the face's sides turn
+    # away round the lips; seen from above, the side of a corner shaded alone, a smirk)
+    gain, hw, hh, fade, down, rc = MOUTH_SHADE
+    skin_v = np.ones(len(verts), bool)
+    skin_v[list(cavity)] = False
+    r_m = np.hypot(X / hw, (verts[:, 2] - mz) / hh)
+    f_m = gain * G.smooth(fade, 1.0, r_m) * skin_v * (verts[:, 1] < -0.09)
+    n_f = np.stack([(verts[:, 0] - HEAD_DX) / rc, np.full(len(verts), -math.cos(math.radians(down))),
+                    np.full(len(verts), -math.sin(math.radians(down)))], 1)
+    n_f /= np.linalg.norm(n_f, axis=1, keepdims=True)
+    nrm = nrm * (1.0 - f_m)[:, None] + n_f * f_m[:, None]
+    nrm /= np.linalg.norm(nrm, axis=1, keepdims=True)
     me.normals_split_custom_set_from_vertices([tuple(n) for n in nrm])
     if os.environ.get('LEVI_HEAD_DEBUG'):
         cn = np.zeros(len(me.loops) * 3)
@@ -1809,12 +1878,41 @@ def build_face(col, face_mat, mouth_mat):
         kd_m.insert(Vector(verts[v]), i)
     kd_m.balance()
     wts = np.ones(len(verts))
+    lip_x = verts[lipline, 0] - HEAD_DX
+    corners_m = [verts[lipline[int(np.argmax(lip_x))]], verts[lipline[int(np.argmin(lip_x))]]]
     for i, p in enumerate(verts):
         de = kd_e.find(Vector(p))[2]
         dm = kd_m.find(Vector(p))[2]
-        r_m = MOUTH_OUTLINE[0] + (MOUTH_OUTLINE[1] - MOUTH_OUTLINE[0]) * float(
-            G.smooth(*MOUTH_OUTLINE[2], abs(p[0] - HEAD_DX)))
-        wts[i] = min(G.smooth(0.0004, 0.003, de), G.smooth(0.0, r_m, dm))
+        a0, a1, share, (ex_, ez_), ef = MOUTH_OUTLINE
+        qm = math.hypot((p[0] - HEAD_DX) / ex_, (p[2] - mz) / ez_) if p[1] < -0.09 else ef
+        wm = G.smooth(a0, a1, dm) * (share + (1.0 - share) * G.smooth(1.0, ef, qm))
+        c0, c1, c2 = MOUTH_CORNER_OUTLINE
+        dc = min(np.linalg.norm(p - c) for c in corners_m)
+        wm *= c0 + (1.0 - c0) * G.smooth(c1, c2, dc)
+        wts[i] = min(G.smooth(0.0004, 0.003, de), wm)
+    # ... nor where the closed lids fold (the lid-meeting keys bring skin near the rim that is
+    # farther at rest: a brown chevron stood out under the closed lash's outer end)
+    rim_l = sorted(rims)
+    for n_ in HL.LID_MEET:
+        if n_ not in all_keys:
+            continue
+        A = all_keys[n_]
+        moved = np.nonzero(np.abs(A - verts).max(1) > 2e-4)[0]
+        if not len(moved):
+            continue
+        kd_k = KDTree(len(rim_l))
+        for i, v in enumerate(rim_l):
+            kd_k.insert(Vector(A[v]), i)
+        kd_k.balance()
+        for i in moved:
+            wts[i] = min(wts[i], G.smooth(0.0004, 0.003, kd_k.find(Vector(A[i]))[2]))
+    # and round the eyes' corners, where the closed lids fold under the lash's ends
+    canthi = []
+    for lp in holes:
+        ax_ = np.abs(verts[lp, 0] - HEAD_DX)
+        canthi += [verts[lp[int(np.argmax(ax_))]], verts[lp[int(np.argmin(ax_))]]]
+    dcan = np.min([np.linalg.norm(verts - c, axis=1) for c in canthi], axis=0)
+    wts = np.minimum(wts, G.smooth(CANTHUS_OUTLINE[0], CANTHUS_OUTLINE[1], dcan))
     wts *= 1.0 - 0.8 * G.nose_weight(verts)
     wts[list(cavity)] = 0.0
     vg = head.vertex_groups.new(name='outline_width')
@@ -1845,7 +1943,7 @@ def _part_rest(W, name, pos_al, used, post=None):
     """Rest positions of an asset part's sub-piece: W(post(p + Levi's bake)); post maps
     the sub-piece's points before the warp (the lash reshape)."""
     P = pos_al[used]
-    d0 = _bakes(lambda s: G.offsets(name, s))[0][used]
+    d0 = _bakes(lambda s: G.offsets(name, s), pos_al)[0][used]
     Q = P + d0 if post is None else post(P + d0)
     return W.points(P, Q - P)
 
@@ -1855,7 +1953,7 @@ def _part_keys(W, name, pos_al, used, extra=None, post=None):
     keys = {}
     P = pos_al[used]
     get = lambda s: G.offsets(name, s)          # noqa: E731
-    d0, lid0 = _bakes(get)
+    d0, lid0 = _bakes(get, pos_al)
     d0, lid0 = d0[used], lid0[used]
     for n in SHIP_MORPHS:
         d = _src_offsets(get, n)
@@ -1871,6 +1969,70 @@ def _part_keys(W, name, pos_al, used, extra=None, post=None):
                 Q = post(Q)
             keys[n] = W.points(P, Q - P)
     return keys
+
+
+IRIS_FORWARD = 0.0012                 # m the iris dish (and its highlight) comes forward, nearer the lids:
+#                                       the lid edge stood 5.8 mm in front of it, so from above the lid hid
+#                                       the iris top at once (el 30: iris h/w 0.644 -> 0.653)
+IRIS_RING_MULT = 3                    # the iris dish's rings resampled to this many times her 20 segments
+#                                       (the crisp rim showed the outer ring's straight edges in close-ups)
+
+
+def _resample_dish(P, T, U, mult):
+    """Her iris dish (a centre and rings of vertices round it) with every ring resampled to
+    `mult` times its vertices along a closed Catmull-Rom curve (positions and UVs), retriangulated.
+    P (n, 3), T (m, 3), U (m, 3, 2) -> P', T', U'."""
+    nb = [set() for _ in range(len(P))]
+    uvv = np.zeros((len(P), 2))
+    for t, u in zip(T, U):
+        for k in range(3):
+            nb[t[k]].update(set(t) - {t[k]})
+            uvv[t[k]] = u[k]
+    cen = max(range(len(P)), key=lambda v: len(nb[v]))
+    rings, seen = [[cen]], {cen}
+    while True:
+        nxt = set().union(*[nb[v] for v in rings[-1]]) - seen
+        if not nxt:
+            break
+        rings.append(sorted(nxt))
+        seen |= nxt
+    # order each ring round the centre (in UV), the way her triangles turn
+    cu = uvv[cen]
+    out_p, out_u, idx = [P[cen]], [uvv[cen]], [[0]]
+    for r in rings[1:]:
+        r = np.array(r)
+        ang = np.arctan2(uvv[r, 1] - cu[1], uvv[r, 0] - cu[0])
+        r = r[np.argsort(ang)]
+        n = len(r)
+        k = np.arange(n * mult) / mult
+        i0 = np.floor(k).astype(int)
+        f = (k - i0)[:, None]
+        a, b, c, d = (r[(i0 - 1) % n], r[i0 % n], r[(i0 + 1) % n], r[(i0 + 2) % n])
+
+        def cr(X):
+            return 0.5 * ((2 * X[b]) + (-X[a] + X[c]) * f + (2 * X[a] - 5 * X[b] + 4 * X[c] - X[d]) * f ** 2
+                          + (-X[a] + 3 * X[b] - 3 * X[c] + X[d]) * f ** 3)
+        idx.append(list(range(len(out_p), len(out_p) + n * mult)))
+        out_p += list(cr(P))
+        out_u += list(cr(uvv))
+    tris = []
+    m = len(idx[1])
+    for j in range(m):
+        tris.append((idx[0][0], idx[1][j], idx[1][(j + 1) % m]))
+    for ra, rb in zip(idx[1:-1], idx[2:]):
+        for j in range(m):
+            j2 = (j + 1) % m
+            tris += [(ra[j], rb[j], rb[j2]), (ra[j], rb[j2], ra[j2])]
+    P2, T2 = np.array(out_p), np.array(tris)
+    U2 = np.array(out_u)[T2]
+    # her winding: the fan's first triangle's normal
+    t0 = next(t for t in T if cen in t)
+    n0 = np.cross(P[t0[1]] - P[t0[0]], P[t0[2]] - P[t0[0]])
+    n1 = np.cross(P2[T2[0][1]] - P2[T2[0][0]], P2[T2[0][2]] - P2[T2[0][0]])
+    if n0 @ n1 < 0:
+        T2 = T2[:, ::-1]
+        U2 = U2[:, ::-1]
+    return P2, T2, U2
 
 
 def _dish_frame(P):
@@ -1917,26 +2079,44 @@ def _hole_loop(fc, side):
     return P[best[1]]
 
 
-def _snap_brows(P, brow, face_bvh):
-    """Her brow strips lowered by BROW_DROP, BROW_FLAT of their arch taken out (Levi's are
-    nearly straight strokes), each point kept her own distance off the face (lowered
-    straight down on a sloping forehead they stood 3-4 mm off it)."""
-    P = P.copy()
-    for side in (1, -1):
-        b = brow[(P[brow, 0] - G.MID_X) * side > 0]
-        x = P[b, 0]
-        arch = np.polyval(np.polyfit(x, P[b, 2], 2), x) - np.polyval(np.polyfit(x, P[b, 2], 1), x)
-        P[b, 2] -= BROW_FLAT * arch
-    out = P.copy()
-    for v in brow:
-        loc, nrm, _, d = face_bvh.find_nearest(Vector(P[v]))
-        s0 = (Vector(P[v]) - loc).dot(nrm)
-        q = P[v] - np.array([0.0, 0.0, BROW_DROP])
-        if BROW_SNAP:
-            loc2, nrm2, _, _ = face_bvh.find_nearest(Vector(q))
-            q = np.array(loc2 + nrm2 * s0)
-        out[v] = q
-    return out
+def _shape_brows(Q, s0, face):
+    """Levi's brows from her strips on the built rest (world; her 困る bake lifts the inner ends:
+    it hooked them, and the forehead's pull onto the skull widened them unevenly): each stroke
+    straightened to BROW_ARCH of its bend about its chord, an even width (BROW_WIDTH: a round
+    inner end, a taper to the outer tip), lowered by BROW_DROP and laid on the forehead at her
+    own offsets s0 off her face. Q: (n, 3) one side's brow points. Returns the moves (n, 3);
+    every key takes the same move, so her brow motions start from the new stroke."""
+    w0, a0, a1, t0, t1 = BROW_WIDTH
+    x, z = Q[:, 0], Q[:, 2]
+    side = 1.0 if np.mean(x) > G.MID_X else -1.0
+    inner, outer = int(np.argmin(np.abs(x - G.MID_X))), int(np.argmax(np.abs(x - G.MID_X)))
+    u = Q[outer, [0, 2]] - Q[inner, [0, 2]]
+    L = np.linalg.norm(u)
+    u /= L
+    perp = np.array([-u[1], u[0]]) * (1.0 if u[0] > 0 else -1.0)      # up across the stroke
+    rel = Q[:, [0, 2]] - Q[inner, [0, 2]]
+    t = np.clip(rel @ u / L, 0.0, 1.0)
+    d = rel @ perp
+    # the middle: a smooth curve between her top and bottom edges
+    dmid = np.polyval(np.polyfit(t, d, 3), t)
+    sgn = np.sign(d - dmid)
+    sgn[[inner, outer]] = 0.0
+    lfit = np.polyfit(t, dmid, 1)
+    dc = np.polyval(lfit, t) + BROW_ARCH * (dmid - np.polyval(lfit, t))
+    w = w0 * (a0 + (1.0 - a0) * G.smooth(0.0, a1, t)) * (1.0 - 0.92 * G.smooth(t0, 1.0, t))
+    xz = Q[inner, [0, 2]] + np.outer(t * L, u) + np.outer(dc + 0.5 * sgn * w, perp)
+    xz[:, 1] -= BROW_DROP
+    out = np.empty_like(Q)
+    for i in range(len(Q)):
+        loc, nrm, _, _ = face.find_nearest(Vector((xz[i, 0], Q[i, 1], xz[i, 1])))
+        out[i] = np.array(loc + nrm * s0[i])
+    e0, e1 = np.polyval(lfit, 0.0) * perp, L * u + np.polyval(lfit, 1.0) * perp
+    ch = e1 - e0
+    print(f'HEAD brow {"L" if side > 0 else "R"}: {len(Q)} verts, {L * 1000:.1f} mm long, its line '
+          f'{-math.degrees(math.atan2(ch[1], abs(ch[0]))):+.1f} deg (inner end up +), bend '
+          f'{np.abs(dmid - np.polyval(lfit, t)).max() * 1000:.2f} mm, kept {BROW_ARCH:.0%}; '
+          f'width {w0 * 1000:.2f} mm; off the skin {s0.min() * 1000:.2f}..{s0.max() * 1000:.2f} mm')
+    return out - Q
 
 
 def _clear_brows(Q, brow, face):
@@ -1968,11 +2148,18 @@ def build_eyes(col, W, mat, verts, holes, face_polys=None, face_all_keys=None):
     ring_uv = G.swatch_uv('ring' if 'ring' in names else 'navy')
     fc = W.fc
     face_bvh = BVHTree.FromPolygons([Vector(p) for p in fc['pos']], [tuple(t) for t in fc['tri']])
-    lpb = _snap_brows(lp, np.unique(lt[kinds == 'brow']), face_bvh)
+    lpb = lp
+    # her brows' own offsets off her face (they float a little over the skin)
+    brow_all = np.unique(lt[kinds == 'brow'])
+    s0_all = np.zeros(len(lp))
+    for v in brow_all:
+        loc, nrm, _, _ = face_bvh.find_nearest(Vector(lp[v]))
+        s0_all[v] = (Vector(lp[v]) - loc).dot(nrm)
     # head_face at rest and in its keys (world), for the brows' clearance
     near_brow = verts[:, 2] > G.EYE_C[1] + 0.008
     sub = [p for p in face_polys if near_brow[p].all()]
     face_rest = (BVHTree.FromPolygons([Vector(p) for p in verts], sub), None)
+    face_all = BVHTree.FromPolygons([Vector(p) for p in verts], face_polys)
     face_keys = {k: (BVHTree.FromPolygons([Vector(p) for p in a], sub), None) for k, a in (face_all_keys or {}).items()
                  if np.abs(a[near_brow] - verts[near_brow]).max() > 1e-6}
     out = {}
@@ -1983,12 +2170,13 @@ def build_eyes(col, W, mat, verts, holes, face_polys=None, face_all_keys=None):
                _part_keys(W, 'white', wp, used))
         sel = _side(ip, it)[sfx]
         used, P, T, U = _sub(ip, it, iu, sel)
+        P, T, U = _resample_dish(P, T, U, IRIS_RING_MULT)
         # the lash first (the highlight sits under its margin)
         lsel = _side(lp, lt)[sfx] & ~np.isin(kinds, ('crease', 'other', 'flick'))
         lused, LP, LT, LU = _sub(lpb, lt, lu, lsel)
         upper = np.zeros(len(lused), bool)
         upper[np.unique(LT[kinds[lsel] == 'upper'])] = True
-        d0l = _bakes(lambda m: G.offsets('lash', m))[0][lused]
+        d0l = _bakes(lambda m: G.offsets('lash', m), lp)[0][lused]
         c_her = 0.5 * (P.min(0) + P.max(0))
         lmap = _head_lash.LashMap(LP, LP + d0l, upper, LT, _hole_loop(fc, s), c_her,
                                   0.5 * (P[:, 0].max() - P[:, 0].min()), s, log=print)
@@ -1998,7 +2186,23 @@ def build_eyes(col, W, mat, verts, holes, face_polys=None, face_all_keys=None):
         lkeys = _part_keys(W, 'lash', lpb2, lused, post=lmap)
         # the brows stay on the forehead in every key (lowered for Levi, her 真面目 / 下 / 怒り
         # took them under the skin of the brow ridge)
-        brow = np.isin(lused, np.unique(lt[kinds == 'brow']))
+        # the wing's tail lies down on the skin toward its tip (it stood off the temple as a fin with a
+        # squared end in profile): the same move in every key
+        wing = (lmap.wing_w > 0) & lmap.upper
+        dist = np.linalg.norm(rest - rest[lmap.tip], axis=1)
+        g = G.smooth(WING_LAY[0] * lmap.D, 0.0, dist) * wing
+        mv = np.zeros_like(rest)
+        for i in np.nonzero(g > 1e-4)[0]:
+            loc, nrm, _, _ = face_all.find_nearest(Vector(rest[i]))
+            mv[i] = g[i] * (np.array(loc + nrm * WING_LAY[1]) - rest[i])
+        rest += mv
+        for k_ in lkeys:
+            lkeys[k_] += mv
+        brow = np.isin(lused, brow_all)
+        mv = _shape_brows(rest[brow], s0_all[lused[brow]], face_rest[0])
+        rest[brow] += mv
+        for k_ in lkeys:
+            lkeys[k_][brow] += mv
         rest = _clear_brows(rest, brow, face_rest)
         lkeys = {k: _clear_brows(v, brow, face_keys.get(k, face_rest)) for k, v in lkeys.items()}
         keep = ~lmap.drop_tris
@@ -2021,6 +2225,9 @@ def build_eyes(col, W, mat, verts, holes, face_polys=None, face_all_keys=None):
         a_sq = (z_lid - behind - sq * zq.min()) / (1.0 - sq)
         Pw = Pw + ez * ((sq - 1.0) * (zq - a_sq))[:, None]
         centre, n, ex, ez, rx, rz = _dish_frame(Pw)
+        if IRIS_FORWARD:
+            Pw = Pw + n * IRIS_FORWARD
+            centre, n, ex, ez, rx, rz = _dish_frame(Pw)
         q = Pw - centre
         inplane = q - n * (q @ n)[:, None]
         r = np.linalg.norm(inplane / np.array([1.0, 1.0, 1.0]), axis=1) / max(rx, rz)
@@ -2038,20 +2245,40 @@ def build_eyes(col, W, mat, verts, holes, face_polys=None, face_all_keys=None):
         mo = np.argsort((margin - centre) @ ex)
         m_up = (margin - centre) @ ez > 0
         mz_c = float(np.interp(0.0, ((margin - centre) @ ex)[mo][m_up[mo]], ((margin - centre) @ ez)[mo][m_up[mo]]))
-        hc = centre + ex * (-s * nas * D) + ez * (mz_c - (gap + hz) * D)
-        hp, ht = _hilite(hc, n, ex, ez, hx * D, hz * D, lift, dish, HILITE_SEG)
-        rw, rlift = HILITE_RING
-        rp, rt = _hilite(hc, n, ex, ez, (hx + rw) * D, (hz + rw) * D, rlift, dish, HILITE_SEG)
-        cp = np.concatenate([hp, rp])
-        ct = np.concatenate([ht, rt + len(hp)])
-        cu = np.concatenate([np.full((len(ht), 3, 2), white_uv), np.full((len(rt), 3, 2), ring_uv)])
-        hobj = _decal(col, f'head_eye_hilite_{sfx}', cp, ct, cu, mat, {'ハイライト消': cp - n * HILITE_OFF})
+        rw, rback = HILITE_RING
+
+        def card(h):
+            hc = centre + ex * (-s * nas * D) + ez * h
+            hp, ht = _hilite(hc, n, ex, ez, hx * D, hz * D, lift, dish, HILITE_SEG)
+            rp, rt = _hilite(hc, n, ex, ez, (hx + rw) * D, (hz + rw) * D, lift - rback, dish, HILITE_SEG)
+            return np.concatenate([hp, rp]), np.concatenate([ht, rt + len(hp)]), len(ht), len(rt)
+        h0 = mz_c - (gap + hz) * D
+        cp, ct, n_h, n_r = card(h0)
+        cu = np.concatenate([np.full((n_h, 3, 2), white_uv), np.full((n_r, 3, 2), ring_uv)])
+        hkeys = {'ハイライト消': cp - n * HILITE_OFF}
+        # the card follows the lid down in the keys that lower it (not in the ones that close it)
+        follow = []
+        for kn, arr in lkeys.items():
+            if kn in HL.LID_MEET:
+                continue
+            mk = arr[lmap.M]
+            up_k = (mk - centre) @ ez > 0
+            if up_k.sum() < 3:
+                continue
+            ok = np.argsort((mk - centre) @ ex)
+            mz_k = float(np.interp(0.0, ((mk - centre) @ ex)[ok][up_k[ok]], ((mk - centre) @ ez)[ok][up_k[ok]]))
+            if mz_c - mz_k > HILITE_FOLLOW[0] * D:
+                h = max(mz_k - (gap + hz) * D, HILITE_FOLLOW[1] * D)
+                if h < h0:
+                    hkeys[kn] = card(h)[0]
+                    follow.append(f'{kn} {(h0 - h) / D:.2f}')
+        hobj = _decal(col, f'head_eye_hilite_{sfx}', cp, ct, cu, mat, hkeys)
         hobj['levi_eye_pivot'] = iris['levi_eye_pivot']
         hobj['levi_eye_radius'] = iris['levi_eye_radius']
         out[sfx] = (pivot, centre, n, rx, rz)
         print(f'HEAD eye {sfx}: lid margin {mz_c / D:+.3f} D over the dish centre, lower lid {z_lid / D:+.3f} D; '
               f'iris {2 * rx * 1000:.1f} x {2 * rz * 1000:.1f} mm (squashed about {a_sq / D:+.3f} D); '
-              f'highlight top {(mz_c - gap * D) / D:+.3f} D')
+              f'highlight top {(mz_c - gap * D) / D:+.3f} D; it follows the lid in {", ".join(follow)} (D)')
     p = out['L'][0]
     print(f'HEAD eye pivot L ({p[0]:.4f}, {p[1]:.4f}, {p[2]:.4f}) dish {out["L"][1].round(4).tolist()} '
           f'radii {out["L"][3] * 1000:.1f} x {out["L"][4] * 1000:.1f} mm')
@@ -2062,11 +2289,26 @@ def build_mouth(col, W, teeth_mat, tongue_mat):
     tp, tt, tu = G.part('teeth')
     tp = tp + W.lips.at(tp)          # with the lips (G.LipRest)
     up = np.zeros((len(tp), 3))
+    # the upper / lower teeth: her two islands (their crowns overlap in height: a split by height
+    # left the upper crowns' tips behind, and 歯無し上 / い stretched them over the opening)
+    isl = np.arange(len(tp))
+    for _ in range(len(tp)):
+        nxt = isl.copy()
+        for t in tt:
+            m = isl[t].min()
+            nxt[t] = np.minimum(nxt[t], m)
+        if (nxt == isl).all():
+            break
+        isl = nxt
     zc = tp[:, 2].mean()
-    upper = tp[:, 2] > zc
+    upper = np.zeros(len(tp), bool)
+    for c in np.unique(isl):
+        upper[isl == c] = tp[isl == c, 2].mean() > zc
     up[upper] = (0.0, TEETH_HIDE_M[1], TEETH_HIDE_M[0])
     used = np.arange(len(tp))
-    keys = _part_keys(W, 'teeth', tp, used, {'歯無し上': up})
+    down = np.zeros((len(tp), 3))
+    down[~upper] = (0.0, TEETH_HIDE_M[1], -TEETH_HIDE_M[0])
+    keys = _part_keys(W, 'teeth', tp, used, {'歯無し上': up, 'い': TEETH_I * (up + down)})
     teeth = bpy.data.objects.new('head_mouth_teeth', _mesh('head_mouth_teeth', _part_rest(W, 'teeth', tp, used), tt))
     col.objects.link(teeth)
     teeth.data.materials.append(teeth_mat)

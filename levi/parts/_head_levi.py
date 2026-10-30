@@ -16,9 +16,29 @@ decal shapes.
 # and the iris 0.83 as tall as wide in front, the design's; pairwise Codex 0.24 / 0.28: 2-2)
 LID_K = 0.24
 NEUTRAL_LID = (('まばたき', 0.42 * LID_K), ('慈愛', LID_K))
-# the mouth small and level (15.6 mm wide, the corners level with the middle); the brows'
-# inner ends up (her 困る, ~+9 deg at 1.0; pairwise Codex 0.85 over 0.70 4-0, 1.0 over 0.85 4-0)
-NEUTRAL_MOUTH = (('口横缩げ', 0.95), ('口角下げ', 0.25))
+# ... taken in full over the iris's middle, less toward the corners (x' [D] from the iris centre, +
+# toward the nose): her lid lowered as it was kept her round dome; this way the lowered lid is long
+# and flat (the design's lid line rises 0.06-0.07 IPD from its ends): (outer: from, to x', share left
+# at the corner), (inner: from, to x', share left at the end)
+LID_SHAPE = ((0.20, 0.85, 0.10), (0.20, 0.55, 0.50))
+
+
+def lid_weight(xp):
+    """The share of the lid bake at x' (array)."""
+    import numpy as np
+    xp = np.asarray(xp, float)
+    (o0, o1, ow), (i0, i1, iw) = LID_SHAPE
+
+    def sm(e0, e1, x):
+        t = np.clip((x - e0) / (e1 - e0), 0.0, 1.0)
+        return t * t * (3.0 - 2.0 * t)
+    return np.where(xp < 0, 1.0 - (1.0 - ow) * sm(o0, o1, -xp), 1.0 - (1.0 - iw) * sm(i0, i1, xp))
+
+
+# the mouth small and level (15.4 mm wide, the corners 0.1 mm over the middle: at 0.25 they stood
+# 0.3 mm over it and the line bowed into a faint polite smile); the brows' inner ends up (her
+# 困る, ~+9 deg at 1.0; pairwise Codex 0.85 over 0.70 4-0, 1.0 over 0.85 4-0)
+NEUTRAL_MOUTH = (('口横缩げ', 0.95), ('口角下げ', 0.31))
 NEUTRAL_BROW = (('困る', 1.0),)
 NEUTRAL = NEUTRAL_MOUTH + NEUTRAL_BROW
 # keys whose lids meet: on the side they close they start from her own rest lid (no lid
