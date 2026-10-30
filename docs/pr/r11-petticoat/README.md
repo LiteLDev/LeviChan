@@ -3,8 +3,158 @@
 Branch `r11/petticoat`, built on `r11/base`. Only `levi/parts/petticoat.py` changes geometry.
 The petticoat-specific parts of `levi/rig.py` change, and `tools/motion_check.py` gets one
 new count. Since the integration fix below, the branch also carries `r11/skirt` (merged at
-e8b439f, unchanged), so it supersedes both parts. Since round 2 of the integration review it
-also carries `r11/integrate` (f0395d7), so `r11/integrate` fast-forwards to it.
+e8b439f, unchanged), so it supersedes both parts. It carries `r11/integrate` up to bcd38b0;
+the round-3 numbers below are from `r11/integrate` 415f85d with this branch merged in (no
+conflicts).
+
+## Integration review, round 3
+The verifier's round-2 result: 16 skirt / petticoat stretch rows above min(round 10,
+petticoat alone), summed excess 0.92 (walk, walk clip, curtsy, test-adjacent front hems;
+sit_chair / sit_stand / jump_tuck / lie_back seated hems; seiza, dance rows), plus three p3s.
+Now, on the full merge (`r11/integrate` 415f85d + this branch, full report): **1 row, summed
+excess 0.009** (seiza skirt 1.502 against petticoat alone's 1.493; round 10 1.730). jump_tuck
+is 1.921 against 1.920 (inside the 0.005 tolerance), dance_sway 1.237 against 1.238.
+
+**What made the rows** (scratch tools and dumps in `work/integ_scratch/pt_r3`):
+- *Front hems at walking pitches* (walk, walk clip, curtsy; skirt and tiers). A dump of the
+  drape stages at 40 deg of thigh pitch: the chain over the forward thigh lifts its hem 38
+  deg, and chains 0, 1 and 2 hang exactly the ring cap's step lower each (11.3 / 12.1 / 13.5
+  deg): the cone, not the clearance, set the front's shape. The worst edges (1.6-2.2 mm ring
+  edges of tier1's hem at -167 deg) grow by the forward-displacement difference of chains 0
+  and 1 (157 vs 82 mm). Their weights are the petticoat-alone ones to 0.005; 1.81 against
+  1.74 came from 2-6 deg of yaw.
+- *Seated hems* (sit_chair, sit_stand, jump_tuck, lie_back). At 80 deg the cone carried one
+  chain's hem kick (chain 14, 78 deg from the gather's 12 deg yaw) round the side in 14 deg
+  steps as hem-only lifts, so chains 10-13 had their hem segments up to 10 deg above their
+  middle ones; the inner tier's hem stretched x1.94 where chain 9 (12.6 deg) met chain 10
+  (23.5 deg).
+- *Tier weights.* Binned 4 deg round the hem, the surface-smoothed, shared, pruned and
+  refitted weights follow a quadratic B-spline's profile (0.59 / 0.38 against 0.615 / 0.376),
+  but their local slope changes +-20% from lobe to lobe. The worst stretch sat wherever a
+  steep step met the biggest difference between two chains (edge decompositions: walk tier1
+  at -167, run_l tier2 at -137, sit_chair tier2 at 49 deg).
+- *The solve stays sensitive.* Tier geometry reshuffles the tables: `LIFT_PINCH` 0.06 / 0
+  took walk to x1.51 / 1.58 but lie_back to x2.21 / 2.36 and the run clip to x2.02. With
+  round 2's chains and tables forced (isolation runs), the same geometry gives x1.70 in walk
+  and x1.96 in sit_chair, so the gain came from the reshuffle. Not used.
+
+**Fix** (`levi/rig.py`, petticoat and drape sections):
+- `TIER_FIELD`: the tiers take one analytic field of (angle, height). Round the ring a vertex
+  blends the nearest chains by a quadratic B-spline of its angle, knots 1.05 chain steps
+  apart, where it rides the last segment; above that it hands over (within a quarter
+  segment) to the plain two-chain blend that also splits two segments. That is at most four
+  bones by construction, with no smoothing, prune or refit. The same weights apply at the
+  same (angle, height) on every tier, and the core's seam takes them too. Tier x tier
+  crossings 114 -> 0 (cross_legged 89, run_r 14, run 11).
+- `DRAPE_RING_CAP_PITCH` ((45, 75), 0.55): below 45 deg of thigh pitch the cone's steps are
+  0.55 of `DRAPE_RING_CAP`, full again by 75 deg. Above 75 deg (seated, kicks) the cone is
+  as before, where a narrower one made round 8's bowl. Where the cap is narrowed, the
+  tables are smoothed over the pitch again after the cone (on or above it) and kept
+  monotone (`_smooth_above`, `_monotone`). Without that, a hem the cone lifted at 48 deg
+  dropped back by 63 deg and the run clip had a 0.27 strain spike at frame 14. Smoothed at
+  every pitch, cross_legged's skirt x petticoat crossings went 226 -> 384.
+- `DRAPE_UP` 10 -> 7: the middle segment follows a hem the cone lifted (no 10 deg kick at
+  the lower joint, which the tiers straddle).
+- `DRAPE_STRAIN` 0.3 -> 0.26: the gather keeps the ring tighter at the innermost cloth, now
+  the inner tier's hem.
+
+**Search** (41 poses and clip frames per variant, the motion report's metrics; rows over the
+bound counted per pose and frame, so sit_stand counts three times; `pt_r3/variants_summary.txt`):
+
+| variant | rows | excess | petticoat pen max | tier x tier |
+|---|---|---|---|---|
+| round 2 | 19 | 1.18 | 2.17 cm | 114 |
+| tier smoothing 8 cm | 15 | 0.97 | 2.17 | 72 |
+| tiers without refit | 31 | 5.56 | 2.17 | 136 |
+| hem cap 11 deg at every pitch | 15 | 1.37 | 2.14 | 102 |
+| `DRAPE_STRAIN` 0.2 | 12 | 0.70 | 2.58 | 125 |
+| `LIFT_PINCH` 0.06 / 0 (geometry) | 20 / 13 | 1.18 / 1.13 | 2.84 / 3.08 | 101 / 51 |
+| tier field alone | 21 | 1.01 | 2.17 | 0 |
+| cap 0.7 below 45-75 deg | 14 | 0.84 | 2.17 | 112 |
+| field + cap 0.55 | 9 | 0.38 | 2.17 | 0 |
+| ... + finer yaw grid / `DRAPE_UP` 6 | 17 / 14 | 0.69 / 0.59 | 2.95 / 2.05 | 0 |
+| ... + `DRAPE_STRAIN` 0.25, `DRAPE_UP` 6 / 7 | 8 / 7 | 0.16 / 0.09 | 2.55 / 2.54 | 0 |
+| ... + `DRAPE_STRAIN` 0.26, `DRAPE_UP` 7 | 3 | 0.06 | 2.27 | 0 |
+| ... + smoothing after the cone at every pitch | 6 | 0.09 | 2.84 | 0 |
+| ... + smoothing where the cap is narrowed | 2 | 0.03 | 2.27 | 0 |
+| ... + field knots 1.05 apart (this branch) | 1 | 0.009 | 2.27 | 0 |
+
+Neighbours of the last settings (`DRAPE_UP` 5 / 8, `DRAPE_STRAIN` 0.22-0.28, cap 0.5 / 0.6,
+ranges 40-75 / 50-80, knots 1.1 apart) gave 3-17 rows: the solve is still sensitive, and
+the settings are the best of that neighbourhood, not a smooth optimum.
+
+**Full merge, full report** (`motion_r3.txt`): round 10 / petticoat alone / round 2 / now.
+
+| row | round 10 | petticoat alone | round 2 | now |
+|---|---|---|---|---|
+| walk petticoat / skirt | 1.740 / 1.514 | 1.744 / 1.521 | 1.806 / 1.551 | 1.567 / 1.481 |
+| walk clip petticoat / skirt | 1.606 / 1.354 | 1.597 / 1.382 | 1.638 / 1.422 | 1.415 / 1.312 |
+| curtsy petticoat / skirt | 1.443 / 1.321 | 1.535 / 1.344 | 1.580 / 1.387 | 1.349 / 1.270 |
+| sit_chair / sit_stand petticoat | 2.030 | 1.808 / 1.818 | 1.944 | 1.759 |
+| jump_tuck petticoat | 2.060 | 1.920 | 2.010 | 1.921 |
+| lie_back petticoat | 2.249 | 2.151 | 2.159 | 2.040 |
+| squat petticoat | 1.544 | 1.532 | 1.546 | 1.384 |
+| seiza skirt | 1.730 | 1.493 | 1.555 | 1.502 |
+| dance_sway petticoat | 1.354 | 1.238 | 1.244 | 1.237 |
+| dance_clap skirt | 1.328 | 1.272 | 1.312 | 1.232 |
+| cross_legged petticoat / skirt | 2.177 / 2.604 | 2.256 / 2.712 | 2.261 / 2.067 | 2.129 / 2.050 |
+| lie_back petticoat pen, pen_frac | 0.54 cm, 0.5% | 0.95, 1.5% | 1.45, 2.4% | 1.15, 1.9% |
+| kneel_one / sit_chair pen_frac | 0.9 / 2.1% | 0.7 / 1.5% | 1.3 / 2.2% | 0.9 / 1.9% |
+| tier x tier crossings | - | 95 | 114 | 0 |
+| skirt x petticoat crossings (cross_legged) | 214 | 212 | 218 | 226 |
+| run clip pop | - | 66 mm (skirt) | 76 mm (tier2) | 55 mm (skirt) |
+
+- No new stretch major (> 2.0). The run / idol_dance / sit_stand clip penetrations stay at
+  round 2's level (run 0.5 cm, 0.0%; idol 0.7 cm, 0.4%; sit_stand 1.0 cm, 2.1%).
+- Every skirt row is at or below round 10's, and every skirt and petticoat row except seiza
+  skirt is at or below the bound.
+
+**Seiza skirt, the row left** (1.502 against 1.493). It is the skirt's hem at chain 1 with
+both thighs at 67 deg and the floor seat. Across the variants it moved between 1.454 and
+1.570 with no trend, and it is 0.23 below round 10. The settings that took it under the
+bound (`DRAPE_STRAIN` 0.25 without `DRAPE_UP` 7, or smoothing after the cone at every pitch)
+brought back 10-11 other rows or the cross_legged crossings. Close-ups show no fold there.
+
+**Side effects, all minor:**
+- Skirt x petticoat crossings in cross_legged: 226 (round 2 218, round 10 214, the
+  integration before round 2 226). Petticoat flips in cross_legged: 3 -> 7 (petticoat
+  alone 6).
+- Walk clip: skirt pop 9.6 mm at frame 20, at the front hem where the legs cross. The two
+  thighs' lifts meet there, and the narrower cone gives both a share of the front chains.
+  Round 10: 8 mm; round 2's worst was the knee's 8 mm.
+- Run clip: the worst strain jitter row is now `bodice_ribbon_tails` 0.216 at frame 5
+  (round 2: the knee's 0.21). The petticoat's own is at most 0.20 by the same test on the
+  dumped frames (0.27 before the post-cone smoothing).
+- The waist-bow ribbon tails (bodice) ride the skirt chains: their top edge below the bow
+  stretches x1.68 in deep_lunge and kneel_one (round 2 1.50 / 1.54, round 10 1.52 / 1.54) and
+  x1.60 in the run clip. The close-ups (`r3_ribbon_tails.jpg`) show no visible change.
+
+**The round-2 p3 items:**
+- *Front tiers in walk / curtsy:* fixed (above).
+- *Core top ring in lie_back:* 1.45 -> 1.15 cm, 2.4 -> 1.9% (petticoat alone 0.95 cm, 1.5%).
+  It is hidden under the skirt and bodice.
+- *Ribbon tails in cross_legged:* 1.36 cm (round 2 1.32, round 10 1.39). Unchanged; this is
+  the bodice's (its tails take the skirt chains' weights).
+
+**Images:**
+- `r3_heat.jpg`: stretch heat on the tier that sets each row (white 1.0, yellow 1.6, red 2.0),
+  outer layers hidden. Walk tier1, curtsy, sit_chair and jump_tuck tier2, round 2 against
+  now.
+- `r3_walk_curtsy.jpg`: walk and curtsy, cel, and clay with the skirt hidden.
+- `r3_seated_lying.jpg`: sit_chair and run_l with the skirt hidden, lie_back from below, and
+  cross_legged.
+- `r3_ribbon_tails.jpg`: the waist-bow tails in kneel_one and deep_lunge.
+
+**Gates:**
+- This branch: `check.py` CHECK OK (151,344; petticoat 25,920 / 28,000). `rig_check.py` RIG
+  CHECK OK on the 17 core poses:
+  - walk 1.57 on tier2 (round 2 1.81); worst squat 1.82 on the body;
+  - worst pen side_bend 1.77 cm (skirt);
+  - no backward knee; 66/66 PMX names.
+- Full merge (`r11/integrate` 415f85d + this branch): `check.py` CHECK OK (153,186).
+- Full report: 2395 s.
+- Not run: `export_pmx`, `pmx_reimport`, `motion_vmd` (no mmd_tools on the cluster).
+
 
 ## Integration review, round 2
 **Merge with `r11/body-legs` (review p2).** fd525db no longer merged cleanly into
