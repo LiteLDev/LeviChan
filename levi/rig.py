@@ -5500,14 +5500,18 @@ HALTER_REACH = (0.02, 0.06)   # m off the skin: the halter takes the skin's weig
 #   the cost is a lead of the stage ramp where it starts on the strand: up to ~1.6 mm into
 #   the skin there with the arms down and back (hands_on_hips, hug_self), round 10 ~1.3 mm;
 #   wider smoothing (25 mm) or a longer strand join sank it 2-3 mm;
-# * the tucked ends' bodice weights after that smoothing, blended over HALTER_RIDE_SMOOTH
-#   (before it, the 20 mm smoothing carried the bodice's weights 2 cm up the visible strap,
-#   which sank 2-2.8 mm into the chest at the rim in raised-arm poses);
+# * near the tucked ends the straps follow the skin itself again (HALTER_RIM_FOLLOW: the
+#   smoothing's end there lagged the skin's stage ramp, and the strap sank 2.3 mm into the
+#   chest just above the bodice rim in dance_heart, cut off before the rim), and the tucked
+#   ends take the bodice's weights after the smoothing, blended over HALTER_RIDE_SMOOTH
+#   (before it, the 20 mm smoothing carried the bodice's weights 2 cm up the visible strap;
+#   over 5 mm the hand-over compressed the strap at the rim to x0.85 in spin and high_kick);
 # * one set of weights per ring (the part's cord_ring attribute), pruned with the stages
 #   kept and the clavicle given up first where five bones meet (HALTER_KEEP), no motion
 #   refit (_halter_prune).
 HALTER_SMOOTH = 0.020    # m: smoothing of the halter's sampled weights along the cord
-HALTER_RIDE_SMOOTH = 0.005   # m: smoothing of the tucked ends' hand-over to the bodice
+HALTER_RIM_FOLLOW = 0.025    # m: within this of the tucked end a strap blends back to the skin's own weights
+HALTER_RIDE_SMOOTH = 0.010   # m: smoothing of the tucked ends' hand-over to the bodice
 # Round 11: the halter's straps end tucked under the bodice's top rim, and its X strands end
 # on the straps. With the skin's weights the tucked ends took the clavicle (肩), which the
 # bodice over them does not have (its four largest bones after a 3.5 cm smoothing), so a
@@ -5666,6 +5670,20 @@ def _ring_mean(ids, x):
     return acc[inv].reshape(x.shape)
 
 
+def _halter_rim_follow(obj, co, edges, cq):
+    """(V,) share of the skin's own weights on the straps near their tucked ends: 1 at the
+    tucked rings (the part's ride share > 0), 0 from HALTER_RIM_FOLLOW away (section
+    centres `cq`), none on the X strands; None without the ride marks."""
+    r = _point_param(obj, co, 'levi_cord_ride') if obj is not None else None
+    if r is None or not (r > 0).any() or HALTER_RIM_FOLLOW <= 0:
+        return None
+    lab = _islands(len(co), edges)
+    strap = np.isin(lab, np.unique(lab[r > 0]))
+    tree = _kd(cq[r > 0])
+    d = np.array([tree.find(q)[2] for q in cq])
+    return np.where(strap, _smoothstep(HALTER_RIM_FOLLOW, 0.0, d), 0.0)
+
+
 def _halter_skin(cq, bones, base):
     """(V, B) the body skin's weights at the halter's section centres `cq`, interpolated
     over the nearest skin triangle (barycentric), or `base` without a skinned body."""
@@ -5783,9 +5801,13 @@ def _neck_cord_weights(kind, w, co, bones, edges=None, obj=None):
                 sk[:, chest] += a * (1.0 - k)
                 sk[:, arm] *= k[:, None]
             # smoothed along the cord (HALTER_SMOOTH), which also gives one set of weights
-            # across each section
+            # across each section; the straps back to the skin's own near their tucked ends
             if edges is not None:
+                raw = sk
                 sk = _smooth(sk, co, edges, HALTER_SMOOTH)
+                f = _halter_rim_follow(obj, co, edges, cq)
+                if f is not None:
+                    sk = sk * (1.0 - f[:, None]) + raw * f[:, None]
             sk = sk / np.maximum(sk.sum(1, keepdims=True), 1e-12)
             # the tucked strap ends take the bodice's weights, looked up at the section
             # centres (per vertex, the thinned end rings stretched x3 in idol_dance@78), after
