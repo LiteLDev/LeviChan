@@ -72,27 +72,29 @@ def _evaluated_bmesh(o, keep=None):
     return bm
 
 
-def seat_warnings(cols):
+def seat_warnings(names):
     """SEATED ornaments whose keyed faces cross the part under them (face pairs)."""
+    import bpy
     from mathutils.bvhtree import BVHTree
     out = []
+    # object names first: evaluating meshes invalidates a live all_objects iteration
+    objs = {n: sorted(o.name for o in bpy.data.collections[n].all_objects if o.type == 'MESH')
+            for n in names if bpy.data.collections.get(n)}
     for prefix, key, host in SEATED:
-        if host not in cols:
+        if host not in objs:
             continue
-        hosts = [o for o in cols[host].all_objects if o.type == 'MESH']
-        for col in cols.values():
-            for o in col.all_objects:
-                if o.type != 'MESH' or not o.name.startswith(prefix):
-                    continue
-                bm = _evaluated_bmesh(o, lambda m: m is not None and m.get('toon_key') == key)
-                tree = BVHTree.FromBMesh(bm)
-                bm.free()
-                for h in hosts:
-                    hb = _evaluated_bmesh(h)
-                    n = len(tree.overlap(BVHTree.FromBMesh(hb)))
-                    hb.free()
-                    if n:
-                        out.append(f'{o.name}: {n} {key} face pairs cross {host}/{h.name}')
+        for n in sorted(sum(objs.values(), [])):
+            if not n.startswith(prefix):
+                continue
+            bm = _evaluated_bmesh(bpy.data.objects[n], lambda m: m is not None and m.get('toon_key') == key)
+            tree = BVHTree.FromBMesh(bm)
+            bm.free()
+            for h in objs[host]:
+                hb = _evaluated_bmesh(bpy.data.objects[h])
+                k = len(tree.overlap(BVHTree.FromBMesh(hb)))
+                hb.free()
+                if k:
+                    out.append(f'{n}: {k} {key} face pairs cross {host}/{h}')
     return out
 
 
@@ -114,7 +116,7 @@ def main():
     if counts[1] != counts[2]:
         errors.append(f'build not repeatable: {counts[1]} vs {counts[2]}')
 
-    for w in seat_warnings(cols):
+    for w in seat_warnings(list(cols)):
         print('WARN', w)
 
     total = sum(counts[1].values())

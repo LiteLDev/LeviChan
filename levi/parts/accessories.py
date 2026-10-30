@@ -215,11 +215,17 @@ STRING_TUCK_GAP = 0.0008
 # ends took some of the clavicle bone, which the bodice over them does not, and a raised arm drew
 # them out from under the rim; the X strands, smoothed along their own cord, came up to
 # 4.4 mm off the strap they end on. So:
-# * ride: share of the bodice's own weights, 1 from the rim down (the tucked end moves with
-#   the rim), fading out over RIDE_FADE px above it;
-# * join: share of the strap's weights at the strand's pin (obj['levi_cord_pins'], the end
-#   points on the strap's centre line), 1 at the pin, 0 JOIN_SPAN along the strand.
-RIDE_FADE = 10.0
+# * ride: share of the bodice's own weights: none above RIDE_FROM px below the neckline
+#   (where the bodice's real rim is: the visible cord rides the skin), all from RIDE_FULL
+#   px down, so the tucked end moves with the bodice over it and cannot come out through
+#   it (round 11's first build on the skin: a cut stub on the bodice in idol_dance@78).
+#   The skin under the bodice moves out against it in a raised-arm pose, so the tucked end
+#   then dips into the skin there, hidden under the bodice. (Fading in above the rim, the
+#   visible cord sank up to 3.5 mm into the chest; a partial share left the end poking out.)
+# * join: share of the weights of the strap beside it on an X strand, 1 at the strand's
+#   end (on the strap's centre line), 0 JOIN_SPAN along the strand.
+RIDE_FROM = 2.0
+RIDE_FULL = 5.0
 JOIN_SPAN = 0.015
 VEIN_R = 0.00055
 PETIOLE_R = 0.0009      # leaf stalk radius where it leaves the hair
@@ -873,7 +879,7 @@ def _strings(col, skin, loop, cage):
     (_choker_loop), whose beads the straps leave."""
     bm = bmesh.new()
     straps = {}
-    ride, join, pins = [], [], []      # per vertex in build order (STRING_SIDES per ring)
+    ride, join = [], []      # per vertex in build order (STRING_SIDES per ring)
     for sx in (1, -1):
         # the strap starts inside a choker bead (STRAP_BEAD) on the side-back
         f = STRAP_BEAD / CHOKER_BEADS
@@ -883,7 +889,7 @@ def _strings(col, skin, loop, cage):
         straps[sx] = _tucked(_fit_string(skin, strap, first=start, floor=cage))
         _tube(bm, straps[sx], _string_radii(straps[sx], False), STRING_SIDES)
         for p in straps[sx]:
-            ride += [_body.smoothstep(-RIDE_FADE, 0.0, _row(p) - _rim_row(p.x))] * STRING_SIDES
+            ride += [_body.smoothstep(RIDE_FROM, RIDE_FULL, _row(p) - _rim_row(p.x))] * STRING_SIDES
             join += [0.0] * STRING_SIDES
     for sx in (1, -1):
         # an X strand runs from this side's strap to the other's; the character-left
@@ -895,7 +901,6 @@ def _strings(col, skin, loop, cage):
         path = _fit_string(skin, _catmull([a] + c[1:-1] + [b], STRING_PER_SEG), cs, first=a, last=b,
                            floor=cage)
         _tube(bm, path, _string_radii(path, True), STRING_SIDES)
-        pins += [a, b]
         s = _arclen(path)
         for si in s:
             ride += [0.0] * STRING_SIDES
@@ -909,7 +914,6 @@ def _strings(col, skin, loop, cage):
     _write_point(obj, 'cord_join', join)
     obj['levi_cord_ride'] = 'cord_ride'
     obj['levi_cord_join'] = 'cord_join'
-    obj['levi_cord_pins'] = [c for p in pins for c in p]
     add_outline(obj, width=STRING_LINE)
 
 

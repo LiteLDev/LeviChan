@@ -4353,10 +4353,11 @@ HALTER_SMOOTH = 0.008    # m: surface smoothing of the halter's sampled weights
 # cord, came up to 4.4 mm off the strap they end on. The part marks both with point
 # attributes (named by obj['levi_cord_ride'] / obj['levi_cord_join']): the tucked ends take
 # the bodice's own weights (HALTER_RIDE_PART is skinned first, SKIN_LATE), and each strand's
-# end takes the strap's weights at its pin (obj['levi_cord_pins'], on the strap's centre line).
+# end takes the weights of the strap beside it.
 HALTER_RIDE_PART = 'bodice'
 HALTER_RIDE_K = 8        # nearest bodice vertices averaged (inverse distance, softened by SKIN_SOFT)
-HALTER_PIN_PICK = 0.0025  # m: strap vertices this close to a pin give the strap's weights there
+HALTER_JOIN_K = 8        # nearest strap vertices a joined strand vertex takes its weights from ...
+HALTER_JOIN_SOFT = 0.001  # ... inverse distance, softened by this (m)
 SKIN_LATE = ('accessories',)   # parts skinned after the other garments (the halter reads the bodice)
 
 
@@ -4460,26 +4461,28 @@ def _halter_ride(obj, sk, co, bones):
     return out
 
 
-def _halter_joins(obj, sk, co):
-    """Each X-strand vertex blended toward the strap's weights at its nearest pin by the
-    part's join share (1 at the pin): the strand's end moves with the strap it ends on."""
+def _halter_joins(obj, sk, co, edges):
+    """Each X-strand vertex blended toward the weights of the strap beside it by the part's
+    join share (1 at the strand's end, on the strap's centre line): the inverse-distance
+    blend of the HALTER_JOIN_K nearest vertices of the other cords (join share 0), so the
+    strand's end moves with the strap it ends on, and the stretch that lies along the strap
+    with the strap's own bend. (Riding the strap's weights at the end point alone, the
+    strand's last centimetre turned rigidly with it and crossed the bending strap: a knot.)"""
     j = _point_param(obj, co, 'levi_cord_join')
-    pins = obj.get('levi_cord_pins')
-    if j is None or not pins or not (j > 0).any():
+    if j is None or not (j > 0).any() or edges is None:
         return sk
-    mw = np.array(obj.matrix_world)
-    P = np.array(pins, dtype=float).reshape(-1, 3) @ mw[:3, :3].T + mw[:3, 3]
-    d = np.linalg.norm(co[:, None, :] - P[None], axis=2)
-    near = d.argmin(1)
+    lab = _islands(len(co), edges)
     out = sk.copy()
-    for k in range(len(P)):
-        pick = (j <= 0) & (d[:, k] < HALTER_PIN_PICK)
-        if not pick.any():
-            print(f'rig: WARNING {obj.name}: no strap vertex within {HALTER_PIN_PICK * 1000:.1f} mm of pin {k}')
+    for isl in np.unique(lab[j > 0]):
+        host = np.nonzero((j <= 0) & (lab != isl))[0]
+        if not len(host):
             continue
-        wp = sk[pick].mean(0)
-        m = (j > 0) & (near == k)
-        out[m] = sk[m] * (1.0 - j[m, None]) + wp[None] * j[m, None]
+        tree = _kd(co[host])
+        for v in np.nonzero((lab == isl) & (j > 0))[0]:
+            found = tree.find_n(co[v], HALTER_JOIN_K)
+            wt = np.array([1.0 / (d + HALTER_JOIN_SOFT) for _, _, d in found])
+            wp = wt @ sk[host[[k for _, k, _ in found]]] / wt.sum()
+            out[v] = sk[v] * (1.0 - j[v]) + wp * j[v]
     return out
 
 
@@ -4515,7 +4518,7 @@ def _neck_cord_weights(kind, w, co, bones, edges=None, obj=None):
                 sk = _smooth(sk, co, edges, HALTER_SMOOTH)
             sk = sk / np.maximum(sk.sum(1, keepdims=True), 1e-12)
             if obj is not None:
-                sk = _halter_joins(obj, _halter_ride(obj, sk, co, bones), co)
+                sk = _halter_joins(obj, _halter_ride(obj, sk, co, bones), co, edges)
             return sk / np.maximum(sk.sum(1, keepdims=True), 1e-12)
     out = np.zeros_like(w)
     if kind == 'choker':
@@ -4668,7 +4671,7 @@ def _weights(obj, part, co, bones):
     if guide is not None and part in SHELL_PARTS:
         guide = _shell_share(guide, co, bones)
     if guide is not None and cord == 'halter':
-        guide = _halter_joins(obj, guide, co)    # a strand's end keeps the strap's bones at its pin
+        guide = _halter_joins(obj, guide, co, edges)   # a strand's end keeps the strap's bones
     return _prune(w, bones, guide, co)
 
 
