@@ -619,7 +619,8 @@ def _lobe(th, k, phase, irr=0.0, pinch=1.6, var=0.22):
 
 
 def _frill_ring(c, e, ra, rb, n, k=0, amp=0.0, lift_dir=None, lift=0.0, phase=0.0, irr=0.0,
-                pinch=1.6, curl=0.0, girth=None, ripple=None, rnd=0.0, ths=None, var=0.22, amp_w=None):
+                pinch=1.6, curl=0.0, girth=None, ripple=None, rnd=0.0, ths=None, var=0.22, amp_w=None,
+                rot=0.0):
     """Ellipse (e, b) of radii ra, rb around c; k rounded lobes push the ring
     out radially by amp and along lift_dir by lift at their crests (and pull
     it in / down in the valleys between them); curl pushes the crests alone
@@ -635,10 +636,15 @@ def _frill_ring(c, e, ra, rb, n, k=0, amp=0.0, lift_dir=None, lift=0.0, phase=0.
     are stretched (broad, round turns) and the flanks between them crowded (steep),
     as gathered cloth folds into U-shaped flutes; a plain sine as deep as the
     flutes turned both into points, which read end-on as a cut star.
+    The rise along lift_dir (and the ripple) is a plain wave (pinch 1) of the
+    slid angle: computed at the unslid one, the whole rise and fall crowded
+    into the steep flanks with the radius and the rim stood in square steps
+    (battlements, an S-hook where the rolled rim folded over them).
     ths: the vertices' ring parameters (default even, 2 pi j / n; see
     _even_params, which spaces them evenly along the deepest ring instead, so
     the round crests get as many vertices as the flanks). amp_w: a factor per
-    vertex on the lobes' depth, rise and curl (and the ripple)."""
+    vertex on the lobes' depth, rise and curl (and the ripple). rot: the whole
+    pattern (vertices and lobes) turned round the ring by this angle."""
     b = Y.copy()
     if lift_dir is not None:
         b = b - lift_dir * b.dot(lift_dir)
@@ -646,19 +652,19 @@ def _frill_ring(c, e, ra, rb, n, k=0, amp=0.0, lift_dir=None, lift=0.0, phase=0.
     pts = []
     for j in range(n):
         th = 2 * math.pi * j / n if ths is None else ths[j]
-        g = _lobe(th, k, phase, irr, pinch, var) if k else 0.0
-        if amp_w is not None:
-            g *= float(amp_w[j])
+        aw = 1.0 if amp_w is None else float(amp_w[j])
+        g = _lobe(th, k, phase, irr, pinch, var) * aw if k else 0.0
+        tp = th + (rnd / (2 * k)) * math.sin(2 * (k * _warp(th, irr) + phase)) if k and rnd else th
         g2 = 0.0
         if ripple and k:
             k2, a2, l2, ph2 = ripple
-            g2 = math.cos(k2 * _warp(th, irr) + ph2) * (1.0 if amp_w is None else float(amp_w[j]))
+            g2 = math.cos(k2 * _warp(tp, irr) + ph2) * aw
         w = ((1.0 + amp * g + curl * max(g, 0.0) ** 2 + (ripple[1] * g2 if g2 else 0.0))
              * (1.0 if girth is None else float(girth[j])))
-        tp = th + (rnd / (2 * k)) * math.sin(2 * (k * _warp(th, irr) + phase)) if k and rnd else th
-        p = c + e * (ra * w * math.cos(tp)) + b * (rb * w * math.sin(tp))
+        p = c + e * (ra * w * math.cos(tp + rot)) + b * (rb * w * math.sin(tp + rot))
         if lift_dir is not None and (lift or g2):
-            p = p + lift_dir * (lift * g + (ripple[2] * g2 if g2 else 0.0))
+            gl = _lobe(tp, k, phase, irr, 1.0, var) * aw if k else 0.0
+            p = p + lift_dir * (lift * gl + (ripple[2] * g2 if g2 else 0.0))
         pts.append(p)
     return pts
 
@@ -721,7 +727,7 @@ def _girth(q, w, floor=0.0):
 # each flute (RUFFLE_RIPPLE). The rim rolls under in a short return so the edge
 # has a thickness and an outline, but the sheet itself stays a single layer.
 # Round 11 (clothes-detail review: "a low cup from the front"): rim 26.4 -> 31 px
-# above the tie, flutes 0.07 -> 0.165 deep with 1.8 -> 3.4 px of rise, 72 -> 120 ring points.
+# above the tie, flutes 0.07 -> 0.165 deep with 1.8 -> 4.1 px of rise, 72 -> 144 ring points.
 TIE_R = 22.0                  # px, drawstring radius (covers the balloon's ~19 px top ring)
 # Axis at the rim: tilted toward the body, flatter than the band (the sheet's
 # side lobes slope down toward the body).
@@ -742,29 +748,36 @@ RUFFLE_PROFILE = (
     (8.5, 23.2, 23.6, 0.08, 0.6),         # the frill opens ...
     (13.0, 24.8, 25.4, 0.10, 1.05),
     (17.5, 27.0, 27.8, 0.12, 1.6),        # ... flares like a paper bag ...
-    (21.5, 29.4, 30.4, 0.135, 2.15),
-    (25.0, 31.6, 32.8, 0.15, 2.65),
-    (28.0, 33.4, 34.8, 0.16, 3.05),       # ... and opens outward at the rim
-    (30.2, 34.8, 36.3, 0.165, 3.3),       # the rim rolls over ...
-    (31.0, 36.0, 37.5, 0.165, 3.4),       # ... in a rounded fold ~2.5 px across ...
-    (30.5, 37.0, 38.5, 0.165, 3.4),
-    (29.4, 37.4, 38.9, 0.165, 3.4),
-    (28.2, 37.3, 38.8, 0.165, 3.4),       # ... and ends ~3 px under it
+    (21.5, 29.4, 30.4, 0.135, 2.6),
+    (25.0, 31.6, 32.8, 0.15, 3.2),
+    (28.0, 33.4, 34.8, 0.16, 3.65),       # ... and opens outward at the rim
+    (30.2, 34.8, 36.3, 0.165, 3.95),      # the rim rolls over ...
+    (31.0, 36.0, 37.5, 0.165, 4.1),       # ... in a rounded fold ~2.5 px across ...
+    (30.5, 37.0, 38.5, 0.165, 4.1),
+    (29.4, 37.4, 38.9, 0.165, 4.1),
+    (28.2, 37.3, 38.8, 0.165, 4.1),       # ... and ends ~3 px under it
 )
-RUFFLE_N = 120
+RUFFLE_N = 144                # 16 per flute: the secondary ripple is sampled ~8 points a wave
 RUFFLE_TAPER = 0.18
 RUFFLE_INNER_FLAT = 0.9
-RUFFLE_LOBES = 9              # ~13 ring vertices per flute
+# The outer side (seen edge-on from the front) keeps shallower flutes too: with the radius
+# alone taken in, its full-depth flutes stood up in the front view as three stacked,
+# blade-like fins with sliver bands. Their depth, rise and curl are cut by up to
+# RUFFLE_OUTER_FLAT toward the rim, over a sector ((1 + cos th) / 2) ** RUFFLE_OUTER_POW wide.
+RUFFLE_OUTER_FLAT = 0.7
+RUFFLE_OUTER_POW = 1.0
+RUFFLE_LOBES = 9
 RUFFLE_PINCH = 1.35           # broad, rounded flute tops and narrower dips (the sheet's side view)
 RUFFLE_IRR = 0.35             # somewhat uneven flute widths and heights (see _lobe)
 # ... and depths: round 10's 22% (_lobe's default) gave the deeper, taller flutes one
 # horn-like flute on the outer side
 RUFFLE_VAR = 0.1
-RUFFLE_ROUND = 0.6            # rounded flutes (see _frill_ring), by the lobes' share of their rim depth
+RUFFLE_ROUND = 0.5            # rounded flutes (see _frill_ring), by the lobes' share of their rim depth
 RUFFLE_CURL = 0.035           # the flutes' crests turn outward toward the rim (from RUFFLE_CURL_FROM px)
 RUFFLE_CURL_FROM = 18.0
-# secondary ripple: lobes, depth and rise (px) at the rim, by the lobes' share of their rim depth
-RUFFLE_RIPPLE = (22, 0.022, 0.8)
+# secondary ripple: lobes, depth and rise (px) at the rim, by the lobes' share of their rim depth.
+# (22, 0.022, 0.8) on 120 points (5.5 a wave) turned the rim up to 61 deg at one vertex.
+RUFFLE_RIPPLE = (18, 0.014, 0.5)
 # shading (round 11, as the bag's FOLD_SHADE / FOLD_SOFT): the cel ramp sees RUFFLE_SHADE of
 # the flutes' own normal, the rest from the frill with its flutes RUFFLE_SOFT as deep, so the
 # deeper flutes shade as broad tongues instead of chipping the terminator into specks
@@ -804,7 +817,9 @@ def _ruffle_rings(k=RUFFLE_LOBES, q=None, taper=True, depth=1.0):
         if taper:
             tp = 1.0 - RUFFLE_TAPER * s * (1.0 + np.cos(np.array(ths))) / 2.0
             g = tp if g is None else g * tp
-        aw = 1.0 - RUFFLE_INNER_FLAT * _smooth(0.0, 0.5, s) * ((1.0 - np.cos(np.array(ths))) / 2.0) ** 2
+        cth = np.cos(np.array(ths))
+        aw = ((1.0 - RUFFLE_INNER_FLAT * _smooth(0.0, 0.5, s) * ((1.0 - cth) / 2.0) ** 2)
+              * (1.0 - RUFFLE_OUTER_FLAT * s * ((1.0 + cth) / 2.0) ** RUFFLE_OUTER_POW))
         # the rolled hem keeps the rim's curl and ripple, so the fold stays even round each flute
         hh = RUFFLE_PROFILE[top][0] if i >= top else h
         share = amp / amp_rim
@@ -830,18 +845,26 @@ def _ruffle_bm(depth=1.0):
 # solidified plate edge.
 # Round 11 (clothes-detail review: "a thin grey collar from the front, an
 # 11-point star end-on"; the sheet draws a voluminous two-tier ruffle with
-# round flutes): an upper tier (sleeve_cuff) and a longer under tier
-# (sleeve_cuff_under) that shows ~9 px below it, both with 13 round flutes
-# (CUFF_ROUND: U-shaped, not a sine star) deepening toward the free edge,
+# round flutes): an upper tier (sleeve_cuff) and a longer, wider under tier
+# (sleeve_cuff_under) flaring out below it, both with 13 round flutes
+# (scallops: round crests, narrower valleys) deepening toward the free edge,
 # where each crest turns outward and the rim rolls into a bead ~3 mm across.
-# Both tiers share one centre line, frame and flute pattern, measured by the
-# distance d (px) along it, so the under tier nests inside the upper one at
-# every d (_cuff_clearance) and the two move alike when skinned.
+# Both tiers share one centre line and frame, measured by the distance d (px)
+# along it. Where the under tier lies under the upper one it is nearly round
+# and keeps CUFF_TIER_GAP inside the upper tier's valleys (_cuff_clearance:
+# closer, the upper rim's outline hull dipped behind it and broke up); there
+# its flutes turn half a flute round (CUFF_UNDER_SHIFT), so below the upper rim
+# they grow between the upper tier's flutes: end-on a second row of scallops,
+# not a doubled rim. (Tilting its free part further forward and down, so the
+# front view would see more of the flutes' bellies, brought its inner side
+# within 0.35 px of the upper tier: the outline breaks again.)
 CUFF_N = 128                  # ~10 ring vertices per flute
 CUFF_LOBES = 13
 CUFF_IRR = 0.3                # a little unevenness between the flutes (see _lobe)
-CUFF_PINCH = 1.0              # even waves: no creased valleys to break the shading
-CUFF_ROUND = 0.6              # round flutes (see _frill_ring), by the flutes' share of CUFF_AMP
+# Round scallops: CUFF_ROUND 0.6 with even waves (pinch 1) crowded the flanks into straight
+# lines between flat tops (a cog, end-on); a lighter slide and pinched valleys keep the crests round.
+CUFF_PINCH = 1.3
+CUFF_ROUND = 0.3              # round flutes (see _frill_ring), by the flutes' share of CUFF_AMP
 # A mild droop only: a strongly one-sided ruffle swings round with the
 # forearm twist and folds into the hem.
 CUFF_DROOP = 0.75             # downward tilt added to the arm axis at the end of the centre line
@@ -886,21 +909,35 @@ CUFF_TIERS = {
     ),
     'under': (
         (2.0, 19.9, 17.9),        # sewn just inside the upper tier's root
-        (9.0, 21.4, 19.9),
-        (15.0, 24.4, 23.8),       # nested inside the upper tier ...
-        (20.0, 27.6, 27.6),
-        (24.0, 29.8, 30.0),       # ... and out below its rim
-        (28.0, 31.4, 31.8),
-        (30.6, 32.2, 32.6),
-        (31.0, 32.1, 32.5),       # rolled rim
-        (30.6, 31.0, 31.4),
-        (29.0, 30.2, 30.5),
-        (24.0, 28.4, 28.5),       # the inner face back up
-        (16.0, 23.4, 22.8),
-        (8.0, 20.6, 19.0),
+        (9.0, 20.9, 19.3),
+        (15.0, 22.4, 21.8),       # nearly round, inside the upper tier's valleys ...
+        (19.0, 23.8, 23.8),
+        (22.0, 26.0, 26.2),
+        (25.0, 29.0, 29.4),       # ... flaring out below its rim ...
+        (28.0, 32.4, 32.8),
+        (30.4, 34.6, 35.0),       # ... ~2.5 px wider than the upper rim
+        (31.0, 34.8, 35.2),       # rolled rim
+        (30.6, 33.7, 34.1),
+        (29.2, 32.6, 33.0),
+        (26.0, 29.2, 29.6),       # the inner face back up
+        (21.0, 24.6, 24.8),
+        (15.0, 21.6, 21.0),
+        (8.0, 19.8, 18.2),
         (2.6, 19.3, 17.3),
     ),
 }
+# The under tier where the upper one covers it: its flutes this share deep (round enough
+# to keep CUFF_TIER_GAP inside the upper tier's valleys) up to the first d, full depth
+# past the second; meanwhile they turn half a flute round over CUFF_UNDER_SHIFT (d).
+CUFF_UNDER_AMP = (0.12, 19.0, 26.0)
+CUFF_UNDER_SHIFT = (10.0, 19.0)
+# The hand rises toward the cuff's outer side (the knuckles, under the drooping centre
+# line): there the under tier's free part flares out by up to CUFF_UNDER_HAND px, over a
+# sector ((1 + cos th) / 2) ** power wide, growing in from d0 to d1, so it stands ~5 mm
+# clear of the hand at rest (round 11's first under tier lay 0.7 mm off it: a wrist flex or
+# a hand on the body pushed it in).
+CUFF_UNDER_HAND = (5.0, 22.0, 29.0, 3.0)   # (px out, d0, d1, power)
+CUFF_TIER_GAP = (1.8, 8.0, 0.5)   # px kept between the tiers over the upper rim's last px (second), elsewhere (third)
 CUFF_OUTLINE_MIN = 0.35       # outline width factor where the under tier lies under the upper one
 
 
@@ -912,6 +949,11 @@ def _cuff_frame():
     return c0, axis, droop, axis.lerp(droop, 0.5).normalized()
 
 
+def _cuff_rim():
+    """d (px) of the upper tier's free edge."""
+    return max(p[0] for p in CUFF_TIERS['upper'])
+
+
 def _cuff_rings(tier, k=1.0):
     """Rings of one tier of the cuff; k scales its flutes (the soft shading surface)."""
     c0, axis, droop, mid = _cuff_frame()
@@ -920,17 +962,24 @@ def _cuff_rings(tier, k=1.0):
     # both tiers space their vertices alike, evenly along a full-depth flute ring (_even_params)
     ths = _even_params(CUFF_N, CUFF_LOBES, CUFF_AMP, math.pi / CUFF_LOBES, CUFF_IRR, CUFF_PINCH,
                        CUFF_CURL, CUFF_ROUND)
+    hand = ((1.0 + np.cos(np.array(ths))) / 2.0) ** CUFF_UNDER_HAND[3]
     rings = []
     for d, ra, rb in prof:
         t = d / CUFF_PATH
         f = axis.lerp(droop, t).normalized()
+        m, rot, girth = 1.0, 0.0, None
+        if tier == 'under':
+            lo, d0, d1 = CUFF_UNDER_AMP
+            m = lo + (1.0 - lo) * _smooth(d0, d1, d)
+            rot = (math.pi / CUFF_LOBES) * _smooth(*CUFF_UNDER_SHIFT, d)
+            girth = 1.0 + hand * (CUFF_UNDER_HAND[0] / min(ra, rb)) * _smooth(*CUFF_UNDER_HAND[1:3], d)
         c = c0 + mid * px(d)
-        a = (min(d, 1.15 * CUFF_AMP_D) / CUFF_AMP_D) ** 0.7
-        curl = CUFF_CURL * _smooth((1.0 - CUFF_CURL_FROM) * dmax, dmax, d)
+        a = (min(d, 1.15 * CUFF_AMP_D) / CUFF_AMP_D) ** 0.7 * m
+        curl = CUFF_CURL * _smooth((1.0 - CUFF_CURL_FROM) * dmax, dmax, d) * m
         rings.append(_frill_ring(c, _perp_xz(f), px(ra), px(rb), CUFF_N, CUFF_LOBES,
                                  k * CUFF_AMP * a, f, px(k * CUFF_LIFT * a),
                                  math.pi / CUFF_LOBES, CUFF_IRR, CUFF_PINCH,
-                                 k * curl, rnd=k * CUFF_ROUND * min(a, 1.0), ths=ths))
+                                 k * curl, girth=girth, rnd=k * CUFF_ROUND * min(a, 1.0), ths=ths, rot=rot))
     return rings
 
 
@@ -939,35 +988,39 @@ def _cuff_bm(tier, k=1.0):
 
 
 def _cuff_clearance():
-    """Smallest gap (m) from the under tier's outer face out to the upper tier,
-    along each under-tier ring's radial directions (the tiers share centres and
-    flutes at every d, see CUFF_TIERS); negative where it pokes into the upper
-    tier (the first surface hit faces away from the ray)."""
-    rings = _cuff_rings('upper')
-    verts, quads = _rings_poly(rings)
-    bm = bmesh.new()
-    vs = [bm.verts.new(v) for v in verts]
-    for q in quads:
-        bm.faces.new([vs[i] for i in q])
-    _orient_outward(bm, [sum(r, Vector()) / len(r) for r in rings])
-    bvh = BVHTree.FromBMesh(bm)
-    bm.free()
+    """(smallest gap (m) between the under tier's outer face and the upper tier
+    over the upper rim's last CUFF_TIER_GAP[1] px and past it, the same further
+    in, triangle pairs where the tiers intersect). A gap is the distance to the
+    nearest point of the upper tier (the intersections are counted apart)."""
+    def tree(rings):
+        verts, quads = _rings_poly(rings)
+        bm = bmesh.new()
+        vs = [bm.verts.new(v) for v in verts]
+        for q in quads:
+            bm.faces.new([vs[i] for i in q])
+        _orient_outward(bm, [sum(r, Vector()) / len(r) for r in rings])
+        bvh = BVHTree.FromBMesh(bm)
+        bm.free()
+        return bvh
+
+    bvh = tree(_cuff_rings('upper'))
     under = _cuff_rings('under')
-    c0, _, _, mid = _cuff_frame()
     prof = CUFF_TIERS['under']
     top = max(range(len(prof)), key=lambda i: prof[i][0])
-    rim = max(p[0] for p in CUFF_TIERS['upper'])
-    gap = 1.0
-    for i in range(top):                            # the outer face, up to the rim
-        c = c0 + mid * px(prof[i][0])
+    rim = _cuff_rim()
+    gap_rim, gap = 1.0, 1.0
+    for i in range(top + 1):                        # the outer face, out to its own rim
+        g = 1.0
         for p in under[i]:
-            d = (p - c).normalized()
-            loc, nrm, _, dist = bvh.ray_cast(p + d * 1e-6, d, px(30))
+            loc, _, _, dist = bvh.find_nearest(p)
             if loc is not None:
-                gap = min(gap, dist if nrm.dot(d) < 0 else -dist)
-            elif prof[i][0] < rim - 2.0:            # outside the upper tier where it should be under it
-                gap = min(gap, -px(1.0))
-    return gap
+                g = min(g, dist)
+        if prof[i][0] >= rim - CUFF_TIER_GAP[1]:
+            gap_rim = min(gap_rim, g)
+        else:
+            gap = min(gap, g)
+    cross = len(bvh.overlap(tree(under)))
+    return gap_rim, gap, cross
 
 
 def _rings_poly(rings):
@@ -1037,6 +1090,14 @@ BACK_TAILS = [
 # arms_forward, hands_behind_head, idol_dance; round 10: 0-28)
 TAIL_SUB = 4
 TAIL_SIDES = 6
+# Each tail leaves the knot from its lower side (px down the arm, px toward the cloth from
+# the knot's centre) and runs TAIL_UNDER px off the cloth until it is past the loops
+# (TAIL_UNDER_S of its length): the loops' lowest edges stand BOW_CLEAR + LOOP_LIFT off it.
+# From the knot's centre at the usual stand, the tails ran up through both loops (241
+# intersecting triangle pairs, a tangle of dark slivers where they emerged).
+TAIL_START = (1.3, 1.0)
+TAIL_UNDER = 0.8
+TAIL_UNDER_S = (0.12, 0.3)
 TAIL_TIP = (0.35, 0.07)       # the tail narrows to this share of its width over this share of its length
 
 
@@ -1241,8 +1302,9 @@ def _bow(bvh):
 
 
 def _stand(s):
-    """Tail clearance off the cloth at s (0 knot .. 1 end): closest at the ends."""
-    return px(1.6 + 1.6 * math.sin(math.pi * s) ** 2)
+    """Tail clearance off the cloth at s (0 knot .. 1 end): closest at the ends,
+    under the loops (TAIL_UNDER) next to the knot."""
+    return px(TAIL_UNDER + (1.6 - TAIL_UNDER) * _smooth(*TAIL_UNDER_S, s) + 1.6 * math.sin(math.pi * s) ** 2)
 
 
 SLEEVE_AXIS = (BAND_MID, CUFF_MID)
@@ -1263,10 +1325,12 @@ def _tails(knot, bvh, front=True):
     out = []
     sign = -1.0 if front else 1.0
     kc, kr = spec.panel_px('front', knot)
+    _, kd, _ = _band_coords(knot)
+    start = knot + BAND_AX * px(TAIL_START[0]) - kd * px(TAIL_START[1])
     for ti, path in enumerate(FRONT_TAILS if front else BACK_TAILS):
         pts2 = _polyline([(kc, kr)] + path, TAIL_SUB)
         m = len(pts2)
-        pts, nrms = [knot], [None]
+        pts, nrms = [start], [None]
         y_prev, n_prev = knot.y, Vector((0.0, sign, 0.0))
         for j, p2 in enumerate(pts2[1:], 1):
             s = j / (m - 1)
@@ -1289,8 +1353,8 @@ def _tails(knot, bvh, front=True):
                     nh = _outward(loc, nh)
                 p = loc + nh * stand
                 y_prev, n_prev = p.y, nh
-            if sign * (p.y - knot.y) < 0:      # never tuck behind the knot
-                p.y = knot.y
+            if sign * (p.y - start.y) < 0:     # never tuck behind the knot
+                p.y = start.y
             pts.append(p)
             nrms.append(nh)
         nrms[0] = nrms[1]
@@ -1302,11 +1366,11 @@ def _tails(knot, bvh, front=True):
             loc, nh, _, _ = bvh.find_nearest(pts[j])
             if loc is not None:
                 nh = _outward(loc, nh)
-                if nh.dot(pts[j] - loc) < 0 or (pts[j] - loc).length < px(1.4):
+                if nh.dot(pts[j] - loc) < 0 or (pts[j] - loc).length < 0.85 * _stand(s):
                     pts[j] = loc + nh * _stand(s)
                 nrms[j] = nh
-            if sign * (pts[j].y - knot.y) < 0:      # still never behind the knot
-                pts[j].y = knot.y
+            if sign * (pts[j].y - start.y) < 0:     # still never behind the knot
+                pts[j].y = start.y
         # the cloth's normal along the tail, smoothed so the twist doesn't jump between samples
         for _ in range(2):
             nrms = [nrms[0]] + [(nrms[j - 1] + nrms[j] * 2 + nrms[j + 1]).normalized()
@@ -1328,6 +1392,9 @@ def _tails(knot, bvh, front=True):
 
 # ---------------------------------------------------------------- build
 OUTLINE_VG = 'outline_w'      # per-vertex outline width (see add_outline's min_factor)
+# share of each object's vertices the rig's fits sample (see build; rig.RIG_FIT_PROP)
+# (shares whose period divides each half's vertex count, so both sides thin alike)
+RIG_FIT_SHARE = {'sleeve_ruffle': 0.5, 'sleeve_cuff': 0.625, 'sleeve_cuff_under': 0.0, 'sleeve_ribbon': 0.5}
 
 
 def _finish(col, name, bm, mat, grad=None, outline=None, soft=None, line=None, smooth=50.0):
@@ -1371,8 +1438,9 @@ def _join(bms):
 def _under_line():
     """Outline weight per vertex of the cuff's under tier: full where it shows
     below the upper tier, CUFF_OUTLINE_MIN of the width where it lies under it."""
-    rim = max(p[0] for p in CUFF_TIERS['upper'])
-    return [_smooth(rim - 6.0, rim, d) for d, _, _ in CUFF_TIERS['under'] for _ in range(CUFF_N)]
+    rim = _cuff_rim()
+    # full width only past the upper rim: a full hull under it poked through the upper tier
+    return [_smooth(rim, rim + 3.0, d) for d, _, _ in CUFF_TIERS['under'] for _ in range(CUFF_N)]
 
 
 def build(col):
@@ -1406,9 +1474,11 @@ def build(col):
               + [_capsule(knot_b, tb, back, px(kr * KNOT_R[0]), px(kr * KNOT_R[1]), px(kr * KNOT_LEN))]
               + _tails(knot_b, bvh, front=False))
 
-    gap = _cuff_clearance()
-    print(f'SLEEVES cuff tiers: smallest gap under -> upper {gap / px(1.0):.2f} px')
-    assert gap > px(0.5), ('sleeves: the cuff\'s under tier pokes into the upper one', gap)
+    gap_rim, gap, cross = _cuff_clearance()
+    print(f'SLEEVES cuff tiers: smallest gap under -> upper {gap_rim / px(1.0):.2f} px by the upper rim, '
+          f'{gap / px(1.0):.2f} px above; {cross} intersecting triangle pairs')
+    assert gap_rim >= px(CUFF_TIER_GAP[0]) and gap >= px(CUFF_TIER_GAP[2]) and not cross, \
+        ('sleeves: the cuff\'s under tier comes too close to the upper one', gap_rim, gap, cross)
 
     # the lip and the facing (the last 2 rings, after the top ring and the RING_COUNT
     # rings ending at the hem) keep their own normals; the hem ring itself shades with
@@ -1431,6 +1501,16 @@ def build(col):
     # for the rig (round 8): the ribbon's long loose strips are the bow's tails, lying on
     # the bag; they take its skin weights (rig._sleeve_ride_weights)
     objs[4]['levi_sleeve_tails'] = True
+    # The rig's fits (the sleeve drape chain, the hair colliders' arm capsules) are centroids
+    # and percentiles of vertices: they sample the round-11 frill, cuff and ribbon at about
+    # round 10's density (RIG_FIT_SHARE, rig.RIG_FIT_PROP), and not the cuff's under tier,
+    # which lies inside the upper one. Counted in full, the denser pieces pulled the drape
+    # root 2.3 cm down the forearm (6 mm without the under tier), which re-weighted the bag
+    # (the elbow showed through it in reach_up_back, dance_sway, hands_behind_head), and moved
+    # the arm capsules the hair is pushed off (hair_curtain_R into the body in dance_sway).
+    for o in objs:
+        if o.name in RIG_FIT_SHARE:
+            o['levi_rig_fit'] = RIG_FIT_SHARE[o.name]
     host = max(objs, key=lambda o: len(o.data.vertices))
     assert host is objs[0], ('sleeves: sleeve_balloon must have the most vertices (rig._sleeve_host)',
                              [(o.name, len(o.data.vertices)) for o in objs])

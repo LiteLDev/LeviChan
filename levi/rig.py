@@ -1740,6 +1740,13 @@ HAIR_COLLIDE_GRID = 0.006        # m: collider points are thinned to this grid b
 # only points this near the parent bone's head (m) or None, Blender collider, PMX capsule).
 # The sleeves count only where an arm bone dominates them (not the hanging drape).
 _ARM_STEMS = ('肩補助2', '肩補助3', '腕D', '腕', '腕捩')
+# RIG_FIT_PROP (object, 0..1, default 1): the share of an object's vertices that the rig's
+# point-count fits sample (the hair colliders here, the sleeve drape chains in
+# _secondary_bones; _fit_verts), 0 to leave it out. Those fits take percentiles and centroids
+# of vertices, so a part that remeshes a piece denser (round 11's sleeve frill and cuff,
+# 2-4x) can keep its weight in them as it was, and leave out an inner layer that only skews
+# them (the cuff's under tier).
+RIG_FIT_PROP = 'levi_rig_fit'
 HAIR_COLLIDERS = (
     ('shoulder', _ARM_STEMS, '腕D', ('body', 'sleeves'), 0.10, True, False),
     ('upperarm', _ARM_STEMS, '腕D', ('body', 'sleeves'), None, True, True),
@@ -1811,6 +1818,18 @@ HAIR_CAPSULE_FADE_BY = {'hair_cheek': (0.5, 1.0)}
 HAIR_COLLIDE_REACH = 0.12   # m: trunk / skirt / head hulls farther than this from a probe at rest are not tested
 # (not normalised, on purpose: pushed alike with both neighbours a segment moves 1.3x its push,
 # which is spare clearance; normalised, an isolated push was resolved only by half)
+
+
+def _fit_verts(o, *arrays):
+    """World vertices of o that the rig's fits sample (RIG_FIT_PROP), and the same rows of
+    each further per-vertex array: an even, deterministic thinning to that share."""
+    co = _world_verts([o])
+    share = float(o.get(RIG_FIT_PROP, 1.0))
+    if share < 1.0:
+        i = np.arange(len(co))
+        m = np.floor((i + 1) * share) > np.floor(i * share)
+        co, arrays = co[m], tuple(a[m] for a in arrays)
+    return (co,) + tuple(arrays) if arrays else co
 
 
 def _dominant_stems(obj, arm):
@@ -1931,7 +1950,7 @@ def _hair_colliders(arm, parts, bones, want=(), blender=True):
     capsules = []     # the same parts as MMD rigid bodies (export_pmx: hair-only colliders)
     for part in ('body', 'sleeves', 'bodice', 'accessories', 'head'):
         for o in parts.get(part, []):
-            samples.setdefault(part, []).append((_world_verts([o]), _dominant_stems(o, arm)))
+            samples.setdefault(part, []).append(_fit_verts(o, _dominant_stems(o, arm)))
     out = {}
 
     def add(name, pts, parent, info=None, bm=None):
@@ -2567,7 +2586,7 @@ def _secondary_bones(parts, core):
                 parent = seg.name
 
     # sleeve drapes: sleeve vertices well away from the arm bones hang from the forearm
-    pts = verts('sleeves')
+    pts = np.concatenate([_fit_verts(o) for o in parts.get('sleeves', [])] or [np.zeros((0, 3))])
     if len(pts):
         for tag, s, jp_side in SIDES:
             side = pts[pts[:, 0] * s > 0.05]
