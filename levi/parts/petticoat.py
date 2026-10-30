@@ -93,7 +93,10 @@ the ring at the frill, the two nearest above it), the same at the same spot on
 every tier, so the nested tiers move together. The core takes the plain angle x height blend
 (rig.PLAIN_OBJECTS: at most four bones, no smoothing, prune or refit, so it
 does not depend on the drape tables), except at the tiers' seams on it,
-where it takes their weights (rig.PLAIN_SEAM).
+where it takes their weights (rig.PLAIN_SEAM), and at its top, which hands
+half its weight to the pelvis and rides the chains' root segments alone
+(rig.PLAIN_BODY): it lies 6-10 cm inside the roots' pivots, and their
+forward turn swung it round the hips into the skirt's waist and the body.
 Every tier wraps round both legs, well clear of them; none passes between
 the thighs.
 

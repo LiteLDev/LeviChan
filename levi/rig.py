@@ -4840,7 +4840,80 @@ def _shell_share(w, co, bones):
         np.add.at(den, ix, f)
     node = acc / np.maximum(den, 1e-12)[:, None]
     out = sum(node[ix] * f[:, None] for (di, dj, f), ix in zip(corners, inv))
-    return out
+    return _shell_hem(out, co, bones) if SHELL_HEM else out
+
+
+# Round 11 (integration review 4): where the shell rides its chains' last segment alone (below
+# that segment's middle, the ramp in chain units), its weights are one function of the angle
+# round the body: the band's mean per SHELL_HEM[0] deg, read back linearly, blended in over
+# SHELL_HEM[1]. A cell's node holds the mean of its members, which sit off the node by up to
+# half a cell (0.75 deg, a share of 0.03 of the ring blend) and differently in each height
+# row, so the rolled hem (four 4 mm rows) took its weights as a function of height too, up to
+# 0.01 per mm, where the plain blend has none. Where two chains' hems part, as the raised
+# thigh's chain does from the one beside it (13 vs 14 in cross_legged: 117 mm in height),
+# that height slope moves the hem roll's lower rim by up to its own width: a 1.1 mm rim edge
+# at x0.05 (round 10 x0.07); now the rim keeps x0.41, and the shell's other rows are as
+# before (seiza x1.50 -> x1.46, the run's front hem x1.68 -> x1.64, walk x1.31 -> x1.27).
+SHELL_HEM = (0.25, (0.0, 0.25))
+
+
+def _chain_u(co, bones, group='Skirt'):
+    """(u, angle, n): each point's height in chain units (0 at the roots, n at the hems),
+    read along the two nearest chains by angle (hat-blended), its angle round the body (deg,
+    about the chains' centre) and the chains' segment count; (None, None, None) without
+    chains."""
+    chains = {}
+    for i, b in enumerate(bones):
+        if b.group == group and 'chain' in b.meta:
+            chains.setdefault(b.meta['chain'], []).append((b.meta['seg'], i, b))
+    if not chains:
+        return None, None, None
+    keys = sorted(chains, key=lambda k: chains[k][0][2].meta['angle'])
+    A = np.array([chains[k][0][2].meta['angle'] for k in keys])
+    cy = chains[keys[0]][0][2].meta['cy']
+    K, n = len(keys), len(chains[keys[0]])
+    th = np.degrees(np.arctan2(co[:, 0], co[:, 1] - cy))
+    d = (th[:, None] - A[None] + 180.0) % 360.0 - 180.0
+    hat = np.maximum(0.0, 1.0 - np.abs(d) / (360.0 / K))
+    hat /= np.maximum(hat.sum(1, keepdims=True), 1e-12)
+    U = np.zeros((len(co), K))
+    for c, k in enumerate(keys):
+        segs = sorted(chains[k], key=lambda s: s[0])
+        zj = np.array([s[2].head.z for s in segs] + [segs[-1][2].tail.z])
+        U[:, c] = np.interp(-co[:, 2], np.maximum.accumulate(-zj), np.arange(n + 1.0))
+    return (U * hat).sum(1), th, n
+
+
+def _shell_hem(w, co, bones):
+    """w with the band below the chains' last segment's middle made a function of the angle
+    alone (SHELL_HEM)."""
+    u, th, n = _chain_u(co, bones)
+    if u is None:
+        return w
+    step, (r0, r1) = SHELL_HEM
+    m = _smoothstep(n - 0.5 + r0, n - 0.5 + r1, u)
+    src = m > 0.999
+    if src.sum() < 10:
+        return w
+    nb = int(round(360.0 / step))
+    t = (th % 360.0) / step
+    k0 = np.floor(t).astype(np.int64) % nb
+    f = t - np.floor(t)
+    acc = np.zeros((nb, w.shape[1]))
+    den = np.zeros(nb)
+    for kk, ff in ((k0, 1.0 - f), ((k0 + 1) % nb, f)):
+        np.add.at(acc, kk[src], w[src] * ff[src, None])
+        np.add.at(den, kk[src], ff[src])
+    have = den > 1e-6
+    node = np.zeros_like(acc)
+    node[have] = acc[have] / den[have, None]
+    if not have.all():
+        idx = np.arange(nb)
+        for c in range(w.shape[1]):
+            node[~have, c] = np.interp(idx[~have], idx[have], node[have, c], period=nb)
+    prof = node[k0] * (1.0 - f)[:, None] + node[(k0 + 1) % nb] * f[:, None]
+    out = (1.0 - m)[:, None] * w + m[:, None] * prof
+    return out / np.maximum(out.sum(1, keepdims=True), 1e-12)
 
 
 # Nested cloth layers in separate objects (round 11: the petticoat's three frill tiers):
@@ -4955,9 +5028,14 @@ def _tier_field_weights(co, bones):
 def _plain_weights(w, co=None, part=None, bones=None):
     """(idx, ww) of a PLAIN_OBJECTS mesh: the MAX_INFLUENCE largest weights of each row,
     renormalized (no fold, no refit: the plain blend has at most that many bones), except
-    near a layer of its part (PLAIN_SEAM), whose weights it takes there and prunes as the
+    near a layer of its part (PLAIN_SEAM), whose weights it takes there, and in the band
+    that takes the pelvis' share (PLAIN_BODY): rows with more bones are pruned as the
     layer's own (_prune, guided by themselves)."""
     k = min(MAX_INFLUENCE, w.shape[1])
+    near = np.zeros(len(w), dtype=bool)
+    if co is not None and bones is not None and PLAIN_BODY:
+        w = _plain_body(w, co, bones)
+        near |= (w > 1e-9).sum(1) > k
     if co is not None and part in LAYER_PARTS and PLAIN_SEAM:
         from mathutils.kdtree import KDTree
         shared = _layer_shared(part, bones)
@@ -4974,17 +5052,66 @@ def _plain_weights(w, co=None, part=None, bones=None):
             d = np.array([h[2] for h in hit])
             s = 1.0 - _smoothstep(PLAIN_SEAM[0], PLAIN_SEAM[1], d)
             w = (1.0 - s)[:, None] * w + s[:, None] * lw[j]
-            near = s > 0.0
-            if near.any():
-                idx = np.argsort(-w, axis=1, kind='stable')[:, :k]
-                ww = np.take_along_axis(w, idx, axis=1)
-                ww = ww / np.maximum(ww.sum(1, keepdims=True), 1e-12)
-                pi, pw = _prune(w[near], bones, None, co[near])
-                idx[near], ww[near] = pi, pw
-                return idx, ww
+            near |= s > 0.0
     idx = np.argsort(-w, axis=1, kind='stable')[:, :k]
     ww = np.take_along_axis(w, idx, axis=1)
-    return idx, ww / np.maximum(ww.sum(1, keepdims=True), 1e-12)
+    ww = ww / np.maximum(ww.sum(1, keepdims=True), 1e-12)
+    if near.any():
+        pi, pw = _prune(w[near], bones, None, co[near])
+        idx[near], ww[near] = pi, pw
+    return idx, ww
+
+
+# Round 11 (integration review 4): (share, u1, u2) in chain units below the roots: a
+# PLAIN_OBJECTS layer (the petticoat core) hands `share` of its weight to the pelvis (下半身)
+# at its top, fading out (smoothstep) by u1, and rides its chains' root segments alone down
+# to u1, from where its segment blend catches up with the plain one by u2 (the height in
+# chain units read as 0.5 at u1 and stretched linearly to u2), so a vertex keeps at most four
+# bones (two roots and the two body bones above the roots, two roots and 下半身 down to u1,
+# two chains' two segments below) and the seams (PLAIN_SEAM) are as before. The core is the
+# innermost layer, 6-10 cm inside the chain roots' pivots, so a root's forward turn swung its
+# upper rings round the hips about three times as far as the skirt beside them: the side of
+# the core came forward through the skirt's waist with the raised thigh (cross_legged: 226 new
+# skirt x core face crossings; round 10 214) and its upper rings went into the hips
+# (lie_back_elbows: 1.9% of its vertices more than 5 mm in; round 10 0.5%). Now none, and the
+# core's own stretch falls where the roots turn most (the turn spreads over its upper half:
+# jump_tuck x1.85 -> x1.73, sit_chair x1.74 -> x1.69, high_kick x1.88 -> x1.83; it rises a
+# little in strides, under the tiers': curtsy x1.25 -> x1.29, run x1.79 -> x1.80). The pelvis'
+# share added to the plain blend (five bones between the roots' and the middle segments,
+# pruned and refitted) stretched it x1.99 at the side in jump_tuck and high_kick, a full share
+# x2.1-2.3, and the plain blend's own hand-over widened (ROOT_BLEND 0.8-1.0 for the core,
+# 上半身 too) x2.2 in the kicks and seated poses with 13-20 rows over their bounds.
+PLAIN_BODY = (0.5, 1.3, 2.0)
+
+
+def _plain_body(w, co, bones):
+    """w (V, B) with PLAIN_BODY's share of the pelvis at the top of the layer and its chain
+    weights re-split between the segments (see there)."""
+    names = [b.name for b in bones]
+    if '下半身' not in names:
+        return w
+    chains = {}
+    for i, b in enumerate(bones):
+        if b.group == 'Skirt' and 'chain' in b.meta:
+            chains.setdefault(b.meta['chain'], []).append((b.meta['seg'], i, b))
+    if not chains:
+        return w
+    share, u1, u2 = PLAIN_BODY
+    u, _, _ = _chain_u(co, bones)
+    out = w.copy()
+    for k, segs in chains.items():
+        segs = sorted(segs, key=lambda s: s[0])
+        zj = np.array([s[2].head.z for s in segs] + [segs[-1][2].tail.z])
+        uk = np.interp(-co[:, 2], np.maximum.accumulate(-zj), np.arange(len(segs) + 1.0))
+        v = np.where(uk < u1, 0.5, np.where(uk < u2, 0.5 + (uk - u1) * (u2 - 0.5) / (u2 - u1), uk))
+        vc = np.clip(v, 0.5, len(segs) - 0.5)
+        tot = sum(w[:, i] for _, i, _ in segs)
+        for j, i, _ in segs:
+            out[:, i] = tot * np.maximum(0.0, 1.0 - np.abs(vc - (j + 0.5)))
+    b = share * (1.0 - _smoothstep(0.3, u1, u))
+    out = (1.0 - b)[:, None] * out
+    out[:, names.index('下半身')] += b
+    return out
 
 
 def _layer_shared(part, bones):
