@@ -293,7 +293,7 @@ def convert(arm, mesh, no_edge, out_dir):
 # other key goes to the 'other' panel under its own name
 MORPH_INFO = {
     'まばたき': ('EYE', 'Blink'), '笑い': ('EYE', 'Smile'), 'ウィンク': ('EYE', 'Wink'),
-    'ウィンク右': ('EYE', 'Wink_R'), 'ウィンク２': ('EYE', 'Wink 2'), 'ｳｨﾝｸ２右': ('EYE', 'Wink 2_R'),
+    'ウィンク右': ('EYE', 'Wink_R'), 'ウィンク２': ('EYE', 'Wink 2'), 'ウィンク２右': ('EYE', 'Wink 2_R'),
     'はぅ': ('EYE', 'Close><'), 'なごみ': ('EYE', 'Calm'), 'びっくり': ('EYE', 'Surprised'),
     'じと目': ('EYE', 'Slant'), 'あ': ('MOUTH', 'a'), 'い': ('MOUTH', 'i'), 'う': ('MOUTH', 'u'),
     'え': ('MOUTH', 'e'), 'お': ('MOUTH', 'o'), 'ん': ('MOUTH', 'n'), 'ワ': ('MOUTH', 'Wa'),
@@ -305,6 +305,19 @@ MORPH_INFO = {
     '口角下げ': ('MOUTH', 'Mouth corner down'), '口横広げ': ('MOUTH', 'Mouth wide'),
     '歯無し上': ('MOUTH', 'Upper teeth off'), '照れ': ('OTHER', 'Blush'), '涙': ('OTHER', 'Tears'),
     '汗': ('OTHER', 'Sweat'),
+    # round 11: the 风堇 face's other expressions (levi.parts.head.EXTRA_MORPHS)
+    '怒り右': ('EYEBROW', 'Doubt'), '手前': ('EYEBROW', 'Brow surprise'), 'やっかい': ('EYEBROW', 'Trouble 2'),
+    '悲しい': ('EYEBROW', 'Sad'), 'キリッ2': ('EYE', 'Kiri 2'), '喜び': ('EYE', 'Joy'), '喜び2': ('EYE', 'Joy 2'),
+    '慈愛': ('EYE', 'Gentle'), '慈愛2': ('EYE', 'Gentle 2'), '驚かす': ('EYE', 'Surprised 2'),
+    'じと目2': ('EYE', 'Slant 2'), '笑い2': ('EYE', 'Smile 2'), '笑い3': ('EYE', 'Smile 3'),
+    'ムッ': ('MOUTH', 'Pout angry'), '怒った': ('MOUTH', 'Angry'), '怒った2': ('MOUTH', 'Angry 2'),
+    '口': ('MOUTH', 'Square'), 'い2': ('MOUTH', 'i 2'), 'え2': ('MOUTH', 'e 2'), '口下': ('MOUTH', 'Mouth down'),
+    '大口': ('MOUTH', 'Mouth max'), 'お2': ('MOUTH', 'o 2'), '口横缩げ': ('MOUTH', 'Mouth narrow'),
+    '倒ω': ('MOUTH', 'Inverted omega'), '痛み': ('MOUTH', 'Pain'), '痛み2': ('MOUTH', 'Pain 2'),
+    '痛み3': ('MOUTH', 'Pain 3'), '口横缩げ2': ('MOUTH', 'Pout'), 'にやり2': ('MOUTH', 'Grin 2'),
+    'にやり3': ('MOUTH', 'Grin 3'), 'ワ2': ('MOUTH', 'Wa 2'), 'ワ1': ('MOUTH', 'Wa 1'),
+    '口角下げ2': ('MOUTH', 'Mouth corner down 2'), '口上': ('MOUTH', 'Mouth up'), '心配する': ('MOUTH', 'Worry'),
+    '心配する2': ('MOUTH', 'Worry 2'), 'え3': ('MOUTH', 'e 3'), 'えー': ('MOUTH', 'Ee'),
 }
 # PMX panel numbers (pmx morph.category) of mmd_tools' category names
 PANEL_NUM = {'SYSTEM': 0, 'EYEBROW': 1, 'EYE': 2, 'MOUTH': 3, 'OTHER': 4}

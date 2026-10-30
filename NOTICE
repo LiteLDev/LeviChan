@@ -11,6 +11,11 @@ data derived from it, such as skin weights and expression morphs) from this
 model. The derived data lives in assets/hyacine/ and in the code that reads it;
 every .blend or .pmx built from this repository contains it.
 
+  assets/hyacine/head.npz, head_atlas.png, head_flush.png
+      (tools/prep_hyacine_head.py): her face mask, mouth cavity, teeth,
+      tongue, eye whites, iris dishes, lash / brow strips with their UVs and
+      vertex morphs, and a repainted derivative of her face texture (颜.png).
+
 The model's terms (from its PMX comment):
 
     允许改造，优化骨骼和刚体，重制UV
