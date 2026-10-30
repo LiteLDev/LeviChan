@@ -44,17 +44,23 @@ Whole report:
 - The spin pop on 後髪束8_4@40 (15.7 mm) and the spin jitter on the lining (0.032) are as before.
 
 ### Diagnosis (per object pair, `crossdiag`)
-**Arm-on-head poses: the forearms and cuffs lie on the scalp.** In hands_behind_head, dance_heart, reach_up_back and idol_dance@48/@80, 95-99% of the crossing curve is on hair that rides the head rigidly (頭), in both rounds:
+**Arm-on-head poses: the arms lie in hair that rides the head.** In hands_behind_head, dance_heart, reach_up_back and idol_dance@48/@80, 95-99% of the crossing curve is on hair that rides the head rigidly (頭), in both rounds:
 - the cap;
 - the bangs and crown;
 - the back hair above the choker;
 - the roots of the side locks.
 
-In hands_behind_head the hands lie inside the hair cap's closed surface by 72 mm (p90) in both rounds. That is through the hair and into the skull. In dance_heart, the cuffs lie 50 mm (p90) inside it.
+- hands_behind_head: the hands lie inside the hair cap's closed surface by 72 mm (p90) in both rounds. That is through the hair and into the skull.
+- dance_heart: the cuffs lie about 50 mm (p90) inside it.
+- reach_up_back: the hands are clear. The upper sleeves and their frills lie in the nape hair behind the head, which rides 頭.
 
-With the hair hidden, the cuffs sit on the scalp (02). Round 11's two-tier cuff adds the `sleeve_cuff_under` surface, which explains the extra curve in dance_heart (+0.9 m).
+With the hair hidden, the cuffs sit on the scalp (02). Round 11's two-tier cuff adds the `sleeve_cuff_under` surface. In dance_heart that surface carries 2.0 m of curve while the upper cuff's falls by 0.5 m, a net +0.9 m.
 
-Pose variants that take the hands out of the skull still leave 4.4-5.5 m of crossing, because the forearms wrap through the side hair on their way round the head. Neither the chains' collision nor the poses can clear this: the hair there does not move.
+I tried pose variants (not committed; tools/motion_poses.py is outside this lane):
+- hands_behind_head: with the hands moved out to the back of the hair (hand vertices inside the cap, p90 14-26 mm), 4.4-5.1 m of crossing remains (from 6.9 m). The forearms wrap through the side hair on their way round the head.
+- dance_heart: with the hands raised (elbow 90-95°), 3.8-4.5 m remains (from 5.2 m).
+
+The chains' collision cannot reach this hair, because it does not move.
 
 **Arm swings: the back locks went through the sleeve.** This happened in walk, run, hands_behind_back and idol_dance@72-77. The back locks met only the trunk and the skirt; the arms reached them "only by sweeping through". In walk and run, the locks beside the arms (lock_angle 45-63°) were cut by the sleeve's bag from the side (01, before). In hands_behind_back and idol_dance@77, the forearm folded behind her back passes through the central locks and the lining.
 
