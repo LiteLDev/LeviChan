@@ -225,8 +225,12 @@ STRING_TUCK_GAP = 0.0008
 # * join: share of the weights of the strap beside it on an X strand, 1 at the strand's
 #   end (on the strap's centre line), 0 JOIN_SPAN along the strand.
 RIDE_FROM = 2.0
-RIDE_FULL = 5.0
-JOIN_SPAN = 0.015
+RIDE_FULL = 4.0
+JOIN_SPAN = 0.03
+# Under the rim the strap thins to TUCK_TIP of its radius (by STRAP_UNDER): ~0.4 mm more
+# room under the bodice, which presses in a little in some poses (idol_dance@78: a speck of
+# the full-width cord showed through it).
+TUCK_TIP = 0.7
 VEIN_R = 0.00055
 PETIOLE_R = 0.0009      # leaf stalk radius where it leaves the hair
 PETIOLE_IN = 2.5        # px the stalk starts inside the hair, behind the blade base
@@ -887,7 +891,9 @@ def _strings(col, skin, loop, cage):
         strap = _catmull([start] + [_mirror(P(*p), sx) for p in STRAP], STRING_PER_SEG)
         # fitted first, then cut, so the end lands STRAP_UNDER px under the rim
         straps[sx] = _tucked(_fit_string(skin, strap, first=start, floor=cage))
-        _tube(bm, straps[sx], _string_radii(straps[sx], False), STRING_SIDES)
+        radii = [STRING_R * (1.0 - (1.0 - TUCK_TIP) * _body.smoothstep(RIDE_FROM, STRAP_UNDER, _row(p) - _rim_row(p.x)))
+                 for p in straps[sx]]
+        _tube(bm, straps[sx], radii, STRING_SIDES)
         for p in straps[sx]:
             ride += [_body.smoothstep(RIDE_FROM, RIDE_FULL, _row(p) - _rim_row(p.x))] * STRING_SIDES
             join += [0.0] * STRING_SIDES

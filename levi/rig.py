@@ -4356,8 +4356,8 @@ HALTER_SMOOTH = 0.008    # m: surface smoothing of the halter's sampled weights
 # end takes the weights of the strap beside it.
 HALTER_RIDE_PART = 'bodice'
 HALTER_RIDE_K = 8        # nearest bodice vertices averaged (inverse distance, softened by SKIN_SOFT)
-HALTER_JOIN_K = 8        # nearest strap vertices a joined strand vertex takes its weights from ...
-HALTER_JOIN_SOFT = 0.001  # ... inverse distance, softened by this (m)
+HALTER_JOIN_K = 16       # nearest strap vertices (two rings) a joined strand vertex takes its weights from ...
+HALTER_JOIN_SOFT = 0.003  # ... inverse distance, softened by this (m): a strand ring sees one set
 SKIN_LATE = ('accessories',)   # parts skinned after the other garments (the halter reads the bodice)
 
 
@@ -4512,13 +4512,20 @@ def _neck_cord_weights(kind, w, co, bones, edges=None, obj=None):
                 k = np.minimum(1.0, BODICE_ARM_CAP / np.maximum(a, 1e-9))
                 sk[:, chest] += a * (1.0 - k)
                 sk[:, arm] *= k[:, None]
+            # the tucked strap ends take the bodice's weights before the smoothing (one set
+            # across the section, and a transition spread along the cord: sampled per vertex
+            # after it, the thinned end rings stretched x3 in idol_dance@78)
+            if obj is not None:
+                sk = _halter_ride(obj, sk, co, bones)
             # one set of weights across the cord's section (a 1.4 mm tube): smoothed wider
             # than its girth, so the section cannot shear
             if edges is not None:
                 sk = _smooth(sk, co, edges, HALTER_SMOOTH)
             sk = sk / np.maximum(sk.sum(1, keepdims=True), 1e-12)
+            # the X strands' ends take the strap's after it (smoothed along the strand, the end
+            # drifted ~1 mm off the strap again and showed its end cap)
             if obj is not None:
-                sk = _halter_joins(obj, _halter_ride(obj, sk, co, bones), co, edges)
+                sk = _halter_joins(obj, sk, co, edges)
             return sk / np.maximum(sk.sum(1, keepdims=True), 1e-12)
     out = np.zeros_like(w)
     if kind == 'choker':
