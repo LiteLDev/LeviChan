@@ -23,6 +23,13 @@ assets/hyacine/hands.npz), placed on hand_frame() at WRIST and bridged to the ar
 then stops before the rig's wrist band; the procedural hand below (HAND_R, FINGERS,
 THUMB) is the LEVI_HYACINE_HANDS=0 fallback.
 
+Round 11: the pelvis, legs and feet are 风堇's (levi/parts/_body_legs.py, from
+assets/hyacine/legs.npz), welded under the torso ring at _body_legs.WELD_ROW (the torso's
+pelvis block below it is dropped) and running on into the stiletto foot: one surface, no hip
+collars, crotch block or ankle step. The procedural legs and feet below (the _r10 functions,
+build_leg, build_foot, FOOT) are the target her legs are warped to (and FOOT stays the shoes'
+foot); LEVI_HYACINE_LEGS=0 builds them as before.
+
 Joint anatomy carried by the loops: a rounded kneecap dome and a shallow crease
 behind the knee (where the fold forms in a squat), a straight shin front with
 the calf fullness at the back, a gluteal fold under the buttock, the armpit
@@ -61,6 +68,7 @@ on below the malleoli into the heel round the ankle pivot).
 """
 import math
 import os
+from collections.abc import Mapping
 
 import bmesh
 import numpy as np
@@ -69,6 +77,7 @@ from mathutils.kdtree import KDTree
 
 from .. import common, spec
 from . import _body_hand
+from . import _body_legs
 
 MARGIN = 1.0  # px pulled in so the outline hull lands on the reference line
 
@@ -1408,7 +1417,7 @@ def build_fingers(bm, W, d, w, n, mirror=False):
 # Front view: row -> (outer, inner) offsets of the left leg from the midline.
 # Side view: row -> (front y, back y). Measured every 10 rows on the reference
 # (rows <= 620 are under the petticoat and extrapolated toward the hip).
-LEG_FRONT = {
+_LEG_FRONT_R10 = {
     455: (60, 6), 472: (62.3, 6.5), 490: (64.5, 7), 510: (65, 8.5), 530: (65.5, 10),
     550: (65.3, 11.2), 570: (65, 12.5), 600: (64.5, 14.5),
     630: (63, 16.5), 640: (61.5, 15.8), 650: (61.5, 16.5), 660: (63.5, 17.5),
@@ -1422,7 +1431,7 @@ LEG_FRONT = {
     820: (48.5, 23.5), 830: (47.5, 22.5), 842: (47, 21.5), 852: (46, 21.5),
     862: (42.5, 23), 874: (39, 25),
 }
-LEG_SIDE = {
+_LEG_SIDE_R10 = {
     455: (-50, 22), 472: (-49, 21), 490: (-48, 20), 510: (-47, 18), 530: (-46, 16),
     550: (-45, 14.5), 570: (-44, 13), 600: (-42, 11),
     630: (-41, 9), 640: (-38.5, 10), 650: (-35.5, 12), 660: (-32, 15.5),
@@ -1590,10 +1599,10 @@ def _leg_shape(row):
     return f
 
 
-def knee_joint():
+def _knee_joint_r10():
     """Left knee pivot (world): on the leg axis at KNEE_ROW, KNEE_FWD px forward."""
-    xo, xi = _smoothed(LEG_FRONT, KNEE_ROW, 10.0)
-    yf, yb = _smoothed(LEG_SIDE, KNEE_ROW, LEG_SIGMA_SIDE)
+    xo, xi = _smoothed(_LEG_FRONT_R10, KNEE_ROW, 10.0)
+    yf, yb = _smoothed(_LEG_SIDE_R10, KNEE_ROW, LEG_SIGMA_SIDE)
     return P((xo + xi) / 2, (yf + yb) / 2 - KNEE_FWD, KNEE_ROW)
 
 
@@ -1675,7 +1684,7 @@ def _leg_master():
     ang = 2 * math.pi * np.arange(LEG_MASTER_N) / LEG_MASTER_N
     C, D, R, Q = [], [], [], []
     for row in rows:
-        cx, cy, hw, hd = leg_section(row)
+        cx, cy, hw, hd = _leg_section_r10(row)
         f = _leg_shape(row)
         for a in ang:
             dx, dy = math.cos(a), math.sin(a)
@@ -1721,27 +1730,28 @@ def _leg_master():
     return _LEG_MASTER
 
 
-def ankle_joint():
+def _ankle_joint_r10():
     """Left ankle pivot (world): on the leg axis at ANKLE_ROW, ANKLE_BACK px behind it."""
-    cx, cy, _, _ = leg_section(ANKLE_ROW)
+    cx, cy, _, _ = _leg_section_r10(ANKLE_ROW)
     return P(cx, cy + ANKLE_BACK, ANKLE_ROW)
 
 
-def leg_section(row):
+def _leg_section_r10(row):
     """Left leg ring at `row` (panel px): (centre x, centre y, half width, half depth),
     before the anatomy offsets (leg_offset). shoes.py clears its shell against it."""
     r0, r1, r2, r3, sk = LEG_SIGMA_KNEE
     knee = smoothstep(r0, r1, row) * (1 - smoothstep(r2, r3, row))
-    xo, xi = _smoothed(LEG_FRONT, row, LEG_SIGMA + (sk - LEG_SIGMA) * knee)
-    yf, yb = _smoothed(LEG_SIDE, row, LEG_SIGMA_SIDE)
+    xo, xi = _smoothed(_LEG_FRONT_R10, row, LEG_SIGMA + (sk - LEG_SIGMA) * knee)
+    yf, yb = _smoothed(_LEG_SIDE_R10, row, LEG_SIGMA_SIDE)
     return (xo + xi) / 2, (yf + yb) / 2, (xo - xi) / 2 - MARGIN, (yb - yf) / 2 - MARGIN
 
 
-def leg_offset(row):
+def _leg_offset_r10(row, anatomy=True):
     """f(dx, dy) -> (d_side, d_front) px: how the anatomy (kneecap, calf, malleoli,
     tendon, heel) and the shape master move the point of the leg ring at `row` at unit
-    direction (dx: + outer, dy: + front). shoes.py clears its shell against it."""
-    anat = _leg_shape(row)
+    direction (dx: + outer, dy: + front). anatomy=False: the shape master's correction
+    alone (round 11: the proportions 风堇's legs are warped to)."""
+    anat = _leg_shape(row) if anatomy else (lambda dx, dy: (0.0, 0.0))
     tab = _leg_master()
     if tab is None or not tab[0][0] <= row <= tab[0][-1]:
         return anat
@@ -1752,7 +1762,7 @@ def leg_offset(row):
     if not np.any(np.abs(o) > 1e-6):
         return anat
     n = len(o)
-    _, _, hw, hd = leg_section(row)
+    _, _, hw, hd = _leg_section_r10(row)
 
     def f(dx, dy):
         a, b = anat(dx, dy)
@@ -1767,15 +1777,87 @@ def leg_offset(row):
     return f
 
 
+# Round 11: the legs are 风堇's (levi/parts/_body_legs.py), so what other parts read of them
+# (shoes: LEG_FRONT / LEG_SIDE / leg_section / leg_offset; the rig: knee / ankle) describes
+# slices of that surface; round 10's procedural legs above (the _r10 functions, build_leg,
+# build_foot) are the target her legs are warped to, and the LEVI_HYACINE_LEGS=0 fallback.
+class _LegTable(Mapping):
+    """LEG_FRONT (row -> (outer x, inner x)) / LEG_SIDE (row -> (front y, back y)) in panel px,
+    MARGIN outside the slices of the final leg (as round 10's sheet-measured tables were),
+    one entry per panel row; computed on first use."""
+
+    def __init__(self, side):
+        self.side = side
+        self._cache = None
+
+    def _d(self):
+        if self._cache is None:
+            t = _body_legs.legs().tables()
+            out = {}
+            for row, (cx, cy), (hw, hd) in zip(t['rows'], t['c'], t['h']):
+                if self.side:
+                    out[int(row)] = (float(cy - hd - MARGIN), float(cy + hd + MARGIN))
+                else:
+                    out[int(row)] = (float(cx + hw + MARGIN), float(cx - hw - MARGIN))
+            self._cache = out
+        return self._cache
+
+    def __getitem__(self, row):
+        return self._d()[row]
+
+    def __iter__(self):
+        return iter(self._d())
+
+    def __len__(self):
+        return len(self._d())
+
+
+if _body_legs.ENABLED:
+    LEG_FRONT, LEG_SIDE = _LegTable(0), _LegTable(1)
+else:
+    LEG_FRONT, LEG_SIDE = _LEG_FRONT_R10, _LEG_SIDE_R10
+
+
+def leg_section(row):
+    """Left leg at `row` (panel px): (centre x, centre y, half width, half depth) of the skin's
+    slice (round 10: of the table ellipse, before leg_offset). shoes.py clears its shell
+    against it."""
+    if _body_legs.ENABLED:
+        return _body_legs.legs().section(row)
+    return _leg_section_r10(row)
+
+
+def leg_offset(row):
+    """f(dx, dy) -> (d_side, d_front) px from the leg_section ellipse's point at unit direction
+    (dx: + outer, dy: + front) to the skin along it."""
+    if _body_legs.ENABLED:
+        return _body_legs.legs().offset(row)
+    return _leg_offset_r10(row)
+
+
+def knee_joint():
+    """Left knee pivot (world): on the leg axis at KNEE_ROW, KNEE_FWD px forward."""
+    if _body_legs.ENABLED:
+        return Vector(_body_legs.legs().joints()['knee'])
+    return _knee_joint_r10()
+
+
+def ankle_joint():
+    """Left ankle pivot (world): on the leg axis at ANKLE_ROW, ANKLE_BACK px behind it."""
+    if _body_legs.ENABLED:
+        return Vector(_body_legs.legs().joints()['ankle'])
+    return _ankle_joint_r10()
+
+
 def build_leg(bm):
     centers, hints, radii, shapes = [], [], [], []
     for row in LEG_ROWS:
-        cx, cy, hw, hd = leg_section(row)
+        cx, cy, hw, hd = _leg_section_r10(row)
         centers.append(P(cx, cy, row))
         hints.append(Vector((1, 0, 0)))
         # side+ = outer, side- = inner, up+ = front, up- = back
         radii.append((px(hw), px(hw), px(hd), px(hd)))
-        shapes.append(leg_offset(row))
+        shapes.append(_leg_offset_r10(row))
 
     def shape(i, dx, dy):
         a, b = shapes[i](dx, dy)
@@ -1861,10 +1943,14 @@ def _mirror_x(bm_src):
 
 def build(col):
     bm = bmesh.new()
-    build_leg(bm)
-    build_foot(bm)
-    _mirror_x(bm)
+    legs = _body_legs.legs() if _body_legs.ENABLED else None
+    if legs is None:
+        build_leg(bm)
+        build_foot(bm)
+        _mirror_x(bm)
     rings = build_torso(bm)
+    if legs is not None:
+        legs.attach(bm, rings)     # 风堇's pelvis, legs and feet, welded under the waist
     sockets = [(cut_socket(bm, rings, s), s) for s in (1, -1)]
     arms = []
     hands = _body_hand.Hands() if _body_hand.ENABLED else None
@@ -1879,6 +1965,9 @@ def build(col):
     obj = common.new_object(col, 'body', bm, [common.toon_material('skin')])
     obj['levi_socket_param'] = SOCKET_PARAM_ATTR
     joints = {'knee': tuple(knee_joint()), 'ankle': tuple(ankle_joint())}
+    if legs is not None:
+        joints['hip'], joints['toe'] = tuple(legs.joints()['hip']), tuple(legs.joints()['toe'])
+        print(f"BODY legs (风堇): {legs.info}; joints {legs.joints()}")
     if SHOULDER_JOINT is not None:
         joints['shoulder_joint'] = tuple(P(*SHOULDER_JOINT))
     if hands is not None:
