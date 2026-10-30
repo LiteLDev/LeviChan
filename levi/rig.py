@@ -1579,12 +1579,22 @@ def _lock_key(pts):
 
 
 def _hair_locks(objs):
-    """([(key, points)] for the long narrow loose parts of the back hair, points of the rest)."""
+    """([(key, points)] for the long narrow loose parts of the back hair, points of the rest).
+    The rest (the curtain the sector chains are fitted to) is taken at the heights its
+    vertices are weighted at, where an object names its weighting points
+    (obj['levi_weight_co'], see _weights): hair_back's lining starts inside hair_front's cap
+    under the occiput but is weighted below the head bone's fade band, so its chains hang
+    from there, one per sector over its whole width (fitted to the real top, the curtain's
+    four nape chains became two rooted 9 cm higher at the occiput, the lining's outer thirds
+    on no chain of their own). Across, both of its faces count where they are, so the
+    chains run through the middle of its thickness (along its outer face, the swing pose
+    stretched its inner face x1.64; x1.59 so)."""
     locks, rest = [], []
     for o in objs:
         co = _world_verts([o])
         if not len(co):
             continue
+        wco = _point_vec(o, co, 'levi_weight_co')
         lab = _islands(len(co), _topology(o, co))
         for k in np.unique(lab):
             p = co[lab == k]
@@ -1596,7 +1606,9 @@ def _hair_locks(objs):
             if HAIR_LOCK_CHAINS and long_ and span < HAIR_LOCK_SPAN and len(p) >= 24:
                 locks.append((_lock_key(p), p))
             else:
-                rest.append(p)
+                # (both faces where they are, at their weighting height: the chains run
+                # through the middle of the lining's thickness)
+                rest.append(p if wco is None else np.column_stack([p[:, :2], wco[lab == k][:, 2]]))
     locks.sort(key=lambda kp: kp[0])
     return locks, (np.concatenate(rest) if rest else np.zeros((0, 3)))
 
@@ -2494,6 +2506,8 @@ def _secondary_bones(parts, core):
             chains = [(a, [Vector((j[0].x, j[0].y, max(j[0].z, root_z + 0.005)))] + list(j[1:]))
                       for a, j in chains]
         for k, (ang, joints) in enumerate(chains):
+            print(f'rig hair sector 後髪{k}: {ang:.0f} deg round, root ({joints[0].x:.3f}, {joints[0].y:.3f}, '
+                  f'{joints[0].z:.3f}), end z {joints[-1].z:.3f}')
             bones += _hair_pitch_gravity(
                 _chain_bones(f'後髪{k}', f'後髪{k}', f'HairBack{k}', joints, hair_parent(), 0.035, 'Hair',
                              meta={'chain': k, 'angle': ang, 'cy': L['head_center_y']}), byname)
@@ -4541,11 +4555,16 @@ def _lock_weights(w, co, labels, bones):
 def _weights(obj, part, co, bones):
     """(V, k) bone indices and weights for the vertices of `obj` (world positions `co`)."""
     global _SLEEVE_S, _SLEEVE_EDGES, _SLEEVE_N, _SOCKET_S
+    fade_z = None
     if part == 'hair_back':
         # back hair: a vertex may name the point it is weighted at (hair_back's lining:
         # both faces of the under-layer are weighted, smoothed and pruned at its outer
-        # face, so the two faces carry the same weights and move together)
+        # face, so the two faces carry the same weights and move together) and the height
+        # its head share is read at (the outer face's own: the lining's top, tucked into
+        # hair_front's cap above the chains' roots, turns with the head as the locks over
+        # it do, instead of swinging about the roots with the chains' first segments)
         wco = _point_vec(obj, co, 'levi_weight_co')
+        fade_z = _point_param(obj, co, 'levi_fade_z')
         co = co if wco is None else wco
     edges = _topology(obj, co)
     _SLEEVE_S = _sleeve_param(obj, co) if part == 'sleeves' else None
@@ -4579,7 +4598,7 @@ def _weights(obj, part, co, bones):
     if part in CROTCH_PARTS and HIP_AUX:
         _hat_remap(w, bones)
     if part == 'hair_back':
-        w = _hair_head_fade(w, co, bones)
+        w = _hair_head_fade(w, co if fade_z is None else np.column_stack([co[:, :2], fade_z]), bones)
     if part in SHELL_PARTS:
         w = _shell_share(w, co, bones)
     if part in CROTCH_PARTS and ARM_CAP:
