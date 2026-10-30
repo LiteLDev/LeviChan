@@ -26,11 +26,13 @@ hollow, and dense loops over the elbow and wrist.
 Round 11 (upper body; 风堇 has no torso, shoulders or elbows to reuse): the neck,
 shoulder and upper-chest rings carry twice the vertices across the middle of their front
 (TORSO_DENSE), the exposed upper chest rises evenly into the bust instead of stepping
-forward at the bodice's top edge (UPPER_CHEST), and soft anatomy relief sits on the
-shape master's surface: collarbones, the hollow above them, the notch at the base of the
-neck and its two tendons, the trapezius at the neck's base, the spine and the shoulder
-blades (_torso_relief). The elbow is rounded with an elbow point and a soft crook
-(ELBOW_FILLET, ELBOW_BUMPS).
+forward at the bodice's top edge (UPPER_CHEST) and stays clear of the bodice's rim
+(_rim_clearance), and soft anatomy relief sits on the shape master's surface:
+collarbones, the hollow above them, the notch at the base of the neck and its two
+tendons, the trapezius at the neck's base, the spine and the shoulder blades
+(_torso_relief). (A rounded elbow, with a filleted centre line and an elbow point, was
+tried and dropped: hidden by the sleeves, it spread the bent elbow's turn, motion span
+1.17 -> 1.29 in hand_to_shoulder.)
 
 All shape data below is in *panel pixels* measured on ref/{front,side}.png
 (see `P()`): x = offset from the panel centre column (+ = character's left),
@@ -575,6 +577,7 @@ def build_torso(bm):
     # master's rows are dense)
     dense = _torso_master(table[:nd], rings[:nd])
     dense = _upper_chest(table[:nd], dense)
+    dense = _rim_clearance(table[:nd], dense)
     dense = _torso_relief(table[:nd], dense)
     top = skin_rings(bm, dense, frames[:nd], 'ngon', None)
     low = skin_rings(bm, rings[nd:], frames[nd:], None, 'pole', 0.0, px(4))
@@ -648,6 +651,84 @@ def _upper_chest(table, rings):
     return out
 
 
+# Bodice rim clearance (round 11). Where the exposed skin meets the bodice's top edge it
+# must stay clear of the edge's turned lip and of its outline hull (1.25 px), or the skin
+# hides part of the rim line from above and at 3/4 (the faired chest left 1.0-1.3 mm at
+# +-15-25 deg from the front centre; round 10 1.2 mm at +-20-25 deg). Each front column's
+# profile (the rings' y, interpolated between rows like the mesh) is checked from
+# RIM_SAMPLES px above to below the bodice's neckline row at that column, against the shell's
+# front (levi.parts.bodice: profile / neck_row_t / front_y, the outer layer's pure surface
+# functions; above the neckline its rim row's front); where it comes closer than RIM_CLEAR
+# px, the column is pushed back by a smooth bump in the row (RIM_DENT px row sigma) centred
+# on the neckline, sized so the interpolated profile clears it. The socket border's rings
+# (rows <= SOCKET_ROWS[-1]) are moved only on the front arc, fading in over RIM_EDGE steps.
+RIM_CLEAR = 2.6
+RIM_SAMPLES = (-1.0, 0.0, 1.0, 2.0)
+RIM_DENT = 4.0
+RIM_EDGE = 1.5
+
+
+def _rim_row(x):
+    """The bodice's neckline row at world x (front half)."""
+    from . import bodice   # the outer layer's pure surface functions (no objects)
+    row = bodice.neck_row_t(0.0)
+    for _ in range(4):
+        row = bodice.neck_row_t(min(abs(x) / bodice.profile(row)[0], 1.0))
+    return row
+
+
+def _rim_clearance(table, rings):
+    from . import bodice
+    rows = [r[0] for r in table]
+    n, K = TORSO_N, SOCKET_K
+    h = n // 2
+    m = len(rings[0])
+    out = [list(r) for r in rings]
+    lo = rows.index(SOCKET_ROWS[-1])
+
+    def col(j, s):
+        """(x, y) of column j at row s, linear between the rings (as the mesh is)."""
+        i = max(k for k in range(len(rows) - 1) if rows[k] <= s)
+        t = (s - rows[i]) / (rows[i + 1] - rows[i])
+        a, b = out[i][j], out[i + 1][j]
+        return a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, i, t
+
+    for j in range(m):
+        kc = coarse_index(j, True)
+        front_arc = K < kc < h - K
+        we = smoothstep(0.0, RIM_EDGE, min(kc - K, h - K - kc)) if front_arc else 0.0
+        for _ in range(2):
+            x = out[rows.index(240)][j].x
+            if out[rows.index(240)][j].y >= px(table[rows.index(240)][5]) or abs(x) >= bodice.profile(240)[0]:
+                break                       # not on the front half under the neckline
+            rr = _rim_row(x)
+            need, geff = 0.0, 1.0
+            for ds in RIM_SAMPLES:
+                s = rr + ds
+                if not rows[0] < s < rows[-1]:
+                    continue
+                xs, ys, i, t = col(j, s)
+                sr = max(s, rr)
+                # the shell's backmost of either side's (its gathers are skewed) and of the
+                # fold-free turned edge: the body stays an exact mirror
+                shell = max(bodice.front_y(sx * abs(xs), sr, folds=f) for sx in (1, -1) for f in (True, False))
+                d = shell + px(RIM_CLEAR) - ys
+                if d > need:
+                    need = d
+                    g = [math.exp(-0.5 * ((rows[k] - rr) / RIM_DENT) ** 2) * (we if k <= lo else 1.0)
+                         for k in (i, i + 1)]
+                    geff = g[0] * (1 - t) + g[1] * t
+            if need <= 1e-6 or geff < 1e-3:
+                break
+            for k in range(len(rows)):
+                g = math.exp(-0.5 * ((rows[k] - rr) / RIM_DENT) ** 2) * (we if k <= lo else 1.0)
+                if g > 1e-4:
+                    co = out[k][j].copy()
+                    co.y += need * g / geff
+                    out[k][j] = co
+    return out
+
+
 # Anatomy relief (round 11), on the dense rings after the shape master (which would
 # otherwise flatten it): soft displacements along the surface normal (px, + outward) of
 # the strapless neckline's skin, wide enough for the ~1 cm loops that the cel ramp turns
@@ -669,10 +750,16 @@ def _upper_chest(table, rings):
 #   the neck's back-sides thicken toward its base (peak 45 deg either side of the back),
 #   so the neck sweeps down into the shoulders instead of standing on them like a tube.
 # Every term fades out over the socket border (as the shape master does), which stays put.
+# The halter strap and the start of its X strand lie on the collarbones (accessories lifts
+# them along the skin's normal), so the collarbones and the hollow above them are broad
+# rather than high: with 2.6 / 4.5 px row sigmas and a 2.4 px deep hollow the strap jogged
+# 45-63 deg at the crest (25-43 deg/mm; now ~5, round 10 ~4). The notch is shallow and wide
+# enough that the side profile stays monotone (1.6 px deep and 4 px wide, the outline hull
+# folded in it: a dark tick under the choker in the side view).
 CLAVICLE = ((6.0, 196.0), (16.0, 195.2), (30.0, 193.6), (44.0, 192.0), (58.0, 191.0))
-CLAVICLE_AMP = (1.6, 2.6, 4.5, (4.0, 12.0), (46.0, 58.0))
-SUPRACLAV = (2.4, 28.0, 8.0, 187.5, 2.8)
-NOTCH = (1.6, 194.0, 183.0, 4.0, 0.4)
+CLAVICLE_AMP = (1.6, 4.5, 6.0, (4.0, 12.0), (46.0, 58.0))
+SUPRACLAV = (1.4, 30.0, 8.0, 186.5, 4.2)
+NOTCH = (1.0, 194.0, 183.0, 5.5, 0.4)
 SCM = (0.6, (7.0, 193.0), (14.0, 178.0), 2.8)
 SPINE = (0.5, 6.0, (186.0, 196.0), (240.0, 250.0))
 SCAPULA = (1.1, (16.0, 0.25), (54.0, -0.5), (200.0, 210.0, 238.0, 250.0), 205.0)
@@ -689,7 +776,7 @@ def _relief_front(ax, row):
     f -= d * math.exp(-0.5 * ((ax - xc) / xs) ** 2 - 0.5 * ((row - rc) / rs) ** 2)
     d, rb, rt, w0, dw = NOTCH
     w = w0 + dw * max(0.0, rb - row)
-    f -= d * math.exp(-0.5 * (ax / w) ** 2) * smoothstep(rt - 2, rt + 4, row) * (1 - smoothstep(rb - 1, rb + 3, row))
+    f -= d * math.exp(-0.5 * (ax / w) ** 2) * smoothstep(rt - 4, rt + 6, row) * (1 - smoothstep(rb - 1, rb + 3, row))
     a, (xb, rb2), (xt, rt2), s = SCM
     xs_ = xb + (xt - xb) * (row - rb2) / (rt2 - rb2)
     f += a * math.exp(-0.5 * ((ax - xs_) / s) ** 2) * smoothstep(rt2 - 2, rt2 + 3, row) * (1 - smoothstep(rb2 - 3, rb2 + 1, row))
@@ -905,23 +992,6 @@ ARM_R = [
 # (Round 9 tried a fuller deltoid cap, +1.5-2.5 px on the first rings fading out by
 # ('S', 75): it tied or lost the pairwise review and cost front IoU; any front fullness
 # cut a shade island off the armpit's shadow above the bodice. docs/pr/r9-7-limbs/.)
-# Elbow (round 11). The rest arm bends ~29 deg at ELBOW (in the front plane: the sheet's
-# A-pose carrying angle); round 10 swept straight rings along the shoulder -> elbow ->
-# wrist polyline, an angular mitre with no elbow point or crook. Now the loft's centre
-# line rounds the corner over ELBOW_FILLET px each side (a quadratic Bezier; the joint
-# centre moves ~1.5 mm into the bend), and the rings carry the joint's landmarks as
-# ring-local bumps (px outward; along the arm: centre px from ELBOW, sigma px; round the
-# ring: the lobe's centre direction (side: + outer, up: + front) and exponent): the
-# olecranon (the elbow point, at the back), the two epicondyles (inner larger) and the soft
-# crook in front. (A 16 px fillet, rounder at rest, spread the bent elbow's turn: the
-# motion report's elbow span rose 1.16 -> 1.35 in hands_behind_head; 8 px: 1.21.)
-ELBOW_FILLET = 8.0
-ELBOW_BUMPS = (
-    (1.6, -2.0, 5.0, (0.0, -1.0), 4.0),      # olecranon
-    (0.8, 1.0, 4.5, (-0.85, -0.5), 6.0),     # medial epicondyle
-    (0.4, 0.0, 4.5, (0.9, -0.4), 6.0),       # lateral epicondyle
-    (-0.7, 2.0, 7.0, (0.0, 1.0), 3.0),       # crook (antecubital hollow)
-)
 # hand twist (0 = forearm frame, 1 = hand frame) by offset from the elbow
 ARM_TWIST = [(45, 0.0), (80, 0.45), (108, 0.8)]   # ... and 1.0 at the wrist
 # Arm loft stations: ~11 px apart along the shafts, 7 px over the elbow
@@ -1108,25 +1178,6 @@ def _arm_master(centers, frames, rings, use):
             for i, ring in enumerate(rings)]
 
 
-def _elbow_shape(d):
-    """Ring-local offsets (see _palm_shape) of ELBOW_BUMPS at `d` px from ELBOW along the
-    arm, or None away from the elbow."""
-    bumps = []
-    for a, c, sg, (lx, ly), q in ELBOW_BUMPS:
-        g = math.exp(-0.5 * ((d - c) / sg) ** 2)
-        if g > 1e-3:
-            ln = math.hypot(lx, ly)
-            bumps.append((a * g, lx / ln, ly / ln, q))
-    if not bumps:
-        return None
-    k = px(1)
-
-    def f(dx, dy):
-        r = sum(a * max(0.0, dx * lx + dy * ly) ** q for a, lx, ly, q in bumps)
-        return dx * r * k, dy * r * k, 0.0
-    return f
-
-
 def arm_rings(loop, tans):
     """Positions (left side) of the arm rings from the socket border to the
     palm end, and the frames of the round part.
@@ -1151,18 +1202,10 @@ def arm_rings(loop, tans):
     if any(b <= a for a, b in zip(s_all, s_all[1:])):
         raise RuntimeError('body: ARM_STATIONS out of order for the current SHOULDER / ELBOW / WRIST')
     twist_tab = [(lu + s, t) for s, t in ARM_TWIST] + [(lu + lf, 1.0)]
-    L = ELBOW_FILLET
-    fa, fb = E - u * L * k, E + f * L * k
-
-    def centre(s):
-        if abs(s - lu) < L:       # the rounded elbow (quadratic Bezier through the corner)
-            t = (s - lu + L) / (2 * L)
-            return fa * (1 - t) ** 2 + E * (2 * t * (1 - t)) + fb * t * t
-        return S + u * s * k if s <= lu else E + f * (s - lu) * k
     centers, hints, radii, hand_t = [], [], [], []
     for key in ARM_STATIONS:
         s = arc(key)
-        centers.append(centre(s))
+        centers.append(S + u * s * k if s <= lu else E + f * (s - lu) * k)
         b = smoothstep(lu - 14, lu + 14, s)       # the frame turns over the elbow
         ha = front_side((u * (1 - b) + f * b).normalized())
         tw = _interp(twist_tab, s)
@@ -1175,8 +1218,7 @@ def arm_rings(loop, tans):
         radii.append(tuple(px(x) for x in _hand_r(t)))
         hand_t.append(t)
 
-    shapes = [_palm_shape(ht) if ht is not None else _elbow_shape(arc(key) - lu)
-              for key, ht in zip(list(ARM_STATIONS) + [None] * len(HAND_STATIONS), hand_t)]
+    shapes = [None if ht is None else _palm_shape(ht) for ht in hand_t]
 
     def shape(i, dx, dy):
         return shapes[i](dx, dy) if shapes[i] else (0.0, 0.0, 0.0)
