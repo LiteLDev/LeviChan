@@ -1006,14 +1006,15 @@ DRAPE_INWARD = 2.0
 DRAPE_SWEEPS = 16           # coordinate descent sweeps (alternating direction)
 DRAPE_PTS = 300             # cloth points per chain sector the clearance tests
 DRAPE_INNER = 10.0          # percentile of the sector's radius taken as its innermost cloth (rest ring)
-# The drape sees the cloth thinned to one point per DRAPE_GRID cell (_grid_points), so its
-# sector samples (DRAPE_PTS, taken evenly by index) and innermost-cloth percentiles
-# (DRAPE_INNER) do not depend on each mesh's vertex density (round 11: the round-10
-# petticoat with 2.5x the columns, same shape, lowered the seated front drape by ~10 cm
-# and pushed the petticoat 2.4-3.2 cm into the thighs in sit_chair / run; thinned, the
-# denser copy keeps round 10's penetrations, and round 10's own model keeps them within
-# 0.1 cm, its seated front drape within 2.5 cm)
-DRAPE_GRID = 0.012
+# The chains and the drape see the petticoat's cloth thinned to one point per DRAPE_GRID
+# cell (_grid_points), so its share of the sector samples (DRAPE_PTS, taken evenly by
+# index), of the innermost-cloth percentiles (DRAPE_INNER) and of the chains' fit (band
+# centroids) does not grow with its vertex density (round 11: the round-10 petticoat with
+# 2.5x the columns, same shape, lowered the seated front drape by ~10 cm and pushed the
+# petticoat 2.4-3.2 cm into the thighs in sit_chair / run). 5 mm leaves round 11's
+# petticoat (27k vertices) about as many points as round 10's had (12.9k, all of them);
+# the skirt's own points are not thinned, so its share stays as it was.
+DRAPE_GRID = 0.005
 # Early lift: below DRAPE_EARLY_MAX deg of pitch a segment turns at least DRAPE_EARLY x the
 # pitch x its steepest later turn per deg (its table made star-shaped from rest), so a
 # stride starts the cloth moving with the thigh instead of only past the clearance
@@ -2537,15 +2538,16 @@ def _secondary_bones(parts, core):
                                       meta=dict({'family': prefix} if prefix else {},
                                                 **({'chain_weights': True} if prefix in SIDE_HAIR_CHAIN_WEIGHTS else {})))
 
-    # skirt (+ petticoat): sectors around the body axis, hanging from the hip
-    pts = verts('skirt', 'petticoat')
+    # skirt (+ petticoat): sectors around the body axis, hanging from the hip (the
+    # petticoat thinned to DRAPE_GRID, the skirt as it is)
+    pts = np.concatenate([verts('skirt'), _grid_points(verts('petticoat'), DRAPE_GRID)])
     if len(pts):
         cy = float(pts[:, 1].mean())
         chains = _sector_chains(pts, (0.0, cy), SKIRT_ROOT_Z, SKIRT_SECTORS, SKIRT_SEGMENTS, 0.08)
         drape = {}
         if SKIRT_DRAPE and chains:
             th = byname['足.L']
-            drape = _skirt_drape(chains, _grid_points(pts, DRAPE_GRID), cy, np.array(th.head),
+            drape = _skirt_drape(chains, pts, cy, np.array(th.head),
                                  np.array(th.tail) + np.array((0.0, -DRAPE_KNEE_FWD, 0.0)), verts('body'))
         for k, (ang, joints) in enumerate(chains):
             hem_r = max(0.03, math.hypot(joints[-1].x, joints[-1].y - cy) * math.pi / SKIRT_SECTORS)
@@ -4080,6 +4082,78 @@ def _shell_share(w, co, bones):
     return out
 
 
+# Nested cloth layers in separate objects (round 11: the petticoat's three frill tiers):
+# after each object's own smoothing, every vertex's weights are blended toward
+# the other layers' weights at their LAYER_K nearest vertices within LAYER_REACH (by
+# (1 - d / reach) ** 2, so a layer sewn on, d = 0, takes the mean and the share fades out
+# continuously where the layers part), LAYER_ITERS times, the change smoothed along each
+# layer (LAYER_SMOOTH). Smoothed apart, each object's
+# weights depend on where its own surface ends, and layers 3-4 mm apart crossed in lifted-
+# leg poses (one weight field of angle and height shared by all the objects instead mixed
+# 5-6 chain bones round the narrow hips and stretched the core x4-5 in high_kick). The
+# core, sewn to the middle tier, keeps its own: shared, its sparse rings' pruned weights
+# carried their steps into the tier's seam (x2.7 in walk).
+LAYER_PARTS = {'petticoat': 'petticoat_tier'}    # part -> name prefix of its layer objects
+LAYER_REACH = 0.012
+LAYER_K = 6
+LAYER_ITERS = 2
+LAYER_SMOOTH = 0.02  # m: the blend's change is smoothed along each layer (no steps where the nearest vertices switch)
+_LAYER_SRC = {}      # part -> its objects (build_rig)
+_LAYER = {}          # (part, bone names) -> {object name: shared weights}
+
+
+def _layer_shared(part, bones):
+    """{object name: weights} of a layered part: each object's smoothed plain weights, then
+    blended toward the other objects' (see LAYER_PARTS)."""
+    from mathutils.kdtree import KDTree
+    key = (part, tuple(b.name for b in bones))
+    if key in _LAYER:
+        return _LAYER[key]
+    objs = [o for o in _LAYER_SRC.get(part, []) if len(o.data.vertices) and o.name.startswith(LAYER_PARTS[part])]
+    co, w, edges = {}, {}, {}
+    for o in objs:
+        c = _world_verts([o])
+        edges[o.name] = _topology(o, c)
+        ww = _base_weights(part, c, bones)
+        ww = ww / np.maximum(ww.sum(1, keepdims=True), 1e-12)
+        co[o.name], w[o.name] = c, _smooth(ww, c, edges[o.name], SMOOTH_RADIUS.get(part, DEFAULT_SMOOTH))
+    own = dict(w)
+    near = {}       # (a, b) -> (indices (V, K), factors (V, K)) of b's vertices near a's
+    for b in co:
+        tree = KDTree(len(co[b]))
+        for i, p in enumerate(co[b]):
+            tree.insert(p, i)
+        tree.balance()
+        for a in co:
+            if a == b:
+                continue
+            idx = np.zeros((len(co[a]), LAYER_K), dtype=np.int64)
+            f = np.zeros((len(co[a]), LAYER_K))
+            for v, p in enumerate(co[a]):
+                for k, (_, i, d) in enumerate(tree.find_n(p, LAYER_K)):
+                    if d < LAYER_REACH:
+                        idx[v, k], f[v, k] = i, (1.0 - d / LAYER_REACH) ** 2 / LAYER_K
+            near[(a, b)] = (idx, f)
+    for _ in range(LAYER_ITERS):
+        new = {}
+        for a in w:
+            acc, den = w[a].copy(), np.ones(len(w[a]))
+            for b in w:
+                if b == a:
+                    continue
+                idx, f = near[(a, b)]
+                acc += np.einsum('vk,vkb->vb', f, w[b][idx])
+                den += f.sum(1)
+            new[a] = acc / den[:, None]
+        w = new
+    for a in w:
+        w[a] = own[a] + _smooth(w[a] - own[a], co[a], edges[a], LAYER_SMOOTH)
+        w[a] = np.maximum(w[a], 0.0)
+        w[a] /= np.maximum(w[a].sum(1, keepdims=True), 1e-12)
+    _LAYER[key] = w
+    return w
+
+
 def _base_weights(part, co, bones):
     """(V, B) weights before side masking / smoothing / pruning."""
     plain = [j for j, b in enumerate(bones) if not {'twist_of', 'joint_aux', 'shrug_of', 'stage'} & set(b.meta)]
@@ -4554,7 +4628,8 @@ def _weights(obj, part, co, bones):
     w = np.where(ok[:, None], masked, w)
     w = w / w.sum(1, keepdims=True)
     radius = SLEEVE_SMOOTH if part == 'sleeves' and SLEEVE_BUILD else SMOOTH_RADIUS.get(part, DEFAULT_SMOOTH)
-    w = _smooth(w, co, edges, radius)
+    shared = _layer_shared(part, bones).get(obj.name) if part in LAYER_PARTS else None
+    w = _smooth(w, co, edges, radius) if shared is None or len(shared) != len(co) else shared
     m = _crotch_mask(co, bones) if part in CROTCH_PARTS and CROTCH_SMOOTH > 0 else None
     if m is not None and m.max() > 0:
         # the crotch is pulled between both thighs in a stride: spread its L/R weight
@@ -5629,6 +5704,9 @@ def build_rig():
     _ATTACH_HOST = np.concatenate(host) if host else np.zeros((0, 3))
     global _SKIN
     _SKIN = None
+    _LAYER_SRC.clear()
+    _LAYER_SRC.update({p: parts[p] for p in LAYER_PARTS if p in parts})
+    _LAYER.clear()
     order = sorted(parts, key=lambda n: n not in ('body', '_proxy'))   # the skin first: garments sample it
     for part in order:
         for o in parts[part]:
