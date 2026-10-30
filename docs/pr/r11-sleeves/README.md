@@ -5,15 +5,15 @@ Files changed:
 - `levi/rig.py`: a small shared hook, see "Rig fits".
 
 Face counts:
-- Sleeves: 8,664 → 17,032 (budget 18,000).
-- Model: 107,968 → 116,336.
+- Sleeves: 8,664 → 17,752 (budget 18,000).
+- Model: 107,968 → 117,056.
 
 The source is the clothes-detail review (round 11 analysis). It found three problems:
 - The band bow read as a green brick of slab loops.
 - The band frill read as a low cup.
 - The wrist ruffle read as a thin grey collar from the front and as an 11-point star end-on.
 
-A first pass fixed the construction. An independent review then found that it had moved the rig and added kinks, outline breaks and a cuff that lay on the hand; a second pass fixed those. The owner then looked at the dressed model at 4× and found that from the front the wrist ruffle read as a fan of sharp triangular shards, worst in clay (HD review, p1). The HD fix rebuilt the ruffle's shape for that (see "HD review: the wrist ruffle"). An independent 4× verification of it then found that the under tier passed through itself and still showed a fang from above and tapered tongues from the palm side; this version reshapes the under tier for that (see "HD verify (round 2)").
+A first pass fixed the construction. An independent review then found that it had moved the rig and added kinks, outline breaks and a cuff that lay on the hand; a second pass fixed those. The owner then looked at the dressed model at 4× and found that from the front the wrist ruffle read as a fan of sharp triangular shards, worst in clay (HD review, p1). The HD fix rebuilt the ruffle's shape for that (see "HD review: the wrist ruffle"). An independent 4× verification of it then found that the under tier passed through itself and still showed a fang from above and tapered tongues from the palm side; a second pass reshaped the under tier for that (see "HD verify (round 2)"). A third 4× verification found one more pointed tip, a small thorn at the cuff's edge in both 3/4 front views and a horn in reach_forward; this version removes it (see "HD verify (round 3)").
 
 ## What the part does now
 
@@ -47,18 +47,19 @@ A first pass fixed the construction. An independent review then found that it ha
 
 **Wrist ruffle (`_cuff_rings`, `CUFF_TIERS`)**
 - Two tiers, each a closed fold with thickness (outer face, rolled rim bead ~3 mm across, inner face):
-  - `sleeve_cuff` is the upper tier, 22.6 px long.
+  - `sleeve_cuff` is the upper tier, 23.0 px long (verify round 2: 22.6).
   - `sleeve_cuff_under` is the under tier, 34.5 px long, about 1 px wider than the upper rim (HD fix: 31.8 px, 2 px wider).
 - Both are bells: they open out of the gather and turn to hang along the centre line before the rim. The under tier opens in a short shoulder just below the upper rim, then hangs.
 - Each tier's inner face is its outer face taken in radially at the outer face's own stations (`_offset_tier`), so the two cannot cross.
 - 10 flutes with round crests and narrower valleys (`CUFF_LOBES`, `CUFF_PINCH` 1.3, `CUFF_ROUND` 0.25), about as deep as a semicircle, spiralling 0.14 rad round the cuff from root to rim (`CUFF_TWIST`).
 - The flutes' edges roll (`CUFF_ROLL`): see "HD review" below.
+- Each tier's flutes lose part of their depth over the last px before its rim (`CUFF_RIM_EASE`: the upper tier 70% over 10 px, the under tier 60% over 6 px), so a flute ends under a belly in a round nose: see "HD verify (round 3)".
 - Where the upper tier covers the under tier:
   - The under tier is nearly round (`CUFF_UNDER_AMP`) and stays clear of the upper tier's valleys.
   - Its flutes turn half a flute round there (`CUFF_UNDER_SHIFT`, via `rot` in `_frill_ring`). Below the upper rim they grow between the upper tier's flutes: end-on a second row of scallops, not a doubled rim.
   - Its edge rolls in step with the upper tier's (`roll_shift`), so both tiers move alike where they overlap.
 - Clearance between the tiers (`_cuff_clearance`, asserted in `build`):
-  - Over the upper rim's last 8 px and past it: at least 1.8 px (2.8 mm) to the nearest point of the upper tier. It measures 2.07 px (HD fix: 2.11).
+  - Over the upper rim's last 8 px and past it: at least 1.8 px (2.8 mm) to the nearest point of the upper tier. It measures 2.56 px (verify round 2: 2.07; HD fix: 2.11).
   - Further in: at least 0.5 px. It measures 1.05 px.
   - No intersecting triangle pairs between the tiers, and none within a tier (`_cuff_self_overlap`, asserted since verify round 2).
 - The under tier's outline is at full width only past the upper rim (`smooth(rim, rim + 3)`). Where the upper tier covers it, the outline is at 35% (`outline_w`, `min_factor`).
@@ -95,7 +96,7 @@ A first pass fixed the construction. An independent review then found that it ha
   - `_offset_tier`: the inner face is made at the outer face's own stations, taken in radially by a thickness (0.5–1.3 px). At one d both faces get the same flutes, turn, rise and flare, so ring by ring they cannot cross. A station is skipped only where the outer face curves outward. `_cuff_self_overlap` counts triangle pairs that cross within a tier; `build` asserts 0 for both tiers.
   - Profile: below the upper rim the under tier opens in a short shoulder (d 24–29 px), then hangs to a rim at d 34.5 (was 31.8), ~1 px wider than the upper rim (was 2 px). Under the upper tier it keeps only its root and d 21.5, so it still has 16 rings and the face count stays 17,032.
   - Hand side: the 7 px narrow flare is gone. The under tier opens 1.5 px under the upper tier, as far as the tier gap allows, and 3.2 px in its shoulder over a wider sector (`CUFF_UNDER_HAND`). Its hanging part is 65% shorter at the hand's back (`CUFF_UNDER_SHORT`): a hem that curves up over the hand.
-  - Its edge rolls twice as much in the hanging part and its crests no longer turn outward (`CUFF_UNDER_FREE`). Its flutes are 0.8 as deep as the upper tier's (`CUFF_UNDER_AMP`). A lobe seen edge-on now ends in a curl.
+  - Its edge rolls twice as much in the hanging part and its crests no longer turn outward (`CUFF_UNDER_FREE`). Its flutes are 0.8 as deep as the upper tier's (`CUFF_UNDER_AMP`). A lobe seen edge-on now ends in a curl. (Round 3 takes the doubled roll back: it curled some lobe ends past the loop into hooks.)
   - It is 1.2 px narrower on the side the wrist flexes toward (`CUFF_UNDER_FLEX`). Its free part takes more of 手首 than the upper rim does; in wrist_twist_pos (forearm twist plus a 20° flex) its shoulder pressed into the upper rim there.
   - Tried and dropped:
     - A later shoulder (d 24.4–29). It is flatter on the inner side, where the rings fan with the droop: an 88° step, and the offset faces crossed there.
@@ -117,6 +118,44 @@ A first pass fixed the construction. An independent review then found that it ha
   - A lobe seen exactly edge-on at the silhouette still shows its ~2 mm rim bead as a thin point: the under tier's far side in the 3/4 front-left close-up at rest. A thin sheet's rim seen along its length cannot be a round arc.
   - `sleeve_cuff` × `sleeve_balloon`: 92 / 88 / 130 / 520 pairs in arms_forward / reach_forward / wrist_twist_pos / _neg. This is the upper tier's root inside the bag's hem, unchanged since the HD fix and not visible.
 
+**HD verify (round 3): the thorn**
+- The independent 4× verification of round 2 found one pointed tip left of the owner's p1 (`cuff_verify3.jpg`; "before" there is round 2, 6880e88, merged into r11/integrate):
+  - In the owner's q34_front_left view (left hand) and in q34_front_right (right hand): a small thorn at the cuff's edge, about 10 × 5 px at 4×, a `<` in cel and a thin cone in clay.
+  - In reach_forward, a horn on the outer side of the wrist. From the palm side, hooked points.
+  - The verifier put the thorn down to the under tier's rim, whose roll round 2 had doubled, curling into a J.
+- Diagnosis (4× crops of the owner's views, then close-ups of the spot with per-tier id colours, with the under tier hidden, and wire):
+  - The thorn belongs to the upper tier (`sleeve_cuff`). With the under tier hidden it stays, and shows as a long fin: the upper tier's outer face, rim bead and inner face. The under tier's J is the curl in front of the fin. It hides the fin's root, so only the pointed end shows. Lowering only the under tier's roll (2.0 → 1.4 → 1.0) left the thorn as it was.
+  - The fin is one flute crest at the silhouette, seen from below and in front. The crest ran at full depth (about 5 px out) all the way to the rim, where the rim bead turned it in one corner.
+  - The roll that makes the lobes read as loops from the front tilts the rim across each crest. At an oblique view, about atan(roll × flutes / radius) ≈ 30° off side-on, that loop collapses into a cusp. The owner's 3/4 views are close to that angle for the flute on the cuff's inner-front side.
+  - The roll stays. With 0.5 or 0.8 px instead of 1.8, the front view went back to straight flat plates with pointed ends: the owner's round-1 complaint.
+- Fix (`levi/parts/sleeves.py` only):
+  - `CUFF_RIM_EASE`: each tier's flutes lose part of their depth (and their rise and rounding) over the last px before its rim: the upper tier 70% over 10 px, the under tier 60% over 6 px. The crest turns in under a belly above the rim, so a flute seen side-on or obliquely ends in a round nose. The rim's loop is also rounder, as its depth comes closer to the roll.
+  - The upper tier's belly has two more rings, at d 16.6 and 20.0 px (Catmull-Rom of their neighbours). With the inward turn on the old stations, the crest line bent at one ring (d 18.5), and the stub moved up there.
+  - The upper tier's rim bead is fuller: about 2 px across and 1.8 px past the last outer station (was 1.4 px).
+  - `CUFF_CURL` 0.02 → 0: the crests no longer turn outward at the upper rim. That kick re-sharpened the nose.
+  - `CUFF_UNDER_FREE`: the under tier's doubled roll in its hanging part (round 2) goes back to the plain roll. With the rim ease its lobes still end in curls, without the hooks.
+  - Faces: sleeves 17,032 → 17,752 (three more rings on the upper tier).
+- Measure: a silhouette-corner count. Each tier alone is projected along 300 directions over the sphere at 4× (4 px per panel px). Along the silhouette contour, the metric takes the turn over ±4 px of arc. A round arc of radius r px turns 8 / r rad: 76° for a 1.5 panel px radius, 176° for the end of the old ~0.7 px bead. Corners at the tier's root (inside the bag) are left out.
+
+  | sharpest silhouette corner, 300 views | round 2 (6880e88) | now |
+  |---|---|---|
+  | upper tier: views with a corner > 120° / > 150° | 119 / 31 | 13 / 0 |
+  | upper tier: median / 90th percentile of the views' sharpest corner | 115° / 150° | 89° / 113° |
+  | under tier: views > 120° / > 150° | 127 / 13 | 23 / 1 |
+  | under tier: median / 90th percentile | 116° / 145° | 86° / 116° |
+  | upper tier, the owner's q34_front_left direction | 151° | 120° |
+
+- Results on r11/integrate (`cuff_verify3.jpg`):
+  - q34_front_left and q34_front_right (4×, cel and clay): the thorns are gone on both hands. The spot shows a small round tab.
+  - Close-up of the spot: the upper tier alone ends in a round nose instead of a long fin. With both tiers, a rounded nub shows beside the under tier's curl.
+  - reach_forward from the outer side: the horn (a hooked lobe top) is a rounded lobe top.
+  - From the palm side and in the 4× low views, the lobe ends are rounder, without hooked points.
+  - The owner's 4× front crops keep the rolled loops. The side, back, high and 3/4 back crops read as before, with softer lobe ends.
+- Remaining:
+  - End-on, the scallops at the rims are shallower than round 2's (the rim ease). The flutes stay full above the rims.
+  - In the q34_front_left cel crop, the upper tier's nose shows a short closed outline where its inner face shows under the rim bead (about 12 × 5 px at 4×). It is not a point.
+  - A rim seen exactly along its length still shows the ~2 mm bead's width. The metric's remaining > 120° views are those, at rounded drops of the under tier and at small notches.
+
 **Rig fits (`rig.RIG_FIT_PROP`, `rig._fit_verts`; `sleeves.RIG_FIT_SHARE`)**
 - Two rig fits read the sleeves' vertices:
   - the sleeve drape chain, from the centroid of the vertices far from the arm bones and band centroids under it;
@@ -129,30 +168,32 @@ A first pass fixed the construction. An independent review then found that it ha
   - The chain joints move 2–3 cm.
 - The fix: an object property `levi_rig_fit` gives the share of its vertices that these fits sample, as an even, deterministic thinning. The sleeves set:
 
-  | object | share (second pass) | share (now) |
-  |---|---|---|
-  | `sleeve_ruffle` | 0.5 | 0.5 |
-  | `sleeve_cuff` | 0.625 | 1/3 |
-  | `sleeve_ribbon` | 0.5 | 0.5 |
-  | `sleeve_cuff_under` | 0 (left out) | 0.1 |
+  | object | share (second pass) | share (HD fix, verify round 2) | share (verify round 3) |
+  |---|---|---|---|
+  | `sleeve_ruffle` | 0.5 | 0.5 | 0.5 |
+  | `sleeve_cuff` | 0.625 | 1/3 | 1/4 |
+  | `sleeve_ribbon` | 0.5 | 0.5 | 0.5 |
+  | `sleeve_cuff_under` | 0 (left out) | 0.1 | 0.1 |
 
-  These are about round 10's densities. Each share's period divides each half's vertex count, so both sides thin alike. The HD fix's bell-shaped tiers keep more of their vertices more than 5 cm off the arm bones; at the second pass's shares they put the drape root 8.2 mm down the forearm from round 10's (joints 6.4 / 3.3 mm off), so the shares were refitted with an offline replica of the fit (checked against the built rig).
+  These are about round 10's densities. Each share's period divides each half's vertex count, so both sides thin alike. The HD fix's bell-shaped tiers keep more of their vertices more than 5 cm off the arm bones; at the second pass's shares they put the drape root 8.2 mm down the forearm from round 10's (joints 6.4 / 3.3 mm off), so the shares were refitted with an offline replica of the fit (checked against the built rig). Verify round 3's three more upper-tier rings at 1/3 put the root 4 mm further down the forearm again (r11/integrate: (0.2241, −0.0315, 0.9067)); at 1/4 the replica and the built rig agree within 0.5 mm.
 - Results against round 10:
 
-  | | round 10 | first pass | second pass | HD fix | verify round 2 |
-  |---|---|---|---|---|---|
-  | `袖_0.L` root | (0.2202, −0.0313, 0.9103) | (0.2369, −0.032, 0.8951) | 3.4 mm off | (0.2217, −0.0314, 0.9090), 2.0 mm off | (0.2218, −0.0314, 0.9088), 2.2 mm off |
-  | joint 1 | (0.2407, −0.0363, 0.8340) | — | 1.4 mm off | (0.2424, −0.0336, 0.8331), 3.3 mm off | (0.2396, −0.0334, 0.8347), 3.2 mm off |
-  | joint 2 | (0.2913, −0.0370, 0.7746) | — | 4.2 mm off | (0.2893, −0.0354, 0.7762), 3.0 mm off | (0.2891, −0.0366, 0.7763), 2.8 mm off |
+  | | round 10 | first pass | second pass | HD fix | verify round 2 | verify round 3 |
+  |---|---|---|---|---|---|---|
+  | `袖_0.L` root | (0.2202, −0.0313, 0.9103) | (0.2369, −0.032, 0.8951) | 3.4 mm off | (0.2217, −0.0314, 0.9090), 2.0 mm off | (0.2218, −0.0314, 0.9088), 2.2 mm off | (0.2220, −0.0314, 0.9086), 2.5 mm off |
+  | joint 1 | (0.2407, −0.0363, 0.8340) | — | 1.4 mm off | (0.2424, −0.0336, 0.8331), 3.3 mm off | (0.2396, −0.0334, 0.8347), 3.2 mm off | (0.2407, −0.0345, 0.8327), 2.2 mm off |
+  | joint 2 | (0.2913, −0.0370, 0.7746) | — | 4.2 mm off | (0.2893, −0.0354, 0.7762), 3.0 mm off | (0.2891, −0.0366, 0.7763), 2.8 mm off | (0.2903, −0.0358, 0.7756), 1.9 mm off |
 
   The under tier keeps its share (0.1): reshaped, it moved the chain by at most 0.4 mm.
 
-  | capsule | round 10 | first pass | second pass | HD fix | verify round 2 |
-  |---|---|---|---|---|---|
-  | shoulder | r 5.1, 0.0–8.6 cm | r 5.1, 2.1–9.0 | r 5.0, 0.0–9.0 | r 5.0, 0.0–9.0 | r 5.0, 0.0–9.0 |
-  | upper arm | r 4.5, 4.4–15.9 | r 4.3, 6.8–15.1 | r 4.3, 5.1–15.7 | r 4.3, 5.1–15.7 | r 4.3, 5.1–15.7 |
-  | forearm | r 5.2 | r 4.9 | r 5.2 | r 5.3, 0.0–20.9 | r 5.4, 0.0–20.9 |
-  | hand | r 2.4, 0.8–6.0 | r 2.9, 0.1–6.0 | r 2.2, 0.8–6.0 | r 2.3, 0.8–6.0 | r 2.4, 0.8–6.0 |
+  | capsule | round 10 | first pass | second pass | HD fix | verify round 2 | verify round 3 |
+  |---|---|---|---|---|---|---|
+  | shoulder | r 5.1, 0.0–8.6 cm | r 5.1, 2.1–9.0 | r 5.0, 0.0–9.0 | r 5.0, 0.0–9.0 | r 5.0, 0.0–9.0 | r 5.0, 0.0–9.0 |
+  | upper arm | r 4.5, 4.4–15.9 | r 4.3, 6.8–15.1 | r 4.3, 5.1–15.7 | r 4.3, 5.1–15.7 | r 4.3, 5.1–15.7 | r 4.3, 5.1–15.7 |
+  | forearm | r 5.2 | r 4.9 | r 5.2 | r 5.3, 0.0–20.9 | r 5.4, 0.0–20.9 | r 5.5, 0.0–20.9 |
+  | hand | r 2.4, 0.8–6.0 | r 2.9, 0.1–6.0 | r 2.2, 0.8–6.0 | r 2.3, 0.8–6.0 | r 2.4, 0.8–6.0 | r 2.4, 0.8–6.0 |
+
+  These are on r11/base with this branch. On r11/integrate (its own body and hands) the capsules are unchanged from round 2 except the forearm, r 5.1 → 5.2 cm.
 
 - Elbow skin out through the bag (left arm skin under the bag at rest that ends up outside it in the pose; `rv_poke`; measured on the second pass, whose drape chain is within 2 mm of this one's):
 
@@ -171,7 +212,7 @@ A first pass fixed the construction. An independent review then found that it ha
   | `sleeve_balloon` | 4,128 |
   | `sleeve_ruffle` | 4,032 |
   | `sleeve_cuff_under` | 3,840 |
-  | `sleeve_cuff` | 3,120 |
+  | `sleeve_cuff` | 3,840 (verify round 2: 3,120) |
   | `sleeve_ribbon` | 2,848 |
 
 - Every sleeve object carries `levi_sleeve_s` and `levi_sleeve_param`.
@@ -181,17 +222,18 @@ A first pass fixed the construction. An independent review then found that it ha
 ## Results
 
 ### Gates
-All on r11/base with this branch (verify round 2).
-- `tools/check.py`: CHECK OK. Sleeves 17,032 faces, model 116,336.
-- `tools/rig_check.py`: RIG CHECK OK on all 17 core poses, every row the same as the HD fix's. The worst stretch is unchanged (fist 1.86, squat 1.85). Penetration is within 0.1 mm of round 10:
+All on r11/base with this branch (verify round 3).
+- `tools/check.py`: CHECK OK, determinism included. Sleeves 17,752 faces of 18,000, model 117,056.
+- `tools/rig_check.py`: RIG CHECK OK on all 17 core poses. The worst stretch is unchanged (fist 1.86, squat 1.85), and so is the worst penetration (side_bend 1.76 cm, skirt). Sleeve penetration is within 0.2 mm of round 10:
 
-  | pose | round 10 | first pass | second pass | now |
-  |---|---|---|---|---|
-  | arms_up | 0.60 cm | 0.73 | 0.62 | 0.61 |
-  | arms_forward | 0.44 cm | 0.58 | 0.47 | 0.45 |
-  | raise_bend | 0.58 cm | 0.63 | 0.59 | 0.59 |
+  | pose | round 10 | first pass | second pass | verify round 2 | now |
+  |---|---|---|---|---|---|
+  | arms_up | 0.60 cm | 0.73 | 0.62 | 0.61 | 0.62 |
+  | arms_forward | 0.44 cm | 0.58 | 0.47 | 0.45 | 0.46 |
+  | raise_bend | 0.58 cm | 0.63 | 0.59 | 0.59 | 0.59 |
 
   Every other pose is identical to round 10.
+- On r11/integrate with this branch (before = round 2, 6880e88): check OK (sleeves 17,752, model 152,144); rig_check OK, every row as before except arms_up pen 0.61 → 0.62 cm. The cuff tiers pass through themselves in none of rest, arms_up, arms_forward, reach_forward, hands_on_hips, wrist_twist_pos / _neg, raise_bend, hug_self and dance_point; upper × under tier pairs are 0 in all of them (round 2: 32 in wrist_twist_pos). The under tier stays 4.5 mm off the hand at rest and 3.2 mm in hands_on_hips (round 2: 4.5 / 3.1 mm).
 
 ### Motion
 Command: `rig_check --quick --no-core --extended --report-core --motion`. The baseline is built from r11/base.
@@ -200,7 +242,13 @@ Command: `rig_check --quick --no-core --extended --report-core --motion`. The ba
 - `hair_curtain_R` is at round 10's values (dance_sway pen 3 mm, pen_frac 0; idol_dance 6 mm, 0.007); the first pass had 10 and 12 mm.
 - `look_over_shoulder` hair × garment crossings: 379 → 448 (first pass: 475). Other crossing counts (already major on round 10) moved by under 10%, walk 1,387 → 1,515 the most. These counts rise with the garment triangle count near the hair.
 
-**Sleeves: 9 major / 70 minor → 16 major / 66 minor (second pass: 16 / 67); verify round 2: 16 / 63.**
+Verify round 3 (r11/base): all parts 160 major / 317 minor and sleeves 16 / 63, the same counts as round 2. On r11/integrate, round 2 → now: all parts 164 / 349 → 163 / 349, sleeves 18 / 63 → 17 / 64: the verifier's one new major, `sleeve_cuff_under` pen_frac in dance_clap (0.031), is minor again (0.028). The changes against round 2 (r11/base):
+- `sleeve_cuff` goes in less deep where the hands press on the body (dance_point 2.5 → 2.1 cm, hug_self 3.1 → 2.8 cm, idol_dance 5.3 → 5.0 cm, hand_to_shoulder 1.5 → 1.1 cm) with a slightly larger share of its vertices (dance_point 0.066 → 0.075, hug_self 0.117 → 0.126, idol_dance 0.160 → 0.164). The fuller rim bead adds vertices near the hand; all were majors before.
+- `sleeve_cuff_under`: dance_point 2.3 → 2.2 cm, idol_dance 4.7 → 4.4 cm, hug_self pen_frac 0.136 → 0.132.
+- Flips in idol_dance: balloon 50 → 54, ribbon 27 → 42 (both minor; round 10: 52 / 28, the HD fix 54 / 42). The thin ribbon tails are sensitive to the drape fit, which moved 0.3 mm.
+- `hair_curtain_R` and every other part are unchanged.
+
+**Sleeves: 9 major / 70 minor → 16 major / 66 minor (second pass: 16 / 67); verify round 2 and 3: 16 / 63.**
 - 6 of the 7 majors new against round 10 are `sleeve_cuff_under`, a new object, in the poses where the cuff was already major on round 10, with the hand pressed to the body:
 
   | pose | under tier pen / pen_frac (second pass → HD fix → verify round 2) | round-10 cuff |
@@ -225,7 +273,7 @@ Command: `rig_check --quick --no-core --extended --report-core --motion`. The ba
 - Frill: seiza pen_frac 0.012 → 0.029 (minor). Everything else is unchanged or lower.
 
 ### Look
-- Silhouette IoU is unchanged: front 0.9085, side 0.8331, back 0.9126 (second pass: 0.9125). Verify round 2: 0.9089, 0.8331, 0.9129.
+- Silhouette IoU is unchanged: front 0.9085, side 0.8331, back 0.9126 (second pass: 0.9125). Verify round 2: 0.9089, 0.8331, 0.9129. Verify round 3: 0.9091, 0.8331, 0.9131.
 - Green region IoU:
 
   | view | round 10 | now |
@@ -234,7 +282,7 @@ Command: `rig_check --quick --no-core --extended --report-core --motion`. The ba
   | side | 0.306 | 0.321 |
   | back | 0.252 | 0.244 |
 
-- Dress region IoU (the cuff is in it) moved by under 0.002: front 0.7599 → 0.7596, back 0.6297 → 0.6286. Verify round 2: 0.7600, side 0.6538, back 0.6297; green unchanged.
+- Dress region IoU (the cuff is in it) moved by under 0.002: front 0.7599 → 0.7596, back 0.6297 → 0.6286. Verify round 2: 0.7600, side 0.6538, back 0.6297; green unchanged. Verify round 3: front 0.7615, side 0.6536, back 0.6308; green unchanged (0.401 / 0.321 / 0.244).
 
 - Shape-master fit for sleeves:
 
@@ -246,7 +294,7 @@ Command: `rig_check --quick --no-core --extended --report-core --motion`. The ba
 - Remaining and seen:
   - A small dark tick on the frill's rolled rim at one valley, at macro scale. It is shading by the soft normals. Own normals there made a wider dark band.
   - At panel scale the front view of the wrist ruffle now reads as a soft rolled puff (`panels.jpg`), not the flat plates the second review noted (its p3).
-  - End-on the cuff is 10 round scallops; in cel the valleys between them still show the background through small closed notches, as the sheet's two-tier ruffle does.
+  - End-on the cuff is 10 round scallops; in cel the valleys between them still show the background through small closed notches, as the sheet's two-tier ruffle does. Since verify round 3 the scallops at the rims are shallower (the rim ease).
 
 ### Not run
 - `export_pmx.py`, `pmx_reimport.py` and `motion_vmd.py`: mmd_tools is not installed on the cluster Blender. The sleeve morphs on the new objects and the PMX physics fit of the sleeve drapes are unverified.
@@ -263,6 +311,13 @@ Command: `rig_check --quick --no-core --extended --report-core --motion`. The ba
   - palm-side close-up (clay, cel): the tongues;
   - end-on close-ups at rest and in arms_up (clay): the crescents inside the bell;
   - the owner's 4× front crop (cel).
+- `cuff_verify3.jpg`: verify round 3, before (round 2, 6880e88) | after, on r11/integrate with this branch. Rows:
+  - the owner's q34_front_left view (left hand) and q34_front_right (right hand) at 4×, zoomed, cel and clay: the thorn;
+  - the same spot in close-up: the upper tier alone (id colours) and both tiers (clay);
+  - reach_forward from the left cuff's outer side (clay, cel): the horn;
+  - the palm side and the 4× low view (clay): hooked lobe ends;
+  - the owner's 4× front crops (cel): the rolled loops are kept.
+- `cuff_hd.jpg` and `cuff_verify.jpg` were downscaled in verify round 3 to keep this folder near 1.3 MB.
 - `rig_fit.jpg`: the elbow inside the bag in dance_sway, reach_up_back and hands_behind_head (3/4 cel crops).
 - `bow.jpg`: the bow from above and from 3/4 (cel).
 - `panels.jpg`: sheet | round 10 | first pass | now, at panel scale, enlarged. Rows: band front and side, wrist front and side.
