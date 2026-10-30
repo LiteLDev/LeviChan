@@ -203,12 +203,15 @@ PIPE_SHADE = 0.3          # share of the cord's own roundness in its shading nor
 # offset directions are smoothed the same way.
 PIPE_OUT_MAX = 0.003      # m
 PIPE_OUT_SMOOTH = 7.5     # deg (sigma)
-# The cord's centre stands at least PIPE_MIN_OUT out from the bodice (a soft max over
-# PIPE_MIN_SOFT): at the centre back, where the skirt's top edge is the seam line, it sank
-# 0.1-0.3 mm into the bodice ridge and the bodice hid its upper outline (review: the line
-# broke for 3-9 mm either side of the centre-back welt).
+# Round the back the cord's centre stands at least PIPE_MIN_OUT out from the bodice (a soft
+# max over PIPE_MIN_SOFT): at the centre back, where the skirt's top edge is the seam line,
+# it sank 0.1-0.3 mm into the bodice ridge and the bodice hid its upper outline (review: the
+# line broke for 3-9 mm either side of the centre-back welt). It comes in over PIPE_MIN_AZ
+# (deg from the centre front); the front keeps its corner seat (pushed out there, the cord's
+# underside showed as a broken shade line under the waist).
 PIPE_MIN_OUT = PIPE_R + 0.0004
 PIPE_MIN_SOFT = 0.0004
+PIPE_MIN_AZ = (100.0, 150.0)
 SEAM_PSI = 720            # section angles the seam line is solved at
 SEAM_ROW_STEP = 0.5       # px between the rows its crossing is bracketed on
 # deg: Gaussian on the seam row round the waist. Round 11 review: at 4 deg the line kept a
@@ -364,7 +367,8 @@ TAIL_CUT = 1.0
 TAIL_CUT_N = 4
 TAIL_TIP_ROUND = 1.4      # ribbon thicknesses of width left at the point
 TAIL_TIP_FLAT = (6.0, 22.0)   # px from the tip: flat up to the first, full twist from the second
-TAIL_CLEAR = 0.3          # px between the thin strand and the wide one it lies over
+TAIL_CLEAR = 0.6          # px between the thin strand and the wide one it lies over (more than its
+                          # outline width: closer, its hull showed through as a dark wedge from below)
 TAIL_GAP = 1.0            # px of front-view gap over which the lift fades in
 TAIL_LIFT_SIGMA = 2.0     # px: smoothing of the lift along the strand
 TAIL_LIFT_SUB = 4         # samples per span between stations
@@ -961,7 +965,7 @@ def piping_path():
     the cord rides its top edge; how far it stands out is smoothed round the waist
     and capped, PIPE_OUT_*) and is pushed out along the bisector of the bodice's and
     the skirt's normals, so the cord lies in the corner between them, touching both
-    (PIPE_FIT of the tangent distance; PIPE_FIT_BACK at the centre back)."""
+    (PIPE_FIT of the tangent distance; round the back at least PIPE_MIN_OUT off the bodice)."""
     pts = skirt.profiles(skirt.fold_table())[:, :6, :]
     top = float(pts[:, 0, 2].max())
     cy = _waist_cy()
@@ -1015,10 +1019,12 @@ def piping_path():
         half = 0.5 * nb.angle(ns)
         d = min(PIPE_FIT * PIPE_R / max(math.cos(half), 0.5), 2.0 * PIPE_R)
         c = on + o * d
-        # never sunk into the bodice: the centre at least PIPE_MIN_OUT out from it (a soft max)
+        # round the back, never sunk into the bodice: the centre at least PIPE_MIN_OUT out
+        # from it (a soft max)
         rad = Vector((sa, -ca, 0.0))
         lack = (rb * PX + PIPE_MIN_OUT) - (c - Vector((0.0, cy * PX, 0.0))).dot(rad)
-        c = c + rad * (0.5 * (lack + math.hypot(lack, PIPE_MIN_SOFT)))
+        wb = smoothstep(PIPE_MIN_AZ[0], PIPE_MIN_AZ[1], abs(math.degrees(a)))
+        c = c + rad * (wb * 0.5 * (lack + math.hypot(lack, PIPE_MIN_SOFT)))
         cen.append(c)
         dirs.append(o)
     # a light smoothing round the loop: the seam line comes from polygons
