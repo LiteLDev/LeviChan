@@ -10,22 +10,28 @@ lock. strand() validates every lock at build time and raises (HairKernelError)
 naming the lock, ring and point, so a build never carries a kink.
 
 Layout (back view, the character's left = image left):
-  - an UNDER-LAYER ('hair_back_shell'): one thin closed sheet lying on the
-    scalp cap (hair_front's CAP_PROFILE) from the skull's equator and hanging
-    a few px under the envelope down the back, so no body shows between the
-    locks. It spans the back of the skull (more than rig.HAIR_LOCK_SPAN round
-    it), so the rig hangs it from the back-hair sector chains, not a lock chain;
-  - PRIMARY locks (PRIMS): ten crescent locks across the back mass in two
-    lobes, each its own loose part (the rig gives it its own 後髪束 chain),
-    built in layers: the under row rests its underside on the under-layer and
-    the cap, the over row on the under row (kernel shingling: the spine is lifted
-    in one smooth step, never the vertices), so neighbours stack instead of
-    passing through each other. Three of them end in the sheet's curls (A the
-    big C on the left, D the open curl right of the parting, F the outer right
-    curl), A and D with two sub-tips; SW ends in the side view's open curl
-    turning back; the others end in blades at staggered heights;
-  - OUTER side locks (OUTER, both sides): the shoulder flick, the wave lock over
-    the back of the upper arm and the crescent past the sleeve (a flat C-blade).
+  - an UNDER-LAYER ('hair_back_shell'): one thin closed sheet (2.5 mm, thinning to its
+    rims) lying just over the scalp cap (hair_front's CAP_PROFILE) from the skull's
+    equator and hanging along the envelope down the back, its side edges curling
+    forward round her back, so no body shows between the locks and the side view
+    reads solid. It spans ~95 deg round the head (checked >= UNDER_SPAN_MIN, the
+    rig's lock test is < 70), so the rig hangs it from the back-hair sector chains;
+  - PRIMARY locks (PRIMS): six broad, flat crescent locks across the back in two
+    lobes, each its own loose part (its own 後髪束 chain), built in two rows: the
+    under row rests its underside on the under-layer and the cap, the over row on
+    the under row (kernel shingling: the spine is lifted in one smooth step, never
+    the vertices), so neighbours stack instead of passing through each other; they
+    are flattened toward the crown (FLAT_TOP) into shingles. A, D and F end in the
+    sheet's curls (A the big C on the left, D the open curl right of the parting, F
+    the outer right curl) grown G2 from the spine as flat C-blades, A and D with two
+    welded sub-tips; L1 ends in the side view's open curl turning back; C and E
+    end in blades;
+  - OUTER side locks (OUTER, both sides, built under the mass's outer locks except
+    the flick): the wave lock over the back of the upper arm, the crescent past the
+    sleeve (a flat C-blade) and the shoulder flick on top (an open 90 deg flick, long
+    enough for its own chain).
+_check_islands() fails the build if a lock would not get its own chain or the
+under-layer would.
 Locks are authored in reference panel pixels so they can be fitted directly
 against ref/back.png and ref/side.png:
 
