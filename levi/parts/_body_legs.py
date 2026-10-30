@@ -6,8 +6,8 @@ legs), mirror-exact. It replaces round 10's leg tubes (two lofts pushed 7 cm int
 that ended in a brief-shaped block) and the feet nested 4.6 cm into them: the hip collars,
 the crotch block and the ankle step are gone; torso, pelvis, legs and feet are one surface.
 
-1. Two Catmull-Clark levels of her cage (cc1: the topology kept for the pelvis; cc2: the
-   smooth surface the legs are sampled from). Her thigh rings are ~3 cm apart in 16 columns.
+1. Two Catmull-Clark levels of her cage: the smooth surface everything is sampled from. Her
+   thigh rings are ~3 cm apart in 16 columns, and her loops converge on the crotch in slivers.
 2. Warp to Levi (`Warp`), evaluated on her points as the part builds them:
    * heights: a monotone cubic through her waist loop, crotch, knee and ankle onto the torso
      ring the pelvis hangs from (WELD_ROW, less TOP_GAP), CROTCH_Z, the round-10 knee pivot
@@ -28,15 +28,19 @@ the crotch block and the ankle step are gone; torso, pelvis, legs and feet are o
      CLOTH_OUT there);
    * her crotch, a ~6 mm gusset between thighs that touch, is widened (CROTCH_GAP): the
      thigh weights change hands across it.
-3. The pelvis keeps her topology (cc1) down to her clean thigh ring at CUT_Z (32 vertices
-   after subdivision); round the crotch its vertices are spread along the surface (_relax:
-   her loops converge there in ~1 mm slivers). From that ring each leg is a loft of rings
-   (LEG_RING_ROWS, ~1 cm through the knee and ankle bands) in the ring's 32 columns, each
-   vertex the warped cc2 surface along a horizontal ray from the leg's axis. Below the ankle
-   the loft bends along FOOT_PATH into the stiletto foot (rings normal to the path), sampled
-   from round 10's foot and ankle (body.FOOT and the leg, which the shoes fit), her ankle
-   fading out over HER_ANKLE_ROWS, the old leg / foot crease filled on the instep side only
-   (FOOT_FILL). A pole closes the toe.
+3. A structured "pants" grid is sampled from the warped surface (see H0_UP): pelvis rings
+   of the waist loop's 64 columns (horizontal rays from the pelvis centre) down to the ring
+   just above the crotch; a chain of CHAIN_M vertices along the midline under the crotch;
+   per leg, the ring's half and the chain, one corner quad at the front and one at the back
+   of the gusset, and GUSSET_ROWS rows relaxed on the surface down to the first horizontal
+   leg ring. Every vertex has valence 4 except the two valence-5 corners per leg in the
+   groin. Below, each leg is a loft of rings (LEG_RING_ROWS, ~1 cm through the knee and
+   ankle bands) in N_LEG columns evenly spaced round the leg's axis, each vertex the warped
+   surface along a horizontal ray from the axis. Below the ankle the loft bends along
+   FOOT_PATH into the stiletto foot (rings normal to the path), sampled from round 10's foot
+   and ankle (body.FOOT and the leg, which the shoes fit), her ankle fading out over
+   HER_ANKLE_ROWS, the old leg / foot crease filled on the instep side only (FOOT_FILL). A
+   rounded cap (TOE_CAP) and a pole close the toe.
 4. The pelvis' 64-vertex waist loop is bridged to the torso's 32-vertex ring at WELD_ROW by
    one row of quad + triangle pairs (hidden under the bodice and the skirt), mirrored at the
    midline so the body stays mirror-exact; the torso below that ring is dropped
@@ -44,8 +48,9 @@ the crotch block and the ankle step are gone; torso, pelvis, legs and feet are o
 
 Exports for the shoes (body.LEG_FRONT / LEG_SIDE / leg_section / leg_offset) are slices of
 the final left leg, every panel row of LEG_TABLE_ROWS (`tables`). Rig data (levi_joints):
-knee and ankle by round 10's definitions on the new surface; hip and toe stored at round
-10's fit (HIP_JOINT, TOE_JOINT).
+the knee at KNEE_ROW, the new slice's centre across and round 10's pivot depth (its share of
+the leg's depth behind the front skin, measured on round 10's surface); the ankle by round
+10's definition; hip and toe stored at round 10's fit (HIP_JOINT, TOE_JOINT).
 """
 import math
 import os
@@ -54,7 +59,6 @@ import bmesh
 import numpy as np
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
-from mathutils.kdtree import KDTree
 
 from .. import spec
 
@@ -72,7 +76,6 @@ TOP_FADE = 0.07       # m (hers): her loop's levelling / turning fades out this 
 # the pelvis eases onto round 10's torso between these rows (all of it above them, where her
 # tights' waistband hem lies)
 TOP_BLEND_ROWS = (452.0, 410.0)
-CUT_Z = 0.62          # m: her clean thigh ring where the pelvis topology hands over to the loft
 CROTCH_Z = 0.716      # m: Levi's crotch (round 10's torso bottom ring, row 489)
 # m: the pelvis map hands over to the leg map between these heights (none on the midline:
 # her crotch apex maps to CROTCH_Z)
@@ -86,13 +89,26 @@ CROTCH_GAP = 0.011
 CROTCH_GAP_W = 0.005
 CROTCH_GAP_FALL = (0.03, 0.07)
 CROTCH_GAP_Z = (0.008, -0.005, -0.02, -0.075)
-# tangential relaxation of the pelvis' vertices round the crotch (_relax): zone (m from the
-# midline: full, none; about CROTCH_Z: in from below, full, full, out), steps and step size
-RELAX_X = (0.05, 0.08)
-RELAX_Z = (-0.08, -0.04, 0.05, 0.09)
-RELAX_ITERS = 150
-RELAX_LAMBDA = 0.5
-RELAX_SMOOTH = (6, 0.3)   # then plain Laplacian steps (count, rate) in the same zone
+# The pelvis and the crotch are a structured "pants" grid sampled from the warped surface
+# (round 11 review: her own topology, kept as the first subdivision level, converged on the
+# crotch in 1.5 mm slivers round valence-6/7 poles, which crumpled the gusset at rest and
+# folded it into a ridge in strides). Rings of the waist loop's 64 columns run down the pelvis
+# to the ring at CROTCH_Z + H0_UP, whose midline points F (front) and B (back) end a chain of
+# CHAIN_M vertices along the midline under the crotch. Each leg's first loop is the ring's
+# half and the chain; one corner quad at F and one at B (valence-5 poles at the groin, off the
+# midline) take it to N_LEG columns, and GUSSET_ROWS rows, put on the surface and relaxed
+# (GUSSET_RELAX), reach the first horizontal leg ring at GUSSET_END_ROW.
+H0_UP = 0.02          # m above CROTCH_Z
+PELVIS_STEP = 7.0     # px between the pelvis rings
+CLEFT_SOFT = (3, 2.5)     # [1 2 1] passes over the pelvis rings' radii, columns (sigma) round the back
+CHAIN_M = 7           # ~1.1 cm along the gusset
+N_LEG = 29 + CHAIN_M  # the 31 ring vertices between F and B, the chain, less the two corners
+GUSSET_ROWS = 10
+GUSSET_END_ROW = 561.0
+GUSSET_RELAX = (60, 0.5)   # steps, rate
+# then the crotch is rounded (Legs._round_crotch): umbrella steps, rate, the zone's radii (m,
+# x / y / z about the crotch apex) and its fade (normalized distance)
+CROTCH_ROUND = (12, 0.5, (0.05, 0.065, 0.045), (0.6, 1.0))
 # round 10's fitted rig hip and toe (足.L / つま先.L heads, build_rig.log): stored, so the rig
 # keeps them (the fit would read the new pelvis' uneven vertex density, and the new foot's
 # pole tip, 5 mm past round 10's farthest toe vertex)
@@ -115,13 +131,12 @@ CLOTH_OUT = (0.004, 0.025)
 CLOTH_ROWS = (428.0, 456.0)
 
 # ---- leg loft
-# rows of the leg rings below her CUT_Z ring: ~1.4 cm on the hidden thigh, ~1 cm through
+# rows of the leg rings below GUSSET_END_ROW: ~1.4 cm on the hidden thigh, ~1 cm through
 # the knee band the rig bends (rig.JOINT_ALONG, rows ~650-735), ~1.4 cm down the shin,
 # ~1.1 cm over the ankle band
 LEG_RING_ROWS = (570, 579, 588, 597, 606, 615, 624, 632, 640, 647, 654, 660, 666, 672, 678,
                  684, 690, 696, 702, 708, 714, 720, 727, 734, 742, 751, 760, 769, 778, 787,
                  796, 805, 814, 822, 830, 837, 844, 851)
-LEVEL_RINGS = 4       # rings over which the cut ring's tilt eases to horizontal
 # The foot: centre line (panel px: x out, y back, row) from the last leg ring's axis through
 # the heel bend and down the instep to the toe, inside body.FOOT's sections
 FOOT_PATH = ((32.6, -3.0, 857.0), (32.3, -5.0, 866.0), (31.4, -9.5, 876.0),
@@ -130,7 +145,11 @@ FOOT_PATH = ((32.6, -3.0, 857.0), (32.3, -5.0, 866.0), (31.4, -9.5, 876.0),
              (23.4, -63.5, 932.0), (21.6, -71.5, 936.5), (19.8, -78.5, 939.5),
              (18.4, -84.0, 941.4))
 FOOT_STEP = 6.5       # px between foot rings along the path
-TOE_TIP = (17.8, -88.4, 942.0)   # px: the pole at the toe (body.FOOT's cap)
+TOE_TIP = (17.8, -88.4, 942.0)   # px: the path's end (body.FOOT's cap)
+# The toe cap: rings at these fractions of the way from the last foot ring to the tip of round
+# 10's toe along the path's end tangent (where the pole sits), an ellipsoid through the last
+# ring kept inside round 10's toe (review: the pole in the last ring's plane cut it off flat)
+TOE_CAP = (0.4, 0.72)
 HER_ANKLE_ROWS = (856.0, 872.0)  # her ankle fades into round 10's foot over these rows
 FOOT_INSET = 0.3      # px inside round 10's foot / ankle surface (the shoe keeps FOOT_CLEAR)
 FOOT_SMOOTH = (1.0, 1.0)   # Gaussian sigma (rings, columns) over the foot's radii
@@ -579,148 +598,312 @@ class Warp:
 # ---------------------------------------------------------------- the geometry
 class Legs:
     """Pelvis + both legs + feet as arrays (positions, polygons) with the waist loop and the
-    data the body exports. Built once per session (deterministic)."""
+    data the body exports. Built once per session (deterministic).
+
+    Layout (vertex blocks in P): the pelvis rings (PELVIS rows x 64, row 0 the waist loop), the
+    crotch chain (CHAIN_M, on the midline), the left leg (GUSSET_ROWS rings of N_LEG, the loft
+    rings, the foot rings, the toe cap rings, the toe pole), the right leg (its mirror)."""
 
     def __init__(self):
-        from . import body
         A = asset()
         P0, F0 = A['pos'], A['faces']
         V0 = len(P0)
-        # her cut ring (left) and its mirror; the pelvis piece = faces reached from the waist
-        ci = int(np.argmin(np.abs(A['ring_z'] - CUT_Z)))
-        cut_l = A['rings'][ci]
-        cut_r = [int(A['mirror'][i]) for i in cut_l]
-        cut_edges = set()
-        for lp in (cut_l, cut_r):
-            for k in range(len(lp)):
-                a, b = lp[k], lp[(k + 1) % len(lp)]
-                cut_edges.add((min(a, b), max(a, b)))
-        e2f = {}
-        for fi, f in enumerate(F0):
-            for k in range(len(f)):
-                a, b = f[k], f[(k + 1) % len(f)]
-                e2f.setdefault((min(a, b), max(a, b)), []).append(fi)
-        wset = set(A['waist'])
-        seed = next(fi for fi, f in enumerate(F0) if len(wset & set(f)) >= 2)
-        keep, todo = {seed}, [seed]
-        while todo:
-            fi = todo.pop()
-            f = F0[fi]
-            for k in range(len(f)):
-                e = (min(f[k], f[(k + 1) % len(f)]), max(f[k], f[(k + 1) % len(f)]))
-                if e in cut_edges:
-                    continue
-                for g in e2f[e]:
-                    if g not in keep:
-                        keep.add(g)
-                        todo.append(g)
-        # two subdivision levels
-        P1, Q1, eid1, par1 = catmull_clark(P0, F0)
+        # two subdivision levels: the smooth surface everything is sampled from
+        P1, Q1, eid1, _ = catmull_clark(P0, F0)
         P2, Q2, _, _ = catmull_clark(P1, [list(q) for q in Q1])
         loop1 = _sub_loop(A['waist'], eid1, V0)
-        cut1 = _sub_loop(cut_l, eid1, V0)
-        cut1r = _sub_loop(cut_r, eid1, V0)
         # the crotch: her lowest midline vertex
         mid = np.abs(P0[:, 0]) < 1e-9
         crotch_her = float(P0[mid, 2].min())
         tree10, torso_ring = _r10()
         src = _tree(P2, Q2)
         self.warp = W = Warp(src, A['bones'], crotch_her, P1[loop1], torso_ring)
-        # pelvis piece (cc1), warped
-        pq = Q1[np.isin(par1, sorted(keep))]
-        used = np.unique(pq)
-        remap = np.full(len(P1), -1, np.int64)
-        remap[used] = np.arange(len(used))
-        pel_P = W(P1[used])
-        pel_F = remap[pq]
-        self.loop = remap[np.array(loop1)]
-        cut_l1, cut_r1 = remap[np.array(cut1)], remap[np.array(cut1r)]
-        # the leg loft and the foot (left), sampled from the warped cc2 surface
-        dst = _tree(W(P2), Q2)
-        # her loops converge on the crotch in ~1 mm slivers (the thigh weights change hands
-        # across them): spread along the surface there
-        x, z = pel_P[:, 0], pel_P[:, 2]
-        wr = ((1.0 - _ss(*RELAX_X, np.abs(x))) * _ss(CROTCH_Z + RELAX_Z[0], CROTCH_Z + RELAX_Z[1], z)
-              * (1.0 - _ss(CROTCH_Z + RELAX_Z[2], CROTCH_Z + RELAX_Z[3], z)))
-        wr[np.concatenate([self.loop, cut_l1, cut_r1])] = 0.0
-        pel_P = _relax(pel_P, pel_F, wr, dst, RELAX_ITERS, RELAX_LAMBDA)
-        rings, centres = self._loft(dst, tree10, pel_P[cut_l1], W)
-        # assemble: pelvis, left loft rings, left toe; right = mirror
-        P = [pel_P]
-        F = [f for f in pel_F.tolist()]
-        base = len(pel_P)
-        nring = len(rings)
-        nc = len(cut_l1)
-        left_rings = np.concatenate([r for r in rings[:-1]] + [rings[-1][:1]])  # last = tip
-        for side, cut in ((1.0, cut_l1), (-1.0, cut_r1)):
-            pts = left_rings * np.array([side, 1.0, 1.0])
-            idx = [list(cut)]
-            for i in range(nring - 1):
-                idx.append(list(range(base + i * nc, base + (i + 1) * nc)))
-            tip = base + (nring - 1) * nc
-            if side < 0:
-                # the right cut ring runs the mirrored way round: re-order to the left's columns
-                idx[0] = self._mirror_order(pel_P, cut_l1, cut_r1)
-            for a, b in zip(idx, idx[1:]):
-                for k in range(nc):
-                    j = (k + 1) % nc
-                    F.append([a[k], a[j], b[j], b[k]])
-            for k in range(nc):
-                F.append([idx[-1][k], idx[-1][(k + 1) % nc], tip])
+        D2 = W(P2)
+        dst = _tree(D2, Q2)
+        # the left half alone (the midline's faces included), for the gusset rows' projection
+        dst_l = _tree(D2, Q2[D2[Q2][:, :, 0].mean(1) > -1e-4])
+        # 1. the pelvis rings, the waist loop (row 0) down to the ring at CROTCH_Z + H0_UP
+        band = self._pelvis_band(dst, W(P1[loop1]), W)
+        nb = len(band[0])
+        q = nb // 4
+        Bp, Fp = band[-1][q], band[-1][3 * q]
+        # 2. the chain under the crotch, on the midline from B to F (CHAIN_M inner points)
+        chain = self._chain(dst, Bp, Fp)
+        # 3. the left leg: the gusset rows (L1 .. Ln) and the loft below
+        h = band[-1]
+        L0 = [h[k] for k in range(0, q + 1)] + list(chain) + [h[k] for k in range(3 * q, nb)]
+        L0 = np.array(L0)
+        # the columns' top points: the ring / chain vertex each L1 vertex hangs from; the corner
+        # vertices X_B, X_F from the corner triples (h[q-1], B, c_1), (c_m, F, h[3q+1])
+        m = CHAIN_M
+        tops = ([h[k] for k in range(0, q - 1)] + [(h[q - 1] + Bp + chain[0]) / 3.0]
+                + list(chain[1:m - 1]) + [(chain[m - 1] + Fp + h[3 * q + 1]) / 3.0]
+                + [h[k] for k in range(3 * q + 2, nb)])
+        tops = np.array(tops)
+        if len(tops) != N_LEG:
+            raise RuntimeError(f'body legs: {len(tops)} gusset columns, N_LEG {N_LEG}')
+        zn = float(zrow(GUSSET_END_ROW))
+        ax_t = W.leg_axis(tops[:, 2])
+        phi_top = np.unwrap(np.arctan2(tops[:, 1] - ax_t[:, 1], tops[:, 0] - ax_t[:, 0]))
+        # the loft's columns: evenly spaced angles about the leg axis (the circular mean offset)
+        k = np.arange(N_LEG)
+        off = np.angle(np.mean(np.exp(1j * (phi_top - 2 * math.pi * k / N_LEG))))
+        off = phi_top[0] + np.angle(np.exp(1j * (off - phi_top[0])))       # on the tops' branch
+        cols = off + 2 * math.pi * k / N_LEG
+        Ln = self._leg_ring(dst, W, zn, cols)
+        gus = self._gusset(dst_l, L0, tops, Ln)
+        rings, centres = self._loft(dst, tree10, cols, W)
+        # assemble
+        P = list(band) + [np.array(chain)]
+        F = []
+        base = [0]
+        for r in band[1:]:
+            base.append(base[-1] + nb)
+        for a, b in zip(base, base[1:]):
+            for k_ in range(nb):
+                j = (k_ + 1) % nb
+                F.append([a + k_, b + k_, b + j, a + j])
+        ring_h = base[-1]
+        ch0 = ring_h + nb
+        nxt = ch0 + m
+        left_leg = gus + rings[:-1]          # rings of N_LEG (gusset L1..Ln, loft, foot, toe cap)
+        tip = rings[-1][0]
+        self.n_rings = len(left_leg)
+        for side in (1.0, -1.0):
+            mir = side < 0
+            # L0 as indices: the ring's half (the right one mirrored: k -> nb/2 - k) and the chain
+            hk = (lambda k_: ring_h + ((nb // 2 - k_) % nb if mir else k_))
+            seq0 = [hk(k_) for k_ in range(0, q + 1)] + [ch0 + i for i in range(m)] + \
+                [hk(k_) for k_ in range(3 * q, nb)]
+            first = nxt
+            rows = [list(range(first + i * N_LEG, first + (i + 1) * N_LEG)) for i in range(len(left_leg))]
+            tip_i = first + len(left_leg) * N_LEG
+            faces = []
+            # L0 -> L1 (corner quads at B and F)
+            L1 = rows[0]
+            g = {}
+            for k_ in range(0, q - 1):
+                g[k_] = L1[k_]
+            g[q - 1] = L1[q - 1]                 # h[q-1] -> X_B
+            g[q + 1] = L1[q - 1]                 # c_1 -> X_B
+            for i in range(1, m - 1):
+                g[q + 1 + i] = L1[q - 1 + i]     # c_(i+1) -> lc_(i+1)
+            g[q + m] = L1[q + m - 2]             # c_m -> X_F
+            g[q + m + 2] = L1[q + m - 2]         # h[3q+1] -> X_F
+            for i in range(q + m + 3, len(seq0)):
+                g[i] = L1[i - 4]
+            n0 = len(seq0)
+            for p in range(n0):
+                p1 = (p + 1) % n0
+                if p in (q - 1, q, q + m, q + m + 1):
+                    continue
+                faces.append([seq0[p], g[p], g[p1], seq0[p1]])
+            faces.append([seq0[q - 1], g[q - 1], seq0[q + 1], seq0[q]])               # at B
+            faces.append([seq0[q + m], g[q + m], seq0[q + m + 2], seq0[q + m + 1]])   # at F
+            for a, b in zip(rows, rows[1:]):
+                for k_ in range(N_LEG):
+                    j = (k_ + 1) % N_LEG
+                    faces.append([a[k_], b[k_], b[j], a[j]])
+            for k_ in range(N_LEG):
+                faces.append([rows[-1][k_], tip_i, rows[-1][(k_ + 1) % N_LEG]])
+            if mir:
+                faces = [f[::-1] for f in faces]
+            F += faces
+            pts = np.concatenate(left_leg + [tip[None]]) * np.array([side, 1.0, 1.0])
             P.append(pts)
-            base += len(pts)
-        self.P = np.concatenate(P)
+            nxt += len(pts)
+        P = np.concatenate(P)
+        # mirror images: band column k <-> nb/2 - k, the chain itself, left leg <-> right leg
+        mirror = np.arange(len(P))
+        for r in range(len(band)):
+            mirror[r * nb:(r + 1) * nb] = r * nb + (nb // 2 - np.arange(nb)) % nb
+        nl = (len(P) - ch0 - m) // 2
+        mirror[ch0 + m:ch0 + m + nl] = np.arange(ch0 + m + nl, ch0 + m + 2 * nl)
+        mirror[ch0 + m + nl:] = np.arange(ch0 + m, ch0 + m + nl)
+        apex = chain[int(np.argmin(chain[:, 2]))]
+        self.P = self._round_crotch(P, F, mirror, apex, nb)
         self.F = F
+        self.loop = np.arange(nb)
         self.centres = centres
-        self.n_cols = nc
-        self.info = {'her_crotch_z': round(crotch_her, 4), 'pelvis_verts': int(len(pel_P)),
-                     'pelvis_faces': int(len(pel_F)), 'loft_rings': int(nring - 1), 'columns': int(nc),
-                     'verts': int(len(self.P)), 'faces': int(len(F))}
+        self.n_cols = N_LEG
+        e = self._edges()
+        ln = np.linalg.norm(self.P[e[:, 0]] - self.P[e[:, 1]], axis=1)
+        val = np.bincount(e.ravel(), minlength=len(self.P))
+        self.info = {'her_crotch_z': round(crotch_her, 4), 'pelvis_rings': len(band),
+                     'gusset_rows': GUSSET_ROWS, 'leg_rings': self.n_rings, 'columns': N_LEG,
+                     'verts': int(len(self.P)), 'faces': int(len(F)),
+                     'edge_mm': (round(float(ln.min()) * 1e3, 2), round(float(np.median(ln)) * 1e3, 2)),
+                     'poles': {int(v): int((val == v).sum()) for v in np.unique(val) if v != 4}}
 
     @staticmethod
-    def _mirror_order(P, left, right):
-        """The right cut ring's vertices in the left ring's column order (mirror images)."""
-        out = []
-        R = P[right]
-        for i in left:
-            q = P[i] * np.array([-1.0, 1.0, 1.0])
-            out.append(int(right[int(np.argmin(np.linalg.norm(R - q, axis=1)))]))
+    def _round_crotch(P, F, mirror, apex, n_loop):
+        """Umbrella smoothing round the crotch (CROTCH_ROUND), mirror-exact: the widened gusset
+        (CROTCH_GAP) is a flat arch between the thighs whose sides turn into the inner thighs
+        over about a row; this rounds them."""
+        it, lam, rad, (d0, d1) = CROTCH_ROUND
+        E = set()
+        for f in F:
+            for k in range(len(f)):
+                a, b = int(f[k]), int(f[(k + 1) % len(f)])
+                E.add((min(a, b), max(a, b)))
+        E = np.array(sorted(E))
+        deg = np.bincount(E.ravel(), minlength=len(P)).astype(np.float64)
+        d = np.linalg.norm((P - apex) / np.array(rad), axis=1)
+        w = lam * (1.0 - _ss(d0, d1, d))
+        w[:n_loop] = 0.0
+        left = np.nonzero(P[:, 0] >= 0.0)[0]
+        P = P.copy()
+        for _ in range(it):
+            s = np.zeros_like(P)
+            np.add.at(s, E[:, 0], P[E[:, 1]])
+            np.add.at(s, E[:, 1], P[E[:, 0]])
+            P = P + w[:, None] * (s / np.maximum(deg, 1.0)[:, None] - P)
+            P[mirror[left]] = P[left] * np.array([-1.0, 1.0, 1.0])
+            P[mirror == np.arange(len(P)), 0] = 0.0
+        return P
+
+    def _edges(self):
+        E = set()
+        for f in self.F:
+            for k in range(len(f)):
+                a, b = int(f[k]), int(f[(k + 1) % len(f)])
+                E.add((min(a, b), max(a, b)))
+        return np.array(sorted(E))
+
+    # ---- the pelvis
+    def _pelvis_band(self, dst, loop, W):
+        """Rings of the pelvis (each the waist loop's 64 columns) from the waist loop down to
+        the ring at CROTCH_Z + H0_UP, sampled along horizontal rays from the pelvis centre at
+        the loop vertices' angles. The right half mirrors the left (column k -> nb/2 - k)."""
+        nb = len(loop)
+        q = nb // 4
+        mx = loop[(nb // 2 - np.arange(nb)) % nb] * np.array([-1.0, 1.0, 1.0])
+        if np.abs(mx - loop).max() > 1e-6 or abs(loop[q, 0]) > 1e-6 or abs(loop[3 * q, 0]) > 1e-6 \
+                or loop[q, 1] < loop[3 * q, 1]:
+            raise RuntimeError('body legs: the waist loop is not mirror-ordered from +x via the back')
+        z0 = float(loop[:, 2].mean())
+        h0 = CROTCH_Z + H0_UP
+        n = max(2, int(round((z0 - h0) / (PELVIS_STEP * PX))))
+        cy0 = float(_rows_at(W.pel_cyl, W.p0, TABLE_STEP, z0))
+        psi = np.arctan2(loop[:, 1] - cy0, loop[:, 0])
+        psi[q], psi[3 * q] = math.pi / 2, -math.pi / 2
+        left = list(range(3 * q, nb)) + list(range(0, q + 1))
+        out = [loop.copy()]
+        for i in range(1, n + 1):
+            z = z0 + (h0 - z0) * i / n
+            cy = float(_rows_at(W.pel_cyl, W.p0, TABLE_STEP, z))
+            O = np.tile([0.0, cy, z], (len(left), 1))
+            D = np.stack([np.cos(psi[left]), np.sin(psi[left]), np.zeros(len(left))], 1)
+            r = _cast_in(dst, O, D, np.full(len(left), 0.3))
+            if not np.isfinite(r).all():
+                raise RuntimeError(f'body legs: pelvis ring at z {z:.3f} missed the surface')
+            # the gluteal cleft: one column sits in it, a V of ~90 deg; rounded over a few
+            # columns either side (CLEFT_SOFT passes of [1 2 1] round the ring, mirror-exact)
+            full = np.zeros(nb)
+            full[left] = r
+            for k in range(q + 1, 3 * q):
+                full[k] = full[(nb // 2 - k) % nb]
+            sm = full.copy()
+            for _ in range(CLEFT_SOFT[0]):
+                sm = (np.roll(sm, 1) + 2 * sm + np.roll(sm, -1)) / 4.0
+            dk = np.minimum(np.abs(np.arange(nb) - q), nb - np.abs(np.arange(nb) - q))
+            wk = np.exp(-0.5 * (dk / CLEFT_SOFT[1]) ** 2)
+            r = (full + (sm - full) * wk)[left]
+            ring = np.zeros((nb, 3))
+            ring[left] = O + D * r[:, None]
+            ring[q, 0] = ring[3 * q, 0] = 0.0
+            for k in range(q + 1, 3 * q):
+                ring[k] = ring[(nb // 2 - k) % nb] * np.array([-1.0, 1.0, 1.0])
+            out.append(ring)
         return out
 
-    def _loft(self, dst, tree10, cut_pts, W):
-        """Left leg rings below the cut ring: positions [ring][col] (ring 0 excluded: it is the
-        cut ring itself), the foot's rings and the toe pole (last 'ring', one point)."""
-        nc = len(cut_pts)
-        z_cut = cut_pts[:, 2]
-        c0 = W.leg_axis(z_cut)
-        cols = np.arctan2(cut_pts[:, 1] - c0[:, 1], cut_pts[:, 0] - c0[:, 0])
+    @staticmethod
+    def _chain(dst, B, F):
+        """CHAIN_M points on the midline under the crotch, evenly spaced along it from B to F
+        (outermost hits of rays in the x = 0 plane from a point above the crotch)."""
+        C = np.array([0.0, (B[1] + F[1]) / 2, max(B[2], F[2]) + 0.02])
+        aB = math.atan2(B[1] - C[1], C[2] - B[2])
+        aF = math.atan2(F[1] - C[1], C[2] - F[2])
+        a = np.linspace(aB, aF, 241)
+        D = np.stack([np.zeros_like(a), np.sin(a), -np.cos(a)], 1)
+        r = _cast_in(dst, np.tile(C, (len(a), 1)), D, np.full(len(a), 0.2))
+        ok = np.isfinite(r[1:-1])
+        pts = np.concatenate([[B], (C + D * r[:, None])[1:-1][ok], [F]])
+        pts[:, 0] = 0.0
+        s = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(pts, axis=0), axis=1))])
+        sq = s[-1] * np.arange(1, CHAIN_M + 1) / (CHAIN_M + 1)
+        out = np.stack([np.interp(sq, s, pts[:, k]) for k in range(3)], 1)
+        out[:, 0] = 0.0
+        return out
+
+    @staticmethod
+    def _leg_ring(dst, W, z, cols):
+        """A horizontal left leg ring at height z: the surface along rays from the leg axis at
+        world angles `cols` (inward rays start at the midline)."""
+        c = W.leg_axis(np.array([z]))[0]
+        n = len(cols)
+        O = np.tile([c[0], c[1], z], (n, 1))
+        D = np.stack([np.cos(cols), np.sin(cols), np.zeros(n)], 1)
+        rc = np.minimum(0.15, np.where(D[:, 0] < 0, (O[:, 0] - 0.003) / np.maximum(-D[:, 0], 1e-9), 0.15))
+        r = _cast_in(dst, O, D, rc)
+        if not np.isfinite(r).all():
+            r = _fill_ring(r)
+        return O + D * r[:, None]
+
+    @staticmethod
+    def _gusset(tree, L0, tops, Ln):
+        """The rows L1 .. Ln between the pelvis ring + chain (L0) and the first horizontal leg
+        ring Ln: each column straight from its top to Ln, put on the left half of the surface,
+        then relaxed on it (GUSSET_RELAX; L0 and Ln fixed)."""
+        n = GUSSET_ROWS
+        rows = [tops + (Ln - tops) * (i / n) for i in range(1, n)]
+        G = np.array(rows)                     # (n - 1, N_LEG, 3)
+
+        def project(X):
+            out = X.copy()
+            for i, p in enumerate(X):
+                loc = tree.find_nearest(Vector(p))[0]
+                if loc is not None:
+                    out[i] = loc
+            return out
+        G = project(G.reshape(-1, 3)).reshape(G.shape)
+        # neighbours: along the row, and up / down the column (row 1's up: the tops, which carry
+        # the corner triples' centroids; L0 itself stays fixed)
+        it, lam = GUSSET_RELAX
+        for _ in range(it):
+            up = np.concatenate([[tops], G[:-1]])
+            dn = np.concatenate([G[1:], [Ln]])
+            avg = (np.roll(G, 1, 1) + np.roll(G, -1, 1) + up + dn) / 4.0
+            G = project((G + lam * (avg - G)).reshape(-1, 3)).reshape(G.shape)
+        return [g for g in G] + [Ln]
+
+    def _loft(self, dst, tree10, cols, W):
+        """Left leg rings below the first horizontal ring (LEG_RING_ROWS), the foot's rings, the
+        toe cap's rings and the toe pole (last 'ring', one point), at the columns' world angles
+        `cols` about the leg axis."""
+        nc = len(cols)
         out, centres = [], []
-        zm = z_cut.mean()
-        # horizontal leg rings
-        for i, row in enumerate(LEG_RING_ROWS):
-            zr = float(zrow(row))
-            zz = zr + (z_cut - zm) * max(0.0, 1.0 - (i + 1) / LEVEL_RINGS)
-            c = W.leg_axis(zz)
-            O = np.c_[c, zz]
-            D = np.stack([np.cos(cols), np.sin(cols), np.zeros(nc)], 1)
-            rc = np.minimum(0.15, np.where(D[:, 0] < 0, (O[:, 0] - 0.003) / np.maximum(-D[:, 0], 1e-9), 0.15))
-            r = _cast_in(dst, O, D, rc)
-            if not np.isfinite(r).all():
-                r = _fill_ring(r)
-            out.append(O + D * r[:, None])
-            centres.append(O.mean(0))
+        for row in LEG_RING_ROWS:
+            ring = self._leg_ring(dst, W, float(zrow(row)), cols)
+            out.append(ring)
+            centres.append(ring.mean(0))
         # the foot: rings normal to FOOT_PATH, starting below the last leg ring
-        path = self._foot_path(out[-1], centres[-1])
+        z_last = float(out[-1][:, 2].mean())
+        ax = W.leg_axis(np.array([z_last]))[0]
+        path = self._foot_path(out[-1], [ax[0], ax[1], z_last])
         her_fade = HER_ANKLE_ROWS
         hint = np.array([1.0, 0.0, 0.0])
         foot = []
+
+        def frame(t):
+            side = hint - t * (hint @ t)
+            side /= np.linalg.norm(side)
+            return side, np.cross(t, side)
         for k in range(1, len(path) - 1):
             c = path[k]
             t = path[k + 1] - path[k - 1]
             t /= np.linalg.norm(t)
-            side = hint - t * (hint @ t)
-            side /= np.linalg.norm(side)
-            up = np.cross(t, side)
+            side, up = frame(t)
             # ring angle -> world direction: the leg rings' columns are world angles about the
             # axis (x, y); on a horizontal ring side = +x, up = -y, so a world angle a is the
             # ring angle -a
@@ -748,8 +931,28 @@ class Legs:
         Rf = Rf + np.minimum(Rs - Rf, cap)
         for (O, D, _), r in zip(foot, Rf):
             out.append(O + D * r[:, None])
-        tip = np.array([TOE_TIP[0] * PX, TOE_TIP[1] * PX, float(zrow(TOE_TIP[2]))])
-        out.append(tip[None])
+        # the toe cap: rings shrinking along the path's end tangent onto the pole, an
+        # ellipsoid through the last ring and the tip of round 10's toe (TOE_CAP: axial
+        # fractions), kept inside round 10's toe surface
+        c_last = path[-2]
+        t = path[-1] - path[-3]
+        t /= np.linalg.norm(t)
+        reach = 40.0 * PX
+        hit = _cast_in(tree10, c_last[None], t[None], np.array([reach]))[0]
+        tip_d = (hit if np.isfinite(hit) else float(np.linalg.norm(path[-1] - c_last))) - FOOT_INSET * PX
+        last = out[-1]
+        r_last = np.linalg.norm(last - c_last, axis=1)
+        dirs = (last - c_last) / np.maximum(r_last, 1e-9)[:, None]
+        dirs = dirs - t * (dirs @ t)[:, None]
+        dirs /= np.linalg.norm(dirs, axis=1)[:, None]
+        for f in TOE_CAP:
+            c = c_last + t * tip_d * f
+            r = r_last * math.sqrt(1.0 - f * f)
+            r10 = _cast_in(tree10, np.repeat(c[None], nc, 0), dirs, np.full(nc, reach)) - FOOT_INSET * PX
+            r = np.where(np.isfinite(r10), np.minimum(r, r10), r)
+            out.append(c + dirs * np.maximum(r, 0.3 * r_last)[:, None])
+            centres.append(c)
+        out.append((c_last + t * tip_d)[None])
         return out, centres
 
     @staticmethod
@@ -812,6 +1015,14 @@ class Legs:
         return vs
 
     # ---- exports
+    def _left_tris(self):
+        tri = []
+        for f in self.F:
+            if self.P[f, 0].mean() <= 0:
+                continue
+            tri += [(f[0], f[1], f[2])] if len(f) == 3 else [(f[0], f[1], f[2]), (f[0], f[2], f[3])]
+        return np.array(tri)
+
     def tables(self):
         """Slices of the final left leg (pelvis' left half, loft, foot) every panel row in
         LEG_TABLE_ROWS: rows, centres (cx, cy) px, half extents (hw, hd) px and the radial
@@ -819,12 +1030,7 @@ class Legs:
         its direction (dx + out, dy + front), as body.leg_offset reads it."""
         if hasattr(self, '_tables'):
             return self._tables
-        tri = []
-        for f in self.F:
-            if self.P[f, 0].mean() <= 0:
-                continue
-            tri += [(f[0], f[1], f[2])] if len(f) == 3 else [(f[0], f[1], f[2]), (f[0], f[2], f[3])]
-        tri = np.array(tri)
+        tri = self._left_tris()
         Pp = self.P / PX                    # px
         a = 2 * math.pi * np.arange(N_ANG) / N_ANG
         rows = np.arange(LEG_TABLE_ROWS[0], LEG_TABLE_ROWS[1] + 1)
@@ -875,57 +1081,38 @@ class Legs:
         return f
 
     def joints(self):
-        """levi_joints for the rig: knee and ankle by round 10's definitions (body.KNEE_ROW /
-        KNEE_FWD on the new slices' centres, smoothed over +-10 rows like round 10's
-        tables; body.ANKLE_ROW / ANKLE_BACK on the leg axis), and the hip (HIP_JOINT)."""
+        """levi_joints for the rig: the knee at body.KNEE_ROW, across at the new slices' centre
+        (smoothed over +-10 rows like round 10's tables) and as deep behind the front skin, as a
+        share of the leg's depth there, as round 10's pivot (_r10_knee_depth; review: KNEE_FWD
+        from the new slice's box centre put it 5 mm further forward, 40% instead of 45%);
+        the ankle by round 10's definition (body.ANKLE_ROW / ANKLE_BACK on the leg axis); the
+        hip and toe (HIP_JOINT, TOE_JOINT)."""
+        if hasattr(self, '_joints'):
+            return self._joints
         from . import body
         t = self.tables()
         sel = np.abs(t['rows'] - body.KNEE_ROW) <= 10
-        cx, cy = t['c'][sel].mean(0)
-        knee = body.P(cx, cy - body.KNEE_FWD, body.KNEE_ROW)
+        cx = float(t['c'][sel, 0].mean())
+        i = int(np.argmin(np.abs(t['rows'] - body.KNEE_ROW)))
+        seg = _slice(self.P / PX, self._left_tris(), (spec.SHEET_GROUND_Y - body.KNEE_ROW) + 1e-4)
+        cy = float(t['c'][i, 1])
+        rho = _ray_segments(np.array([cx, cy]), np.array([[0.0, -1.0], [0.0, 1.0]]), seg)
+        yf, yb = cy - rho[0], cy + rho[1]
+        knee = body.P(cx, yf + _r10_knee_depth() * (yb - yf), body.KNEE_ROW)
         ax = self.warp.leg_axis(np.array([float(zrow(body.ANKLE_ROW))]))[0] / PX
         ankle = body.P(ax[0], ax[1] + body.ANKLE_BACK, body.ANKLE_ROW)
-        return {'knee': tuple(knee), 'ankle': tuple(ankle), 'hip': HIP_JOINT, 'toe': TOE_JOINT}
+        self._joints = {'knee': tuple(knee), 'ankle': tuple(ankle), 'hip': HIP_JOINT, 'toe': TOE_JOINT}
+        return self._joints
 
 
-def _relax(P, faces, w, tree, iters, lam):
-    """Tangential smoothing: each vertex moves toward its neighbours' mean by lam * w and is
-    put back on the surface `tree` (nearest point); mirror-exact (the right half follows the
-    left, the midline stays at x = 0)."""
-    E = set()
-    for f in faces:
-        for k in range(len(f)):
-            a, b = int(f[k]), int(f[(k + 1) % len(f)])
-            E.add((min(a, b), max(a, b)))
-    E = np.array(sorted(E))
-    deg = np.bincount(E.ravel(), minlength=len(P)).astype(np.float64)
-    kd = KDTree(len(P))
-    for i, p in enumerate(P):
-        kd.insert(p, i)
-    kd.balance()
-    found = [kd.find(p * np.array([-1.0, 1.0, 1.0])) for p in P]
-    mirror = np.array([f[1] for f in found])
-    if max(f[2] for f in found) > 1e-6:
-        raise RuntimeError('body legs: the pelvis is not mirror-symmetric before relaxing')
-    left = np.nonzero((w > 1e-6) & (P[:, 0] >= 0))[0]
-    P = P.copy()
-    for it in range(iters + RELAX_SMOOTH[0]):
-        s = np.zeros_like(P)
-        np.add.at(s, E[:, 0], P[E[:, 1]])
-        np.add.at(s, E[:, 1], P[E[:, 0]])
-        if it < iters:
-            Q = P + (lam * w)[:, None] * (s / np.maximum(deg, 1)[:, None] - P)
-            for i in left:
-                loc = tree.find_nearest(Vector(Q[i]))[0]
-                if loc is not None:
-                    P[i] = loc
-        else:
-            # a few plain steps last: the points put back on the subdivided surface's flat
-            # faces left a faint facet noise in the shading
-            P = P + (RELAX_SMOOTH[1] * w)[:, None] * (s / np.maximum(deg, 1)[:, None] - P)
-        P[left[mirror[left] == left], 0] = 0.0
-        P[mirror[left]] = P[left] * np.array([-1.0, 1.0, 1.0])
-    return P
+def _r10_knee_depth():
+    """Round 10's knee pivot (body._knee_joint_r10) as a share of its leg's depth behind the
+    front skin (rays along -y / +y from the pivot onto round 10's surface)."""
+    from . import body
+    tree, _ = _r10()
+    k = np.array(body._knee_joint_r10()[:])
+    r = _cast_in(tree, np.array([k, k]), np.array([[0.0, -1.0, 0.0], [0.0, 1.0, 0.0]]), np.array([0.2, 0.2]))
+    return float(r[0] / (r[0] + r[1]))
 
 
 def _slice(P, tri, z):

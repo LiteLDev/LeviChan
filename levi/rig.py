@@ -950,13 +950,11 @@ DRAPE_LEG_EXT = 1.45
 DRAPE_SHIN_R = 0.05
 # (m from the hip joint along the thigh, the thigh's skin weight there): measured on the
 # round-6 body (足 vs 下半身, mean round the thigh); the obstacle near the groin moves as
-# much as the blended skin does. Round 11 (风堇's continuous pelvis and the wider crotch
-# smoothing, CROTCH_SMOOTH / CROTCH_ZONE): re-measured as 足 + HIP_AUX x 足補助 round the
-# thigh (0.48 / 0.49 / 0.59 / 0.72 / 0.82 / 0.90 at 0 / 5 / 10 / 14 / 17 / 20 cm; the
-# round-10 body read 0.54 / 0.63 / 0.69 / 0.91 / ~0.96 / 1.0) and the round-6 table moved
-# by the difference
-DRAPE_SKIN_W = ((0.0, 0.44), (0.05, 0.47), (0.10, 0.65), (0.14, 0.77), (0.17, 0.87), (0.20, 0.91),
-                (0.25, 1.0))
+# much as the blended skin does. Round 11 (风堇's continuous pelvis): re-measured as
+# 足 + HIP_AUX x 足補助 round the thigh, 0.49 / 0.52 / 0.70 / 0.84 / 0.97 at 0 / 5 / 10 / 14 /
+# 20 cm (the round-10 body 0.54 / 0.63 / 0.69 / 0.91 / 1.0): within 0.07 of round 10, so the
+# table stays (moved by the difference, it raised the run clip's skirt pop 69 -> 83 mm)
+DRAPE_SKIN_W = ((0.0, 0.5), (0.05, 0.6), (0.10, 0.75), (0.14, 0.97), (0.17, 1.0))
 DRAPE_RES = 2.0             # deg: resolution of the clearance search (round 7: 1)
 DRAPE_SLACK = 0.004         # m: where nothing clears, the least turn within this of the best depth
 DRAPE_SMOOTH = 8            # [1 2 1] passes over the pitch samples (~11 deg; round 7: 5, which left a 6 mm pop rising from the seat)
@@ -2857,6 +2855,19 @@ SMOOTH_RADIUS = {     # metres of weight smoothing along the surface, per part
     'body': 0.009, 'head': 0.01, 'shoes': 0.012, 'accessories': 0.012, 'bodice': 0.035,
     'hair_front': 0.025, 'hair_back': 0.03, 'sleeves': 0.065, 'skirt': 0.03, 'petticoat': 0.06,
 }
+# Round 11: the reference edges (m) a part's smoothing radii were tuned on, one per level of the
+# multilevel smoothing (_smooth_ml: the fine mesh, then each coarsening), used in place of each
+# level's median edge. The body's radii (SMOOTH_RADIUS, CROTCH_SMOOTH, ARMPIT_SMOOTH,
+# PRUNE_SMOOTH) were tuned on the round-10 body (r11/base), whose levels these are (measured
+# with smooth_levels). 风堇's subdivided hands (~2 mm edges, over half the body's vertices)
+# brought the medians to 4.3 / 6.2 / 8.6 mm, which re-tuned the whole skin (arms_up's armpit
+# x1.78 -> x2.39) and, through the coarse level the crotch pass runs on, broke the hips' left /
+# right symmetry (up to 0.14). The hands are also left out of the body's smoothing graph
+# (_smooth_zones: they take her weights, _hand_hint, and are smoothed on their own), so away
+# from the forearms the body's weights are r11/base's.
+SMOOTH_REF = {'body': (0.009354644735714363, 0.011139147256875703, 0.015647158775001092,
+                       0.02070159577335434, 0.028074554799480053, 0.036939761281950985,
+                       0.047217178786414626, 0.0606149933215295)}
 # (petticoat, round 7: 0.04 -> 0.06. Its gathered inner tiers sit ~16 cm from the axis,
 # where neighbouring skirt chains are only ~6.5 cm apart, and a draped chain turning more
 # than its neighbour stretched them x2.2-3.2; 0.08 made the layers part in cross_legged.)
@@ -2921,12 +2932,13 @@ def _side_mask(co, labels, bones, per_vertex):
     return m
 
 
-def _smooth(w, co, edges, radius):
+def _smooth(w, co, edges, radius, ref=None):
     """Laplacian smoothing of the weight rows along the mesh edges, about `radius` metres.
 
     Each edge pulls with (median edge / its length)^2 (at most 1), so every iteration
     spreads about one median edge length in metres whatever the edge: long edges down
-    a thin ribbon don't carry weights much farther than `radius`."""
+    a thin ribbon don't carry weights much farther than `radius`. `ref`: the reference
+    edge in place of the mesh's median, or one per level (SMOOTH_REF)."""
     if radius <= 0 or not len(edges):
         return w
     # only the bones this mesh uses: the rest stay zero under any averaging
@@ -2934,7 +2946,7 @@ def _smooth(w, co, edges, radius):
     if not len(act):
         return w
     out = w.copy()
-    out[:, act] = _smooth_ml(w[:, act], co, edges, radius, 0)
+    out[:, act] = _smooth_ml(w[:, act], co, edges, radius, 0, ref)
     return out
 
 
@@ -2983,15 +2995,47 @@ def _match(co, edges, ln):
 SMOOTH_DIRECT = 64   # iterations above which smoothing runs on a coarsened mesh first
 
 
-def _smooth_ml(w, co, edges, radius, depth):
+def _level_ref(ref_edge, depth, median):
+    """The reference edge of smoothing level `depth` (0 the mesh itself): ref_edge's (a number
+    for the fine level only, or a sequence with one per level), else the level's median edge."""
+    if ref_edge is None:
+        return median
+    seq = ref_edge if isinstance(ref_edge, (tuple, list)) else (ref_edge,)
+    return float(seq[depth]) if depth < len(seq) and seq[depth] else median
+
+
+def smooth_levels(co, edges, depth=8):
+    """The median edge of each level of _smooth_ml's coarsening of a mesh (co, edges), as long as
+    it can pair vertices: what SMOOTH_REF records for a part (e.g. the body's, from r11/base)."""
+    out = []
+    for _ in range(depth):
+        ln, ref = _edge_ref(co, edges)
+        out.append(ref)
+        lab, nc = _match(co, edges, ln)
+        if nc > 0.85 * len(co) or len(co) < 64:
+            break
+        cnt = np.bincount(lab, minlength=nc).astype(float)[:, None]
+        cco = np.zeros((nc, 3))
+        np.add.at(cco, lab, co)
+        ce = np.stack([lab[edges[:, 0]], lab[edges[:, 1]]], 1)
+        ce = ce[ce[:, 0] != ce[:, 1]]
+        if not len(ce):
+            break
+        co, edges = cco / cnt, np.unique(np.sort(ce, 1), axis=0)
+    return out
+
+
+def _smooth_ml(w, co, edges, radius, depth, ref_edge=None):
     """Smoothing about `radius` metres whatever the mesh density. Within SMOOTH_DIRECT
     iterations of the plain diffusion (_diffuse) it runs directly; otherwise neighbouring
     vertices are paired (_match), the cluster averages are smoothed on the coarse graph
     (recursively), the coarse change is added back to every vertex of its cluster, and a
     short diffusion on the fine mesh (about one coarse edge) evens out the cluster steps.
     Diffusion radii add in squares, so the two passes together give `radius`. Cost stays
-    about linear in the vertex count."""
+    about linear in the vertex count. ref_edge: the reference edge in place of the median, of
+    the fine level only (a number) or one per level (SMOOTH_REF; _level_ref)."""
     ln, ref = _edge_ref(co, edges)
+    ref = _level_ref(ref_edge, depth, ref)
     if ref <= 0.0:
         return w
     # fractional (round 9): a whole number of steps made a small radius jump with the mesh's
@@ -3015,10 +3059,12 @@ def _smooth_ml(w, co, edges, radius, depth):
     ce = ce[ce[:, 0] != ce[:, 1]]
     ce = np.unique(np.sort(ce, 1), axis=0) if len(ce) else ce
     _, cref = _edge_ref(cco, ce) if len(ce) else (None, 0.0)
+    if len(ce):
+        cref = _level_ref(ref_edge, depth + 1, cref)
     post = min(radius * 0.7, 1.5 * max(cref, ref))      # fine-level pass: about one coarse edge
     rc = math.sqrt(max(radius ** 2 - post ** 2, 0.0))
     if len(ce):
-        cw = _smooth_ml(cw, cco, ce, rc, depth + 1) - cw
+        cw = _smooth_ml(cw, cco, ce, rc, depth + 1, ref_edge) - cw
     else:
         cw = np.zeros_like(cw)
     w = w + cw[lab]
@@ -3541,14 +3587,16 @@ def _hair_head_fade(w, co, bones):
 # Round 11: 风堇's pelvis and legs are one surface through the crotch (round 10's leg tubes
 # overlapped a torso block, whose bottom took both thighs half and half while each tube was
 # all its own thigh: the change of hands happened between pieces, out of sight). Now the
-# skin from one inner thigh to the other carries it, over her narrow crotch (~1-5 mm edges
-# there, which the diffusion crosses slowly): 0.06 m tore it x3.2-5.2 in run, high_kick,
-# deep_lunge and cross_legged. 0.12 m spreads it (x2.0-2.2, cross_legged x2.9); 0.15 m pulled
-# the other thigh's weight down the thighs (x2.3-3.1); the zone runs 5 cm deeper with a
-# wider fade, so its edge is not a second change of hands (0.20 deep: x2.3-3.0).
+# gusset between the inner thighs carries the thighs' change of hands, and a stride shears it:
+# 0.12 m spreads it over the gusset and the inner thighs (0.09: run x2.22 -> 2.30, 0.16: x2.31,
+# cross_legged x3.79), and CROTCH_TAIL cuts what reaches past the top of the other inner thigh.
+# The zone (4th value: its top, m above the hip joints) covers the buttocks up to the hip
+# joints' height: below its old top (the hip joints, fading over 8 cm) the pelvis / thigh
+# change at the back of the buttocks stayed steep, x2.09 / 2.24 in sit_chair /
+# lie_back_elbows (now x1.79 / 1.79).
 CROTCH_SMOOTH = 0.12           # weight smoothing radius (m) at the crotch
 CROTCH_PARTS = ('body', '_proxy')   # skin only: garments there follow the skirt chains
-CROTCH_ZONE = (0.12, 0.30, 0.08)   # half width, depth below the hip joints, vertical fade
+CROTCH_ZONE = (0.12, 0.30, 0.12, 0.06)   # half width, depth below the hip joints, vertical fade, top
 
 
 def _crotch_mask(co, bones):
@@ -3557,10 +3605,81 @@ def _crotch_mask(co, bones):
     if '足.L' not in col or '足.R' not in col:
         return None
     hip_z = bones[col['足.L']].head.z
-    hw, depth, fade = CROTCH_ZONE
+    hw, depth, fade = CROTCH_ZONE[:3]
+    top = hip_z + (CROTCH_ZONE[3] if len(CROTCH_ZONE) > 3 else 0.0)
     return (1.0 - _smoothstep(hw * 0.6, hw, np.abs(co[:, 0]))) * \
         _smoothstep(hip_z - depth, hip_z - depth + fade, co[:, 2]) * \
-        (1.0 - _smoothstep(hip_z - fade, hip_z, co[:, 2]))
+        (1.0 - _smoothstep(top - fade, top, co[:, 2]))
+
+
+# Round 11 (review): the smoothing spread each thigh's weight 12-17 cm down the other's inner
+# side (the standing thigh dragged 2.6-3 cm toward a kick). _crotch_tail moves each sided
+# bone's share on the wrong side of the midline back to its own side between these geodesic
+# distances from the body's midline (m; on the inner thigh: from the chain under the crotch),
+# after the smoothing: the drag below z 0.66 (~5 cm under the crotch) is under 5 mm (high_kick
+# 4.2 mm, run 4.5 mm). (0.04 / 0.09: 8-9 mm there, strides x2.06-2.17; 0.03 / 0.075: 2 mm,
+# x2.22-2.30. Holding a pelvis share at the gusset, as 风堇's own weights do, or splitting left
+# / right explicitly by the geodesic distance, sheared it more: x2.2-2.6.)
+CROTCH_TAIL = (0.035, 0.08)
+
+
+def _geodesic_from(co, edges, src, keep, reach):
+    """Distance along the edges from the `src` vertices, over the `keep` vertices only (inf
+    beyond `reach` m or out of reach)."""
+    import heapq
+    n = len(co)
+    ok = keep[edges[:, 0]] & keep[edges[:, 1]]
+    e = edges[ok]
+    ln = np.linalg.norm(co[e[:, 0]] - co[e[:, 1]], axis=1)
+    nbr = [[] for _ in range(n)]
+    for (a, b), l in zip(e.tolist(), ln.tolist()):
+        nbr[a].append((b, l))
+        nbr[b].append((a, l))
+    d = np.full(n, np.inf)
+    heap = []
+    for i in np.nonzero(src & keep)[0].tolist():
+        d[i] = 0.0
+        heap.append((0.0, i))
+    heapq.heapify(heap)
+    while heap:
+        di, i = heapq.heappop(heap)
+        if di > d[i] or di > reach:
+            continue
+        for j, l in nbr[i]:
+            dj = di + l
+            if dj < d[j]:
+                d[j] = dj
+                heapq.heappush(heap, (dj, j))
+    return d
+
+
+def _crotch_tail(w, co, edges, bones):
+    """Each .L / .R pair's share on the other side of the midline, in the crotch zone, moved
+    back to its own side between CROTCH_TAIL's geodesic distances from the midline."""
+    col = {b.name: i for i, b in enumerate(bones)}
+    m = _crotch_mask(co, bones)
+    if m is None or not m.max() > 0 or not len(edges):
+        return w
+    t0, t1 = CROTCH_TAIL
+    zone = m > 0
+    mid = np.abs(co[:, 0]) < 1e-5
+    d = _geodesic_from(co, edges, mid, zone | mid, t1 + 0.02)
+    v = np.nonzero(zone)[0]
+    cut = _smoothstep(t0, t1, np.where(np.isfinite(d[v]), d[v], 1.0)) * m[v]
+    left = co[v, 0] >= 0.0
+    r = np.arange(len(v))
+    W = w[v].copy()
+    for j, b in enumerate(bones):
+        jr = col.get(b.name[:-2] + '.R') if b.name.endswith('.L') else None
+        if jr is None:
+            continue
+        own, oth = np.where(left, j, jr), np.where(left, jr, j)
+        moved = W[r, oth] * cut
+        W[r, own] += moved
+        W[r, oth] -= moved
+    out = w.copy()
+    out[v] = W
+    return out
 
 
 ARMPIT_SMOOTH = 0.05          # weight smoothing radius (m) in the armpit
@@ -4550,17 +4669,20 @@ def _weights(obj, part, co, bones):
     w = np.where(ok[:, None], masked, w)
     w = w / w.sum(1, keepdims=True)
     radius = SLEEVE_SMOOTH if part == 'sleeves' and SLEEVE_BUILD else SMOOTH_RADIUS.get(part, DEFAULT_SMOOTH)
-    w = _smooth(w, co, edges, radius)
+    ref = SMOOTH_REF.get(part)
+    w = _smooth(w, co, edges, radius, ref)
     m = _crotch_mask(co, bones) if part in CROTCH_PARTS and CROTCH_SMOOTH > 0 else None
     if m is not None and m.max() > 0:
         # the crotch is pulled between both thighs in a stride: spread its L/R weight
         # change over a wider band than the rest of the skin
-        w = w * (1.0 - m[:, None]) + _smooth(w, co, edges, CROTCH_SMOOTH) * m[:, None]
+        w = w * (1.0 - m[:, None]) + _smooth(w, co, edges, CROTCH_SMOOTH, ref) * m[:, None]
     m = _armpit_mask(co, bones) if part in CROTCH_PARTS and ARMPIT_SMOOTH > 0 else None
     if m is not None and m.max() > 0:
         # a raised arm pulls the armpit skin between the ribs and the arm: spread the
         # torso / arm weight change over a wider band there too
-        w = w * (1.0 - m[:, None]) + _smooth(w, co, edges, ARMPIT_SMOOTH) * m[:, None]
+        w = w * (1.0 - m[:, None]) + _smooth(w, co, edges, ARMPIT_SMOOTH, ref) * m[:, None]
+    if part in CROTCH_PARTS and CROTCH_TAIL:
+        w = _crotch_tail(w, co, edges, bones)
     if part in CROTCH_PARTS and HIP_AUX:
         _hat_remap(w, bones)
     if part == 'hair_back':
@@ -4582,7 +4704,7 @@ def _weights(obj, part, co, bones):
         _rigid_foot(w, bones)
     # which bones a vertex keeps is decided on a wider-smoothed copy of its weights, so
     # the set changes gradually along the surface instead of wherever two weak bones swap
-    guide = _smooth(w, co, edges, PRUNE_SMOOTH) if PRUNE_SMOOTH > 0 and radius > 0 else None
+    guide = _smooth(w, co, edges, PRUNE_SMOOTH, ref) if PRUNE_SMOOTH > 0 and radius > 0 else None
     if guide is not None and part in SHELL_PARTS:
         guide = _shell_share(guide, co, bones)
     return _prune(w, bones, guide, co)
