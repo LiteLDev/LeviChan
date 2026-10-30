@@ -3053,8 +3053,13 @@ KNOT_BLEND = 0.012
 # core's mechanism, PLAIN_OBJECTS). The field:
 # - round the body, the two nearest skirt chains, linear in the angle (as _skirt_weights);
 #   the angle is smoothed along the strands (TAIL_SMOOTH[0]): a strand zigzagging across a
-#   chain's line takes its straightened course's blend (cross_legged at the tips x1.59 at
-#   4 cm, x1.34 at 6 cm);
+#   chain's line takes its straightened course's blend (cross_legged at the tips x1.67
+#   unsmoothed, x1.58 at 3 cm, x1.48 at 6 cm). But the skirt under the strand moves with
+#   its own angle's blend: a strand's turn, taking a blend from further in, left the cloth
+#   it lies on where a thigh lifts the panels apart (integration review 3: 6 cm put 570
+#   tail vertices through the skirt's outer face in cross_legged, up to 6 mm, the lower
+#   loops cut off at the surface, and 73 in lie_back_elbows). At 3 cm: 40 (at most 1.8 mm)
+#   and 0; unsmoothed 27 and 2 (x1.67); 4 cm 178 and 0;
 # - the body hands over to the chains across their root, the pivot the drape turns them
 #   about: a smoothstep from TAIL_ROOT[0] above it to TAIL_ROOT[1] below, like any skin
 #   across a joint. Handed over from the root down only (the skirt's own ROOT_BLEND, or an
@@ -3069,12 +3074,12 @@ KNOT_BLEND = 0.012
 #   blended into the bow knot (_knot_weights, over the part's 5 cm); where the chains come
 #   in, its other bones (上半身2) fold into 上半身 (TAIL_FOLD).
 # Measured on the full model (tails alone, the old weights -> these): kneel_one x1.68 ->
-# 1.54, deep_lunge 1.68 -> 1.44, cross_legged 2.09 -> 1.48, lie_back_elbows 1.70 -> 1.60,
-# sit_chair 1.67 -> 1.58, jump_tuck 1.82 -> 1.79, high_kick 1.64 -> 1.69, run 1.60 -> 1.28
+# 1.54, deep_lunge 1.68 -> 1.44, cross_legged 2.09 -> 1.58, lie_back_elbows 1.70 -> 1.60,
+# sit_chair 1.67 -> 1.58, jump_tuck 1.82 -> 1.79, high_kick 1.64 -> 1.69, run 1.60 -> 1.30
 # (strain jitter 0.22 -> 0.14); the least compression 0.44 -> 0.40 (jump_tuck), no fold.
 TAIL_FIELD = 'bodice_ribbon_tails'      # name prefix of the objects weighted by _tail_weights
 TAIL_ROOT = (0.03, 0.06)    # m above / below the chains' root the body hands over to them across
-TAIL_SMOOTH = (0.06, 0.035)  # m along the strands: the angle round the body; the body bones' split
+TAIL_SMOOTH = (0.03, 0.035)  # m along the strands: the angle round the body; the body bones' split
 TAIL_FOLD = 0.05            # chain share over which the body's other bones fold into 上半身
 
 
