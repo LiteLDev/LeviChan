@@ -1579,22 +1579,15 @@ def _lock_key(pts):
 
 
 def _hair_locks(objs):
-    """([(key, points)] for the long narrow loose parts of the back hair, points of the rest).
-    The rest (the curtain the sector chains are fitted to) is taken at the heights its
-    vertices are weighted at, where an object names its weighting points
-    (obj['levi_weight_co'], see _weights): hair_back's lining starts inside hair_front's cap
-    under the occiput but is weighted below the head bone's fade band, so its chains hang
-    from there, one per sector over its whole width (fitted to the real top, the curtain's
-    four nape chains became two rooted 9 cm higher at the occiput, the lining's outer thirds
-    on no chain of their own). Across, both of its faces count where they are, so the
-    chains run through the middle of its thickness (along its outer face, the swing pose
-    stretched its inner face x1.64; x1.59 so)."""
+    """([(key, points, object name)] for the long narrow loose parts of the back hair,
+    points of the rest). An object that follows the locks (obj['levi_follow_locks'], see
+    _follow_lock_weights: hair_back's lining) is neither: it rides the lock chains over it,
+    so no sector chain is fitted to it."""
     locks, rest = [], []
     for o in objs:
         co = _world_verts([o])
-        if not len(co):
+        if not len(co) or o.get('levi_follow_locks'):
             continue
-        wco = _point_vec(o, co, 'levi_weight_co')
         lab = _islands(len(co), _topology(o, co))
         for k in np.unique(lab):
             p = co[lab == k]
@@ -1604,11 +1597,9 @@ def _hair_locks(objs):
             span = float(np.percentile(dev, 95) - np.percentile(dev, 5))
             long_ = min(L['eye_z'], float(p[:, 2].max())) - float(p[:, 2].min()) >= HAIR_LOCK_LEN
             if HAIR_LOCK_CHAINS and long_ and span < HAIR_LOCK_SPAN and len(p) >= 24:
-                locks.append((_lock_key(p), p))
+                locks.append((_lock_key(p), p, o.name))
             else:
-                # (both faces where they are, at their weighting height: the chains run
-                # through the middle of the lining's thickness)
-                rest.append(p if wco is None else np.column_stack([p[:, :2], wco[lab == k][:, 2]]))
+                rest.append(p)
     locks.sort(key=lambda kp: kp[0])
     return locks, (np.concatenate(rest) if rest else np.zeros((0, 3)))
 
@@ -2480,7 +2471,7 @@ def _secondary_bones(parts, core):
     # centreline, so it bends along its length; the rest (the curtain behind them) hangs
     # from sectors around the skull axis. All hang from eye level.
     locks, rest = _hair_locks(parts.get('hair_back', []))
-    for k, (key, lp) in enumerate(locks):
+    for k, (key, lp, oname) in enumerate(locks):
         top = min(L['eye_z'], float(lp[:, 2].max()))
         nseg = next(s for h, s in HAIR_LOCK_SEG if top - lp[:, 2].min() >= h)
         joints = _band_chain(lp[lp[:, 2] <= top + 0.02], top, float(lp[:, 2].min()), nseg)
@@ -2493,7 +2484,7 @@ def _secondary_bones(parts, core):
                   f'{"outer" if ang >= HAIR_OUTER_ANGLE else "back"} pitch gravity')
             bones += _hair_pitch_gravity(
                 _chain_bones(f'後髪束{k}', f'後髪束{k}', f'HairLock{k}', joints, hair_parent(), 0.03, 'Hair',
-                             meta={'lock': key}), byname, *pitch)
+                             meta={'lock': key, 'lock_obj': oname}), byname, *pitch)
     if len(rest):
         # (rooted at the curtain's own top when it starts below eye level: round 11's
         # under-layer starts below the head bone's fade band, and chains rooted at eye
@@ -4552,19 +4543,68 @@ def _lock_weights(w, co, labels, bones):
             w[rows, head[0]] = 1.0 - share
 
 
+# hair_back's lining (the under-layer between the locks and her nape) rides the lock
+# chains over it instead of sector chains of its own: the locks rest on it, and any chain
+# of its own moves apart from theirs (the hair collision pushes each chain by its own
+# probes, the pitch gravity differs between sector and lock chains), so in a head turn or a
+# bend the lining came up through the locks (look_over_shoulder, head_left 70 deg: 25-45 mm
+# relative motion, 2500+ crossing triangle pairs). Each vertex (at its weighting point)
+# takes the lock chains of the objects it names by a soft minimum of its distance to their
+# centre lines (LOCK_FOLLOW_SOFT m), and along each chain the hat weights a lock of it
+# carries (_lock_weights); the head fade then applies by height as on every lock. As the
+# lining's vertices are dominated by lock segments, the locks' collision probes also keep
+# the lining's inner face off her trunk (_hair_collision).
+LOCK_FOLLOW_SOFT = 0.012
+
+
+def _follow_lock_weights(co, bones, obj_names, w):
+    """(V, B) weights of points that follow the lock chains of the objects obj_names (see
+    LOCK_FOLLOW_SOFT); w unchanged when there are none."""
+    by_key = {}
+    for j, b in enumerate(bones):
+        if 'lock' in b.meta and b.meta.get('lock_obj') in obj_names:
+            by_key.setdefault(tuple(b.meta['lock']), []).append(j)
+    if not by_key:
+        return w
+    head = [j for j, b in enumerate(bones) if b.name == '頭']
+    chains, dist = [], []
+    for cols in by_key.values():
+        cols = sorted(cols, key=lambda j: bones[j].meta.get('seg', 0))
+        A = np.array([bones[j].head for j in cols])
+        B = np.array([bones[j].tail for j in cols])
+        best, u = np.full(len(co), np.inf), np.zeros(len(co))
+        for i in range(len(A)):
+            ab = B[i] - A[i]
+            t = np.clip(((co - A[i]) @ ab) / max(float(ab @ ab), 1e-12), 0.0, 1.0)
+            d = np.linalg.norm(co - (A[i] + t[:, None] * ab), axis=1)
+            closer = d < best
+            best = np.where(closer, d, best)
+            u = np.where(closer, i + t, u)
+        chains.append((cols, u))
+        dist.append(best)
+    dist = np.array(dist)
+    g = np.exp(-(dist - dist.min(0)) / LOCK_FOLLOW_SOFT)
+    g /= g.sum(0)
+    out = np.zeros_like(w)
+    for (cols, u), gk in zip(chains, g):
+        n = len(cols)
+        share = _smoothstep(0.0, ROOT_BLEND, u) if head else np.ones(len(u))
+        uc = np.clip(u, 0.5, n - 0.5)
+        for i, j in enumerate(cols):
+            out[:, j] += gk * share * np.maximum(0.0, 1.0 - np.abs(uc - (i + 0.5)))
+        if head:
+            out[:, head[0]] += gk * (1.0 - share)
+    return out
+
+
 def _weights(obj, part, co, bones):
     """(V, k) bone indices and weights for the vertices of `obj` (world positions `co`)."""
     global _SLEEVE_S, _SLEEVE_EDGES, _SLEEVE_N, _SOCKET_S
-    fade_z = None
     if part == 'hair_back':
         # back hair: a vertex may name the point it is weighted at (hair_back's lining:
         # both faces of the under-layer are weighted, smoothed and pruned at its outer
-        # face, so the two faces carry the same weights and move together) and the height
-        # its head share is read at (the outer face's own: the lining's top, tucked into
-        # hair_front's cap above the chains' roots, turns with the head as the locks over
-        # it do, instead of swinging about the roots with the chains' first segments)
+        # face, so the two faces carry the same weights and move together)
         wco = _point_vec(obj, co, 'levi_weight_co')
-        fade_z = _point_param(obj, co, 'levi_fade_z')
         co = co if wco is None else wco
     edges = _topology(obj, co)
     _SLEEVE_S = _sleeve_param(obj, co) if part == 'sleeves' else None
@@ -4577,6 +4617,8 @@ def _weights(obj, part, co, bones):
     labels = _islands(len(co), edges)
     if part == 'hair_back':
         _lock_weights(w, co, labels, bones)
+        if obj.get('levi_follow_locks'):
+            w = _follow_lock_weights(co, bones, str(obj['levi_follow_locks']).split(','), w)
     if part == 'hair_front':
         _side_chain_weights(w, co, obj, bones)
     masked = w * _side_mask(co, labels, bones, part not in SIDED_PARTS_EXEMPT)
@@ -4598,7 +4640,7 @@ def _weights(obj, part, co, bones):
     if part in CROTCH_PARTS and HIP_AUX:
         _hat_remap(w, bones)
     if part == 'hair_back':
-        w = _hair_head_fade(w, co if fade_z is None else np.column_stack([co[:, :2], fade_z]), bones)
+        w = _hair_head_fade(w, co, bones)
     if part in SHELL_PARTS:
         w = _shell_share(w, co, bones)
     if part in CROTCH_PARTS and ARM_CAP:
