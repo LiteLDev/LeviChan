@@ -1347,8 +1347,10 @@ def _mass_keep(row, u):
 # line; a flush seam gets none. Weights are on/off (isolated vertices follow
 # their neighbours): a hull thinner than a pixel prints a faint grey hairline.
 # At a lock's rim (the outer RIM_S of each ring's width, taken from the ring
-# itself: _rim_dirs) the hair may END: right outside the rim (SEAM_PROBE px out) no
-# hair lies behind within HAIR_BEHIND px, only the dress or the background. There a
+# itself: _rim_dirs) below OPEN_ROW the hair may END: right outside the rim
+# (SEAM_PROBE px out) no back hair lies behind within HAIR_BEHIND px, only the dress
+# or the background. (Higher up hair_front's cap and side locks lie behind the back
+# hair, and this part does not see them.) There a
 # neighbour counts only where it lies under or over the lock at the rim, or within
 # SEAM_GAP outward of it (a seam); one beside it across an open gap leaves the rim
 # its silhouette line. (Round 11 counted any neighbour within STEP_REACH: where a
@@ -1361,6 +1363,7 @@ STEP_PX = 8.0               # step (px) over the neighbour that draws a strand l
 STEP_REACH = 14.0           # px searched around a vertex for neighbouring surfaces
 STEP_TANGENT = 10.0         # ... of which at most this far off along the surface
 RIM_S = 0.7                 # share of a ring's half width (from its middle) beyond which a vertex is on a rim
+OPEN_ROW = 250.0            # sheet row (z ~1.09 m) below which a rim may be open
 SEAM_PROBE = 2.0            # px outside the rim where hair behind is looked for ...
 HAIR_BEHIND = 40.0          # ... this far down (along the volume normal)
 SEAM_GAP = 1.0              # px: at an open rim, a neighbour this close outside it makes a seam
@@ -1432,7 +1435,8 @@ def outline_weights(meshes, vols, rims, thick):
                 across = t.dot(r)
                 if -gin <= across <= gap and (t - r * across).length <= tan:
                     top_rim = h if top_rim is None else max(top_rim, h)
-        if rim and not hair_behind(i, co[i] + r * probe + nv * (1.0 / PX), -nv):
+        if (rim and spec.SHEET_GROUND_Y - co[i].z * PX >= OPEN_ROW
+                and not hair_behind(i, co[i] + r * probe + nv * (1.0 / PX), -nv)):
             top = top_rim           # an open rim: only a neighbour at the rim itself counts
         if top is None:
             raw.append(1.0 / STRAND_LINE)       # the mass's own edge
