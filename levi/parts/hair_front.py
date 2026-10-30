@@ -1590,7 +1590,7 @@ AHOGE_LOCKS = (
     # built in this order (the back lock lies down onto the front one's root). ctrl:
     # (side col, row, None) on the midline, or (side col, None, px) that far over the
     # highest surface under it along the radial direction, root first (the spine is the
-    # rim line). Profiles are (side col, value) knots (monotone cubic, held past the
+    # rim line), optionally a 4th value: the front-view column offset (px, + = +X). Profiles are (side col, value) knots (monotone cubic, held past the
     # ends): width (m); top: the top's height over the rim line (m); under: (least,
     # most) depth of the underside (x the top height), fitted between them to rest on
     # the surface under it; p: the section exponent (hk.section: 2 a flat bell that meets
@@ -1601,7 +1601,8 @@ AHOGE_LOCKS = (
     # middle of the top, so a ridge has no flat top seen end-on)
     dict(name='ahoge_front',
          ctrl=((267.0, None, -2.2), (263.5, None, 1.0), (259.0, None, 3.9), (255.5, None, 4.8),
-               (251.0, None, 3.0), (246.0, None, 0.9), (241.5, None, 0.0), (237.5, None, -0.3)),
+               (251.0, None, 3.0, 0.6), (246.0, None, 0.9, 2.0), (241.5, None, 0.0, 3.6),
+               (237.5, None, -0.3, 4.8)),
          width=((267.0, 0.0060), (264.0, 0.0085), (260.0, 0.0105), (256.5, 0.0115), (252.0, 0.0140),
                 (248.0, 0.0155), (244.0, 0.0125), (240.5, 0.0080), (238.5, 0.0055)),
          top=((266.0, 0.0006), (263.0, 0.0018), (260.5, 0.0032), (258.0, 0.0048), (256.3, 0.0057),
@@ -1632,7 +1633,8 @@ AHOGE_EMERGE = 0.014        # m of arc over which settle() lets a root surface
 AHOGE_SQUASH = 0.35
 AHOGE_DEPTH = 1.0           # px the root starts under the scalp ...
 AHOGE_SINK_DEPTH = 0.6      # ... and a sunk end ends under it
-AHOGE_LINE_RISE = 0.0025    # m over the scalp at which a sunk end's outline reaches full width
+AHOGE_LINE_RISE = (0.0002, 0.0008)  # m: a sunk end's outline grows from this far under the scalp
+                                    # to full width over this much rise (it takes over from the cap's)
 AHOGE_RING_ARC = 0.0026     # m between rings ...
 AHOGE_RING_TURN = 5.0       # ... or this turn (deg) ...
 AHOGE_RING_WRATIO = 0.88    # ... or this width ratio ...
@@ -1710,11 +1712,13 @@ def _depth_under(bvhs, p, nrm):
 
 def _ahoge_points(spec_, lower_bvhs):
     pts = []
-    for sc, row, grow in spec_['ctrl']:
+    for c in spec_['ctrl']:
+        sc, row, grow = c[:3]
+        fx = c[3] if len(c) > 3 else 0.0
         if row is not None:
-            pts.append(A(P(0.0, row, sc)))
+            pts.append(A(P(fx, row, sc)))
             continue
-        hit = _down_hit(lower_bvhs, P(0.0, 40.0, sc))
+        hit = _down_hit(lower_bvhs, P(fx, 40.0, sc))
         if hit is None:
             raise RuntimeError(f"hair_front {spec_['name']}: nothing under side col {sc}")
         pts.append(A(hit + head_normal(hit) * (grow * PX)))
@@ -1923,7 +1927,7 @@ def _sink_end(st, bvh, length, depth=AHOGE_SINK_DEPTH, squash=AHOGE_SQUASH):
             R[j, k] = A(q)
             # the outline grows with the vertex's height over the scalp, so the forehead
             # outline runs on from the cap's into the lock's without a step
-            lw[j, k] = min(lw[j, k], float(hk.smooth01(h2 / AHOGE_LINE_RISE)))
+            lw[j, k] = min(lw[j, k], float(hk.smooth01((h2 + AHOGE_LINE_RISE[0]) / AHOGE_LINE_RISE[1])))
         st.centres[j] = A(press(Vv(st.centres[j]), s)[0])
     st.apex = A(press(Vv(st.apex), 0.0)[0])
     st.attrs_apex[LINE_ATTR] = 0.0
