@@ -2918,6 +2918,70 @@ BODICE_ARM_CAP = 0.12      # most of a bodice vertex the arm (腕D) may carry
 # shell under them does) instead of riding one attachment point rigidly: rigid on the
 # neckline's weights, the leaf cluster sank up to 7 mm into the chest in arms_up
 BODICE_RIDE = ('bodice_leaves',)
+# round 11: the bodice's closed bow knot straddles 上半身/下半身, and the bow loops, the last
+# lacing cords and the ribbon tails all start inside it. With per-vertex weights (the knot
+# was exempt from rigid islands by WAIST_STRADDLE) their cut ends came 2-9 mm out of it in
+# squat, torso turns, twist_bend and lie_back_elbows. Now the knot rides one set of weights,
+# the mean of the part's base weights at sample points the part gives (the knot and the loop
+# stations: the bow rides as one rigid ornament), and every strand vertex inside it, or
+# within KNOT_HOLD of its surface, takes the same weights; further out a strand blends back
+# to its own weights over KNOT_BLEND (as a SKIN_ORNAMENTS root does). The part writes each vertex's distance outside the knot (m, negative inside; 0 everywhere on an
+# object that rides the knot whole, the bow) in the point attribute named by obj[KNOT_PARAM],
+# and the knot's centre and half extents, and optionally that object's blend length (m,
+# default KNOT_BLEND), in obj[KNOT_PROP].
+KNOT_PARAM = 'levi_knot_param'
+KNOT_PROP = 'levi_knot'
+KNOT_SAMPLES = 'levi_knot_samples'   # points (flat, m) whose mean weights the knot rides; else its box
+KNOT_HOLD = 0.0015
+KNOT_BLEND = 0.012
+# round 11: the ribbon tails lying on the skirt carry the skirt's field below its chains'
+# root, up to six bones there (two chains x two segments, 上半身, 下半身); the fourth kept
+# bone switched between 下半身 and the weaker chain's lower segment within one 3 mm station
+# step, and the motion refit amplified the difference (x2.5 in high_kick on R_wave). The
+# prune decides on a guide smoothed this much wider (m) along the tails, so it switches
+# over centimetres.
+BODICE_WIDE_GUIDE = ('bodice_ribbon_tails', 0.09)
+
+
+def _knot_weights(w, co, obj, part, bones):
+    """(weights, pinned vertices, knot weights): `w` with the knot's rigid weights inside
+    the bow knot, blended out along the strands that leave it (see KNOT_PARAM), or None for
+    an object without the knot data. The pinned vertices (inside the knot or within
+    KNOT_HOLD of it) get the knot's own pruned weights again after the prune (_knot_pin):
+    its guide, smoothed along a strand, would otherwise fold their weights a little
+    differently from the knot's (0.3-0.4 mm out of it in forward_bend / lie_back)."""
+    out = _point_param(obj, co, KNOT_PARAM)
+    box = obj.get(KNOT_PROP)
+    if out is None or box is None or len(box) not in (6, 7):
+        return None
+    c, a = np.array(box[:3], dtype=float), np.array(box[3:6], dtype=float)
+    blend = float(box[6]) if len(box) == 7 else KNOT_BLEND
+    smp = obj.get(KNOT_SAMPLES)
+    if smp is not None and len(smp) >= 3 and len(smp) % 3 == 0:
+        pts = np.array(smp, dtype=float).reshape(-1, 3)
+    else:
+        pts = np.vstack([c, c + np.diag(a), c - np.diag(a)])
+    wk = _base_weights(part, pts, bones) * _side_mask(pts, np.zeros(len(pts), dtype=int), bones, True)
+    wk = wk.sum(0)
+    wk = wk / max(float(wk.sum()), 1e-12)
+    t = (1.0 - _smoothstep(KNOT_HOLD, KNOT_HOLD + blend, out))[:, None]
+    return w * (1.0 - t) + wk[None, :] * t, out <= KNOT_HOLD, wk
+
+
+def _knot_pin(idx, ww, knot, bones):
+    """The pruned (idx, ww) with the knot's own pruned weights on its pinned vertices."""
+    if knot is None or not knot[1].any():
+        return idx, ww
+    ik, wk = _prune(knot[2][None, :], bones)
+    idx, ww = idx.copy(), ww.copy()
+    kk = min(idx.shape[1], ik.shape[1])
+    idx[knot[1]] = 0
+    ww[knot[1]] = 0.0
+    idx[knot[1], :kk] = ik[0, :kk]
+    ww[knot[1], :kk] = wk[0, :kk]
+    return idx, ww
+
+
 SKIN_K = 8                 # nearest skin vertices averaged (inverse distance) ...
 SKIN_SOFT = 0.005          # ... softened by this many m, so the sample varies smoothly
 _SKIN = None               # (points (N, 3), {bone: column}, weights (N, B)) of the skinned body (build_rig)
@@ -4917,14 +4981,20 @@ def _weights(obj, part, co, bones):
     else:
         w = _island_rules(w, co, _part_labels(obj, co, labels), bones, part)
     w = _hand_hint(obj, w, co, bones, edges)
+    knot = _knot_weights(w, co, obj, part, bones) if part == 'bodice' else None
+    if knot is not None:
+        w = knot[0]
     if part in RIGID_FOOT and obj.name.startswith(RIGID_FOOT[part]):
         _rigid_foot(w, bones)
     # which bones a vertex keeps is decided on a wider-smoothed copy of its weights, so
     # the set changes gradually along the surface instead of wherever two weak bones swap
     guide = _smooth_zones(w, co, edges, PRUNE_SMOOTH, ref, zone) if PRUNE_SMOOTH > 0 and radius > 0 else None
+    if guide is not None and part == 'bodice' and obj.name.startswith(BODICE_WIDE_GUIDE[0]):
+        guide = _smooth_zones(w, co, edges, BODICE_WIDE_GUIDE[1], ref, zone)
     if guide is not None and part in SHELL_PARTS:
         guide = _shell_share(guide, co, bones)
-    return _prune(w, bones, guide, co)
+    idx, ww = _prune(w, bones, guide, co)
+    return _knot_pin(idx, ww, knot, bones)
 
 
 def _skin(obj, part, bones, arm):
