@@ -313,8 +313,8 @@ def sweep(bm, centers, side_hints, radii, n, p=2.0, cap0='pole', cap1='pole',
 TORSO = [
     (148, 12.5, -42, -17, 2.0, None),   # tucked inside the head (tilted, see below)
     (161, 13.5, -44, -17, 2.0, None),   # chin_z: seam under the jaw
-    (170, 13.65, -44, -16.4, 2.0, None),   # back / side: see NECK_TILT_END
-    (175, 14.25, -45, -15.6, 2.0, None),
+    (170, 13.5, -44, -17, 2.0, None),
+    (175, 14.0, -45, -16, 2.0, None),
     (178, 15.2, -45, -15, 2.0, None),
     (180, 19.0, -45, -14, 2.0, None),   # neck base (the sheet flares from row ~180)
     (182, 26.5, -45, -12.5, 2.1, None),
@@ -366,15 +366,14 @@ BUST_FADE = [(235, 0.5), (240, 0.64), (247, 0.82)]
 # Neck-top tilt: the rings rise toward the back (NECK_TILT px per px of depth behind the
 # front) to follow the jaw line into the head; round 11 fades it out linearly from the top
 # ring (full) to NECK_TILT_END (none), so the rings stay evenly spaced up the nape too
-# (round 10 tilted rows <= 161 fully and none from 170: a 25 px gap at the nape; now
-# 5-11 px). The rings from row 170 down stay level: that is where the head's turn is
-# shared out between 首 and 頭 (rig.NECK_KNOTS, by height), and a ring tilted there runs
-# across the weight ramp, so a head turn squeezed its side edges (tilted to row 178:
-# head_left compress 0.77; level: 0.83). The tilt used to carry TORSO rows 170 and 175 up
-# the nape; their back and side now hold the surface it made (the neck within 0.2 px of
-# round 11's first pass under the choker), so the choker and the hair over it stay put.
+# (round 10 tilted rows <= 161 fully and none from 170: a 25 px gap at the nape).
+# Integration (round 11): the rings tilted across rows 165-178 run across the 首 -> 頭
+# weight ramp (rig.NECK_KNOTS), so a head turn squeezes their side edges a little
+# (head_left x0.79 with the wider ramp). Levelling them from row 170 (x0.83) moved the
+# nape under the choker by 0.3-0.7 px, and refilling the table there by 0.2-0.6 px: either
+# way the hair over the choker crossed it more (forward_bend 33 -> 48 pairs), so it stays.
 NECK_TILT = 0.6
-NECK_TILT_END = 170.0
+NECK_TILT_END = 178.0
 TORSO_N = 32
 # Round 11: the rings down to TORSO_DENSE_LAST (neck, shoulders, upper chest and back,
 # under the bodice down to the bust) carry TORSO_DENSE x the vertices across their front

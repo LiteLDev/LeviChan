@@ -5113,9 +5113,8 @@ def _base_weights(part, co, bones):
 # the choker with 頭 reaching down to the nape (首 never above 35%): looking over the
 # shoulder stretched the nape x2.0 and the choker, riding 首 alone over that skin, x2.5.
 # Round 11: 首 -> 頭 over t 0.4..1.2 (was 0.5..1.15), so a turn of the head alone is shared
-# over a quarter more of the neck (head_left, with the body's level neck rings: body
-# x1.39 -> 1.32 / x0.77 -> 0.83, choker x0.48 -> 0.59, head_face x0.69 -> 0.73); the chin
-# stays 頭 (99% at t 1.16).
+# over a quarter more of the neck (head_left: body x1.39 -> 1.32 / x0.77 -> 0.79, choker
+# x0.48 -> 0.55, head_face x0.69 -> 0.73); the chin stays 頭 (99% at t 1.16).
 NECK_PARTS = ('body', 'head', '_proxy')
 NECK_KNOTS = ((-0.35, 0.45), (0.4, 1.2))   # 頭 by the chin (t 1.16)
 NECK_REACH = (0.045, 0.075)    # m from 首's axis: the split applies fully within, not beyond
