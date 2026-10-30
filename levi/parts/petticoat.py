@@ -1,4 +1,4 @@
-"""Petticoat: three tiers of peach-pink scalloped frills below the skirt hem.
+"""Petticoat: three tiers of peach-pink scalloped bells below the skirt hem.
 
 Objects:
   petticoat_tier0  the outer tier. Its top hangs free under the skirt; its
@@ -10,41 +10,47 @@ Objects:
                    lowest, beside the legs.
   petticoat_core   a gathered cone from the hips down to the inner tier,
                    hidden by the skirt. From below the view runs up the inner
-                   frill's flutes into the core's gathers instead of a smooth
+                   frill's bells into the core's gathers instead of a smooth
                    pink cone.
 
 The sheet (ref/front|side|back.png) and the art (ref/setting.png,
-ref/illustration.png) draw two or three stacked layers of small, round,
-puffed scallops (~1.3-1.6 cm) hanging in bell-shaped clusters under the
-skirt's raised arches. Round 11 builds that (rounds 6-10 had two tiers of
-6-7.5 cm folds that read as plain bands):
+ref/illustration.png) draw two or three stacked layers of bells under the
+skirt's raised arches: each bell a puffed tube 4-7 cm wide, pinched where it
+meets the next, whose level mouth ends in 2-4 round lobes (~2 cm), the bells
+of the layers inside hanging below the outer ones. Round 11 builds that
+(rounds 6-10 had two tiers of 6-7.5 cm folds that read as plain bands):
 
-- Frill: each tier is gathered into ~1.7 cm flutes (one per scallop, SPF
-  samples across, unevenly wide and deep, VAR_SMOOTH), shallow up the band
-  and opening in the frill near the hem (FLUTE_SEAM, FLUTE_POW). The flutes
-  are puffed, not a sine wave: across a flute the cloth bulges as
-  2 sin(pi phase) ** PUFF_P - 1, so the crest is a round puff and the valley
-  between two scallops a pinched pleat, as in the art's radial pleat lines.
-- Hem: one round scallop per flute, the notch over the pleat (the lobe a
-  circular arc, ROUND). The edge rolls under in a half circle
-  (HEM_ROLL px, ROLL_DEG) and runs a little way back up inside (RET_UP), so
-  every scallop has real thickness and the outline hull draws its edge.
-- Bell: the lower band flares out a little (MOUTH from MOUTH_S of the band
-  down), and the clusters (cluster_rows(), below) make each tier hang lower
-  under the skirt's arches: under each arch the three stacked frills form a
-  bell, as on the sheet.
+- Layout: every tier has the same NLOBES lobes (SPF samples across each) in
+  bells of BELL_LOBES lobes, at the same azimuths on all three tiers
+  (_layout), so the bells of the tiers stack and nest: an inner bell's crest
+  lies under the outer bell's crest, its pinch under the outer pinch.
+- Bell: across a bell the cloth bulges as a puffed tube, 2 sin(pi b) **
+  BELL_Q - 1 (BELL_R, blurred so the pinch between two bells has a ~2.5 mm
+  radius instead of a crease), BELL px deep at the hem and SEAM_FOLD of that
+  just under the seam (the bells are gathered into the seam). The mouth
+  flares (MOUTH, at the crest) and is level: the hem of each bell is levelled
+  to the bell's mean height (_level_bells), and the pinch between two bells
+  rises (BELL rise, ((1 + cos 2 pi b) / 2) ** BELL_P), so a sloping hem
+  becomes a staircase of level bell mouths, as on the sheet, instead of rows
+  of tilted scallops (round 11's first try: tongues and claws from the side).
+- Lobes: each lobe is a small round puff across (LOBE_R, blurred) that opens
+  only near the hem (FLUTE_SEAM, FLUTE_POW), and its hem a round scallop
+  whose notch rises over the pleat (LOBE_Z, the cusp blurred, NOTCH_BLUR).
+  The edge rolls under in a half circle (HEM_ROLL px, ROLL_DEG, its frame
+  smoothed along the hem) and runs a little way back up inside (RET_UP), so
+  every lobe has real thickness and the outline hull draws its edge.
 - Profile: each tier is one surface, radius(azimuth, height), flaring out
   under the seam (inside the skirt) and hanging nearly straight lower down
   (1 - (1 - d) ** FLARE_POW of the full seam-to-hem drop d). Where the hem
   is tucked up under the skirt, the band ends higher on the same surface (it
-  gets shorter, and its flutes shallower: SHORT_POW). PROFILE rings (closer
+  gets shorter, and its bells shallower: SHORT_POW). PROFILE rings (closer
   towards the hem) let the skirt chains bend it smoothly.
-- Shading: the flutes' shading normals are blended towards the smooth
-  band's (FOLD_SHADE), so flute flanks peeking out under the skirt do not
-  break into small shade wedges; the geometry, silhouette and outline keep
-  the flutes. The outline hull is full width only at the scalloped edge
-  (LINE_*): the flutes' own silhouettes up the band, which stand for the
-  art's thin pleat lines, and the core draw thinner lines.
+- Shading: the lobes' shading normals are blended towards the bells' (the
+  same rings without the lobes, FOLD_SHADE), so lobe flanks peeking out under
+  the skirt do not break into small shade wedges; the geometry, silhouette
+  and outline keep the lobes. The outline hull is full width only at the
+  scalloped edge (LINE_*): the bells' own silhouettes up the band, which
+  stand for the art's thin pleat lines, and the core draw thinner lines.
 
 Exposure (round 6): the exposed frills follow the skirt's hem instead of
 hanging from a fixed bowl and being tucked up in steps. Each tier's hem is
@@ -64,10 +70,13 @@ skirt.
 Clearance: every ring is kept at least CLEAR px inside the skirt's inner
 surface (the skirt's sheet rebuilt from skirt.profiles(), less its solidify
 thickness) with a soft minimum, and each inner tier TIER_CLEAR px inside the
-tiers around it (their built meshes), the flutes' outward reach included.
-Below an outer layer's edge the limit relaxes gradually instead of switching
-off, and the inward pull is spread along each ring (_clamp_ring), so the
-clamp leaves no sharp radial steps.
+tiers around it (their built meshes), the gathered surface's own offset
+included. Below an outer layer's edge the limit relaxes gradually instead of
+switching off, and the inward pull is spread along each ring (_clamp_ring),
+so the clamp leaves no sharp radial steps. The clamp measures along a
+horizontal ray from the body axis; a second pass (_push3d) then keeps the
+nearest-point (3D) distance to every layer outside at least *_CLEAR3, where
+a bell's steep flank or a skirt trough lies closer than the ray says.
 
 The pink band's bottom outline is a bowl, lowest at the centre and rising
 towards the sides (and higher at the back than the front in the side view).
@@ -78,8 +87,11 @@ which only gives one height.
 Shadows: see CAST_TIERS / CAST_CORE (render.py reads obj['levi_cast_shadow']).
 
 Rigging: the rig weights every skirt-family layer by angle x height to the
-skirt chains, which follow the thighs (levi/rig.py). Every tier wraps round
-both legs, well clear of them; none passes between the thighs.
+skirt chains, which follow the thighs (levi/rig.py); the tiers' weights are
+blended toward each other where they lie within ~1 cm (rig.LAYER_PARTS), so
+the nested tiers move together.
+Every tier wraps round both legs, well clear of them; none passes between
+the thighs.
 
 Not modelled: the sheet's small shaded patch between the legs (front view,
 ~30 x 25 px under the skirt's centre front) and the pink sliver below the
@@ -116,76 +128,92 @@ HALF_W = 235      # front view, +-X
 FRONT_D = 163     # side view, -Y
 BACK_D = 165      # side view, +Y
 
-# ---------------------------------------------------------------- shape
+# ---------------------------------------------------------------- layout
 DENSE = 1440      # samples of the dense hem outline (arc-length resampling)
-# Samples across one scallop / flute (phase: notch over the pleat at 0, crest
-# at 0.5), evenly spaced: the rig smooths the weights along the rings per
-# vertex step (rig._diffuse treats every edge shorter than the median alike),
-# so samples bunched beside the notch (1.4 mm apart, round 11 trial) took the
-# whole weight gradient of a wider step and stretched x2.5-2.7 in sit_chair
-# / high_kick where the flute scale stretched x1.5.
-PHASES = (0.0, 1 / 6, 2 / 6, 0.5, 4 / 6, 5 / 6)
-SPF = len(PHASES)
-WIDTH_VAR = 0.18  # scallop width irregularity (share of the mean width, +-)
-DEPTH_VAR = 0.3   # flute depth / scallop rise irregularity
-VAR_SMOOTH = 0.7  # per-flute depth / rise blended over this many flutes (sigma)
-ROUND = 0.65      # scallop rise 1 - (1 - x ** 2) ** ROUND, x = 1 at the notch .. 0 mid-lobe
-                  # (0.5: a circular lobe; a little fuller beside the notch, so the
-                  # notch is not a lone raised vertex the rig's smoothing skips)
-PUFF_P = 0.55     # flute cross-section 2 sin(pi phase) ** PUFF_P - 1: puffed crest, pinched pleat
+NLOBES = 96       # lobes (scallops) round every tier: ~2.3 / 2.0 / 1.9 cm at the hems
+# Samples across one lobe (phase: notch over the pleat at 0, crest at 0.5),
+# evenly spaced: the rig smooths weights per vertex step, so samples bunched
+# beside a notch take a wider step's whole weight gradient (round 11 trial:
+# x2.5-2.7 in sit_chair / high_kick).
+SPF = 8
+BELL_LOBES = (3, 4)   # lobes per bell (the last bell takes the remainder, at least 2)
+BELL4 = 0.3           # share of the bells with BELL_LOBES[1] lobes
+WIDTH_VAR = 0.12      # lobe width irregularity (share of the mean width, +-)
+DEPTH_VAR = 0.25      # lobe depth / rise irregularity
+VAR_SMOOTH = 0.7      # per-lobe values blended over this many lobes (sigma)
+BELL_VAR = 0.18       # bell depth / rise irregularity (one value per bell, shared by the tiers)
+BELL_SMOOTH = 0.35    # ... blended over this many bells (sigma), so a pinch never steps
+
+# ---------------------------------------------------------------- cross-sections
+# Periodic tables over one lobe / one bell, Gaussian-blurred (sigma as a share
+# of the period) so that every pinch, pleat and notch has a radius: a V crease
+# drew a thorn of outline above every notch and folded over in a pose (round
+# 11's first try: dihedrals of 130-144 deg, new flips at the back hem).
+TAB_N = 2048
+LOBE_P = 0.9          # lobe across: 2 sin(pi p) ** LOBE_P - 1, a round puff, a soft pleat
+LOBE_BLUR = 0.1       # (about one sample: the pleat is a U, not a V)
+ROUND = 0.65          # lobe rise 1 - (1 - x ** 2) ** ROUND, x = 1 at the notch .. 0 mid-lobe
+NOTCH_BLUR = 0.05     # rounds the notch's cusp (~1.1 mm)
+BELL_Q = 0.5          # bell across: 2 sin(pi b) ** BELL_Q - 1, a puffed tube with a pinch
+BELL_BLUR = 0.07      # the pinch's radius (~5 mm on the outer tier, about two samples)
+BELL_P = 3.0          # bell edge rise ((1 + cos 2 pi b) / 2) ** BELL_P: the mouth is round, its
+                      # lowest lobes mid-bell, and turns up into the pinch
+BELL_EDGE = 0.16      # share of a bell over which its levelled hem hands over to the next
+PINCH_NOTCH = 0.8     # share of the lobe notch taken out at a pinch (the bell's rise is the notch there)
+LEVEL = 1.0           # share of the hem levelled per bell (_level_bells)
+
+# ---------------------------------------------------------------- band
 SEAM_FOLD = 0.35  # share of the bell depth just below the seam (gathered: the bells run up the band)
 SEAM_RAMP = 0.25  # ... reached over this share of the band from the seam (smoothstep), so the
                   # gathers open continuously out of the seam (no step at the first ring)
 FOLD_POW = 0.6    # the bells open as d ** FOLD_POW down the band
-# The flutes stay shallow up the band and open in the frill near the hem
-# (FLUTE_SEAM of their depth at the seam, then d ** FLUTE_POW): deep flutes
-# all the way up drew a long pleat line per flute (a feathered fan) wherever
-# the band is seen along its slope.
-FLUTE_SEAM = 0.12
-FLUTE_POW = 1.6
-# Bells: the flutes gather in runs of BELL_SIZE (3-4, ~5-6 cm) into a wider
-# fold (a cosine, crest mid-bell, BELL[tier] depth px) whose edges rise (BELL
-# rise px, ((1 + cos) / 2) ** BELL_P), so each run hangs as a small bell with
-# a scalloped mouth, as the sheet draws them; the bells keep their full
-# shading (only the flutes are softened, FOLD_SHADE).
-BELL_SIZE = (3, 4)
-BELL = ((4.5, 5.0), (4.0, 4.6), (3.6, 4.2))
-BELL_P = 1.5
-RISE_POW = 2.0    # the scallop notch rises as s ** RISE_POW down the band (the pleat curves into it)
+# The lobes stay shallow up the band and open in the frill near the hem
+# (FLUTE_SEAM of their depth at the seam, then d ** FLUTE_POW).
+FLUTE_SEAM = 0.1
+FLUTE_POW = 1.8
+RISE_POW = 2.0    # the notches rise as s ** RISE_POW down the band (the pleat curves into them)
 # Rings above this share of the band keep every second sample: the gathered
-# rings under the seam are the smallest (1.8 mm between samples on the middle
-# tier), and the rig's weights (smoothed and pruned per vertex step) switched
-# bones over a few of them, stretching single edges x2.1-2.5 (walk, high_kick)
-# where the band stretched x1.2; the flutes there are shallow anyway.
+# rings under the seam are the smallest, and the rig's weights (smoothed and
+# pruned per vertex step) switched bones over a few of them; the lobes are
+# shallow there anyway.
 COARSE_S = 0.35
-LEVEL = 0.5       # share of each scallop levelled about its middle on a sloping hem (_level)
 # Where the hem is tucked up, the band is shorter and has less fabric to
-# fold: the flute depth scales with (band length / full length) ** SHORT_POW.
+# fold: the bell and lobe depths scale with (band length / full length) ** SHORT_POW.
 SHORT_POW = 0.15
 # The band flares out from its seam as 1 - (1 - d) ** FLARE_POW of the full
 # drop d: most of the flare happens high up, inside the skirt, and the
 # exposed lower band hangs nearly straight, turning gradually (no shelf).
 FLARE_POW = 1.35
+# ... and down the band itself the flare is spent as 1 - (1 - s) ** HANG_POW of
+# what the band reaches at its hem: a band shortened by the tuck (the lifted
+# front and back) flares under the skirt and still hangs straight where it
+# shows, instead of standing out as a slanted blade seen from the side.
+HANG_POW = 2.2
 BELLY = 0.006     # how far the band bellies out between seam and hem (x hem outline)
-MOUTH = 3.0       # px the frill's mouth flares out (bell) ...
-MOUTH_S = 0.5     # ... growing (smoothstep) from this share of the band to the hem
+MOUTH = 4.0       # px each bell's mouth flares out at its crest (none at the pinch) ...
+MOUTH_S = 0.55    # ... growing (smoothstep) from this share of the band to the hem
 HEM_ROLL = 0.6    # px radius of the rolled hem
-RET_UP = 2.0      # px the turned-under hem runs back up inside
+RET_UP = 2.0      # px the turned-under hem runs back up inside ...
+RET_MAX = 0.7     # ... at most this share of the last band segment
+ROLL_SMOOTH = 2   # the roll's frame is averaged over +-this many samples (no twist at a notch)
+ROLL_RADIAL = 1.0 # ... and its normal blended this much towards the radial direction
 HEM_SMIN = 2.0    # softness (px) of the min of the front and side outlines
-# The hem line hangs this far below the measured outline: the scallops'
-# notches rise above it, so on average the bottom edge meets the outline.
-HEM_DROP = 5.0
+# The hem line hangs this far below the measured outline: the lobes' notches
+# and the pinches rise above it, so on average the bottom edge meets the outline.
+HEM_DROP = 6.0
 # Profile rings from the seam (0) to the hem (1), denser where the band
-# turns from sloping to hanging and where the scallops form.
+# turns from sloping to hanging and where the lobes form.
 PROFILE = (0.0, 0.16, 0.32, 0.46, 0.59, 0.70, 0.80, 0.88, 0.945, 1.0)
 # Share of the gathered surface's normal in the shading normals (the rest is
-# the smooth band's; see _finish).
-FOLD_SHADE = 0.68
+# the bells' alone, without the lobes; see _finish), on the band and on the
+# turned-under hem roll (whose inner faces and returns showed slivers).
+FOLD_SHADE = 0.62
+FOLD_SHADE_ROLL = 0.45
 # Hem roll: angles (deg) of the rings round the half circle under the edge.
 ROLL_DEG = (90.0, 180.0)
 # Outline hull: full width at the scalloped edge, LINE_MIN of it up the band
-# (the flutes' silhouettes there are the art's thin pleat lines) and on the
-# core; the weight eases in from LINE_S of the band down.
+# (the bells' silhouettes there are the art's pleat lines) and on the core;
+# the weight eases in from LINE_S of the band down.
 LINE_VG = 'petticoat_line'
 LINE_MIN = 0.3
 LINE_S = (0.6, 0.94)
@@ -203,33 +231,28 @@ CAST_CORE = True
 # frills (lifted with the skirt's sides) end highest and the tiers further
 # in hang lower.
 #   name, hem outline (half width, front depth, back depth px, superellipse
-#   exponent), lift (x0, x1), top, scallops (= flutes), flute depth px
-#   (half the crest-to-valley depth at the hem), scallop rise px, seed,
-#   bowl lift px (the tier's lowest hem stays this far above the bowl)
+#   exponent), lift (x0, x1, front row, back row), top, lobe depth px (half
+#   the crest-to-valley depth at the hem), lobe rise px, bell depth px (half
+#   crest-to-pinch), bell rise px (the pinch above the mouth), seed, bowl
+#   lift px (the tier's lowest hem stays this far above the bowl)
 # top: ('free', height px, size of the top ring relative to the hem outline)
 # for the outer tier, whose top is hidden under the skirt and over the core;
 # ('core', px above the core's lower edge) for the inner tiers, sewn onto the
 # core cone (the inner the tier, the lower): from below every tier reads as
 # one continuous gathered panel nested inside the one around it. The inner
 # tier hangs from the core's lower edge (the core mesh ends at its seam).
-# Scallops: about 1.7 cm each at the built hem (notch to notch; the hems run
-# ~2.2, 1.9 and 1.8 m round).
 # Lift: under the middle of the skirt, front and back, the sheet shows the
 # legs from the skirt hem down, so within x0 px of the midline (front view)
-# a tier's hem rises to its lift row (front, back), behind the skirt's centre
-# hem, easing back to the measured bowl by x1: lift = (x0, x1, front row, back
-# row). Round 11: the lift is gentler and wider (the stacked frills stay in
-# order, the inner the lower, and show under the skirt's raised centre front
-# as the sheet's bells do): the inner tiers' bowl lies ~4 cm lower in front,
-# and lifting them 4-6 cm over 3.5 cm of hem drew a steep staircase of
-# scallops (a feathered wedge from the side).
+# a tier's hem rises to its lift row, behind the skirt's centre hem, easing
+# back to the measured bowl by x1 (round 11: over a wide ramp, so the bells
+# step up gently instead of standing as a steep wedge seen from the side).
 TIERS = (
-    ('petticoat_tier0', (HALF_W, FRONT_D, BACK_D, 2.0), (40, 110, 600, 586), ('free', 52, 0.86),
-     132, 2.5, 4.2, 1, 12.0),
-    ('petticoat_tier1', (0.87 * HALF_W, 0.87 * FRONT_D, 0.87 * BACK_D, 2.1), (40, 110, 603, 588), ('core', 22),
-     116, 2.3, 4.0, 2, 6.0),
-    ('petticoat_tier2', (0.83 * HALF_W, 0.83 * FRONT_D, 0.83 * BACK_D, 2.2), (40, 110, 606, 590), ('core', 0),
-     108, 2.1, 3.8, 3, 0.0),
+    ('petticoat_tier0', (HALF_W, FRONT_D, BACK_D, 2.0), (40, 160, 600, 586), ('free', 52, 0.95),
+     1.8, 5.0, 9.0, 11.0, 1, 12.0),
+    ('petticoat_tier1', (0.87 * HALF_W, 0.87 * FRONT_D, 0.87 * BACK_D, 2.1), (40, 160, 596, 582), ('core', 22),
+     1.7, 4.7, 8.5, 10.0, 2, 6.0),
+    ('petticoat_tier2', (0.83 * HALF_W, 0.83 * FRONT_D, 0.83 * BACK_D, 2.2), (40, 160, 593, 579), ('core', 0),
+     1.6, 4.4, 8.0, 9.0, 3, 0.0),
 )
 # Exposure (round 6): the tiers show as rounded frill clusters under the
 # skirt's raised arches, and as a narrower band under its lobes (see
@@ -253,28 +276,38 @@ CLUSTER_SMIN = 3.0     # softness (px) of the min of the bowl and the clusters
 SMIN_FINE = 1.0        # softness of the later mins (smoothed vs raw hem, seam vs hem): each smooth
                        # min sits up to k*ln2 above both arguments, so chained ones stay tight
 CLUSTER_SMOOTH = 1.2   # the hem row is smoothed along the hem (sigma, in units of 12 samples)
-CLUSTER_SLOPE = 0.55   # ... then rises at most this many px per px along the band
+CLUSTER_SLOPE = 0.4    # ... then rises at most this many px per px along the band
 BAND_GUARD = 12.0      # hard floor on the seam-to-hem length (px), should BAND_MIN not be met
 BAND_MIN = 34.0        # a tier's seam stays at least this many px above its hem: where the
                        # hem tucks up the seam rises with it (hidden inside the skirt), so
                        # the band never hangs as a long panel below a raised hem
-CLEAR = 4.0            # px inside the skirt's inner surface
+CLEAR = 4.0            # px inside the skirt's inner surface (along the ray)
+CLEAR3 = 2.7           # px nearest-point distance to the skirt (_push3d)
 CLEAR_SOFT = 1.0       # softness of that limit (px)
 CLEAR_HOLD = 4.0       # below the skirt's edge the limit holds for this many px,
 CLEAR_RELAX = 0.15     # then relaxes this many px per px (the cloth below hangs
 CLEAR_FADE = 90.0      # nearly straight, not flaring out), and ends this many px down
 # An inner tier stays TIER_CLEAR px inside the tiers around it (their built
-# meshes: the flute valleys and the rolled hem count); below an outer tier's
+# meshes: the bell pinches and the rolled hem count); below an outer tier's
 # edge the limit holds, then relaxes and ends as CLEAR_* do, over a shorter
 # drop (the frill below may flare out under the edge above it).
 TIER_CLEAR = (2.5, 2.0, 0.5, 30.0, 10.0)   # clear, hold, relax, fade, opening (px)
+TIER_CLEAR3 = 2.6      # px nearest-point distance to the tiers around it (_push3d)
+PUSH_MIN_COS = 0.35    # a push along the ray counts at least this share against a sloping wall
 CORE_RX = L['waist_half_w'] * 1.40   # core top ring round the hips (m)
 CORE_RY = 0.065
+CORE_BOTTOM = 0.834    # the core cone's lower edge, relative to the outer tier's hem outline
 CORE_CY = L['waist_center_y'] * 0.6
 CORE_N = 96            # core columns
 CORE_SIDE_P = 4        # the core's lower edge follows the inner tier's built seam by cos(angle) ** this
                        # (1 at the sides, ~0 front and back; see _core)
-CORE_T = (0.0, 0.16, 0.33, 0.5, 0.67, 0.84, 1.0)   # core rings (share of the hip-to-seam drop)
+# core rings (share of the hip-to-seam drop). Round 11 tried 10 (closer towards
+# the lower edge) and 192 columns: every extra ring or column sampled the
+# 4-bone prune's switch between neighbouring skirt chains on a long edge
+# (core x2.8-3.5 in high_kick, x3.2 in sit_chair); with 7 rings and 96 columns
+# the core stays at or below round 10's stretch (high_kick 2.0, cross_legged
+# 2.1, lie_back 1.9)
+CORE_T = (0.0, 0.16, 0.33, 0.5, 0.67, 0.84, 1.0)
 CORE_FOLD = 4          # core columns per gather (the core's own gathers from the hips)
 CORE_DEPTH = 4.5       # px, half the crest-to-valley depth of the core's gathers ...
 CORE_GROW = 0.35       # ... reached this share down from the hips (smoothstep) ...
@@ -285,6 +318,12 @@ CORE_TUCK = 16.0       # px the core reaches down inside the outer tier's top ed
 # the midline, easing out with the lift), so those lobes can hang down and
 # tuck in instead of flaring out over the frills.
 LIFT_PINCH = 0.12
+# Under the lift the bells are shallower (by this share at the midline, easing
+# out with the lift): there the frill hides behind the skirt's centre lobe in
+# the front and back views (the sheet shows legs there), and seen from the
+# side its bells, edge-on and stepping up towards the midline, drew a fan of
+# thin blades.
+LIFT_BELL = 0.75
 
 
 def _interp(table, x):
@@ -322,6 +361,27 @@ def _smooth_loop(v, sigma):
     return np.real(np.fft.ifft(np.fft.fft(v) * np.fft.fft(np.roll(w, -(n // 2)))))
 
 
+# ---------------------------------------------------------------- cross-section tables
+def _table(f, blur):
+    x = np.arange(TAB_N) / TAB_N
+    return _smooth_loop(f(x), blur * TAB_N)
+
+
+LOBE_R = _table(lambda p: 2.0 * np.sin(np.pi * p) ** LOBE_P - 1.0, LOBE_BLUR)
+LOBE_Z = _table(lambda p: 1.0 - (1.0 - (1.0 - 2.0 * np.minimum(p, 1.0 - p)) ** 2) ** ROUND, NOTCH_BLUR)
+BELL_R = _table(lambda b: 2.0 * np.sin(np.pi * b) ** BELL_Q - 1.0, BELL_BLUR)
+_TAB_X = np.arange(TAB_N + 1) / TAB_N
+
+
+def _tab(table, x):
+    """Periodic table lookup at phases x (any real numbers)."""
+    return np.interp(np.mod(x, 1.0), _TAB_X, np.append(table, table[0]))
+
+
+def _bell_z(b):
+    return ((1.0 + np.cos(2.0 * np.pi * np.asarray(b))) / 2.0) ** BELL_P
+
+
 # ---------------------------------------------------------------- clearance
 _SEC575 = tuple(float(v) for v in skirt.section(575.0))
 
@@ -339,11 +399,13 @@ class _Inner:
     surface's lower edge the limit holds for `hold` px, then relaxes by
     `relax` px per px, and over the last `opening` px before `fade` opens up
     quadratically (by ~200 px over 20 px, so there is no step to the inf
-    beyond); above its top edge there is no limit."""
+    beyond); above its top edge there is no limit. clear3: the nearest-point
+    distance _push3d keeps from it where a point lies inside it."""
 
-    def __init__(self, verts, polys, clear, hold, relax, fade, opening=20.0):
+    def __init__(self, verts, polys, clear, hold, relax, fade, opening=20.0, clear3=0.0):
         self.bvh = BVHTree.FromPolygons(verts, polys)
         self.clear, self.hold, self.relax, self.fade, self.opening = clear, hold, relax, fade, opening
+        self.clear3 = clear3
 
     def _cast(self, d, row):
         hit, _, _, dist = self.bvh.ray_cast(Vector((0.0, 0.0, -row)), d, 1000.0)
@@ -360,6 +422,28 @@ class _Inner:
                 return (r - self.clear + self.relax * max(0.0, up - self.hold)
                         + 0.5 * max(0.0, up - (self.fade - self.opening)) ** 2)
         return math.inf
+
+    def push(self, x, y, row):
+        """Radial pull (px) that brings the point (x, y, row) to clear3 from
+        the surface's nearest point, where the point lies inside the surface
+        at its own height (0 elsewhere)."""
+        if self.clear3 <= 0.0:
+            return 0.0
+        q = Vector((x, y, -row))
+        hit = self.bvh.find_nearest(q, 2.0 * self.clear3)
+        if hit[0] is None:
+            return 0.0
+        loc, nrm, _, dist = hit
+        rad = Vector((x, y, 0.0))
+        if rad.length < 1e-9 or not math.isfinite(self._cast(rad.normalized(), row)):
+            return 0.0
+        rad.normalize()
+        if nrm.dot(Vector((loc.x, loc.y, 0.0))) < 0.0:
+            nrm = -nrm
+        deficit = self.clear3 + (q - loc).dot(nrm)
+        if deficit <= 0.0:
+            return 0.0
+        return min(deficit / max(nrm.dot(rad), PUSH_MIN_COS), 3.0 * self.clear3)
 
 
 def _skirt_inner():
@@ -387,7 +471,7 @@ def _skirt_inner():
     polys = [[v.index for v in f.verts] for f in bm.faces]
     polys += [[i + nv for i in p] for p in polys]
     bm.free()
-    return _Inner(verts, polys, CLEAR, CLEAR_HOLD, CLEAR_RELAX, CLEAR_FADE)
+    return _Inner(verts, polys, CLEAR, CLEAR_HOLD, CLEAR_RELAX, CLEAR_FADE, clear3=CLEAR3)
 
 
 def _tier_inner(obj):
@@ -395,29 +479,41 @@ def _tier_inner(obj):
     me = obj.data
     verts = [Vector((v.co.x * spec.PX_PER_M, v.co.y * spec.PX_PER_M, -_row(v.co.z))) for v in me.vertices]
     polys = [list(p.vertices) for p in me.polygons]
-    return _Inner(verts, polys, *TIER_CLEAR)
+    return _Inner(verts, polys, *TIER_CLEAR, clear3=TIER_CLEAR3)
+
+
+def _spread(pull):
+    """A per-sample pull spread to the neighbouring samples (dilated, then
+    smoothed, never below what each sample needs), so it has no sharp steps."""
+    if not pull.any():
+        return pull
+    wide = np.maximum(np.maximum(pull, np.roll(pull, 1)), np.roll(pull, -1))
+    return np.maximum(pull, _smooth_loop(wide, 1.0))
 
 
 def _clamp_ring(loop, inners, margin=None, apply_to=None):
     """Pull a ring of world points radially inside every surface in `inners`
     (the smallest limit, soft minimum). The pull is spread to the neighbouring
-    samples (dilated, then smoothed, never below what each sample needs), so
-    it has no sharp steps.
+    samples (_spread), so it has no sharp steps.
 
-    margin: px per sample kept free beyond the clearance (the outward reach
-    of the flutes laid on this smooth band); apply_to: rings (a tuple) the
-    band's radial scale is applied to instead, returned as a tuple (so the
-    clamp moves the whole gathered band in, rather than flattening the
-    flutes' crests against the skirt)."""
+    margin: px per sample kept free beyond the clearance; apply_to: rings (a
+    tuple) the band's radial scale is applied to instead, returned as a tuple
+    (so the clamp moves the whole gathered band in, rather than flattening its
+    crests against the skirt). The first of them is the gathered surface: the
+    limits are then measured at its own points (their own height: a lobe's
+    notch or a pinch stands up to ~2 cm above the band's ring, where a skirt
+    trough turning out at its hem lies further in), and a second pass
+    (_Inner.push) keeps its nearest-point distance to each surface at least
+    that surface's clear3."""
     n = len(loop)
     pull = np.zeros(n)
-    rad = np.zeros(n)
-    for i, p in enumerate(loop):
+    rad = np.array([math.hypot(p.x, p.y) * spec.PX_PER_M for p in loop])
+    test = loop if apply_to is None else apply_to[0]
+    for i, p in enumerate(test):
         x, y = p.x * spec.PX_PER_M, p.y * spec.PX_PER_M
         r = math.hypot(x, y)
-        rad[i] = r
         row = _row(p.z)
-        lim = min(s.limit(x, y, row) for s in inners) - (0.0 if margin is None else margin[i])
+        lim = min(s.limit(x, y, row) for s in inners) - (0.0 if margin is None or apply_to is not None else margin[i])
         if r < 1e-6 or not math.isfinite(lim):
             continue
         k = CLEAR_SOFT
@@ -426,15 +522,20 @@ def _clamp_ring(loop, inners, margin=None, apply_to=None):
             continue
         # soft min(r, lim): -k log(exp(-r/k) + exp(-lim/k))
         rn = lim - k * math.log1p(math.exp(-d)) if d > 0 else r - k * math.log1p(math.exp(d))
-        pull[i] = r - rn
-    if pull.any():
-        wide = np.maximum(np.maximum(pull, np.roll(pull, 1)), np.roll(pull, -1))
-        pull = np.maximum(pull, _smooth_loop(wide, 1.0))
-    scale = np.where(rad > 1e-6, (rad - pull) / np.maximum(rad, 1e-6), 1.0)
+        # as a pull on the band (its radial scale moves this point by pull * r / rad)
+        pull[i] = (r - rn) * rad[i] / r
+    pull = _spread(pull)
 
-    def scaled(ring):
-        return [Vector((p.x * k, p.y * k, p.z)) for p, k in zip(ring, scale)]
-    return scaled(loop) if apply_to is None else tuple(scaled(r) for r in apply_to)
+    def scaled(ring, pl):
+        sc = np.where(rad > 1e-6, (rad - pl) / np.maximum(rad, 1e-6), 1.0)
+        return [Vector((p.x * k, p.y * k, p.z)) for p, k in zip(ring, sc)]
+    if apply_to is None:
+        return scaled(loop, pull)
+    g = scaled(apply_to[0], pull)
+    extra = np.array([max(s.push(p.x * spec.PX_PER_M, p.y * spec.PX_PER_M, _row(p.z)) for s in inners)
+                      for p in g])
+    pull = pull + _spread(extra)
+    return tuple(scaled(r, pull) for r in apply_to)
 
 
 # ---------------------------------------------------------------- outline
@@ -476,6 +577,64 @@ def _outline(shape, fracs):
     return res, total
 
 
+def _arc_azimuth(shape):
+    """Cumulative arc length (px) and azimuth (rad, 0 = front centre, + toward
+    +X, increasing) of the dense outline's points, closed (the first point
+    repeated at the end, one turn on)."""
+    pts = np.array(_dense_outline(shape))
+    closed = np.vstack([pts, pts[:1]])
+    cum = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(closed, axis=0).T))])
+    az = np.unwrap(np.arctan2(closed[:, 0], -closed[:, 1]))
+    return cum, az
+
+
+def _fracs_at(shape, az):
+    """Arc-length fractions (from the front centre) of the outline points at the azimuths az."""
+    cum, a = _arc_azimuth(shape)
+    t = np.mod(np.asarray(az) - a[0], 2 * math.pi) + a[0]
+    return np.interp(t, a, cum) / cum[-1]
+
+
+def _layout():
+    """The lobes and bells round the tiers, the same for every tier: per sample
+    its azimuth (rad, increasing from near the front centre), lobe phase (0 =
+    notch, 0.5 = crest) and lobe index, bell phase (0 = the pinch, 0.5 =
+    mid-bell) and bell index. The bells hold BELL_LOBES lobes each; the lobes
+    are unevenly wide (WIDTH_VAR); bell 0 is centred on the front centre. The
+    positions are laid out along the outer tier's hem outline and carried to
+    the others by azimuth, so the tiers' bells stack."""
+    bells, k, total = [], 0, 0
+    while total < NLOBES:
+        n = BELL_LOBES[1] if _hash(k, 51) < BELL4 else BELL_LOBES[0]
+        bells.append(n)
+        total, k = total + n, k + 1
+    bells[-1] -= total - NLOBES
+    if bells[-1] < 2:
+        bells[-2] += bells.pop()
+    w = np.array([1.0 + WIDTH_VAR * (2 * _hash(j, 3) - 1) for j in range(NLOBES)])
+    pos = np.concatenate([[0.0], np.cumsum(w)])
+    pos = pos / pos[-1]
+    frac, ph, lob, bph, bel = [], [], [], [], []
+    j0 = 0
+    for kb, n in enumerate(bells):
+        a, b = pos[j0], pos[j0 + n]
+        for j in range(j0, j0 + n):
+            for q in range(SPF):
+                p = q / SPF
+                f = pos[j] + p * (pos[j + 1] - pos[j])
+                frac.append(f)
+                ph.append(p)
+                lob.append(j)
+                bph.append((f - a) / (b - a))
+                bel.append(kb)
+        j0 += n
+    frac = np.array(frac) - 0.5 * (pos[bells[0]] - pos[0])     # bell 0 centred on the front
+    cum, az0 = _arc_azimuth(TIERS[0][1])
+    az = np.interp(np.mod(frac, 1.0) * cum[-1], cum, az0)
+    az = np.unwrap(az)
+    return az, np.array(ph), np.array(lob), np.array(bph), np.array(bel), len(bells)
+
+
 def hem_row(x, y, lift=None):
     """Panel row of a tier's hem line at the hem-outline point (x, y) (panel
     px), before the tuck.
@@ -484,7 +643,7 @@ def hem_row(x, y, lift=None):
     The measured bottom outline of each view is the lowest frill point over
     that column, so a hem point should hang no lower than either outline: take
     the higher of the two (a smooth minimum, so there is no crease where they
-    cross), then HEM_DROP lower for the scallops. Inner tiers reach the lower
+    cross), then HEM_DROP lower for the lobes. Inner tiers reach the lower
     centre of the bowl-shaped outline, outer tiers its lifted sides. lift =
     (x0, x1, front row, back row) raises the hem near the midline (see TIERS).
     """
@@ -553,6 +712,21 @@ def _limit_slope(rows, arc, slope):
     return rows
 
 
+def _level_bells(rows, bell, bph, nbells):
+    """The hem rows levelled (LEVEL) to each bell's mean, handing over to the
+    neighbouring bell's level within BELL_EDGE of the pinch (smoothstep, half
+    way at the pinch itself): a sloping hem becomes a staircase of level bell
+    mouths whose steps hide in the rising pinches."""
+    rows = np.asarray(rows, dtype=np.float64)
+    m = np.array([rows[bell == k].mean() for k in range(nbells)])
+    lev = m[bell].copy()
+    t = np.clip(bph / BELL_EDGE, 0.0, 1.0)
+    lev += (m[(bell - 1) % nbells] - m[bell]) * (0.5 - 0.5 * t * t * (3 - 2 * t))
+    t = np.clip((1.0 - bph) / BELL_EDGE, 0.0, 1.0)
+    lev += (m[(bell + 1) % nbells] - m[bell]) * (0.5 - 0.5 * t * t * (3 - 2 * t))
+    return rows + LEVEL * (lev - rows)
+
+
 def _lift_pinch(x, lift):
     """Radial scale of the hem outline point at x px (see LIFT_PINCH)."""
     return 1.0 - LIFT_PINCH * (1.0 - _smoothstep(lift[0], lift[1], abs(x)))
@@ -577,7 +751,7 @@ def _ellipse_angle(x, y):
 
 def _core_bottom(phi):
     """(x, y, z) world point of the core cone's lower edge at ellipse angle phi."""
-    _, dims0, lift0, (_, height0, top0) = TIERS[0][:4]
+    _, dims0, lift0, (_, height0, _) = TIERS[0][:4]
     c, s = math.cos(phi), math.sin(phi)
     hx, hy = dims0[0] * c, (dims0[1] if s < 0 else dims0[2]) * s
     # a few px below the outer tier's top edge (untucked, until it is built)
@@ -586,7 +760,7 @@ def _core_bottom(phi):
     else:
         z = float(np.interp(phi, _SEAM0[0], _SEAM0[1], period=2 * math.pi))
     z -= CORE_TUCK * PX
-    k = top0 * 0.97 * _lift_pinch(hx, lift0) * PX
+    k = CORE_BOTTOM * _lift_pinch(hx, lift0) * PX
     return Vector((k * hx, k * hy, z))
 
 
@@ -604,71 +778,20 @@ def _core_point(x, y, up_px):
 
 
 # ---------------------------------------------------------------- tiers
-def _bells(count, seed):
-    """Flute index ranges [a, b) of the bells: runs of BELL_SIZE flutes (the
-    size picked per bell), the last one taking the remainder."""
-    out, a, k = [], 0, 0
-    while count - a >= 2 * BELL_SIZE[0]:
-        n = BELL_SIZE[0] + int(_hash(k, seed + 11) * (BELL_SIZE[1] - BELL_SIZE[0] + 1))
-        n = min(n, count - a - BELL_SIZE[0])
-        out.append((a, a + n))
-        a, k = a + n, k + 1
-    out.append((a, count))
-    return out
+def _per(units, seed, var, sigma):
+    """Per-sample factor 1 +- var, one value per unit (lobe or bell index),
+    blended over sigma samples so it never steps between units."""
+    return _smooth_loop([1.0 + var * (2 * _hash(int(k), seed) - 1) for k in units], sigma)
 
 
-def _gathers(count, seed, off):
-    """Arc-length fractions of the samples round a tier (SPF per flute, the
-    flutes unevenly wide), each sample's phase in its flute (0 = notch over
-    the pleat, 0.5 = crest), flute index, and phase in its bell (0 at the
-    bell's edge, a notch, 0.5 mid-bell)."""
-    w = [1.0 + WIDTH_VAR * (2 * _hash(k, seed + 3) - 1) for k in range(count)]
-    total = sum(w)
-    pos = np.concatenate([[0.0], np.cumsum(w)])
-    fracs, phase, fold, bell = [], [], [], []
-    start = off * total / count
-    for a, b in _bells(count, seed):
-        for k in range(a, b):
-            for fp in PHASES:
-                fracs.append((start + pos[k] + fp * w[k]) / total)
-                phase.append(fp)
-                fold.append(k)
-                bell.append((pos[k] + fp * w[k] - pos[a]) / (pos[b] - pos[a]))
-    return fracs, phase, fold, bell
-
-
-def _level(hems, phase):
-    """The hem heights with each scallop levelled (LEVEL of the way) about its
-    own middle, the notches between at the mean of their two neighbours: on a
-    sloping hem (a cluster's side, the lifted midline) the scallops then step
-    down as round lobes instead of tilting into a sawtooth of points."""
-    h = np.asarray(hems, dtype=np.float64)
-    mid = SPF // 2
-    c = h[mid::SPF]
-    lev = np.repeat(c, SPF)
-    lev[::SPF] = 0.5 * (c + np.roll(c, 1))
-    return list(h + LEVEL * (lev - h))
-
-
-def _per_fold(count, seed, fold):
-    """Per-sample factor 1 +- DEPTH_VAR, one value per flute, blended smoothly
-    over neighbouring flutes so the depth never steps at a notch."""
-    raw = [1.0 + DEPTH_VAR * (2 * _hash(k, seed) - 1) for k in fold]
-    return _smooth_loop(raw, VAR_SMOOTH * SPF)
-
-
-def _puff(phase):
-    """Flute cross-section, -1 at the pleat (phase 0) to +1 at the crest (0.5):
-    a round puff with a pinched pleat."""
-    return 2.0 * math.sin(math.pi * phase) ** PUFF_P - 1.0
-
-
-def _tier(idx, inners, folds, name, shape, lift, top, count, depth_px, rise_px, seed, bowl_up):
-    """The tier's rings (with the flutes and scallops, and the same rings
-    without them, for the shading normals), each ending in the hem roll, and
-    its seam ring (the top of the band)."""
-    fracs, phase, fold, bell = _gathers(count, seed, 0.5 * (idx % 2))
-    bell_depth, bell_rise = BELL[idx]
+def _tier(idx, inners, folds, layout, name, shape, lift, top, lobe_depth, lobe_rise,
+          bell_depth, bell_rise, seed, bowl_up):
+    """The tier's rings (with the lobes, and the same rings with the bells
+    alone, for the shading normals), each ending in the hem roll, its seam
+    heights by ellipse angle and its hem outline points."""
+    az, ph, lob, bph, bel, nbells = layout
+    # this tier's arc fractions at the layout's azimuths, increasing round the hem
+    fracs = np.unwrap(2 * math.pi * _fracs_at(shape, az)) / (2 * math.pi)
     outline, total = _outline(shape, fracs)
     # hem outline, drawn in near the lifted midline
     hem = [((bx * k, by * k), nrm) for (bx, by), nrm in outline for k in (_lift_pinch(bx, lift),)]
@@ -683,10 +806,9 @@ def _tier(idx, inners, folds, name, shape, lift, top, count, depth_px, rise_px, 
     arc = [(f - fracs[0]) * total for f in fracs] + [total]
     raw = cluster_rows(folds, idx, [p for p, _ in outline],
                        [hem_row(ox, oy, lift) - bowl_up for (ox, oy), _ in outline])
-    k12 = 12.0     # the smoothing widths were set for 12 samples per (old) fold
+    k12 = 1.5 * SPF     # the smoothing widths were set for 12 samples per ~1.7 cm (round 6-10 folds)
     rows = _limit_slope(_smooth_loop(raw, CLUSTER_SMOOTH * k12), arc, CLUSTER_SLOPE)
     rows = _smin(_smooth_loop(rows, 0.5 * k12), _limit_slope(raw, arc, CLUSTER_SLOPE), SMIN_FINE)
-    hems = [spec.px_to_z(r) for r in rows]
 
     # top ring: free (above the untucked hem, scaled) or sewn onto the core;
     # either way at least BAND_MIN above the hem (smooth min): where the hem
@@ -704,57 +826,72 @@ def _tier(idx, inners, folds, name, shape, lift, top, count, depth_px, rise_px, 
         for ((bx, by), _), r in zip(hem, rows):
             t = _core_point(bx, by, top[1])
             tops.append(_core_point(bx, by, top[1] + seam_up(_row(t.z), r)))
-    # a seam sewn onto the core cannot rise past the core's top ring; never let
-    # the band get shorter than BAND_GUARD there (nor turn inside out)
-    hems = [min(h, t.z - BAND_GUARD * PX) for h, t in zip(hems, tops)]
-    hems = _level(hems, phase)
-    amp = _per_fold(count, seed + 7, fold)
-    rise = _per_fold(count, seed + 29, fold)
-    # fabric per flute: a band shortened by the tuck folds less deeply
+    # each bell's mouth level; a seam sewn onto the core cannot rise past the
+    # core's top ring: never let the band get shorter than BAND_GUARD there
+    # (nor turn inside out)
+    hems = [min(spec.px_to_z(r), t.z - BAND_GUARD * PX)
+            for r, t in zip(_level_bells(rows, bel, bph, nbells), tops)]
+    amp = _per(lob, seed + 7, DEPTH_VAR, VAR_SMOOTH * SPF)
+    rise = _per(lob, seed + 29, DEPTH_VAR, VAR_SMOOTH * SPF)
+    # the bells' irregularity is shared by the tiers, so the stacked bells nest
+    bamp = _per(bel, 41, BELL_VAR, BELL_SMOOTH * 3 * SPF)
+    bamp = bamp * np.array([1.0 - LIFT_BELL * (1.0 - _smoothstep(lift[0], lift[1], abs(ox)))
+                            for (ox, _), _ in outline])
+    # fabric per bell: a band shortened by the tuck folds less deeply
     short = [min(1.0, max(0.0, (t.z - h) / max(t.z - f, 1e-6))) ** SHORT_POW
              for t, h, f in zip(tops, hems, full)]
-    puff = [_puff(p) for p in phase]
-    # the bells: a wider cosine fold (crest mid-bell) whose edges rise
-    bwave = [-math.cos(2 * math.pi * b) for b in bell]
-    bnotch = [(0.5 + 0.5 * math.cos(2 * math.pi * b)) ** BELL_P for b in bell]
-    bamp = _per_fold(count, seed + 41, fold)
-    notch = [1.0 - (1.0 - (1.0 - 2.0 * min(p, 1.0 - p)) ** 2) ** ROUND for p in phase]
+    # the flare the band reaches at its hem (by how far down the full drop it ends)
+    gh = [1.0 - (1.0 - min(1.0, max(0.0, (t.z - h) / max(t.z - f, 1e-6)))) ** FLARE_POW
+          for t, h, f in zip(tops, hems, full)]
+    lr, lz = _tab(LOBE_R, ph), _tab(LOBE_Z, ph)
+    br, bz = _tab(BELL_R, bph), _bell_z(bph)
+    # at a pinch the bell's own rise makes the notch: the lobe's sharper notch
+    # there folded the cloth over at the hem (dihedrals up to 150 deg)
+    lz = lz * (1.0 - PINCH_NOTCH * bz)
     out = {1.0: [], 0.0: []}
     for s in PROFILE:
-        loops, band, reach, breach = {1.0: [], 0.0: []}, [], [], []
+        loops, band, margin = {1.0: [], 0.0: []}, [], []
         ramp = min(1.0, s / SEAM_RAMP)
         ramp = ramp * ramp * (3 - 2 * ramp)
-        mouth = MOUTH * _smoothstep(MOUTH_S, 1.0, s)
+        msm = _smoothstep(MOUTH_S, 1.0, s)
+        rs = s ** RISE_POW * PX
         for i, ((bx, by), (nx, ny)) in enumerate(hem):
             t = tops[i]
             z = t.z + s * (hems[i] - t.z)
             # where on the full seam-to-hem drop this height lies
             d = min(1.0, max(0.0, (t.z - z) / max(t.z - full[i], 1e-6)))
-            g = 1.0 - (1.0 - d) ** FLARE_POW
+            g = gh[i] * (1.0 - (1.0 - s) ** HANG_POW)
             belly = 1.0 + BELLY * math.sin(math.pi * d)
             # the seam ring itself lies on its support (the core cone)
             grow = (SEAM_FOLD + (1.0 - SEAM_FOLD) * d ** FOLD_POW) * ramp
             fgrow = (FLUTE_SEAM + (1.0 - FLUTE_SEAM) * d ** FLUTE_POW) * ramp
-            reach.append(depth_px * amp[i] * short[i] * fgrow)
-            breach.append(bell_depth * bamp[i] * short[i] * grow)
-            bx0 = t.x + (belly * bx * PX - t.x) * g + nx * mouth * PX
-            by0 = t.y + (belly * by * PX - t.y) * g + ny * mouth * PX
+            reach = lobe_depth * amp[i] * short[i] * fgrow
+            # the bells are carved inward from the band: their crests lie on it
+            # (flaring out by MOUTH at the hem), their pinches 2 x the bell depth
+            # inside it, so the bells hang along the band instead of standing
+            # out from it the further down they open
+            bell = (br[i] - 1.0) * bell_depth * bamp[i] * short[i] * grow + MOUTH * msm * (0.5 + 0.5 * br[i])
+            bx0 = t.x + (belly * bx * PX - t.x) * g
+            by0 = t.y + (belly * by * PX - t.y) * g
             band.append(Vector((bx0, by0, z)))
-            rs = s ** RISE_POW * PX
+            margin.append(lr[i] * reach + bell)
+            # the pinch rises evenly down the band (s), so the band stays evenly
+            # ringed under it (rising only near the hem, s ** 2, it squeezed the
+            # lower rings together and the rolled hem there poked through them)
+            zb = z + bell_rise * bamp[i] * bz[i] * s * PX
             for k in (1.0, 0.0):
                 # the soft rings (k = 0, for the shading normals) keep the bells
-                gather = k * puff[i] * reach[-1] + bwave[i] * breach[-1]
-                zk = z + k * rise_px * rise[i] * notch[i] * rs + bell_rise * bamp[i] * bnotch[i] * rs
+                gather = k * lr[i] * reach + bell
+                zk = zb + k * lobe_rise * rise[i] * lz[i] * rs
                 loops[k].append(Vector((bx0 + nx * gather * PX, by0 + ny * gather * PX, zk)))
-        # the clamp keeps the smooth band clear + the flutes' reach inside the
-        # skirt (and the outer tiers) and moves the fluted ring with it, so the
-        # flutes keep their full depth instead of being flattened against them
-        gathered, smooth = _clamp_ring(band, inners, [a + b for a, b in zip(reach, breach)],
-                                       apply_to=(loops[1.0], loops[0.0]))
+        # the clamp keeps the gathered surface clear inside the skirt (and the
+        # outer tiers) and moves the band and its gathers in together, so the
+        # bells keep their full depth instead of being flattened against them
+        gathered, smooth = _clamp_ring(band, inners, margin, apply_to=(loops[1.0], loops[0.0]))
         out[1.0].append(gathered)
         out[0.0].append(smooth)
     # the upper band (under the seam, where the gathered rings are smallest
-    # and the flutes shallow) keeps every second sample (_mesh joins it)
+    # and the lobes shallow) keeps every second sample (_mesh joins it)
     rings = tuple([ring[::2] if s < COARSE_S else ring for s, ring in zip(PROFILE, r)]
                   + _hem_roll(r[-2], r[-1]) for r in (out[1.0], out[0.0]))
     # the seam height by ellipse angle (sorted)
@@ -765,27 +902,40 @@ def _tier(idx, inners, folds, name, shape, lift, top, count, depth_px, rise_px, 
 def _hem_roll(prev, edge):
     """Rings that turn the hem edge under: a half circle of HEM_ROLL px radius
     in the plane of the cloth's normal and its downward direction, then a
-    short return back up inside (RET_UP)."""
-    n = len(edge)
+    short return back up inside (RET_UP). The frame (down the cloth, along
+    the hem) is averaged over +-ROLL_SMOOTH samples, so the roll does not
+    twist where the hem turns sharply at a notch."""
+    P, Q = np.array([tuple(p) for p in edge]), np.array([tuple(p) for p in prev])
+
+    def avg(v):
+        acc = v.copy()
+        for k in range(1, ROLL_SMOOTH + 1):
+            acc += (np.roll(v, k, axis=0) + np.roll(v, -k, axis=0)) * (1.0 - k / (ROLL_SMOOTH + 1))
+        return acc
+
+    def unit(v, fallback):
+        ln = np.linalg.norm(v, axis=1, keepdims=True)
+        return np.where(ln > 1e-12, v / np.maximum(ln, 1e-12), fallback)
+    down = unit(avg(unit(P - Q, np.array([0.0, 0.0, -1.0]))), np.array([0.0, 0.0, -1.0]))
+    tan = avg(np.roll(P, -1, axis=0) - np.roll(P, 1, axis=0))
+    radial = np.column_stack([P[:, 0], P[:, 1], np.zeros(len(P))])
+    nrm = unit(np.cross(down, tan), unit(radial, np.array([1.0, 0.0, 0.0])))
+    nrm *= np.where((nrm * radial).sum(1) < 0.0, -1.0, 1.0)[:, None]
+    # turned towards the body axis: on the flank of a pinch the cloth's normal
+    # points across the narrow fold, and the roll curled into its other wall
+    rad_u = unit(radial, np.array([1.0, 0.0, 0.0]))
+    nrm = unit(nrm + ROLL_RADIAL * rad_u, rad_u)
+    nrm = unit(nrm - down * (nrm * down).sum(1, keepdims=True), rad_u)
     rr = HEM_ROLL * PX
-    frames = []
-    for i, p in enumerate(edge):
-        down = p - prev[i]
-        down = down.normalized() if down.length > 1e-9 else Vector((0.0, 0.0, -1.0))
-        tan = edge[(i + 1) % n] - edge[i - 1]
-        nrm = down.cross(tan)
-        if nrm.length < 1e-9:
-            nrm = Vector((p.x, p.y, 0.0))
-        nrm.normalize()
-        if nrm.dot(Vector((p.x, p.y, 0.0))) < 0.0:
-            nrm = -nrm
-        frames.append((p, nrm, down))
     rings = []
     for deg in ROLL_DEG:
         a = math.radians(deg)
-        rings.append([p - nrm * rr + nrm * (rr * math.cos(a)) + down * (rr * math.sin(a))
-                      for p, nrm, down in frames])
-    rings.append([p - nrm * (2 * rr) - down * (RET_UP * PX) for p, nrm, down in frames])
+        pts = P - nrm * rr + nrm * (rr * math.cos(a)) + down * (rr * math.sin(a))
+        rings.append([Vector(p) for p in pts])
+    # the return runs up along the last band segment, never past its upper end
+    # (on a short band, where the hem tucks up, it pierced the rings above)
+    ret = np.minimum(RET_UP * PX, RET_MAX * np.linalg.norm(P - Q, axis=1))[:, None]
+    rings.append([Vector(p) for p in P - nrm * (2 * rr) - down * ret])
     return rings
 
 
@@ -826,22 +976,22 @@ def _outward(bm):
     return bm
 
 
-def _finish(col, mat, name, loops, soft, line):
+def _finish(col, mat, name, loops, soft, line, shade):
     """Loft the rings into a cloth object with an outline.
 
     recalc_face_normals is ambiguous on an open tube, so orientation is set
     explicitly: faces point OUTWARD (away from the body axis) on the main
     sheet, so the outline hull sits on the outside of the hem and draws a
-    line along every scallop; the hull's backface culling keeps it off the
+    line along every lobe; the hull's backface culling keeps it off the
     fill. The turned-under return then faces the axis, as the inside of a
     thin cloth should. Smooth shading throughout: the rolled hem turns in
     90 degree steps and must not split normals.
 
-    soft: the same rings without the flutes. The shading normals are then
-    blended from the fluted surface's (FOLD_SHADE) and the smooth band's,
-    so the flutes shade softly: their flanks stay lit instead of breaking
-    into small shade wedges where they peek out under the skirt, while
-    the form, silhouette and outline keep the full flutes.
+    soft: the same rings without the lobes. The shading normals are then
+    blended from the gathered surface's (shade, per ring) and the bells', so
+    the lobes shade softly: their flanks stay lit instead of breaking into
+    small shade wedges where they peek out under the skirt, while the form,
+    silhouette and outline keep the full lobes.
 
     line: outline weight per ring, see LINE_*.
     """
@@ -854,12 +1004,13 @@ def _finish(col, mat, name, loops, soft, line):
     sb.free()
     me = obj.data
     assert len(base) == len(me.vertices), (name, len(base), len(me.vertices))
+    share = [f for f, r in zip(shade, loops) for _ in r]
     normals = []
-    for v, b in zip(me.vertices, base):
+    for v, b, f in zip(me.vertices, base, share):
         own = Vector(v.normal)
         if b.dot(own) < 0.0:      # never blend against a flipped normal
             b = -b
-        nv = own * FOLD_SHADE + b * (1.0 - FOLD_SHADE)
+        nv = own * f + b * (1.0 - f)
         normals.append(nv.normalized() if nv.length > 1e-9 else Vector(v.normal))
     me.normals_split_custom_set_from_vertices(normals)
     vg = obj.vertex_groups.new(name=LINE_VG)
@@ -920,7 +1071,8 @@ def _core(col, mat, inners):
             gathered, smooth = loops[1.0], loops[0.0]
         out[1.0].append(gathered)
         out[0.0].append(smooth)
-    obj = _finish(col, mat, 'petticoat_core', out[1.0], out[0.0], [0.0] * len(CORE_T))
+    obj = _finish(col, mat, 'petticoat_core', out[1.0], out[0.0], [0.0] * len(CORE_T),
+                  [FOLD_SHADE] * len(CORE_T))
     obj['levi_cast_shadow'] = CAST_CORE
     return obj
 
@@ -929,13 +1081,14 @@ def build(col):
     global _SEAM0, _SEAM1, _SEAM2
     skirt_in = _skirt_inner()
     folds = skirt.fold_table()
+    layout = _layout()
     mat = common.toon_material('petticoat')
     _SEAM0 = _SEAM1 = _SEAM2 = None
     # the outer tier first: the core ends just inside its seam; the inner
     # tiers are sewn onto the core, each inside the tiers around it
     inners = [skirt_in]
     for idx, tier in enumerate(TIERS):
-        (gathered, smooth), seam, hem = _tier(idx, inners, folds, *tier)
+        (gathered, smooth), seam, hem = _tier(idx, inners, folds, layout, *tier)
         if idx == 0:
             _SEAM0 = seam
         if idx == 1:
@@ -944,7 +1097,9 @@ def build(col):
             # its first ring (every second sample, COARSE_S) by ellipse angle
             ring = sorted((_ellipse_angle(*h[0]), tuple(p)) for h, p in zip(hem[::2], gathered[0]))
             _SEAM2 = (np.array([a for a, _ in ring]), np.array([p for _, p in ring]))
-        obj = _finish(col, mat, tier[0], gathered, smooth, _line_weights(len(gathered)))
+        nroll = len(gathered) - len(PROFILE)
+        obj = _finish(col, mat, tier[0], gathered, smooth, _line_weights(len(gathered)),
+                      [FOLD_SHADE] * len(PROFILE) + [FOLD_SHADE_ROLL] * nroll)
         obj['levi_cast_shadow'] = CAST_TIERS[idx]
         inners = inners + [_tier_inner(obj)]
     _core(col, mat, inners[:1])
