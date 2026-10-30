@@ -1780,11 +1780,14 @@ def _lock_key(pts):
 
 
 def _hair_locks(objs):
-    """([(key, points)] for the long narrow loose parts of the back hair, points of the rest)."""
+    """([(key, points, object name)] for the long narrow loose parts of the back hair,
+    points of the rest). An object that follows the locks (obj['levi_follow_locks'], see
+    _follow_lock_weights: hair_back's lining) is neither: it rides the lock chains over it,
+    so no sector chain is fitted to it."""
     locks, rest = [], []
     for o in objs:
         co = _world_verts([o])
-        if not len(co):
+        if not len(co) or o.get('levi_follow_locks'):
             continue
         lab = _islands(len(co), _topology(o, co))
         for k in np.unique(lab):
@@ -1795,7 +1798,7 @@ def _hair_locks(objs):
             span = float(np.percentile(dev, 95) - np.percentile(dev, 5))
             long_ = min(L['eye_z'], float(p[:, 2].max())) - float(p[:, 2].min()) >= HAIR_LOCK_LEN
             if HAIR_LOCK_CHAINS and long_ and span < HAIR_LOCK_SPAN and len(p) >= 24:
-                locks.append((_lock_key(p), p))
+                locks.append((_lock_key(p), p, o.name))
             else:
                 rest.append(p)
     locks.sort(key=lambda kp: kp[0])
@@ -2694,7 +2697,7 @@ def _secondary_bones(parts, core):
     # centreline, so it bends along its length; the rest (the curtain behind them) hangs
     # from sectors around the skull axis. All hang from eye level.
     locks, rest = _hair_locks(parts.get('hair_back', []))
-    for k, (key, lp) in enumerate(locks):
+    for k, (key, lp, oname) in enumerate(locks):
         top = min(L['eye_z'], float(lp[:, 2].max()))
         nseg = next(s for h, s in HAIR_LOCK_SEG if top - lp[:, 2].min() >= h)
         joints = _band_chain(lp[lp[:, 2] <= top + 0.02], top, float(lp[:, 2].min()), nseg)
@@ -2707,7 +2710,7 @@ def _secondary_bones(parts, core):
                   f'{"outer" if ang >= HAIR_OUTER_ANGLE else "back"} pitch gravity')
             bones += _hair_pitch_gravity(
                 _chain_bones(f'後髪束{k}', f'後髪束{k}', f'HairLock{k}', joints, hair_parent(), 0.03, 'Hair',
-                             meta={'lock': key}), byname, *pitch)
+                             meta={'lock': key, 'lock_obj': oname, 'lock_angle': ang}), byname, *pitch)
     if len(rest):
         # (rooted at the curtain's own top when it starts below eye level: round 11's
         # under-layer starts below the head bone's fade band, and chains rooted at eye
@@ -2720,6 +2723,8 @@ def _secondary_bones(parts, core):
             chains = [(a, [Vector((j[0].x, j[0].y, max(j[0].z, root_z + 0.005)))] + list(j[1:]))
                       for a, j in chains]
         for k, (ang, joints) in enumerate(chains):
+            print(f'rig hair sector 後髪{k}: {ang:.0f} deg round, root ({joints[0].x:.3f}, {joints[0].y:.3f}, '
+                  f'{joints[0].z:.3f}), end z {joints[-1].z:.3f}')
             bones += _hair_pitch_gravity(
                 _chain_bones(f'後髪{k}', f'後髪{k}', f'HairBack{k}', joints, hair_parent(), 0.035, 'Hair',
                              meta={'chain': k, 'angle': ang, 'cy': L['head_center_y']}), byname)
@@ -4422,6 +4427,19 @@ def _point_param(obj, co, prop):
     return v
 
 
+def _point_vec(obj, co, prop):
+    """The vector point attribute named by obj[prop] in world space, one row per vertex,
+    else None."""
+    name = obj.get(prop)
+    attr = obj.data.attributes.get(name) if name else None
+    if attr is None or attr.domain != 'POINT' or attr.data_type != 'FLOAT_VECTOR' or len(attr.data) != len(co):
+        return None
+    v = np.empty(len(co) * 3)
+    attr.data.foreach_get('vector', v)
+    M = np.array(obj.matrix_world)
+    return v.reshape(-1, 3) @ M[:3, :3].T + M[:3, 3]
+
+
 def _sleeve_weights(co, bones, sparam=None, edges=None):
     """(V, B) sleeve weights with at most 4 bones per vertex by construction. Along the
     arm (arc length a of the nearest point on shoulder -> elbow -> wrist) a hat blend of
@@ -5778,6 +5796,104 @@ def _lock_weights(w, co, labels, bones):
             w[rows, head[0]] = 1.0 - share
 
 
+# hair_back's lining (the under-layer between the locks and her nape) rides the lock
+# chains over it instead of sector chains of its own: the locks rest on it, and any chain
+# of its own moves apart from theirs (the hair collision pushes each chain by its own
+# probes, the pitch gravity differs between sector and lock chains), so in a head turn or a
+# bend the lining came up through the locks (look_over_shoulder, head_left 70 deg: 25-45 mm
+# relative motion, 2500+ crossing triangle pairs). As the skirt's and the old curtain's
+# ring weights do (_skirt_weights), each vertex (at its weighting point) blends the two
+# lock chains on either side of it round the head axis, linearly in its angle between
+# theirs at its height (the outermost alone beyond them), and along each chain takes the
+# hat weights a lock of it carries (_lock_weights): continuous, two chains at most, each
+# handing over across the whole spacing between two locks. (A soft minimum of the distance
+# to every lock put three or more chains' segments and the head bone on the vertices by
+# the nape, and the 4-bone prune tore it, x3-5.7 in test, head_left and swing; the two
+# nearest lock surfaces handed over within a few mm, x2.8.) In the head bone's fade band
+# (rig.HAIR_HEAD_FADE, from LOCK_FOLLOW_BAND m under its foot) the position along each
+# chain stops at its first bone's middle, so a vertex there carries the head and the first
+# bones of two chains only. _skin takes these weights as they are (_follow_lock_skin: no
+# surface smoothing, no prune, whose wider guide would mix a third chain in). Only locks
+# less than obj['levi_follow_angle'] deg round from straight back count (hair_back: the
+# primaries over the lining, not the side locks and flicks beside it, which the raised arms
+# push). As the lining's vertices are dominated by lock segments, the locks' collision
+# probes also keep the lining's inner face off her trunk (_hair_collision).
+LOCK_FOLLOW_BAND = 0.03
+
+
+def _follow_lock_skin(obj, co, bones, idx, w):
+    """(idx, weights) of an object that follows the locks (obj['levi_follow_locks'], see
+    LOCK_FOLLOW_BAND), weighted at its weighting points (obj['levi_weight_co']), at most
+    4 bones a vertex by construction (no smoothing or prune); (idx, w) as given when it
+    finds no lock."""
+    wco = _point_vec(obj, co, 'levi_weight_co')
+    p = co if wco is None else wco
+    f = _follow_lock_weights(p, bones, str(obj['levi_follow_locks']).split(','), np.zeros((len(p), len(bones))),
+                             float(obj.get('levi_follow_angle', 180.0)), _topology(obj, p))
+    if not f.any():
+        return idx, w
+    f = _hair_head_fade(f, p, bones)
+    k = min(MAX_INFLUENCE, f.shape[1])
+    i = np.argsort(-f, axis=1, kind='stable')[:, :k]
+    ff = np.take_along_axis(f, i, axis=1)
+    return i, ff / np.maximum(ff.sum(1, keepdims=True), 1e-12)
+
+
+def _follow_lock_weights(co, bones, obj_names, w, max_angle=180.0, edges=None):
+    """(V, B) weights of points that follow the lock chains of the objects obj_names, less
+    than max_angle deg round from straight back (see LOCK_FOLLOW_BAND); w unchanged when
+    there are none."""
+    by_key = {}
+    for j, b in enumerate(bones):
+        if ('lock' in b.meta and b.meta.get('lock_obj') in obj_names
+                and b.meta.get('lock_angle', 0.0) < max_angle):
+            by_key.setdefault(tuple(b.meta['lock']), []).append(j)
+    if not by_key:
+        return w
+    head = [j for j, b in enumerate(bones) if b.name == '頭']
+    cy = L['head_center_y']
+    z0 = HAIR_HEAD_FADE[0]
+    cap = _smoothstep(z0 - LOCK_FOLLOW_BAND, z0, co[:, 2])
+    th_p = np.degrees(np.arctan2(co[:, 0], co[:, 1] - cy))
+    chains, th = [], []
+    for key in sorted(by_key):
+        cols = sorted(by_key[key], key=lambda j: bones[j].meta.get('seg', 0))
+        A = np.array([bones[j].head for j in cols])
+        B = np.array([bones[j].tail for j in cols])
+        u = _polyline_u(co, A, B)
+        chains.append((cols, u - np.maximum(0.0, u - 0.5) * cap))
+        J = np.concatenate([A[:1], B])                       # joints, top down
+        order = np.argsort(J[:, 2])
+        x = np.interp(co[:, 2], J[order, 2], J[order, 0])
+        y = np.interp(co[:, 2], J[order, 2], J[order, 1])
+        th.append(np.degrees(np.arctan2(x, y - cy)))
+    th = np.array(th).T                                      # (V, K): each chain's angle at the point's height
+    V, K = th.shape
+    g = np.zeros((V, K))
+    below = np.where(th <= th_p[:, None], th, -np.inf)
+    above = np.where(th >= th_p[:, None], th, np.inf)
+    lo, hi = below.argmax(1), above.argmin(1)
+    has_lo, has_hi = np.isfinite(below.max(1)), np.isfinite(above.min(1))
+    rows = np.arange(V)
+    both = has_lo & has_hi
+    span = np.maximum(th[rows, hi] - th[rows, lo], 1e-9)
+    t = np.where(both, (th_p - th[rows, lo]) / span, 0.0)
+    g[rows[both], lo[both]] += 1.0 - t[both]
+    g[rows[both], hi[both]] += t[both]
+    g[rows[~has_lo], hi[~has_lo]] = 1.0                      # beyond the outermost chains
+    g[rows[~has_hi], lo[~has_hi]] = 1.0
+    out = np.zeros_like(w)
+    for (cols, u), gk in zip(chains, g.T):
+        n = len(cols)
+        share = _smoothstep(0.0, ROOT_BLEND, u) if head else np.ones(len(u))
+        uc = np.clip(u, 0.5, n - 0.5)
+        for i, j in enumerate(cols):
+            out[:, j] += gk * share * np.maximum(0.0, 1.0 - np.abs(uc - (i + 0.5)))
+        if head:
+            out[:, head[0]] += gk * (1.0 - share)
+    return out
+
+
 def _weights(obj, part, co, bones):
     """(V, k) bone indices and weights for the vertices of `obj` (world positions `co`)."""
     global _SLEEVE_S, _SLEEVE_EDGES, _SLEEVE_N, _SOCKET_S
@@ -5878,6 +5994,8 @@ def _skin(obj, part, bones, arm):
     if len(me.vertices):
         co = _world_verts([obj])
         idx, w = _weights(obj, part, co, cand)
+        if part == 'hair_back' and obj.get('levi_follow_locks'):
+            idx, w = _follow_lock_skin(obj, co, cand, idx, w)
         groups = {}
         for j in np.unique(idx[w > 0]):
             groups[j] = obj.vertex_groups.new(name=cand[j].name)
