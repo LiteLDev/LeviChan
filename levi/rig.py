@@ -4886,19 +4886,20 @@ PLAIN_SEAM = (0.006, 0.012)
 # Round 11 (integration review 3): skirt-family layers whose weights are one analytic field of
 # (angle round the body, height) instead of surface-smoothed per object: (name prefix,
 # B-spline width in chain steps, ramp (chain units below the last segment's middle)). Round
-# the ring a vertex blends the three nearest chains by a quadratic B-spline of its angle
-# (C1, a partition of unity: (1/8, 3/4, 1/8) at a chain, halves midway) where it rides the
-# last segment alone, handing over within the ramp to the plain linear blend of the two
-# nearest chains above it (where it also blends two segments), so it keeps at most four bones
-# by construction: no smoothing, prune or refit, the same weights at the same (angle,
-# height) on every tier (the nested tiers move together, the core's seam takes them too,
-# PLAIN_SEAM). Smoothed along their own bells and lobes, then shared, pruned and refitted,
-# the tiers' weights had the same mean profile round the ring but steps of +-20% in their
-# local slope from lobe to lobe; the worst stretch sat wherever a step met the largest
+# the ring a vertex blends the nearest chains by a quadratic B-spline of its angle (C1, a
+# partition of unity: about (1/8, 3/4, 1/8) at a chain, halves midway, at most four chains;
+# knots 1.05 chain steps apart: 1.0 left the tuck jump's inner hem x1.94, 1.1 the run's x1.83)
+# where it rides the last segment alone, handing over within the ramp to the plain linear
+# blend of the two nearest chains above it (where it also blends two segments), so it keeps
+# at most four bones by construction: no smoothing, prune or refit, the same weights at the
+# same (angle, height) on every tier (the nested tiers move together, the core's seam takes
+# them too, PLAIN_SEAM). Smoothed along their own bells and lobes, then shared, pruned and
+# refitted, the tiers' weights had the same mean profile round the ring but steps of +-20% in
+# their local slope from lobe to lobe; the worst stretch sat wherever a step met the largest
 # difference between two chains (the front hem in walk x1.81, a seated side hem x1.94), and
 # the inner tiers crossed each other (cross_legged 89 face pairs, run_r 14, run 11; now 0).
 # None: the tiers are smoothed along their own surfaces and shared (LAYER_PARTS).
-TIER_FIELD = ('petticoat_tier', 1.0, (0.0, 0.25))
+TIER_FIELD = ('petticoat_tier', 1.05, (0.0, 0.25))
 
 
 def _bspline2(x):
