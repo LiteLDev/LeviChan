@@ -1576,8 +1576,8 @@ AHOGE_LOCKS = (
     # kernel tip taper (u_t, a, b): linear, so the blade keeps its rings to near the
     # apex (a slower close leaves a 15 mm fan), swell, ring vertex count
     dict(name='ahoge_back',
-         ctrl=((246.0, None, -2.6), (251.5, None, 0.2), (257.5, 18.3, None), (263.5, 16.9, None),
-               (266.4, 15.8, None), (267.6, 14.3, None)),
+         ctrl=((246.0, None, -2.6), (251.5, None, 0.2), (257.5, 18.4, None), (262.5, 17.4, None),
+               (265.6, 16.1, None), (267.4, 14.2, None)),
          width=0.0140, thick=0.0052, tip=(0.45, 1.0, 1.0), swell=(0.7, 0.3), n=14),
     dict(name='ahoge_front',
          ctrl=((237.0, None, -2.6), (242.5, None, 0.2), (248.0, 23.9, None), (252.3, 18.8, None),
