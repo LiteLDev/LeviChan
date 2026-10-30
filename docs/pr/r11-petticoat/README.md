@@ -3,7 +3,100 @@
 Branch `r11/petticoat`, built on `r11/base`. Only `levi/parts/petticoat.py` changes geometry.
 The petticoat-specific parts of `levi/rig.py` change, and `tools/motion_check.py` gets one
 new count. Since the integration fix below, the branch also carries `r11/skirt` (merged at
-e8b439f, unchanged), so it supersedes both parts.
+e8b439f, unchanged), so it supersedes both parts. Since round 2 of the integration review it
+also carries `r11/integrate` (f0395d7), so `r11/integrate` fast-forwards to it.
+
+## Integration review, round 2
+**Merge with `r11/body-legs` (review p2).** fd525db no longer merged cleanly into
+`r11/integrate` f0395d7: two conflicts in `levi/rig.py` with `r11/body-legs`. The branch now
+merges `r11/integrate` and keeps both sides: the drape's knee has `DRAPE_KNEE_OUT` and the
+full-cloth `inner=`, and `build_rig` fills both `_CROTCH` and `_MOTION_CHAIN` (each resets the
+pose). The result is identical to the verifier's union merge (e460124).
+
+**Skirt waist in torso turns (`rig.CHAIN_BODY_KEEP`).** torso_left / torso_right / twist_bend /
+look_over_shoulder stretched the skirt x1.53 / 1.45 / 1.64 / 1.56 (round 10: 1.33 / 1.38 /
+1.37 / 1.35). The edges are 2.3 mm long, on the waist band above the chain roots (rest
+(0.09, -0.15, 0.86), front-left and front-right).
+- Cause: unpruned, those vertices carry six bones, with 上半身 at a smooth 0.045. The 4-bone
+  prune tied 上半身 with the weak neighbouring chain roots, and kept 0.005 on one vertex and
+  0.035 on the next. The turned 上半身 then sheared each edge by about 1 mm.
+- Fix: when a skirt-family vertex picks its four bones, the body bones (上半身 / 下半身) rank at
+  twice their weight. A neighbouring chain root moves like the vertex's own except in a drape;
+  in a twist, 上半身 alone turns the waist. 上半身 now stays at 0.045.
+- Result: x1.17 / 1.15 / 1.22 / 1.18 (`r2_waist_twist_heat.jpg`: stretch heat, white 1.0,
+  yellow 1.6). Also lower: squat skirt 1.44 → 1.39, high_kick 1.90 → 1.87, deep_lunge
+  1.65 → 1.61, kneel_one 1.72 → 1.60. The petticoat does not change: its tiers carry no body
+  weight and the core is not pruned. A factor of 3 also moved the cross_legged hem
+  (x2.07 → 2.21); 2 does not.
+
+**Rows still above min(round 10, petticoat alone)** (`motion_r2.txt`, the full report on the
+full merge). There are 16 such rows, with a summed excess of 0.93; round 1 had 22 rows and
+1.69, and the integration before the fix had 33 rows and 4.00. The cross_legged petticoat row
+has its own bound (round 10 + 0.1) and is not counted.
+- Petticoat: walk 1.81 (bound 1.74), walk clip 1.64 (1.60), curtsy 1.58 (1.44), sit_chair /
+  sit_stand 1.94 (1.81), jump_tuck 2.01 (1.92), lie_back 2.16 (2.15), squat 1.55 (1.53).
+- Skirt: walk 1.55 (1.51), walk clip 1.42 (1.35), curtsy 1.39 (1.32), seiza 1.56 (1.49).
+- Four dance / turn rows, each within 0.04 of the bound.
+
+These rows are ring strain at the hems where the front chains lift. They come from the drape,
+which the inner layers' clearance needs:
+- *Swap test* (same petticoat mesh; weights and bone matrices exchanged between the rigs). The
+  excess comes with the bone matrices, not the weights. Each row is: petticoat-alone weights
+  with petticoat-alone matrices / this branch's weights with petticoat-alone matrices /
+  petticoat-alone weights with this branch's matrices. walk tier1: 1.74 / 1.74 / 1.81.
+  sit_chair tier2: 1.79 / 1.78 / 1.95. curtsy tier2: 1.53 / 1.52 / 1.59. jump_tuck tier2:
+  1.90 / 1.89 / 1.96.
+- *What lifts the front chains.* Clearance per cloth object, chain 15 (front-left), left thigh
+  at 40 / 60 / 90 deg, turns of the three segments, root to hem:
+  - skirt alone: 0-0-14 / 20-30-34 / 70-66-76 deg;
+  - petticoat core: 12-22-0 / 36-46-22 / 108-84-60 deg.
+  The inner tiers lie wholly on the hem segment. A joint bends at most 24 deg, so the tiers
+  need the upper segments raised too: the least turn that clears them at 40 deg is 4-26-48.
+  The chain solve raises an upper segment only for the cloth on it, which there is the core.
+- *Without the core in the clearance* (experiment v2), every stretch row except the hem /
+  twist ones drops under the bound: walk 1.48, curtsy 1.31, sit_chair 1.67, jump_tuck 1.95.
+  But the thighs go 2.5-3.5 cm into the core and the inner tiers in 14 of the 34 poses and
+  clips measured (this branch: none over 2.2 cm), including the gated test (2.9 cm) and squat
+  (3.1 cm) poses
+  (`r2_core_clearance_test.jpg`). Before the integration fix, the sparse sample of the core
+  is what let the inner tiers go 2.9 cm into the thigh in run@18.
+- *The solve is sensitive.* Other changes move these rows by ±0.1-0.2, in both directions:
+  an 8-16 mm offset of the core in the clearance (v3 / v4), coarser clearance bins (v5), or
+  the old rest-ring sample (v1). No variant beat the current tables without losing the
+  clearance:
+
+| variant (subset report) | rows over bound | summed excess | worst petticoat pen | worst pen_frac |
+|---|---|---|---|---|
+| round-1 fix (fd525db) | 18 | 1.62 | 1.45 cm | 2.5% |
+| v1 rest ring from the chain points | 18 | 1.56 | 1.27 cm | 2.4% |
+| v2 core left out of the clearance | 7 | 0.79 | 3.50 cm | 7.5% |
+| v3 / v4 core 16 / 8 mm softer | 28 / 26 | 3.40 / 2.65 | 1.52 / 1.45 cm | 3.4% |
+| v5 clearance bins 4 deg x 2 cm | 15 | 1.50 | 1.44 cm | 2.7% |
+| core body handover 1.0 chain unit | 23 | 2.57 | 1.02 cm | 1.0% |
+| **CHAIN_BODY_KEEP 2 (this branch)** | **13** | **0.86** | **1.45 cm** | **2.5%** |
+
+(13 extended poses, the 17 core poses, clips run / walk / sit_stand / idol_dance; the
+cross_legged petticoat row has its own bound, round 10 + 0.1, and is left out.)
+
+**The other review items (p3).**
+- *Front tiers in walk / curtsy:* the drape, as above; the verifier's close-ups show no fold.
+- *Core top-ring pen* (lie_back 1.45 cm, hidden under the skirt and bodice). The back chains
+  turn forward with the gathered drape and swing the core's upper back ring, 2.2 cm off the
+  buttock at rest, into it. A longer body handover on the core alone (`ROOT_BLEND` 1.0 chain
+  unit) brings lie_back to 0.78 cm and pen_frac to about 0 everywhere. But it stretches the
+  core x2.1-2.2 in high_kick, deep_lunge, kneel_one and the run clip, so it is not used.
+- *Unchanged:* the middle tier's front seam, the ribbon tails in cross_legged (bodice) and the
+  sit_stand pops.
+
+**Gates (this branch = the full merge).**
+- `check.py`: CHECK OK, 151,376 / 200,000 faces (petticoat 25,920, skirt 22,680).
+- `rig_check.py`: RIG CHECK OK on the 17 core poses, with the repeatability build. torso_left
+  and torso_right go 1.53 / 1.45 → 1.24 / 1.24 (the worst object is now the bodice lacing);
+  every other row is unchanged (worst squat 1.82, walk 1.81 on tier1; worst pen side_bend
+  1.77 cm; no backward knee; 66/66 PMX names).
+- Full motion report (1736 s) against round 1: no regression past minor. kneel_one skirt
+  1.72 → 1.60 and twist_bend skirt 1.64 → 1.23.
+- Not run: `export_pmx`, `pmx_reimport`, `motion_vmd` (no mmd_tools on the cluster).
 
 ## Integration fix: skirt x petticoat in motion
 With `r11/skirt` merged, the petticoat core stretched x3.24 in cross_legged (x2.93
@@ -233,3 +326,9 @@ The skirt moves only because its chain fit sees the new petticoat.
 - `poses_cel.jpg`: deep_lunge front, high_kick back, cross_legged lap, sit_chair from
   below.
 - `below_q34_cel.jpg`: the view from below and the 3/4 view.
+- `r2_waist_twist_heat.jpg`: integration review round 2. The skirt's front-left waist band in
+  torso_left, twist_bend and look_over_shoulder, coloured by stretch (white 1.0, yellow 1.6),
+  before and after `CHAIN_BODY_KEEP`.
+- `r2_core_clearance_test.jpg`: the gated test pose with the core in the drape's clearance (this
+  branch) and left out of it (experiment v2): the thigh comes through the core and the inner
+  tiers hang into it (cel; clay zoomed, skirt and bodice hidden).

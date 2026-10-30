@@ -1,0 +1,126 @@
+# Integration review round 2: full merge (r11/integrate f0395d7 + r11/petticoat 994b520), full motion report
+# Columns: round 10 / petticoat alone (eb8538f on r11/base) / integrate before the fix (integ8) / round 1 fix (fd525db merged) / now.
+# '+': above the bound min(round 10, petticoat alone) by more than 0.005. pen and pen_frac in cm and %; cross in face pairs; pop in mm.
+# Stretch rows of skirt and petticoat with any value over 1.2:
+set       name               part       metric        r10     pet  integ8  round1     now
+core      test               petticoat  stretch    1.830   1.784   1.686   1.776   1.776 
+core      test               skirt      stretch    1.552   1.578   1.574+  1.509   1.509 
+core      squat              petticoat  stretch    1.544   1.532   1.522   1.546+  1.546+
+core      squat              skirt      stretch    1.448   1.552   1.482+  1.436   1.391 
+core      walk               petticoat  stretch    1.740   1.744   1.550   1.806+  1.806+
+core      walk               skirt      stretch    1.514   1.521   1.458   1.551+  1.551+
+core      torso_left         skirt      stretch    1.329   1.495   1.500+  1.534+  1.174 
+core      torso_right        skirt      stretch    1.378   1.618   1.549+  1.449+  1.153 
+core      swing              petticoat  stretch    1.510   1.497   1.423   1.391   1.391 
+core      swing              skirt      stretch    1.349   1.307   1.313+  1.274   1.274 
+core      forward_bend       petticoat  stretch    1.409   1.311   1.363+  1.308   1.308 
+core      forward_bend       skirt      stretch    1.287   1.262   1.309+  1.239   1.239 
+core      side_bend          skirt      stretch    1.203   1.289   1.254+  1.211+  1.207 
+extended  sit_chair          petticoat  stretch    2.030   1.808   2.217+  1.944+  1.944+
+extended  sit_chair          skirt      stretch    2.162   2.002   1.891   1.745   1.745 
+extended  seiza              petticoat  stretch    1.778   1.681   1.644   1.629   1.629 
+extended  seiza              skirt      stretch    1.730   1.493   1.506+  1.555+  1.555+
+extended  kneel_one          petticoat  stretch    1.893   1.887   1.987+  1.761   1.761 
+extended  kneel_one          skirt      stretch    1.723   1.767   1.748+  1.715   1.603 
+extended  cross_legged       petticoat  stretch    2.177   2.256   3.241+  2.261+  2.261+
+extended  cross_legged       skirt      stretch    2.604   2.712   2.473   2.067   2.067 
+extended  deep_lunge         petticoat  stretch    1.901   1.880   1.924+  1.784   1.784 
+extended  deep_lunge         skirt      stretch    1.760   1.670   1.644   1.646   1.608 
+extended  run_l              petticoat  stretch    1.778   1.877   1.795+  1.730   1.730 
+extended  run_l              skirt      stretch    1.701   1.636   1.591   1.610   1.610 
+extended  run_r              petticoat  stretch    2.171   1.946   1.821   1.746   1.746 
+extended  run_r              skirt      stretch    1.752   1.660   1.623   1.661   1.661 
+extended  jump_tuck          petticoat  stretch    2.060   1.920   2.442+  2.010+  2.010+
+extended  jump_tuck          skirt      stretch    2.195   2.017   1.917   1.824   1.824 
+extended  high_kick          petticoat  stretch    2.168   2.054   1.963   1.997   1.997 
+extended  high_kick          skirt      stretch    1.895   2.165   2.091+  1.898   1.867 
+extended  twist_bend         petticoat  stretch    1.339   1.241   1.292+  1.242   1.242 
+extended  twist_bend         skirt      stretch    1.375   1.603   1.626+  1.644+  1.225 
+extended  lie_back_elbows    petticoat  stretch    2.249   2.151   2.933+  2.159+  2.159+
+extended  lie_back_elbows    skirt      stretch    2.645   2.348   2.182   1.923   1.923 
+extended  look_over_shoulder skirt      stretch    1.346   1.519   1.524+  1.560+  1.182 
+extended  curtsy             petticoat  stretch    1.443   1.535   1.419   1.580+  1.580+
+extended  curtsy             skirt      stretch    1.321   1.344   1.343+  1.387+  1.387+
+extended  dance_sway         petticoat  stretch    1.354   1.238   1.262+  1.244+  1.244+
+extended  dance_sway         skirt      stretch    1.252   1.195   1.238+  1.190   1.190 
+extended  dance_point        petticoat  stretch    1.411   1.423   1.425+  1.362   1.362 
+extended  dance_point        skirt      stretch    1.329   1.341   1.349+  1.279   1.279 
+extended  dance_heart        petticoat  stretch    1.299   1.250   1.321+  1.257+  1.257+
+extended  dance_heart        skirt      stretch    1.236   1.212   1.284+  1.199   1.199 
+extended  dance_clap         petticoat  stretch    1.429   1.384   1.328   1.312   1.312 
+extended  dance_clap         skirt      stretch    1.328   1.272   1.301+  1.312+  1.312+
+motion    walk               petticoat  stretch    1.606   1.597   1.467   1.638+  1.638+
+motion    walk               skirt      stretch    1.354   1.382   1.380+  1.422+  1.422+
+motion    run                petticoat  stretch    2.300   1.983   1.892   1.908   1.908 
+motion    run                skirt      stretch    1.823   1.772   1.746   1.746   1.746 
+motion    turn               petticoat  stretch    1.399   1.291   1.356+  1.307+  1.307+
+motion    turn               skirt      stretch    1.285   1.247   1.305+  1.238   1.238 
+motion    sit_stand          petticoat  stretch    2.030   1.818   2.217+  1.944+  1.944+
+motion    sit_stand          skirt      stretch    2.162   2.002   1.891   1.746   1.746 
+motion    spin               petticoat  stretch    1.988   2.001   1.955   1.809   1.809 
+motion    spin               skirt      stretch    1.712   1.654   1.649   1.541   1.541 
+motion    idol_dance         petticoat  stretch    1.778   1.877   1.795+  1.771   1.771 
+motion    idol_dance         skirt      stretch    1.701   1.636   1.591   1.610   1.610 
+
+core      side_bend          petticoat  pen          1.16    1.02    1.02    1.02    1.02
+extended  sit_chair          petticoat  pen          0.82    0.84    0.80    0.97    0.97
+extended  seiza              petticoat  pen          0.51    0.60    1.42    0.46    0.46
+extended  kneel_one          petticoat  pen          0.68    0.72    0.64    0.80    0.80
+extended  cross_legged       petticoat  pen          3.37    3.12    3.28    2.17    2.17
+extended  deep_lunge         petticoat  pen          0.60    0.66    2.56    0.65    0.65
+extended  run_l              petticoat  pen          0.28    0.51    1.84    0.43    0.43
+extended  run_r              petticoat  pen          0.51    0.76    0.81    0.45    0.45
+extended  jump_tuck          petticoat  pen          0.68    0.66    0.63    0.72    0.72
+extended  high_kick          petticoat  pen          0.83    1.54    1.16    1.28    1.28
+extended  hands_on_hips      petticoat  pen          0.20    0.41    0.60    0.60    0.60
+extended  lie_back_elbows    petticoat  pen          0.54    0.95    0.73    1.45    1.45
+motion    run                petticoat  pen          0.49    1.11    2.77    0.42    0.42
+motion    sit_stand          petticoat  pen          1.05    0.92    2.83    1.01    1.01
+motion    idol_dance         petticoat  pen          0.68    0.52    2.68    0.74    0.74
+extended  sit_chair          petticoat  pen_frac     2.08    1.49    1.49    2.23    2.23
+extended  seiza              petticoat  pen_frac     0.35    0.30    1.19    0.00    0.00
+extended  kneel_one          petticoat  pen_frac     0.87    0.74    0.74    1.34    1.34
+extended  cross_legged       petticoat  pen_frac     6.60    7.59    8.18    5.95    5.95
+extended  deep_lunge         petticoat  pen_frac     0.69    0.60    2.40    0.89    0.89
+extended  run_l              petticoat  pen_frac     0.00    0.15    3.09    0.00    0.00
+extended  jump_tuck          petticoat  pen_frac     1.39    0.74    0.74    1.79    1.79
+extended  high_kick          petticoat  pen_frac     1.39    1.34    2.08    1.49    1.49
+extended  lie_back_elbows    petticoat  pen_frac     0.52    1.49    1.04    2.38    2.38
+motion    run                petticoat  pen_frac     0.00    0.78    3.65    0.00    0.00
+motion    sit_stand          petticoat  pen_frac     2.60    1.79    4.08    2.53    2.53
+motion    idol_dance         petticoat  pen_frac     0.17    0.15    4.06    0.30    0.30
+core      side_bend          skirt      pen          1.76    1.76    1.77    1.77    1.77
+extended  kneel_one          skirt      pen          0.58    0.48    0.49    0.50    0.50
+extended  cross_legged       skirt      pen          1.78    2.00    2.02    1.56    1.56
+extended  run_l              skirt      pen          1.22    0.91    1.30    1.29    1.29
+extended  run_r              skirt      pen          0.69    1.27    1.30    1.26    1.26
+extended  hand_to_shoulder   skirt      pen          1.14    1.14    1.21    1.21    1.21
+extended  hands_on_hips      skirt      pen          0.94    0.94    0.79    0.79    0.79
+extended  twist_bend         skirt      pen          1.71    1.68    1.66    1.69    1.69
+extended  lie_back_elbows    skirt      pen          1.23    1.19    1.15    1.14    1.14
+motion    walk               skirt      pen          1.30    1.29    1.34    1.32    1.32
+motion    run                skirt      pen          1.25    1.27    1.31    1.27    1.27
+motion    sit_stand          skirt      pen          1.65    1.63    1.50    1.65    1.65
+motion    idol_dance         skirt      pen          1.52    1.52    1.55    1.55    1.55
+extended  cross_legged       skirt x pe cross      214.00  212.00  226.00  218.00  218.00
+extended  cross_legged       petticoat  flip         3.00    6.00    8.00    3.00    3.00
+extended  jump_tuck          skirt      flip        32.00   10.00    9.00   16.00   16.00
+motion    walk               skirt      pop          8.16       -       -       -       -
+motion    run                skirt      pop             -   65.55   73.96       -       -
+motion    sit_stand          skirt      pop         10.29       -    1.73    3.12    3.12
+motion    run                petticoat  pop         68.53       -       -   75.80   75.80
+
+SUMMARY integ8 rows over bound 34, excess sum 5.065: test skir +0.021; squat skir +0.034; torso_left skir +0.171; torso_right skir +0.171; swing skir +0.006; forward_bend pett +0.052; forward_bend skir +0.047; side_bend skir +0.051; sit_chair pett +0.409; seiza skir +0.013; kneel_one pett +0.100; kneel_one skir +0.025; cross_legged pett +1.064; deep_lunge pett +0.044; run_l pett +0.017; jump_tuck pett +0.522; high_kick skir +0.196; twist_bend pett +0.051; twist_bend skir +0.252; lie_back_elbows pett +0.782; look_over_shoulder skir +0.178; curtsy skir +0.022; dance_sway pett +0.024; dance_sway skir +0.043; dance_point pett +0.014; dance_point skir +0.020; dance_heart pett +0.071; dance_heart skir +0.072; dance_clap skir +0.029; walk skir +0.027; turn pett +0.065; turn skir +0.058; sit_stand pett +0.399; idol_dance pett +0.017
+SUMMARY round1 rows over bound 22, excess sum 1.770: squat pett +0.014; walk pett +0.067; walk skir +0.037; torso_left skir +0.205; torso_right skir +0.071; side_bend skir +0.008; sit_chair pett +0.135; seiza skir +0.062; cross_legged pett +0.084; jump_tuck pett +0.090; twist_bend skir +0.269; lie_back_elbows pett +0.008; look_over_shoulder skir +0.214; curtsy pett +0.136; curtsy skir +0.066; dance_sway pett +0.006; dance_heart pett +0.007; dance_clap skir +0.040; walk pett +0.040; walk skir +0.068; turn pett +0.016; sit_stand pett +0.126
+SUMMARY now    rows over bound 17, excess sum 1.003: squat pett +0.014; walk pett +0.067; walk skir +0.037; sit_chair pett +0.135; seiza skir +0.062; cross_legged pett +0.084; jump_tuck pett +0.090; lie_back_elbows pett +0.008; curtsy pett +0.136; curtsy skir +0.066; dance_sway pett +0.006; dance_heart pett +0.007; dance_clap skir +0.040; walk pett +0.040; walk skir +0.068; turn pett +0.016; sit_stand pett +0.126
+
+# Regressions / improvements past minor, now against round 1 (mdiff.py):
+ISSUES part level: base -> new
+  skirt          minor   27 ->   26
+total 508 -> 507
+
+REGRESSIONS past minor (set name part metric: base -> new  object where)
+
+IMPROVEMENTS from past minor: 2
+  extended kneel_one          skirt          stretch     1.715 ->    1.603
+  extended twist_bend         skirt          stretch     1.644 ->    1.225
