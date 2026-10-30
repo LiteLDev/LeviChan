@@ -562,6 +562,31 @@ CAP_PHI_LOW = 10                # rings from there to the lower pole (hidden und
 CAP_SPOKE = 7.5                 # deg between spokes away from the grooves ...
 CAP_SPOKE_GROOVE = 2.5          # ... and across a groove, CAP_SPOKE_BAND deg either side of its line
 CAP_SPOKE_BAND = 5.0
+# Under the fringe the cap is a hidden layer: it is carved in by CAP_RECESS (m) over
+# the front sector (CAP_RECESS_AZ deg either side of the face, fading out over the
+# next CAP_RECESS_AZ_FADE) between CAP_RECESS_ROWS (fading in / out over
+# CAP_RECESS_FADE rows), so the clumps' concave undersides and rims rest on it
+# instead of sinking into it (round 11 first build: 10-23 % of the eye primaries'
+# and outer clumps' vertices past their roots lay inside the cap). The cap only
+# shrinks, so CAP_PROFILE stays an envelope of it (hair_back reads the table).
+CAP_RECESS = 0.008
+CAP_RECESS_AZ = (60.0, 25.0)
+CAP_RECESS_ROWS = (58.0, 112.0)
+CAP_RECESS_FADE = 10.0
+
+
+def cap_recess(p):
+    """Inward depth (m) of the fringe recess at cap point p."""
+    if CAP_RECESS <= 0:
+        return 0.0
+    row = spec.SHEET_GROUND_Y - p.z * spec.PX_PER_M
+    w = smooth01((row - CAP_RECESS_ROWS[0]) / CAP_RECESS_FADE)
+    w *= 1.0 - smooth01((row - CAP_RECESS_ROWS[1]) / CAP_RECESS_FADE)
+    if w <= 0:
+        return 0.0
+    ang = math.degrees(math.atan2(abs(p.x), -(p.y - HEAD_AXIS.y)))
+    w *= 1.0 - smooth01((ang - CAP_RECESS_AZ[0]) / CAP_RECESS_AZ[1])
+    return CAP_RECESS * w
 
 _CAP = {}
 
@@ -657,7 +682,7 @@ def cap_grid():
             d = a * math.cos(ph) + (e1 * math.cos(th) + e2 * math.sin(th)) * math.sin(ph)
             p = _cast(bvh, c, d.normalized())
             dep, ev = crown_groove(p, frame)
-            ring.append(p - head_normal(p) * dep)
+            ring.append(p - head_normal(p) * (dep + cap_recess(p)))
             env.append(ev)
         rings.append(ring)
         envs.append(env)
@@ -855,6 +880,7 @@ def keep_attr(keep):
 
 SETTLE_SQUASH = 0.35
 LOG = []                # per-strand summary lines (printed by build)
+STATS = {}              # object -> [vertices, vertices buried in the cap past the root]
 
 
 def settle(st, bvh, emerge, depth=1.5, squash=SETTLE_SQUASH, line=True):
@@ -886,8 +912,42 @@ def settle(st, bvh, emerge, depth=1.5, squash=SETTLE_SQUASH, line=True):
     if line:
         st.attrs[LINE_ATTR] = lw
         st.attrs_apex[LINE_ATTR] = 1.0
+    st.meta['emerge'] = emerge
     hk.validate(st)
     return st
+
+
+_RAYS = (Vector((0.0, 0.0, 1.0)), Vector((0.6, 0.0, -0.8)), Vector((-0.5, 0.7, 0.5)).normalized())
+
+
+def _inside(bvh, p):
+    """Point inside the closed mesh of bvh (ray parity, majority of 3 directions)."""
+    votes = 0
+    for d in _RAYS:
+        n, q = 0, Vector(p)
+        for _ in range(16):
+            hit = bvh.ray_cast(q, d, 1.0)
+            if hit[0] is None:
+                break
+            n += 1
+            q = hit[0] + d * 1e-6
+        votes += n % 2
+    return votes >= 2
+
+
+def buried(st, cap_bvh):
+    """(vertices, vertices inside the cap past the root's emergence) of a strand: the
+    burial beyond the designed root (round 10: 14-73 % of each hair_front object's
+    vertices lay inside the cap or another lock)."""
+    em = st.meta.get('emerge', 0.0)
+    tot = bad = 0
+    for tb in st.all_tubes():
+        for j, ring in enumerate(tb.rings):
+            for p in ring:
+                tot += 1
+                if tb.arc[j] > em and _inside(cap_bvh, p):
+                    bad += 1
+    return tot, bad
 
 
 # Nesting (round 11). hk.strand_on() lifts a strand wherever a line along its section
@@ -907,6 +967,8 @@ def _nest_need(st, lowers):
     points inside a lower strand) of strand st."""
     s_par, top = hk.ring_params(st.n)
     under = ~top
+    caps = [lo for lo in lowers if isinstance(lo, CapLower)]
+    lowers = [lo for lo in lowers if not isinstance(lo, CapLower)]
     tri = [lo.triangles() for lo in lowers]
     box = [(t.min((0, 1)), t.max((0, 1))) for t in tri]
     need = np.zeros(len(st.rings))
@@ -914,6 +976,11 @@ def _nest_need(st, lowers):
     inv = 0
     for j, ring in enumerate(st.rings):
         Nj = st.N[j]
+        for cp in caps:
+            nd, k = cp.need(ring[under], Nj)
+            if k:
+                need[j] = max(need[j], nd)
+                cov[j] = max(cov[j], k / float(under.sum()))
         lo_r, hi_r = ring.min(0) - 0.002, ring.max(0) + 0.002
         for t, (lo, hi) in zip(tri, box):
             if np.any(hi < lo_r) or np.any(lo > hi_r):
@@ -958,6 +1025,43 @@ def _smooth_lift(st, need, root_fade):
     if root_fade > 0:
         sm = sm * hk.smooth01(su * L / root_fade)
     return su, sm
+
+
+class CapLower:
+    """The scalp cap as a 'lower' for nested(): past its root's emergence a lock
+    rests on the cap instead of sinking its concave underside and rims into it
+    (round 11 first build: 15-18 % of the fringe and curtain vertices lay inside
+    the cap beyond their designed root burial). Its need is the depth under the
+    cap surface (nearest point), over the cosine between the lock's facing and
+    the cap normal there (a line along a lock's tilted facing would run along the
+    cap surface)."""
+
+    def __init__(self, bvh):
+        self.bvh = bvh
+
+    def need(self, pts, N):
+        out = 0.0
+        hits = 0
+        for p in pts:
+            q = Vv(p)
+            if not _inside(self.bvh, q):
+                continue
+            co, nrm, _i, d = self.bvh.find_nearest(q)
+            if co is None:
+                continue
+            hits += 1
+            c = max(0.35, float(np.dot(N, A(nrm))))
+            out = max(out, d / c + NEST_GAP)
+        return out, hits
+
+
+_CAP_LOWER = []
+
+
+def cap_lower(bvh=None):
+    if bvh is not None:
+        _CAP_LOWER[:] = [CapLower(bvh)]
+    return _CAP_LOWER[0]
 
 
 def nested(lowers, root_fade=0.0, **kw):
@@ -1007,20 +1111,27 @@ def nested(lowers, root_fade=0.0, **kw):
     return st
 
 
-def log_strand(st, obj):
+def log_strand(st, obj, cap_bvh=None):
     v = hk.validate(st)
     m = st.meta
+    bur = ''
+    if cap_bvh is not None:
+        tot, bad = buried(st, cap_bvh)
+        STATS.setdefault(obj, [0, 0])
+        STATS[obj][0] += tot
+        STATS[obj][1] += bad
+        bur = f'  buried past root {100 * bad / max(tot, 1):.1f}%'
     LOG.append(f'{obj:15s} {st.name:16s} len {1000 * st.length:5.0f} mm  n {st.n:2d}  rings {v["rings"]:3d}  '
                f'faces {v["faces"]:4d}  turn {v["max_turn"]:4.1f}  rho {v["max_rho"]:.2f}  twist '
-               f'{v["max_twist"]:4.1f}  gap {1000 * v["max_gap"]:4.1f} mm'
+               f'{v["max_twist"]:4.1f}  gap {1000 * v["max_gap"]:4.1f} mm{bur}'
                + (f'  overlap {100 * m["overlap"]:.0f}% lift {1000 * m["lift_max"]:.1f} mm '
                   f'residual {1000 * m["residual"]:.2f} mm inverted {m.get("inverted", 0)}'
                   if 'overlap' in m else ''))
 
 
-def emit_all(bm, strands, obj):
+def emit_all(bm, strands, obj, cap_bvh=None):
     for st in strands:
-        log_strand(st, obj)
+        log_strand(st, obj, cap_bvh)
         hk.emit(bm, st)
 
 
@@ -1299,7 +1410,7 @@ def _curl_lock():
 
 # One strand behind the face frame filling the gap to the back hair.
 SIDE_CURTAIN = [
-    ([(56, 62, 303), (62, 108, 303), (64, 145, 303), (66, 176, 304), (67, 202, 306)], 0.032, None),
+    ([(59, 62, 304), (68, 108, 305), (70, 145, 305), (71, 176, 306), (70, 202, 308)], 0.032, None),
 ]
 
 
@@ -1320,7 +1431,7 @@ def lock_normal(p, forward=1.2, lateral=False):
 ROOT_SINK = 5.0         # px the first control point is pushed into the cap
 ROOT_BURY = (12, 4)     # extra root point: px back up along the cap, px into it
 CHEEK_EMERGE = 24.0     # ... the cheek locks and wisps (they converge at the temple, under the flower)
-LOCK_EMERGE = 10.0      # px of arc past the first visible control point over
+LOCK_EMERGE = 16.0      # px of arc past the first visible control point over
                         # which settle() lets the lock lift off the cap
 LOCK_GAP = 0.0008       # m: a lock resting on another (hk.strand_on)
 # Normal blend per family: the hanging locks fade from the scalp volume near the
@@ -1412,16 +1523,17 @@ def side_locks(cap_bvh, sheet_bvh):
 def build(col):
     mat = common.toon_material('hair', gradient='hair_tip')
     LOG.clear()
+    STATS.clear()
     _cap_obj, cap_bvh = build_cap(col, mat)
     sheet_bvh = _sheet_bvh()
 
     bm = bmesh.new()
-    emit_all(bm, ahoge(cap_bvh), 'hair_crown')
+    emit_all(bm, ahoge(cap_bvh), 'hair_crown', cap_bvh)
     crown = finish(col, 'hair_crown', bm, mat, line_min=LINE_MIN)
     crown['levi_cast_shadow'] = False   # a thin tuft prints a hard sliver on the crown otherwise
 
     bm = bmesh.new()
-    emit_all(bm, bangs(cap_bvh), 'hair_bangs')
+    emit_all(bm, bangs(cap_bvh), 'hair_bangs', cap_bvh)
     bangs_obj = finish(col, 'hair_bangs', bm, mat, line_min=LINE_MIN)
     # The fringe does not cast: with the low key light every clump ridge over
     # the crown printed a hard 1-2 px shadow sliver along its neighbour, and its
@@ -1434,10 +1546,12 @@ def build(col):
         for name, strands in fams.items():
             bm = bmesh.new()
             sts = strands if side == 'L' else [hk.mirrored(s) for s in strands]
-            emit_all(bm, sts, f'{name}_{side}')
+            emit_all(bm, sts, f'{name}_{side}', cap_bvh)
             finish(col, f'{name}_{side}', bm, mat, line_min=LINE_MIN)
     err = cap_profile_error()
     print(f'HAIR_FRONT cap: {len(cap_spokes())} spokes x {len(cap_rings())} rings; '
           f'outside CAP_PROFILE by at most {1000 * err:.2f} mm')
     for line in LOG:
         print('HAIR_FRONT', line)
+    for obj, (tot, bad) in STATS.items():
+        print(f'HAIR_FRONT {obj:15s} vertices {tot:5d}, inside the cap past the root {100 * bad / max(tot, 1):4.1f}%')
