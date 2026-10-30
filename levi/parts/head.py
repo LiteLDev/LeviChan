@@ -1327,6 +1327,7 @@ IRIS_SQUASH = (0.87, 0.0002)          # the iris dish's height kept (round, not 
 #                                       far [m] its lowest point sits behind the baked lower lid's edge
 BROW_SNAP = True                      # her brows, lowered, keep her own offset off the forehead
 BROW_FLAT = 0.6                       # share of her brows' arch taken out
+BROW_CLEAR = 0.0006                   # m: the brows stay at least this far off the forehead in every key
 HILITE_OFF = 0.003                    # ハイライト消: m behind the iris
 BROW_DROP = 0.008                     # m: her brow strips come down toward the eye: their middle 0.35 IPD
 #                                       over the iris (the design's height) and, with the inner ends
@@ -1938,7 +1939,22 @@ def _snap_brows(P, brow, face_bvh):
     return out
 
 
-def build_eyes(col, W, mat, verts, holes):
+def _clear_brows(Q, brow, face):
+    """Brow points at least BROW_CLEAR off the face (face: (BVH, verts)), pushed out
+    along its normal."""
+    bvh = face[0]
+    out = Q.copy()
+    for i in np.nonzero(brow)[0]:
+        loc, nrm, _, d = bvh.find_nearest(Vector(Q[i]))
+        if loc is None:
+            continue
+        sd = (Vector(Q[i]) - loc).dot(nrm)
+        if sd < BROW_CLEAR:
+            out[i] = np.array(loc + nrm * BROW_CLEAR)
+    return out
+
+
+def build_eyes(col, W, mat, verts, holes, face_polys=None, face_all_keys=None):
     """The white cups, iris dishes (on 目), highlights (on 目) and lash / liner /
     brow strips, from her eye pieces, recoloured to Levi's design in the atlas and
     reshaped toward Levi's (the lash map, the round iris, the highlight)."""
@@ -1953,6 +1969,12 @@ def build_eyes(col, W, mat, verts, holes):
     fc = W.fc
     face_bvh = BVHTree.FromPolygons([Vector(p) for p in fc['pos']], [tuple(t) for t in fc['tri']])
     lpb = _snap_brows(lp, np.unique(lt[kinds == 'brow']), face_bvh)
+    # head_face at rest and in its keys (world), for the brows' clearance
+    near_brow = verts[:, 2] > G.EYE_C[1] + 0.008
+    sub = [p for p in face_polys if near_brow[p].all()]
+    face_rest = (BVHTree.FromPolygons([Vector(p) for p in verts], sub), None)
+    face_keys = {k: (BVHTree.FromPolygons([Vector(p) for p in a], sub), None) for k, a in (face_all_keys or {}).items()
+                 if np.abs(a[near_brow] - verts[near_brow]).max() > 1e-6}
     out = {}
     for sfx, s in (('L', 1.0), ('R', -1.0)):
         sel = _side(wp, wt)[sfx]
@@ -1974,6 +1996,11 @@ def build_eyes(col, W, mat, verts, holes):
         lpb2[lused] = lmap.pre(LP)
         rest = _part_rest(W, 'lash', lpb2, lused, post=lmap)
         lkeys = _part_keys(W, 'lash', lpb2, lused, post=lmap)
+        # the brows stay on the forehead in every key (lowered for Levi, her 真面目 / 下 / 怒り
+        # took them under the skin of the brow ridge)
+        brow = np.isin(lused, np.unique(lt[kinds == 'brow']))
+        rest = _clear_brows(rest, brow, face_rest)
+        lkeys = {k: _clear_brows(v, brow, face_keys.get(k, face_rest)) for k, v in lkeys.items()}
         keep = ~lmap.drop_tris
         live = np.unique(LT[keep])
         lut = -np.ones(len(lused), np.int64)
@@ -2180,7 +2207,7 @@ def build(col):
     flush_mat = atlas_material('toon_face_flush', G.FLUSH_PNG, 'levi_flush_tex')
     decal_mat = face_material(atlas_pixels(), 'toon_face_decal', 'levi_decal_tex')
     head, W, verts, keys, holes, nrm = build_face(col, face, mouth)
-    build_eyes(col, W, face, verts, holes)
+    build_eyes(col, W, face, verts, holes, [list(p.vertices) for p in head.data.polygons], keys)
     build_mouth(col, W, teeth_mat, decal_mat)
     build_fx(col, head, verts, keys, nrm, holes, flush_mat, decal_mat)
     for side, nm in ((1, 'head_ear_L'), (-1, 'head_ear_R')):
