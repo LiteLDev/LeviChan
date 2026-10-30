@@ -2,7 +2,93 @@
 
 Branch `r11/petticoat`, built on `r11/base`. Only `levi/parts/petticoat.py` changes geometry.
 The petticoat-specific parts of `levi/rig.py` change, and `tools/motion_check.py` gets one
-new count.
+new count. Since the integration fix below, the branch also carries `r11/skirt` (merged at
+e8b439f, unchanged), so it supersedes both parts.
+
+## Integration fix: skirt x petticoat in motion
+With `r11/skirt` merged, the petticoat core stretched x3.24 in cross_legged (x2.93
+lie_back_elbows, x2.44 jump_tuck, x2.22 sit_chair; round 10 2.18 / 2.25 / 2.06 / 2.03),
+and the inner tiers went 2.8 cm into the raised thigh in the run clip (idol_dance,
+sit_stand, deep_lunge, run_l and seiza too). Hair, sleeves, torso and hands changed nothing.
+
+**Causes** (`out/r3`, scratch merges under `work/integ_scratch/pt_reports`):
+- *Core: the 4-bone prune's motion refit.* The core's 7 sparse rings, smoothed 6 cm,
+  carry 6-12 bones per vertex. The refit picks 4 per vertex from the generic samples, of
+  which only a few move the skirt chains, so neighbouring vertices landed on chain 4 vs
+  chain 6 (rest azimuth -56, z 0.64: a purple column in `integ_core_heat.jpg`). Swap test:
+  the merged rig's core weights with the petticoat-alone bone matrices still give x3.20,
+  the petticoat-alone weights with the merged matrices x2.08; the unpruned weights x1.83.
+- *Drape: an unstable clearance sample.* The clearance tested 300 sector points taken by
+  index; the skirt fix moved the mean centre `cy` by 0.009 mm, points crossed sector
+  edges and every sector got different samples. The clearance of the front chains changed
+  by 20-40 deg, and with the gather the left-thigh table of chains 14-15 lifted 15 deg
+  less at 58 deg of thigh pitch (run@18). The 5 mm petticoat grid also kept the first
+  object's point per cell, dropping the inner tiers where they lie within 5 mm of the
+  outer one.
+
+**Fix (`levi/rig.py`, skirt / petticoat / drape sections only):**
+- `PLAIN_OBJECTS`: the core takes the plain angle x height blend of `_skirt_weights` (at
+  most 4 bones, no smoothing, no prune, no refit), so it no longer depends on the drape.
+  `PLAIN_SEAM`: its ring that the inner tier hangs from takes the tiers' weights (within
+  6 mm, plain again by 12 mm), so the seams stay closed (0.3-1 cm in poses; a fully plain
+  core left the tiers' tops 1.5-2 cm off in walk and run).
+- `DRAPE_BIN`: the clearance tests the innermost cloth point of each 2 deg x 1 cm cell of
+  the sector over the full skirt and petticoat meshes; the rest ring's innermost cloth
+  (`DRAPE_INNER`) reads the full meshes too. The drape tables for the petticoat-alone and
+  merged cloth now agree within 0-2 deg (6 deg on one abducted table), against 19-23 deg
+  before.
+- `MOTION_CHAIN_POSES`: the skirt family's prune refit adds 15 thigh samples (each thigh
+  alone and both, forward 45-120, back 30, in / out 35), with the chains following
+  through their drape drivers. Pruned weights now stretch like the unpruned ones (the
+  skirt's cross_legged 2.47 -> 2.07; unpruned 2.01).
+- Tried and dropped: refit samples that turn every third chain alone (they fit unnatural
+  ring strain: skirt x2.79 in cross_legged, x2.04 in the gated 'test' pose); no refit at
+  all (core x2.6 in high_kick);
+  smoothing the refitted weights (x2.2-3.0); blending the tiers to the plain blend near
+  the core (front-hem x2.03 and a strain-jitter major in the run clip over a 2.5 cm band,
+  x3.3 over 1 cm); a 4 cm core-side band (core x2.37); tier smoothing 4.5 / 8 cm (no gain).
+
+**Motion, full merge** (`r11/integrate` ada6865 + this fix, full report;
+`motion_integ.txt`), round 10 / petticoat alone / integrate before / now:
+
+| | round 10 | petticoat alone | before | now |
+|---|---|---|---|---|
+| cross_legged petticoat | 2.18 | 2.26 | 3.24 | 2.26 |
+| cross_legged skirt | 2.60 | 2.71 | 2.47 | 2.07 |
+| lie_back petticoat | 2.25 | 2.15 | 2.93 | 2.16 |
+| jump_tuck petticoat | 2.06 | 1.92 | 2.44 | 2.01 |
+| sit_chair petticoat | 2.03 | 1.81 | 2.22 | 1.94 |
+| high_kick petticoat / skirt | 2.17 / 1.90 | 2.05 / 2.16 | 1.96 / 2.09 | 2.00 / 1.88 |
+| run clip petticoat | 2.30 | 1.98 | 1.89 | 1.90 |
+| run clip petticoat pen | 0.5 cm, 0.0% | 1.1 cm, 0.8% | 2.8 cm, 3.6% | 0.4 cm, 0.0% |
+| idol_dance pen | 0.7 cm, 0.2% | 0.5 cm, 0.1% | 2.7 cm, 4.1% | 0.7 cm, 0.3% |
+| sit_stand pen | 1.1 cm, 2.6% | 0.9 cm, 1.8% | 2.8 cm, 4.1% | 1.0 cm, 2.1% |
+| deep_lunge / run_l pen | 0.6 / 0.3 cm | 0.7 / 0.5 cm | 2.6 / 1.8 cm | 0.6 / 0.4 cm |
+| run clip petticoat jitter | - | - | 0.28 | - |
+
+- Every skirt stretch is at or below round 10 except, all minor: twist_bend 1.65 (round
+  10 1.37, petticoat alone 1.60, before 1.63), look_over_shoulder 1.56 (1.35 / 1.52 /
+  1.52), walk clip 1.40 (1.35 / 1.38 / 1.38) and curtsy 1.35 (1.32 / 1.34 / 1.34).
+- No new major against round 10. Still above the petticoat-alone numbers: jump_tuck 2.01
+  (inner tier hem, round 10 2.06), sit_chair 1.94, curtsy 1.55 (1.53).
+- Core penetration at its hip ring (azimuth +-90, z 0.83-0.87, hidden under skirt and
+  bodice): lie_back 1.4 cm / 2.2% (round 10 0.5 cm, petticoat alone 0.9 cm), high_kick
+  1.3 cm (0.8 / 1.5). Minor, under 2 cm.
+- Skirt x petticoat crossings in cross_legged 216 (round 10 214); tier x tier 82 (petticoat
+  alone 84).
+- With `r11/body-legs` merged as well (other thighs, `motion_legs.txt`) every row stays
+  within 0.03 of these and the pen within 0.1 cm; without the fix that merge reproduces
+  the x3.24 core and the 2.9 cm run penetration.
+
+**Gates.** This branch: `check.py` CHECK OK (petticoat 25,920 / 28,000, skirt 22,680 /
+24,000, total 121,868); `rig_check.py` RIG CHECK OK (17 core poses: fist 1.86, squat 1.85,
+test 1.83, walk 1.78 on tier1; worst pen side_bend 1.76 cm; no backward knee; 66/66 PMX
+names). Full merge: CHECK OK (148,540) and RIG CHECK OK.
+
+**Images.** `integ_run18.jpg` / `integ_run18_zoom.jpg`: run@18 from the left and the front,
+cel and clay, before / after (the thigh no longer cuts the front frill).
+`integ_core_heat.jpg`: the core in cross_legged and lie_back_elbows coloured by edge
+stretch (white 1.0, yellow 1.6, red 2.0, purple 2.6+), tiers and skirt hidden.
 
 ## What it is now
 - **Three tiers plus a gathered core.** Petticoat: 25,920 faces (budget 28,000; round 10 had
@@ -38,10 +124,12 @@ new count.
     tiers' weights at their 6 nearest vertices within 1.2 cm, weighted by
     (1 - d/r)^2, in two passes. The change is smoothed along the tier over 2 cm.
   - The core keeps its own weights. When it was shared too, its sparse pruned rings
-    carried their steps into tier1's seam.
+    carried their steps into tier1's seam. (Since the integration fix the core takes the
+    plain angle x height blend, and the tiers' weights at their seam: see above.)
   - Tried and dropped: one angle x height weight field for every petticoat object. It
     mixed 5-6 chain bones round the hips and stretched the core x4-5 in high_kick.
-- **`DRAPE_GRID` now 5 mm, on petticoat points only.**
+- **`DRAPE_GRID` now 5 mm, on petticoat points only** (the chain fit; since the
+  integration fix the drape's clearance and rest ring read the full meshes, `DRAPE_BIN`).
   - The skirt chains and the drape see the petticoat thinned to a 5 mm grid, about as
     many points as round 10's petticoat had (12.9k). The skirt's points are taken as
     they are.
