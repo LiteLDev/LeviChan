@@ -4549,21 +4549,29 @@ def _lock_weights(w, co, labels, bones):
 # probes, the pitch gravity differs between sector and lock chains), so in a head turn or a
 # bend the lining came up through the locks (look_over_shoulder, head_left 70 deg: 25-45 mm
 # relative motion, 2500+ crossing triangle pairs). Each vertex (at its weighting point)
-# takes the chains of the locks of the objects it names by a soft minimum of its distance
-# to their surfaces (LOCK_FOLLOW_SOFT m: the lock it lies under, not the over-row lock
-# whose centre line may be nearer; following that one, reach_up_back pulled the lining
-# through the lock it touches), and along each chain the hat weights a lock of it carries
-# (_lock_weights); the head fade then applies by height as on every lock. Only locks less
-# than obj['levi_follow_angle'] deg round from straight back count (hair_back: the
-# primaries over the lining, not the side locks and flicks beside it, which the raised
-# arms push). As the lining's vertices are dominated by lock segments, the locks' collision
-# probes also keep the lining's inner face off her trunk (_hair_collision).
-LOCK_FOLLOW_SOFT = 0.006
+# takes the chains of the two locks of the objects it names whose surfaces are nearest,
+# each by how much nearer it is than the third (continuous where the nearest locks change),
+# the distances smoothed along the lining first (LOCK_FOLLOW_SMOOTH m), and along each chain
+# the hat weights a lock of it carries (_lock_weights). Surfaces, not centre lines: the
+# lock it lies under, not the over-row lock whose centre line may be nearer (following that
+# one, reach_up_back pulled the lining through the lock it touches). Two locks, not a soft
+# minimum over all: with three or more chains' segments and the head bone the 4-bone prune
+# refitted neighbouring vertices to different bone sets (x3-5.7 in test, head_left, swing).
+# In the head bone's fade band (rig.HAIR_HEAD_FADE, from LOCK_FOLLOW_BAND m under its
+# foot) the position along each chain stops at its first bone's middle, so a vertex there
+# carries the head and the first bones of two chains only. The lining is smooth by
+# construction and is not smoothed again. Only locks less than obj['levi_follow_angle'] deg
+# round from straight back count (hair_back: the primaries over the lining, not the side
+# locks and flicks beside it, which the raised arms push). As the lining's vertices are
+# dominated by lock segments, the locks' collision probes also keep the lining's inner
+# face off her trunk (_hair_collision).
+LOCK_FOLLOW_SMOOTH = 0.03
+LOCK_FOLLOW_BAND = 0.03
 
 
-def _follow_lock_weights(co, bones, obj_names, w, max_angle=180.0):
+def _follow_lock_weights(co, bones, obj_names, w, max_angle=180.0, edges=None):
     """(V, B) weights of points that follow the lock chains of the objects obj_names, less
-    than max_angle deg round from straight back (see LOCK_FOLLOW_SOFT); w unchanged when
+    than max_angle deg round from straight back (see LOCK_FOLLOW_SMOOTH); w unchanged when
     there are none."""
     from mathutils.kdtree import KDTree
     by_key = {}
@@ -4585,22 +4593,33 @@ def _follow_lock_weights(co, bones, obj_names, w, max_angle=180.0):
     if not surf:
         return w
     head = [j for j, b in enumerate(bones) if b.name == '頭']
+    z0 = HAIR_HEAD_FADE[0]
+    cap = _smoothstep(z0 - LOCK_FOLLOW_BAND, z0, co[:, 2])
     chains, dist = [], []
-    for key, p in surf.items():
+    for key in sorted(surf):
+        p = surf[key]
         cols = sorted(by_key[key], key=lambda j: bones[j].meta.get('seg', 0))
         A = np.array([bones[j].head for j in cols])
         B = np.array([bones[j].tail for j in cols])
-        chains.append((cols, _polyline_u(co, A, B)))
+        u = _polyline_u(co, A, B)
+        chains.append((cols, u - np.maximum(0.0, u - 0.5) * cap))
         kd = KDTree(len(p))
         for i, q in enumerate(p):
             kd.insert(Vector(q), i)
         kd.balance()
-        dist.append(np.array([kd.find(Vector(q))[2] for q in co]))
-    dist = np.array(dist)
-    g = np.exp(-(dist - dist.min(0)) / LOCK_FOLLOW_SOFT)
-    g /= g.sum(0)
+        dist.append([kd.find(Vector(q))[2] for q in co])
+    dist = np.array(dist).T                                     # (V, K)
+    if edges is not None and len(edges):
+        dist = _smooth(dist, co, edges, LOCK_FOLLOW_SMOOTH)
+    srt = np.sort(dist, 1)
+    d3 = srt[:, 2] if dist.shape[1] >= 3 else srt[:, -1] + LOCK_FOLLOW_SMOOTH
+    g = np.maximum(0.0, d3[:, None] - dist)
+    tot = g.sum(1)
+    none = tot <= 1e-12
+    g[none, np.argmin(dist[none], 1)] = 1.0
+    g /= np.maximum(g.sum(1, keepdims=True), 1e-12)
     out = np.zeros_like(w)
-    for (cols, u), gk in zip(chains, g):
+    for (cols, u), gk in zip(chains, g.T):
         n = len(cols)
         share = _smoothstep(0.0, ROOT_BLEND, u) if head else np.ones(len(u))
         uc = np.clip(u, 0.5, n - 0.5)
@@ -4633,7 +4652,7 @@ def _weights(obj, part, co, bones):
         _lock_weights(w, co, labels, bones)
         if obj.get('levi_follow_locks'):
             w = _follow_lock_weights(co, bones, str(obj['levi_follow_locks']).split(','), w,
-                                     float(obj.get('levi_follow_angle', 180.0)))
+                                     float(obj.get('levi_follow_angle', 180.0)), edges)
     if part == 'hair_front':
         _side_chain_weights(w, co, obj, bones)
     masked = w * _side_mask(co, labels, bones, part not in SIDED_PARTS_EXEMPT)
@@ -4641,6 +4660,8 @@ def _weights(obj, part, co, bones):
     w = np.where(ok[:, None], masked, w)
     w = w / w.sum(1, keepdims=True)
     radius = SLEEVE_SMOOTH if part == 'sleeves' and SLEEVE_BUILD else SMOOTH_RADIUS.get(part, DEFAULT_SMOOTH)
+    if part == 'hair_back' and obj.get('levi_follow_locks'):
+        radius = 0.0        # smooth by construction (_follow_lock_weights): at most 4 bones a vertex
     w = _smooth(w, co, edges, radius)
     m = _crotch_mask(co, bones) if part in CROTCH_PARTS and CROTCH_SMOOTH > 0 else None
     if m is not None and m.max() > 0:
