@@ -367,6 +367,11 @@ BUST_FADE = [(235, 0.5), (240, 0.64), (247, 0.82)]
 # front) to follow the jaw line into the head; round 11 fades it out linearly from the top
 # ring (full) to NECK_TILT_END (none), so the rings stay evenly spaced up the nape too
 # (round 10 tilted rows <= 161 fully and none from 170: a 25 px gap at the nape).
+# Integration (round 11): the rings tilted across rows 165-178 run across the 首 -> 頭
+# weight ramp (rig.NECK_KNOTS), so a head turn squeezes their side edges a little
+# (head_left x0.79 with the wider ramp). Levelling them from row 170 (x0.83) moved the
+# nape under the choker by 0.3-0.7 px, and refilling the table there by 0.2-0.6 px: either
+# way the hair over the choker crossed it more (forward_bend 33 -> 48 pairs), so it stays.
 NECK_TILT = 0.6
 NECK_TILT_END = 178.0
 TORSO_N = 32
@@ -764,6 +769,8 @@ def _rim_clearance(table, rings):
 #   top row), and the trapezius TRAPEZIUS (height, rows in (from, to), out (from, to)):
 #   the neck's back-sides thicken toward its base (peak 45 deg either side of the back),
 #   so the neck sweeps down into the shoulders instead of standing on them like a tube.
+#   The back's terms move the skin horizontally (the normal's level part), so the nape's
+#   rings keep their rows (see _torso_relief).
 # Every term fades out over the socket border (as the shape master does), which stays put.
 # The halter strap and the start of its X strand lie on the collarbones (accessories lifts
 # them along the skin's normal), so the collarbones and the hollow above them are broad
@@ -839,6 +846,12 @@ def _torso_relief(table, rings):
             nrm = (ring[(j + 1) % m] - ring[j - 1]).cross(dn[j] - up[j])
             if nrm.dot(Vector((co.x, co.y - px(ys), 0.0))) < 0:
                 nrm = -nrm
+            if co.y >= px(ys):
+                # the back moves horizontally: on the nape's flare the normal tilts up, and
+                # the trapezius lifted the ring at row 180 into the one above (1.6 rows
+                # apart instead of 2), right where the head's turn is shared out over the
+                # neck: a short edge across the 頭 weight ramp (look_over_shoulder x1.63)
+                nrm.z = 0.0
             new.append(co + nrm.normalized() * px(f))
         out.append(new)
     return out
