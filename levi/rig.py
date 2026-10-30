@@ -1006,7 +1006,9 @@ DRAPE_INWARD = 2.0
 DRAPE_SWEEPS = 16           # coordinate descent sweeps (alternating direction)
 DRAPE_PTS = 300             # cloth points per chain sector the clearance tests (without DRAPE_BIN)
 # Round 11: the clearance tests the innermost cloth point of each DRAPE_BIN cell (deg round
-# the chain x m of height) of the sector, over the skirt and the petticoat's full meshes.
+# the chain x m of height) of the sector, over the skirt and the petticoat's full meshes,
+# and the rest ring's innermost cloth (DRAPE_INNER) is read on the full meshes too (the
+# inner tiers' hems set the ring strain: x2.29 -> x2.26 at the inner tier in cross_legged).
 # The DRAPE_PTS points taken evenly by index were a different few hundred whenever a point
 # entered or left the sector (the mean centre cy moves with any cloth edit), and the
 # petticoat grid (DRAPE_GRID, first object first) dropped the inner tiers where they lie
@@ -1358,7 +1360,9 @@ def _skirt_drape(chains, pts, cy, hip, knee, body, inner=None):
     for a raised thigh, back for one swung back, never the other way) that keeps the
     cloth of its sector (skirt and petticoat, the innermost layer counts) DRAPE_CLEAR off
     the swung thigh (_drape_clear), tabulated for the chain also turned round the body by
-    each DRAPE_YAW_GRID. Cloth already inside the thigh at rest is ignored.
+    each DRAPE_YAW_GRID. Cloth already inside the thigh at rest is ignored. `pts` are the
+    points the chains were fitted to; `inner` (the full skirt and petticoat meshes), when
+    given, is the cloth the clearance and the rest ring read (DRAPE_BIN).
 
     The cloth beside a lifted panel is pulled along (round 8, _drape_gather): rather than
     lift it too (round 7's cone round the ring swung the whole skirt into a bowl), each
@@ -1371,7 +1375,6 @@ def _skirt_drape(chains, pts, cy, hip, knee, body, inner=None):
     while the thigh keeps rising, so a clip never reverses it), lifted early (DRAPE_EARLY)
     and smoothed over the pitch samples; the drivers' Bezier keys then turn the cloth
     continuously (C1)."""
-    ang = np.degrees(np.arctan2(pts[:, 0], pts[:, 1] - cy))
     step = 360.0 / SKIRT_SECTORS
     phis = np.radians(np.array(DRAPE_PHI, dtype=float))
     i0 = int(np.argmin(np.abs(phis)))
@@ -1428,8 +1431,8 @@ def _skirt_drape(chains, pts, cy, hip, knee, body, inner=None):
     rest = np.linalg.norm(Js[:, 1:] - np.roll(Js, -1, axis=0)[:, 1:], axis=2)    # (K, n)
     share = np.ones((K, n))
     for k, (a, _) in enumerate(chains):
-        d = (ang - a + 180.0) % 360.0 - 180.0
-        sec = pts[np.abs(d) < 0.6 * step]
+        d = (cang - a + 180.0) % 360.0 - 180.0
+        sec = cpts[np.abs(d) < 0.6 * step]
         rad = np.hypot(sec[:, 0], sec[:, 1] - cy)
         for j in range(1, n + 1):
             h = 0.5 * abs(Js[k][j - 1, 2] - Js[k][j, 2])
@@ -4146,8 +4149,8 @@ def _shell_share(w, co, bones):
 # 5-6 chain bones round the narrow hips and stretched the core x4-5 in high_kick). The
 # core, sewn to the middle tier, keeps its own: shared, its sparse rings' pruned weights
 # carried their steps into the tier's seam (x2.7 in walk). Since the integration of round
-# 11 the core takes the plain blend (PLAIN_OBJECTS) and the tiers take it at their seams
-# onto the core (LAYER_SEAM).
+# 11 the core takes the plain blend (PLAIN_OBJECTS), and the tiers' weights at their
+# seams on it (PLAIN_SEAM).
 LAYER_PARTS = {'petticoat': 'petticoat_tier'}    # part -> name prefix of its layer objects
 LAYER_REACH = 0.012
 LAYER_K = 6
@@ -4165,19 +4168,48 @@ _LAYER = {}          # (part, bone names) -> {object name: shared weights}
 # moved the cliff onto the core). The plain blend stretches the core x1.6-2.0 in the same
 # poses and does not depend on the drape at all.
 PLAIN_OBJECTS = ('petticoat_core',)
-# ... and the layers sewn onto them take the same plain blend at the seam: a layer's weights
-# blend from the plain ones within LAYER_SEAM[0] of a PLAIN_OBJECTS mesh to their own
-# (shared, smoothed) ones beyond LAYER_SEAM[1] (smoothstep), so the seam does not open (the
-# middle and inner tiers' tops stood 1.5-2 cm off the plain core in walk and run, against
-# 0.5-1 cm when the core was smoothed too and 0.3-0.6 cm with the tiers fully plain, which
-# stretched the inner tier's hem more: x2.05 in jump_tuck).
-LAYER_SEAM = (0.005, 0.025)
+# Where a layer (LAYER_PARTS) is sewn on, the plain object takes that layer's weights
+# instead: those of its nearest layer vertex within PLAIN_SEAM[0], back to the plain blend
+# by PLAIN_SEAM[1] (smoothstep), pruned and refitted like the layer's (_prune); on the
+# petticoat core that is the ring the inner tier hangs from, so the seams stay as closed as
+# round 10's (0.3-1 cm in the poses; the tiers' tops stood 1.5-2 cm off a fully plain core
+# in walk and run). Wider bands mixed the two fields over the core's sparse rings (x2.4
+# in cross_legged over 4 cm); blending the tiers to the plain blend near the core instead
+# put the change of field into the visible frill (x2.0 and a strain jitter major at the
+# front hem in the run clip over 2.5 cm, x3.3 over 1 cm).
+PLAIN_SEAM = (0.006, 0.012)
 
 
-def _plain_weights(w):
-    """(idx, ww) of the MAX_INFLUENCE largest weights of each row, renormalized: for weights
-    that already have at most that many bones (PLAIN_OBJECTS), no fold and no refit."""
+def _plain_weights(w, co=None, part=None, bones=None):
+    """(idx, ww) of a PLAIN_OBJECTS mesh: the MAX_INFLUENCE largest weights of each row,
+    renormalized (no fold, no refit: the plain blend has at most that many bones), except
+    near a layer of its part (PLAIN_SEAM), whose weights it takes there and prunes as the
+    layer's own (_prune, guided by themselves)."""
     k = min(MAX_INFLUENCE, w.shape[1])
+    if co is not None and part in LAYER_PARTS and PLAIN_SEAM:
+        from mathutils.kdtree import KDTree
+        shared = _layer_shared(part, bones)
+        objs = [o for o in _LAYER_SRC.get(part, []) if o.name in shared]
+        if objs:
+            lco = np.concatenate([_world_verts([o]) for o in objs])
+            lw = np.concatenate([shared[o.name] for o in objs])
+            tree = KDTree(len(lco))
+            for i, p in enumerate(lco):
+                tree.insert(p, i)
+            tree.balance()
+            hit = [tree.find(p) for p in co]
+            j = np.array([h[1] for h in hit])
+            d = np.array([h[2] for h in hit])
+            s = 1.0 - _smoothstep(PLAIN_SEAM[0], PLAIN_SEAM[1], d)
+            w = (1.0 - s)[:, None] * w + s[:, None] * lw[j]
+            near = s > 0.0
+            if near.any():
+                idx = np.argsort(-w, axis=1, kind='stable')[:, :k]
+                ww = np.take_along_axis(w, idx, axis=1)
+                ww = ww / np.maximum(ww.sum(1, keepdims=True), 1e-12)
+                pi, pw = _prune(w[near], bones, None, co[near])
+                idx[near], ww[near] = pi, pw
+                return idx, ww
     idx = np.argsort(-w, axis=1, kind='stable')[:, :k]
     ww = np.take_along_axis(w, idx, axis=1)
     return idx, ww / np.maximum(ww.sum(1, keepdims=True), 1e-12)
@@ -4191,13 +4223,12 @@ def _layer_shared(part, bones):
     if key in _LAYER:
         return _LAYER[key]
     objs = [o for o in _LAYER_SRC.get(part, []) if len(o.data.vertices) and o.name.startswith(LAYER_PARTS[part])]
-    co, w, edges, base = {}, {}, {}, {}
+    co, w, edges = {}, {}, {}
     for o in objs:
         c = _world_verts([o])
         edges[o.name] = _topology(o, c)
         ww = _base_weights(part, c, bones)
         ww = ww / np.maximum(ww.sum(1, keepdims=True), 1e-12)
-        base[o.name] = ww
         co[o.name], w[o.name] = c, _smooth(ww, c, edges[o.name], SMOOTH_RADIUS.get(part, DEFAULT_SMOOTH))
     own = dict(w)
     near = {}       # (a, b) -> (indices (V, K), factors (V, K)) of b's vertices near a's
@@ -4232,18 +4263,6 @@ def _layer_shared(part, bones):
         w[a] = own[a] + _smooth(w[a] - own[a], co[a], edges[a], LAYER_SMOOTH)
         w[a] = np.maximum(w[a], 0.0)
         w[a] /= np.maximum(w[a].sum(1, keepdims=True), 1e-12)
-    # at the seam onto a plain layer, the plain blend (LAYER_SEAM)
-    seam = [o for o in _LAYER_SRC.get(part, []) if len(o.data.vertices) and o.name.startswith(PLAIN_OBJECTS)]
-    if seam and LAYER_SEAM:
-        pc = _world_verts(seam)
-        tree = KDTree(len(pc))
-        for i, p in enumerate(pc):
-            tree.insert(p, i)
-        tree.balance()
-        for a in w:
-            d = np.array([tree.find(p)[2] for p in co[a]])
-            s = 1.0 - _smoothstep(LAYER_SEAM[0], LAYER_SEAM[1], d)
-            w[a] = (1.0 - s)[:, None] * w[a] + s[:, None] * base[a]
     _LAYER[key] = w
     return w
 
@@ -4722,7 +4741,7 @@ def _weights(obj, part, co, bones):
     w = np.where(ok[:, None], masked, w)
     w = w / w.sum(1, keepdims=True)
     if obj.name.startswith(PLAIN_OBJECTS):
-        return _plain_weights(w)
+        return _plain_weights(w, co, part, bones)
     radius = SLEEVE_SMOOTH if part == 'sleeves' and SLEEVE_BUILD else SMOOTH_RADIUS.get(part, DEFAULT_SMOOTH)
     shared = _layer_shared(part, bones).get(obj.name) if part in LAYER_PARTS else None
     w = _smooth(w, co, edges, radius) if shared is None or len(shared) != len(co) else shared
