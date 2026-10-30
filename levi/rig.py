@@ -290,7 +290,7 @@ def _part_labels(obj, co, labels):
 # the fingers. One roll for all three (the pad toward the index knuckle, ~75 deg) put the
 # metacarpal on the palm, so the fist's curled index went 6.7 mm into the thumb's base and the
 # fingertip 6.9 mm into the palm; (-30, 75, 75): the thumb rests on the index and middle
-# fingers' middle phalanges, nothing passes through it, the index tip 2.9 mm into the palm.
+# fingers' middle phalanges, nothing passes through it, the index tip ~3 mm into the palm.
 THUMB_ROLL = (-30.0, 75.0, 75.0)
 
 
