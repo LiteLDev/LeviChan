@@ -1,0 +1,143 @@
+--- a/levi/parts/skirt.py
++++ b/levi/parts/skirt.py
+@@ -79,6 +79,20 @@
+   shapes the waistband; the topology, rings, shell and attributes are
+   unchanged.
+ 
++- Round 11 (godet troughs): the master's troughs (as the flounce clamps
++  leave them) are often deepest at mid-skirt and shallow out over the last
++  ~10 cm, so their shading closed into detached ovals above the hem.
++  _trough_hold() follows every trough down the cloth ring by ring (so it
++  moves with the folds' drift) and keeps it as deep as it has been since
++  mid-skirt, giving a quarter of that back over the last ~4 cm (the mouth
++  opens at the edge instead of closing into a bowl), in a flat-bottomed dip
++  as wide as the trough (U, not V). Inward only, troughs only: crests,
++  outlines, hem rows and lobes stay. The exports (profiles,
++  front_surface_y, section, hem_terms, fold_table) describe the result.
++  Above TGT_FLARE_ROW the master may turn in by at most TGT_TUCK_UP: a dent
++  in the fill under the right hand had folded the shell's inner face
++  through its outer face. No faces added.
++
+ All reference measurements are in panel pixels (rows / columns of
+ ref/<view>.png; panel centre column = 320).
+ """
+@@ -372,6 +386,34 @@
+ TGT_FOLD_SEP = 9.0       # deg: least crest spacing
+ TGT_FOLD_PROM = 3.0      # px: least crest prominence
+ RELIEF_SOFT_PX = 10.0    # the target folds' detail removed for the shading normals (profiles(relief=0))
++# Round 11: godet troughs that stay open down to the hem. The master's
++# troughs (as clamped by TGT_TUCK / TGT_FLARE) are often deepest at mid-skirt
++# and shallow out over the last ~10 cm, so each trough's shading closed into
++# a detached oval above the hem; the sheet's godet shade runs out at the hem.
++# _trough_hold() follows every trough down the cloth ring by ring (its own
++# local minimum, matched to the nearest trough of the ring above within
++# TROUGH_TRACK deg, so the term moves with the folds' drift) and keeps it at
++# least TROUGH_HOLD of the deepest it has been since TROUGH_T0 (its depth
++# measured against the ring's TROUGH_LP-deg low-pass, after a TROUGH_U-deg
++# Gaussian that ignores V tips), giving back TROUGH_MOUTH of that over the
++# last TROUGH_MOUTH_H px above the hem, so the channel opens at the edge
++# instead of closing into a bowl. The missing depth is added as a
++# flat-bottomed dip as wide as the trough (TROUGH_W x its half-depth
++# half-width, within TROUGH_SIG deg), so the bottom stays round (U, not V).
++# Inward only, troughs only: crests, outlines, hem rows and lobes stay.
++# (0195bc3's fixed-column sink-then-flare made shade ovals, V bottoms and
++# skirt / petticoat stretch in motion; reverted.)
++TROUGH_T0 = 0.56
++TROUGH_HOLD = 1.0
++TROUGH_MOUTH = 0.25
++TROUGH_MOUTH_H = 26.0
++TROUGH_LP = 12.0
++TROUGH_U = 2.5
++TROUGH_MIN = 4.0
++TROUGH_TRACK = 3.0
++TROUGH_W = 1.0
++TROUGH_SIG = (2.5, 6.0)
++TROUGH_GAIN = 1.3
+ 
+ _TGT = {}
+ 
+@@ -803,13 +845,83 @@
+         soft = _smooth_loop(off_t, RELIEF_SOFT_PX / px)
+         off_t = soft + relief * (off_t - soft)
+     off = off + target_weight(rr) * (off_t - off)
+-    val = {'phi': phi, 'row': row, 'off': _smooth_loop(off, SMOOTH_PX / px)}
++    # round 11: every trough stays open down to the hem (_trough_hold); the
++    # relief-free cloth the shading normals are blended toward takes the
++    # built cloth's term, so the shading follows the held troughs
++    hold = _trough_hold(off, row) if relief == 1.0 else _dense(folds, 1.0)['trough']
++    off = off + hold
++    val = {'phi': phi, 'row': row, 'off': _smooth_loop(off, SMOOTH_PX / px), 'trough': hold}
+     if len(_DENSE_CACHE) >= DENSE_CACHE_MAX:     # bounded: the fit tries many tables
+         _DENSE_CACHE.pop(next(iter(_DENSE_CACHE)))
+     _DENSE_CACHE[key] = val
+     return val
+ 
+ 
++def _trough_hold(off, row):
++    """Radial offset (px, <= 0; shaped (NF, N_RINGS)) that keeps every trough
++    of the cloth off (NF, N_RINGS) open down to the hem (TROUGH_*): from
++    TROUGH_T0 down, each ring's troughs (local minima of the ring after a
++    TROUGH_U-deg Gaussian, at least TROUGH_MIN px inside its TROUGH_LP-deg
++    low-pass; of minima closer than TROUGH_TRACK deg the deepest) are
++    matched to the nearest trough of the ring above (within TROUGH_TRACK
++    deg; a trough missed for one ring is carried over it) and inherit its
++    running maximum depth; a trough shallower than TROUGH_HOLD of that (less
++    TROUGH_MOUTH over the last TROUGH_MOUTH_H px above the hem) sinks by the
++    difference (x TROUGH_GAIN, as the dip also lowers the low-pass it is
++    measured against), in a flat-bottomed dip as wide as the trough. The
++    term is then eased along the length (a [1, 2, 1] filter, twice), so no
++    ring steps. row: the hem row per sample."""
++    deg = NF / 360.0
++    T = np.array(T_STEPS)
++    out = np.zeros_like(off)
++    idx = np.arange(NF)
++    tr_j, tr_m, tr_age = np.zeros(0), np.zeros(0), np.zeros(0)   # tracks: sample, max depth, rings missed
++    rings = np.nonzero(T >= TROUGH_T0)[0]
++    for r in rings:
++        o = _smooth_loop(off[:, r], TROUGH_U * deg)
++        dep = _smooth_loop(off[:, r], TROUGH_LP * deg) - o
++        mins = np.nonzero((o <= np.roll(o, 1)) & (o < np.roll(o, -1)) & (dep > TROUGH_MIN))[0]
++        # of minima closer than TROUGH_TRACK, the deepest
++        keep = [j for j in mins
++                if not any(abs((k - j + NF / 2) % NF - NF / 2) <= TROUGH_TRACK * deg and
++                           (dep[k] > dep[j] or (dep[k] == dep[j] and k < j)) for k in mins if k != j)]
++        mins = np.array(keep, dtype=np.int64)
++        best = dep[mins].copy()
++        used = np.zeros(len(tr_j), dtype=bool)
++        if len(tr_j) and len(mins):
++            gap = np.abs((mins[:, None] - tr_j[None, :] + NF / 2) % NF - NF / 2)
++            k = np.argmin(gap, axis=1)
++            near = gap[np.arange(len(mins)), k] <= TROUGH_TRACK * deg
++            best[near] = np.maximum(best[near], tr_m[k[near]])
++            used[k[near]] = True
++        h = (1.0 - T[r]) * (row[mins] - TOP_ROW)                  # px above the hem
++        mouth = TROUGH_MOUTH * np.clip(1.0 - h / TROUGH_MOUTH_H, 0.0, 1.0) ** 2
++        need = TROUGH_HOLD * best * (1.0 - mouth) - dep[mins]
++        for j, d in zip(mins, need):
++            if d <= 0.0:
++                continue
++            # the trough's half-width at half its depth
++            lo = hi = 0
++            while lo < NF // 8 and dep[(j - lo) % NF] > 0.5 * dep[j]:
++                lo += 1
++            while hi < NF // 8 and dep[(j + hi) % NF] > 0.5 * dep[j]:
++                hi += 1
++            sig = np.clip(TROUGH_W * 0.5 * (lo + hi), TROUGH_SIG[0] * deg, TROUGH_SIG[1] * deg)
++            x = ((idx - j + NF / 2) % NF - NF / 2) / sig
++            out[:, r] = np.minimum(out[:, r], -TROUGH_GAIN * d * np.exp(-0.5 * x ** 4))   # flat-bottomed (U)
++        # tracks for the next ring: this ring's troughs, and those of the
++        # ring above that found none here (once)
++        old = ~used & (tr_age < 1)
++        tr_j = np.concatenate([mins.astype(np.float64), tr_j[old]])
++        tr_m = np.concatenate([best, tr_m[old]])
++        tr_age = np.concatenate([np.zeros(len(mins)), tr_age[old] + 1])
++    for _ in range(2):              # ease along the length: no ring steps
++        o = out[:, rings]
++        p = np.concatenate([o[:, :1], o, o[:, -1:]], axis=1)
++        out[:, rings] = 0.25 * p[:, :-2] + 0.5 * p[:, 1:-1] + 0.25 * p[:, 2:]
++    return out
++
++
+ def relief_growth(t):
+     """0..1 share of the hem relief at main-sheet height t: none above
+     RELIEF_T0, then s ** RELIEF_POW (level start) down to the hem; the
