@@ -1,0 +1,38 @@
+## Metrics vs baseline `out/review_base`
+
+Per view and region, `new (delta)`; `*` = whole view (silhouette IoU, island total). iou/tol up is better; dE/dEi (interior colour error), islands and island_px down is better; shade is the render's shade share (compare with the sheet in shade_stats.txt).
+
+| view | region | iou | tol | dE | dEi | shade | islands | island_px |
+|---|---|---|---|---|---|---|---|---|
+| back | * | 0.913 (+0.000) |  |  |  |  | 28 (+0) | 682 (+1) |
+| back | dress | 0.637 (+0.000) | 0.833 (+0.000) | 6.5 (-0.1) | 5.7 (+0.0) | 0.200 (+0.000) | 1 (-1) | 74 (-4) |
+| back | green | 0.252 (+0.000) | 0.561 (+0.000) | 15.7 (+0.0) | 10.0 (+0.0) | 0.490 (+0.000) | 1 (+0) | 4 (+0) |
+| back | hair | 0.695 (+0.000) | 0.867 (+0.000) | 9.3 (+0.0) | 7.9 (+0.0) | 0.270 (+0.000) | 22 (+1) | 382 (+5) |
+| front | * | 0.909 (+0.000) |  |  |  |  | 45 (+0) | 1094 (+0) |
+| front | dress | 0.763 (-0.000) | 0.917 (+0.000) | 6.1 (+0.0) | 5.1 (+0.0) | 0.180 (+0.000) | 12 (+0) | 157 (+0) |
+| front | green | 0.391 (+0.000) | 0.802 (+0.000) | 17.2 (+0.0) | 15.6 (+0.0) | 0.320 (+0.000) | 16 (+0) | 365 (+0) |
+| q34_back_right | * |  |  |  |  |  | 22 (+0) | 579 (-3) |
+| q34_back_right | dress |  |  |  |  |  | 8 (+0) | 185 (+1) |
+| q34_back_right | hair |  |  |  |  |  | 9 (+0) | 173 (-4) |
+| q34_front_left | * |  |  |  |  |  | 49 (+0) | 1081 (+2) |
+| q34_front_left | petticoat |  |  |  |  |  | 4 (+0) | 171 (+2) |
+| side | * | 0.833 (-0.000) |  |  |  |  | 35 (+0) | 865 (+0) |
+| side | green | 0.306 (+0.000) | 0.625 (+0.000) | 17.9 (+0.0) | 15.0 (+0.0) | 0.450 (+0.000) | 8 (+0) | 264 (+0) |
+| side | hair | 0.671 (-0.001) | 0.852 (-0.001) | 11.2 (+0.0) | 10.1 (+0.0) | 0.520 (+0.000) | 14 (+0) | 177 (+0) |
+
+## Shape-master fit vs baseline
+
+target->ours distance (mm, down is better) and covered share (up is better), from tools/shape_fit.py: `new (delta)`.
+
+| part | p50 mm | p90 mm | covered |
+|---|---|---|---|
+| body | 6.9 (+0.0) | 23.6 (+0.0) | 0.402 (+0.000) |
+| head | 5.8 (+0.0) | 19.9 (+0.0) | 0.446 (+0.000) |
+| hair_front | 4.5 (+0.0) | 14.9 (+0.0) | 0.535 (+0.000) |
+| hair_back | 24.6 (+0.0) | 73.2 (-0.2) | 0.173 (+0.000) |
+| accessories | 4.5 (+0.0) | 11.1 (+0.0) | 0.546 (+0.000) |
+| bodice | 9.2 (+0.0) | 21.2 (+0.0) | 0.259 (+0.000) |
+| skirt | 13.7 (+0.0) | 37.2 (+0.1) | 0.260 (+0.000) |
+| petticoat | 14.0 (+0.0) | 34.2 (+0.0) | 0.192 (+0.000) |
+| sleeves | 9.5 (+0.0) | 24.2 (+0.0) | 0.309 (+0.000) |
+| shoes | 7.4 (+0.0) | 18.7 (+0.0) | 0.347 (+0.000) |

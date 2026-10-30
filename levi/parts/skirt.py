@@ -79,6 +79,20 @@ to the hem and, at the fold troughs, a short turned-out edge.
   shapes the waistband; the topology, rings, shell and attributes are
   unchanged.
 
+- Round 11 (construction): above TGT_FLARE_ROW the master may turn in by
+  at most TGT_TUCK_UP: the fill under the right hand left a dent that
+  folded the shell's inner face through its outer face. Deeper godet
+  troughs were tried and dropped (docs/pr/r11-skirt/): a sink-then-flare
+  on fixed azimuth columns left detached shade ovals, V-bottomed troughs
+  and skirt / petticoat stretch in motion; troughs held open to the hem
+  along the drifting folds (no bowl, U-shaped dips) tied the pairwise
+  review (one model 5-1 for, the other 1-5 against, 6 ties each), added a
+  detached shade streak beside her left ribbon tail in the front view,
+  raised the core 'test' pose's petticoat stretch from x1.83 to x1.97 and,
+  on the grid-sampled drape (r11/petticoat), added skirt-family majors
+  (19 -> 22) and a 63 mm skirt pop in the run clip. The troughs are the
+  master's.
+
 All reference measurements are in panel pixels (rows / columns of
 ref/<view>.png; panel centre column = 320).
 """
@@ -365,6 +379,7 @@ TGT_SMOOTH_UP = (400.0, 480.0, 4.0)  # rows, deg: the smoothing round the skirt 
 TGT_FLARE_ROW = 470.0    # below this row ...
 TGT_TUCK = 0.1           # ... the cloth turns in by at most this many px per px of drop
 TGT_FLARE = 0.7          # ... and out by at most this many
+TGT_TUCK_UP = 0.5        # above TGT_FLARE_ROW, in by at most this many
 TGT_BELL_DEG = 30.0     # deg: low-pass round the skirt that gives the bell (section())
 TGT_FOLD_BAND = (60.0, 12.0)   # rows above the hem whose mean offset picks the fold crests
 TGT_FOLD_HP = 18.0       # deg: high-pass for the crest picking
@@ -553,10 +568,15 @@ def _target():
     # lowest rows in under the lobes (on a single sheet: inflated, ballooning
     # lobes) and kicks its ruffle edge out (a flat shelf with a corner).
     # Clamped before the smoothing below, which rounds the clamp's corners.
+    # Above it (round 11) the cloth may turn in by at most TGT_TUCK_UP: the
+    # fill under the right hand left a dent whose step (1.5 px per px) folded
+    # the cloth's inner face through its outer face.
     R = bell + D
     for i in range(1, nr):
         if rows[i] > TGT_FLARE_ROW:
             R[i] = np.clip(R[i], R[i - 1] - TGT_TUCK * TGT_DROW, R[i - 1] + TGT_FLARE * TGT_DROW)
+        else:
+            R[i] = np.maximum(R[i], R[i - 1] - TGT_TUCK_UP * TGT_DROW)
     D = R - bell
     # round the skirt the field is smoothed wider toward the waist (TGT_SMOOTH_UP),
     # where the master's narrow creases would read as pinched dents
