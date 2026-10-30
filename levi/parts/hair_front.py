@@ -9,7 +9,10 @@ that fails the build on any strand past the limits. Overlapping clumps nest (an
 upper clump rests on the ones below it) instead of cutting through each other.
 The scalp cap is a grid around the crown whorl, so the crown's grooves run along
 its columns as smooth pleats; its crown is a round dome (CROWN_DOME: the round-10
-table made it a pointed tent), and the ahoge is two locks of the crown hair that
+table made it a pointed tent); under the occiput it no longer closes in a floor in
+front of hair_back's lining (the owner's "plate in the back hair") but on a closure
+that leaves its back wall where the lining hangs from it and rises into the skull
+(NAPE_*), so only the lining shows behind the neck; and the ahoge is two locks of the crown hair that
 spring up out of the scalp, turn forward over a rounded point and lie down again
 (AHOGE_LOCKS: the front one down the forehead, the back one onto the front one's
 root), solid from every side, one lock of the hair raised the way 风堇's model
@@ -633,10 +636,12 @@ def crown_groove(p, frame):
 CAP_RAY_ROW = 1.0               # px between rows of the dense sheet mesh the grid is cast onto
 CAP_RAY_AZ = 288                # ... and its sections
 CAP_PHI_CROWN = (0.035, 1.45, 24)   # rad from the whorl: first ring, end of the visible crown, rings
-CAP_PHI_LOW = 10                # rings from there to the lower pole (hidden under the hair and head)
+CAP_PHI_LOW = 14                # rings from there to the lower pole (round 11 plate: 10; the nape
+                                # closure needs them, see NAPE_*)
 CAP_SPOKE = 7.5                 # deg between spokes away from the grooves ...
 CAP_SPOKE_GROOVE = 2.5          # ... and across a groove, CAP_SPOKE_BAND deg either side of its line
 CAP_SPOKE_BAND = 5.0
+CAP_SPOKE_NAPE = (120.0, 3.7)   # (deg from the face, deg): spokes at most this far apart round the back
 # Under the fringe the cap is a hidden layer: it is carved in by CAP_RECESS (m) over
 # the front sector (CAP_RECESS_AZ deg either side of the face, fading out over the
 # next CAP_RECESS_AZ_FADE) between CAP_RECESS_ROWS (fading in / out over
@@ -648,6 +653,69 @@ CAP_RECESS = 0.008
 CAP_RECESS_AZ = (60.0, 25.0)
 CAP_RECESS_ROWS = (58.0, 112.0)
 CAP_RECESS_FADE = 10.0
+# Round 11 (the plate): the whorl grid closed under the occiput into a floor about 4 cm under
+# the skull, ear to ear and reaching forward round the neck (z ~1.20-1.23 m): from the front it
+# read as a dark U-shaped disc with an outlined rim behind the neck (the owner's "plate in the
+# back hair"), in front of hair_back's lining. 风堇's hood is an open shell that ends on her
+# nape, its inside hidden by the head. Our cap stays one closed volume (the strands' root
+# tests and settling need an inside), so its lower surface is lifted (along +z; x and y kept,
+# a smooth maximum with compact support, nape_lift) onto a closure
+#     z = z0 + slope (yb - y), at most zmax,
+# that leaves the cap's back wall where the lining hangs from it and rises forward: behind the
+# neck and the jaw (|x| <= NAPE_X[0]) into the skull, at the sides (|x| >= NAPE_X[1]) from the
+# back wall's foot to under the ear (the ear stays covered, the hair behind it still reaches
+# down beside the neck), blended between. Below the skull only the lining (and the hair
+# beside the ears) shows behind the neck. The lift fades out at the cap's side silhouette
+# (NAPE_SIDE), so the side walls do not fold over themselves.
+NAPE_ON = True
+NAPE_X = (0.035, 0.068)         # |x| (m): the middle closure, the side closure, blended between
+NAPE_MID = dict(z0=1.236, yb=0.042, slope=1.43, zmax=1.295)
+NAPE_SIDES = dict(z0=1.245, yb=0.004, slope=1.2, zmax=1.282)   # (the ears' foot: z ~1.29)
+NAPE_SIDE = (0.088, 0.102)      # |x| (m): the lift fades out over these
+NAPE_SOFT = 0.006               # m: the smooth maximum / minimum's reach
+NAPE_LINE = 0.015               # m over the closure the cap's outline grows back to full width
+
+
+def _smax_c(a, b, k):
+    """Smooth maximum, C1, equal to max(a, b) where |a - b| >= k."""
+    h = max(k - abs(a - b), 0.0) / k
+    return max(a, b) + h * h * k / 4.0
+
+
+def _smin_c(a, b, k):
+    return -_smax_c(-a, -b, k)
+
+
+def nape_closure(x, y):
+    """Height (m) of the nape closure over (x, y) (see above)."""
+    t = smooth01((abs(x) - NAPE_X[0]) / (NAPE_X[1] - NAPE_X[0]))
+    m, s = NAPE_MID, NAPE_SIDES
+    z0, yb, sl, zm = (m[k] + (s[k] - m[k]) * t for k in ('z0', 'yb', 'slope', 'zmax'))
+    return _smin_c(z0 + sl * (yb - y), zm, NAPE_SOFT)
+
+
+def _nape_w(p):
+    return 1.0 - smooth01((abs(p.x) - NAPE_SIDE[0]) / (NAPE_SIDE[1] - NAPE_SIDE[0]))
+
+
+def nape_line(p):
+    """Outline weight of a cap point: thinned (LINE_MIN) on the nape closure and the foot of
+    the side walls over it, NAPE_LINE up to full, so the closure's edge against the lining
+    behind it draws no rim."""
+    if not NAPE_ON:
+        return 1.0
+    h = p.z - nape_closure(p.x, p.y)
+    return 1.0 - (1.0 - smooth01((h - NAPE_SOFT) / NAPE_LINE)) * _nape_w(p)
+
+
+def nape_lift(p):
+    """The cap point p lifted onto the nape closure (see above)."""
+    if not NAPE_ON:
+        return p
+    zc = nape_closure(p.x, p.y)
+    if p.z >= zc + NAPE_SOFT:
+        return p
+    return Vector((p.x, p.y, p.z + _nape_w(p) * (_smax_c(p.z, zc, NAPE_SOFT) - p.z)))
 
 
 def cap_recess(p):
@@ -719,7 +787,11 @@ def cap_spokes():
     out = []
     for a, b in zip(dense, dense[1:] + [dense[0] + 360.0]):
         gap = b - a
-        m = max(1, int(math.ceil(gap / S - 1e-6)))
+        # (round the back of the head, under the occiput, the nape's closure and tuck need
+        # the finer CAP_SPOKE_NAPE spacing)
+        mid = abs(((a + gap / 2 + 180.0) % 360.0) - 180.0)
+        step = CAP_SPOKE_NAPE[1] if mid >= CAP_SPOKE_NAPE[0] else S
+        m = max(1, int(math.ceil(gap / step - 1e-6)))
         out += [a + gap * i / m for i in range(m)]
     return [((a + 180.0) % 360.0) - 180.0 for a in out]
 
@@ -755,14 +827,15 @@ def cap_grid():
         ring, env = [], []
         for th in spokes:
             d = a * math.cos(ph) + (e1 * math.cos(th) + e2 * math.sin(th)) * math.sin(ph)
-            p = _cast(bvh, c, d.normalized())
+            d = d.normalized()
+            p = nape_lift(_cast(bvh, c, d))
             dep, ev = crown_groove(p, frame)
             ring.append(p - head_normal(p) * (dep + cap_recess(p)))
             env.append(ev)
         rings.append(ring)
         envs.append(env)
     top = _cast(bvh, c, a)
-    bot = _cast(bvh, c, -a)
+    bot = nape_lift(_cast(bvh, c, -a))
     _CAP['grid'] = (top, rings, bot, envs)
     return _CAP['grid']
 
@@ -778,9 +851,12 @@ def build_cap(col, mat):
         v = bm.verts.new(p)
         v[klay] = VOL_KEEP + (CROWN_KEEP - VOL_KEEP) * env
         return v
+    llay = _layer(bm, LINE_ATTR, 1.0)
     vt = vert(top, 0.0)
     vb = vert(bot, 0.0)
     vr = [[vert(p, e) for p, e in zip(r, er)] for r, er in zip(rings, envs)]
+    for v in bm.verts:
+        v[llay] = nape_line(v.co)
     S = len(vr[0])
     for i in range(S):
         k = (i + 1) % S
@@ -792,7 +868,7 @@ def build_cap(col, mat):
     if bm.calc_volume(signed=True) < 0:
         bmesh.ops.reverse_faces(bm, faces=bm.faces)
     bvh = BVHTree.FromBMesh(bm)
-    return finish(col, 'hair_cap', bm, mat, angle=80, recalc=False), bvh
+    return finish(col, 'hair_cap', bm, mat, angle=80, recalc=False, line_min=LINE_MIN), bvh
 
 
 def cap_profile_error():
@@ -1547,9 +1623,20 @@ def bangs(cap_bvh):
 # front -- a wave of the crown hair, solid from every side, its point a rounded crest.
 # The front lock lies down the forehead slope (the sheet's front flank, its edges
 # converging up toward the point as the sheet's front view draws them) and its end
-# slips back under the scalp there; the back lock lies down onto the front lock's root
-# and ends in a round end on it, so the notch is the back lock's end on the front
-# lock's rise. Construction:
+# slips back under the scalp there; the back lock lies down onto the front lock's root,
+# so the notch is the back lock's end on the front lock's rise. Round 11 crown, fourth
+# pass (the verifier's 16x review): seen from above the back lock, a capsule straight
+# behind a leaf, read as a bowling pin / snowman, so it now sweeps in from a little to
+# one side and its narrowed end curves over the front lock's root to lie beside it (a
+# lock laid across the root of the other); the front crest stands on a lower spine
+# (4.0 px over the scalp, round 3: 4.8) under a taller, narrower top profile, so its
+# point is ~1.7 px higher and sharper and the underside reaches the scalp under it (the
+# round-3 see-through slit under the front crest: 0.2-2 mm of air over ~10 mm); the
+# underside's middle and rims rest on the surface under them (AHOGE_SINK_MID /
+# AHOGE_SINK, the fit's slack AHOGE_FIT_SLACK), and the roots start shallower
+# (AHOGE_DEPTH) and surface sooner (AHOGE_EMERGE), with a narrower sunk tail: counted
+# honestly (face centres inside the cap, roots and the sunk end included) 26-27 % of the
+# area lies inside the cap (round 3: 30 %). Construction:
 #  - the spine is a kernel strand (hk.strand: a C2 centreline within the kernel's
 #    curvature limits, rotation-minimising frames, validated), the rings are laid out
 #    here (_tuft_rings): the kernel's blade (a linear close to a point, thickness ~ w^1.4)
@@ -1600,38 +1687,41 @@ AHOGE_LOCKS = (
     # (it rests on the lock under it); n: ring vertices (n = 2 mod 4 puts one on the
     # middle of the top, so a ridge has no flat top seen end-on)
     dict(name='ahoge_front',
-         ctrl=((267.0, None, -2.2), (263.5, None, 1.0), (259.0, None, 3.9), (255.5, None, 4.8),
-               (251.0, None, 3.0, 0.6), (246.0, None, 0.9, 2.0), (241.5, None, 0.0, 3.6),
-               (237.5, None, -0.3, 4.8)),
-         width=((267.0, 0.0060), (264.0, 0.0085), (260.0, 0.0105), (256.5, 0.0115), (252.0, 0.0140),
-                (248.0, 0.0155), (244.0, 0.0125), (240.5, 0.0080), (238.5, 0.0055)),
-         top=((266.0, 0.0006), (263.0, 0.0018), (260.5, 0.0032), (258.0, 0.0048), (256.3, 0.0057),
-              (254.5, 0.0052), (252.0, 0.0040), (249.0, 0.0027), (245.0, 0.0015), (241.0, 0.0007),
-              (238.0, 0.0005)),
+         ctrl=((267.0, None, -1.6), (264.0, None, 1.0), (260.0, None, 3.3), (256.5, None, 4.0),
+               (252.0, None, 2.6, 0.6), (247.0, None, 0.9, 2.0), (242.5, None, 0.0, 3.6),
+               (238.5, None, -0.3, 4.8)),
+         width=((267.0, 0.0075), (264.0, 0.0098), (260.0, 0.0110), (256.5, 0.0115), (252.0, 0.0132),
+                (249.0, 0.0135), (246.0, 0.0110), (243.0, 0.0070), (240.5, 0.0045), (238.5, 0.0032)),
+         top=((266.5, 0.0006), (263.5, 0.0019), (261.0, 0.0035), (259.0, 0.0053), (257.6, 0.0072),
+              (256.8, 0.0080), (255.9, 0.0074), (254.2, 0.0058), (251.8, 0.0040), (248.8, 0.0026),
+              (245.0, 0.0015), (241.0, 0.0007), (238.0, 0.0005)),
          under=((266.0, 0.2, 1.0), (262.0, 0.2, 2.0), (246.0, 0.2, 2.0), (241.0, 0.6, 1.2)),
          p=((266.0, 2.0), (262.0, 1.3), (256.0, 1.3), (251.0, 1.4), (246.0, 1.7), (240.0, 2.0)),
-         sink=0.028, n=18),
+         sink=0.024, n=18),
     dict(name='ahoge_back',
-         ctrl=((281.0, None, -2.4), (277.5, None, -0.2), (273.5, None, 1.4), (269.5, None, 1.6),
-               (266.0, None, 1.0), (263.0, None, 0.4)),
-         width=((280.0, 0.0045), (276.0, 0.0080), (271.0, 0.0100), (268.0, 0.0094), (266.0, 0.0072),
-                (264.8, 0.0052), (263.5, 0.0046)),
-         top=((280.0, 0.0006), (276.5, 0.0015), (273.5, 0.0025), (271.0, 0.0033), (269.5, 0.0036),
-              (268.0, 0.0033), (266.5, 0.0023), (265.0, 0.0014), (263.5, 0.0010)),
-         under=((280.0, 0.2, 1.0), (276.0, 0.2, 2.0), (266.0, 0.2, 2.0), (264.0, 0.6, 1.2)),
-         p=((280.0, 2.0), (276.0, 1.3), (269.5, 1.3), (266.0, 1.3), (264.0, 2.0)),
+         ctrl=((281.5, None, -1.8, 0.8), (278.0, None, -0.1, 0.6), (274.5, None, 1.4, 0.2),
+               (270.5, None, 2.0, -0.4), (267.0, None, 1.0, -1.6), (264.5, None, 0.0, -3.0)),
+         width=((281.5, 0.0060), (278.0, 0.0094), (274.0, 0.0102), (270.5, 0.0090), (268.0, 0.0072),
+                (266.0, 0.0056), (264.8, 0.0047), (264.0, 0.0044)),
+         top=((281.0, 0.0006), (278.0, 0.0016), (274.5, 0.0028), (271.6, 0.0041), (270.2, 0.0048),
+              (269.0, 0.0044), (267.5, 0.0031), (266.0, 0.0021), (264.8, 0.0016), (264.0, 0.0014)),
+         under=((281.0, 0.2, 1.0), (277.0, 0.2, 2.0), (267.0, 0.2, 2.0), (265.0, 0.6, 1.2)),
+         p=((281.0, 2.0), (277.0, 1.3), (270.0, 1.3), (266.5, 1.3), (264.5, 1.6)),
          n=14),
 )
 AHOGE_WRAP = (0.0, 0.7)     # the crescent's wrap fitted per section stays in this range
-AHOGE_SINK = 0.00015        # m the rims sink into the surface under them ...
-AHOGE_SINK_MID = -0.0002    # ... and the middle of the underside (just over it)
+AHOGE_SINK = -0.00005       # m the rims sink into the surface under them (round 3: 0.15 mm in;
+                            # now just over it, the honest buried share counts the underside) ...
+AHOGE_SINK_MID = 0.00003    # ... and the middle of the underside, on it (round 3: 0.2 mm over it,
+                            # and the crest's spine 7.5 mm up: a see-through slit under the front crest)
 AHOGE_FIT_SMOOTH = 0.003    # m, Gaussian sigma of the fitted depth / wrap along the arc
+AHOGE_FIT_SLACK = 0.00002   # m the smoothed underside may stay shallower than needed (round 3: 0.3 mm)
 AHOGE_RHO = 0.42            # the fitted underside's reach x the spine's curvature over a crest
 AHOGE_STANDIN = 1.6         # the kernel's stand-in blade (its spine's curvature limits) is this x
                             # the top height thick: the fitted underside keeps to AHOGE_RHO itself
-AHOGE_EMERGE = 0.014        # m of arc over which settle() lets a root surface
+AHOGE_EMERGE = 0.010        # m of arc over which settle() lets a root surface (round 3: 0.014)
 AHOGE_SQUASH = 0.35
-AHOGE_DEPTH = 1.0           # px the root starts under the scalp ...
+AHOGE_DEPTH = 0.3           # px the root starts under the scalp (round 3: 1.0) ...
 AHOGE_SINK_DEPTH = 0.6      # ... and a sunk end ends under it
 AHOGE_LINE_RISE = (0.0002, 0.0008)  # m: a sunk end's outline grows from this far under the scalp
                                     # to full width over this much rise (it takes over from the cap's)
@@ -1830,7 +1920,7 @@ def _fit_under(spec_, c, s_c, bvhs):
     dneed = np.clip(dneed, lo, hi)
     wneed = np.clip(wneed, *AHOGE_WRAP)
     sig = AHOGE_FIT_SMOOTH / s_c * (len(us) - 1)
-    D = hk._blur(np.maximum(hk._blur(dneed, sig), dneed - 0.0003), 0.5 * sig)
+    D = hk._blur(np.maximum(hk._blur(dneed, sig), dneed - AHOGE_FIT_SLACK), 0.5 * sig)
     wr = hk._blur(np.maximum(hk._blur(wneed, sig), wneed - 0.05), 0.5 * sig)
     return us, np.clip(D, lo, hi), np.clip(wr, *AHOGE_WRAP)
 
