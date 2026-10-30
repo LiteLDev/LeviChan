@@ -668,9 +668,11 @@ CAP_RECESS_FADE = 10.0
 # beside the ears) shows behind the neck. The lift fades out at the cap's side silhouette
 # (NAPE_SIDE), so the side walls do not fold over themselves.
 NAPE_ON = True
-NAPE_X = (0.035, 0.068)         # |x| (m): the middle closure, the side closure, blended between
+NAPE_X = (0.035, 0.062)         # |x| (m): the middle closure, the side closure, blended between
 NAPE_MID = dict(z0=1.236, yb=0.042, slope=1.43, zmax=1.295)
-NAPE_SIDES = dict(z0=1.245, yb=0.004, slope=1.2, zmax=1.282)   # (the ears' foot: z ~1.29)
+NAPE_SIDES = dict(z0=1.240, yb=0.004, slope=1.2, zmax=1.266)   # the ears reach down to z 1.275-1.28
+# (at 1.282 their lobes showed beside the jaw in the front view; earcheck: every head vertex
+# behind y -0.06 at |x| > 0.056 stays inside the cap)
 NAPE_SIDE = (0.088, 0.102)      # |x| (m): the lift fades out over these
 NAPE_SOFT = 0.006               # m: the smooth maximum / minimum's reach
 NAPE_LINE = 0.015               # m over the closure the cap's outline grows back to full width
