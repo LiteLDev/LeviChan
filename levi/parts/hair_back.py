@@ -1849,9 +1849,9 @@ def _rim_dirs(bm, em, top=True):
 # and the pitch gravity moved the two apart, 25-45 mm in a 70 deg head turn and
 # look_over_shoulder, and the lining came up through the locks over it (2500+ crossing
 # triangle pairs, a straight outline line across the hair). Each vertex carries the point
-# the rig weights it at (WEIGHT_CO_ATTR, named by obj['levi_weight_co']; rig._weights
-# weights, smooths and prunes the whole object there): its outer-face twin, so the two
-# faces carry the same weights and the lining cannot shear through its thickness.
+# the rig weights it at (WEIGHT_CO_ATTR, named by obj['levi_weight_co'];
+# rig._follow_lock_skin): its outer-face twin, so the two faces carry the same weights and
+# the lining cannot shear through its thickness.
 WEIGHT_CO_ATTR = 'hb_weight_co'
 FOLLOW_LOCKS = 'hair_back'
 FOLLOW_ANGLE = 40.0         # deg round from straight back: the primaries (6-32 deg), not the side

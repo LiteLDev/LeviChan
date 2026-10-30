@@ -4560,13 +4560,32 @@ def _lock_weights(w, co, labels, bones):
 # In the head bone's fade band (rig.HAIR_HEAD_FADE, from LOCK_FOLLOW_BAND m under its
 # foot) the position along each chain stops at its first bone's middle, so a vertex there
 # carries the head and the first bones of two chains only. The lining is smooth by
-# construction and is not smoothed again. Only locks less than obj['levi_follow_angle'] deg
+# construction: _skin takes these weights as they are (_follow_lock_skin: no surface
+# smoothing, no prune, whose wider guide would mix a third chain in). Only locks less than obj['levi_follow_angle'] deg
 # round from straight back count (hair_back: the primaries over the lining, not the side
 # locks and flicks beside it, which the raised arms push). As the lining's vertices are
 # dominated by lock segments, the locks' collision probes also keep the lining's inner
 # face off her trunk (_hair_collision).
 LOCK_FOLLOW_SMOOTH = 0.03
 LOCK_FOLLOW_BAND = 0.03
+
+
+def _follow_lock_skin(obj, co, bones, idx, w):
+    """(idx, weights) of an object that follows the locks (obj['levi_follow_locks'], see
+    LOCK_FOLLOW_SMOOTH), weighted at its weighting points (obj['levi_weight_co']), at most
+    4 bones a vertex by construction (no smoothing or prune); (idx, w) as given when it
+    finds no lock."""
+    wco = _point_vec(obj, co, 'levi_weight_co')
+    p = co if wco is None else wco
+    f = _follow_lock_weights(p, bones, str(obj['levi_follow_locks']).split(','), np.zeros((len(p), len(bones))),
+                             float(obj.get('levi_follow_angle', 180.0)), _topology(obj, p))
+    if not f.any():
+        return idx, w
+    f = _hair_head_fade(f, p, bones)
+    k = min(MAX_INFLUENCE, f.shape[1])
+    i = np.argsort(-f, axis=1, kind='stable')[:, :k]
+    ff = np.take_along_axis(f, i, axis=1)
+    return i, ff / np.maximum(ff.sum(1, keepdims=True), 1e-12)
 
 
 def _follow_lock_weights(co, bones, obj_names, w, max_angle=180.0, edges=None):
@@ -4633,12 +4652,6 @@ def _follow_lock_weights(co, bones, obj_names, w, max_angle=180.0, edges=None):
 def _weights(obj, part, co, bones):
     """(V, k) bone indices and weights for the vertices of `obj` (world positions `co`)."""
     global _SLEEVE_S, _SLEEVE_EDGES, _SLEEVE_N, _SOCKET_S
-    if part == 'hair_back':
-        # back hair: a vertex may name the point it is weighted at (hair_back's lining:
-        # both faces of the under-layer are weighted, smoothed and pruned at its outer
-        # face, so the two faces carry the same weights and move together)
-        wco = _point_vec(obj, co, 'levi_weight_co')
-        co = co if wco is None else wco
     edges = _topology(obj, co)
     _SLEEVE_S = _sleeve_param(obj, co) if part == 'sleeves' else None
     _SLEEVE_EDGES, _SLEEVE_N = (edges, len(co)) if part == 'sleeves' else (None, 0)
@@ -4650,9 +4663,6 @@ def _weights(obj, part, co, bones):
     labels = _islands(len(co), edges)
     if part == 'hair_back':
         _lock_weights(w, co, labels, bones)
-        if obj.get('levi_follow_locks'):
-            w = _follow_lock_weights(co, bones, str(obj['levi_follow_locks']).split(','), w,
-                                     float(obj.get('levi_follow_angle', 180.0)), edges)
     if part == 'hair_front':
         _side_chain_weights(w, co, obj, bones)
     masked = w * _side_mask(co, labels, bones, part not in SIDED_PARTS_EXEMPT)
@@ -4660,8 +4670,6 @@ def _weights(obj, part, co, bones):
     w = np.where(ok[:, None], masked, w)
     w = w / w.sum(1, keepdims=True)
     radius = SLEEVE_SMOOTH if part == 'sleeves' and SLEEVE_BUILD else SMOOTH_RADIUS.get(part, DEFAULT_SMOOTH)
-    if part == 'hair_back' and obj.get('levi_follow_locks'):
-        radius = 0.0        # smooth by construction (_follow_lock_weights): at most 4 bones a vertex
     w = _smooth(w, co, edges, radius)
     m = _crotch_mask(co, bones) if part in CROTCH_PARTS and CROTCH_SMOOTH > 0 else None
     if m is not None and m.max() > 0:
@@ -4713,6 +4721,8 @@ def _skin(obj, part, bones, arm):
     if len(me.vertices):
         co = _world_verts([obj])
         idx, w = _weights(obj, part, co, cand)
+        if part == 'hair_back' and obj.get('levi_follow_locks'):
+            idx, w = _follow_lock_skin(obj, co, cand, idx, w)
         groups = {}
         for j in np.unique(idx[w > 0]):
             groups[j] = obj.vertex_groups.new(name=cand[j].name)
