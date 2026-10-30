@@ -4757,6 +4757,28 @@ CHOKER_BINS = 72         # stations round the choker loop at which the skin is s
 CHOKER_SMOOTH = 12.0     # deg: smoothing of the sampled weights round the loop
 HALTER_REACH = (0.02, 0.06)   # m off the skin: the halter takes the skin's weights within this
 HALTER_SMOOTH = 0.008    # m: surface smoothing of the halter's sampled weights
+# Round 11: the halter's straps end tucked under the bodice's top rim, and its X strands end
+# on the straps. With the skin's weights the tucked ends took the clavicle (肩), which the
+# bodice over them does not have (its four largest bones after a 3.5 cm smoothing), so a
+# raised arm drew them out from under the rim (19-23 of 37 tucked vertices uncovered in
+# hands_behind_head, dance_heart, idol_dance@48); and the X strands, smoothed along their own
+# cord, came up to 4.4 mm off the strap they end on. The part marks both with point
+# attributes (named by obj['levi_cord_ride'] / obj['levi_cord_join']): the tucked ends take
+# the bodice's own weights (HALTER_RIDE_PART is skinned first, SKIN_LATE), and each strand's
+# end takes the weights of the strap beside it.
+HALTER_RIDE_PART = 'bodice'
+HALTER_RIDE_K = 8        # nearest bodice vertices averaged (inverse distance, softened by SKIN_SOFT)
+HALTER_JOIN_K = 24       # nearest strap vertices (three rings) a joined strand vertex takes its weights from ...
+HALTER_JOIN_SOFT = 0.01   # ... inverse distance, softened by this (m): every vertex of a strand ring sees
+                          # the same set (with 2 rings softened by 3 mm the ring's weights differed by ~1 %, and
+                          # a raised arm's stage bones, ~8 cm away, flattened the ring to x0.05 in idol_dance@80)
+SKIN_LATE = ('accessories',)   # parts skinned after the other garments (the halter reads the bodice)
+# One set of weights per cord section: the shoulder stage bones' turn moves a chest point
+# ~12 cm, so vertices of one 2.8 mm section ~1.5 % apart in them flattened an X strand's
+# section at its junction to x0.05 in idol_dance@80. The strand's join is looked up, and the
+# prune's motion refit run, at each vertex's position smoothed along the surface by this (m),
+# about its section's centre.
+HALTER_REFIT_AT = 0.004
 
 
 def _choker_skin(co, bones):
@@ -4804,12 +4826,96 @@ def _choker_skin(co, bones):
     return out / out.sum(1, keepdims=True)
 
 
-def _neck_cord_weights(kind, w, co, bones, edges=None):
+def _part_skin(part, skip=()):
+    """(points (N, 3), bone names, weights (N, B)) of the skinned meshes of `part` (its
+    collection; object-name prefixes `skip` left out), or None if none is skinned yet."""
+    col = bpy.data.collections.get(part)
+    if col is None:
+        return None
+    pts, rows, names = [], [], {}
+    for o in sorted(col.all_objects, key=lambda o: o.name):
+        mine = set(o.get('levi_rig_groups', []))
+        if o.type != 'MESH' or not mine or o.name.startswith(tuple(skip)) or not len(o.data.vertices):
+            continue
+        gn = {g.index: g.name for g in o.vertex_groups if g.name in mine}
+        for v in o.data.vertices:
+            rows.append([(names.setdefault(gn[g.group], len(names)), g.weight) for g in v.groups if g.group in gn])
+        pts.append(_world_verts([o]))
+    if not pts:
+        return None
+    W = np.zeros((sum(len(p) for p in pts), len(names)))
+    for i, r in enumerate(rows):
+        for c, wv in r:
+            W[i, c] = wv
+    return np.concatenate(pts), sorted(names, key=names.get), W
+
+
+def _halter_ride(obj, sk, co, bones):
+    """`sk` blended toward the bodice's own weights by the part's ride share (1 on the strap
+    ends tucked under the rim): inverse-distance over the HALTER_RIDE_K nearest bodice
+    vertices (its ornaments that keep their own skin sample, BODICE_RIDE, left out)."""
+    r = _point_param(obj, co, 'levi_cord_ride')
+    if r is None or not (r > 0).any():
+        return sk
+    host = _part_skin(HALTER_RIDE_PART, skip=BODICE_RIDE)
+    if host is None:
+        print(f'rig: WARNING {obj.name}: no skinned {HALTER_RIDE_PART}; the tucked cord ends keep the skin weights')
+        return sk
+    hco, names, hw = host
+    col = {b.name: i for i, b in enumerate(bones)}
+    m = np.zeros((len(names), len(bones)))
+    for k, n in enumerate(names):
+        if n in col:
+            m[k, col[n]] = 1.0
+    tree = _kd(hco)
+    rows = np.nonzero(r > 0)[0]
+    out = sk.copy()
+    for v in rows:
+        found = tree.find_n(co[v], HALTER_RIDE_K)
+        wt = np.array([1.0 / (d + SKIN_SOFT) for _, _, d in found])
+        bw = (wt @ hw[[j for _, j, _ in found]]) @ m
+        tot = bw.sum()
+        if tot < 0.5:      # the bodice there is on bones the halter may not take
+            continue
+        out[v] = sk[v] * (1.0 - r[v]) + bw / tot * r[v]
+    return out
+
+
+def _halter_joins(obj, sk, co, edges):
+    """Each X-strand vertex blended toward the weights of the strap beside it by the part's
+    join share (1 at the strand's end, on the strap's centre line): the inverse-distance
+    blend of the HALTER_JOIN_K nearest vertices of the other cords (join share 0), so the
+    strand's end moves with the strap it ends on, and the stretch that lies along the strap
+    with the strap's own bend. (Riding the strap's weights at the end point alone, the
+    strand's last centimetre turned rigidly with it and crossed the bending strap: a knot.)"""
+    j = _point_param(obj, co, 'levi_cord_join')
+    if j is None or not (j > 0).any() or edges is None:
+        return sk
+    lab = _islands(len(co), edges)
+    # queried at each vertex's position smoothed along the surface (about its section's
+    # centre), so the vertices of one strand section find the same strap vertices
+    cq = _smooth(co, co, edges, HALTER_REFIT_AT)
+    out = sk.copy()
+    for isl in np.unique(lab[j > 0]):
+        host = np.nonzero((j <= 0) & (lab != isl))[0]
+        if not len(host):
+            continue
+        tree = _kd(co[host])
+        for v in np.nonzero((lab == isl) & (j > 0))[0]:
+            found = tree.find_n(cq[v], HALTER_JOIN_K)
+            wt = np.array([1.0 / (d + HALTER_JOIN_SOFT) for _, _, d in found])
+            wp = wt @ sk[host[[k for _, k, _ in found]]] / wt.sum()
+            out[v] = sk[v] * (1.0 - j[v]) + wp * j[v]
+    return out
+
+
+def _neck_cord_weights(kind, w, co, bones, edges=None, obj=None):
     """The choker rides the neck skin (_choker_skin; without a skinned body: 首, with a
     little 上半身2 at its lower edge). The halter cords run from the choker over the shoulder
     slope to the bodice and take the weights of the skin under them (HALTER_REACH), so
     they stay on the neck and the shoulder slope as they move (without a skinned body: 首
-    at the choker end, the smoothed envelope weights below)."""
+    at the choker end, the smoothed envelope weights below); with `obj`, its tucked ends
+    ride the bodice and its X strands' ends the straps (_halter_ride, _halter_joins)."""
     col = {b.name: i for i, b in enumerate(bones)}
     neck, chest, head = col.get('首'), col.get('上半身2'), col.get('頭')
     if neck is None or chest is None or head is None:
@@ -4829,10 +4935,20 @@ def _neck_cord_weights(kind, w, co, bones, edges=None):
                 k = np.minimum(1.0, BODICE_ARM_CAP / np.maximum(a, 1e-9))
                 sk[:, chest] += a * (1.0 - k)
                 sk[:, arm] *= k[:, None]
+            # the tucked strap ends take the bodice's weights before the smoothing (one set
+            # across the section, and a transition spread along the cord: sampled per vertex
+            # after it, the thinned end rings stretched x3 in idol_dance@78)
+            if obj is not None:
+                sk = _halter_ride(obj, sk, co, bones)
             # one set of weights across the cord's section (a 1.4 mm tube): smoothed wider
             # than its girth, so the section cannot shear
             if edges is not None:
                 sk = _smooth(sk, co, edges, HALTER_SMOOTH)
+            sk = sk / np.maximum(sk.sum(1, keepdims=True), 1e-12)
+            # the X strands' ends take the strap's after it (smoothed along the strand, the end
+            # drifted ~1 mm off the strap again and showed its end cap)
+            if obj is not None:
+                sk = _halter_joins(obj, sk, co, edges)
             return sk / np.maximum(sk.sum(1, keepdims=True), 1e-12)
     out = np.zeros_like(w)
     if kind == 'choker':
@@ -4972,7 +5088,7 @@ def _weights(obj, part, co, bones):
     if part in CROTCH_PARTS and ARM_CAP:
         w = _arm_cap(w, co, bones)
     if cord:
-        w = _neck_cord_weights(cord, w, co, bones, edges)
+        w = _neck_cord_weights(cord, w, co, bones, edges, obj)
     elif part == 'bodice' and SKIN_FOLLOW and _SKIN is not None and obj.name.startswith(BODICE_RIDE):
         pass    # the shell's own per-point weights (skin sample, arm cap): no rigid island
     elif _skin_ornament(obj, part):
@@ -4993,6 +5109,12 @@ def _weights(obj, part, co, bones):
         guide = _smooth_zones(w, co, edges, BODICE_WIDE_GUIDE[1], ref, zone)
     if guide is not None and part in SHELL_PARTS:
         guide = _shell_share(guide, co, bones)
+    if guide is not None and cord == 'halter':
+        guide = _halter_joins(obj, guide, co, edges)   # a strand's end keeps the strap's bones
+    if cord == 'halter' and len(edges):
+        # the prune's motion refit at each cord section's centre (HALTER_REFIT_AT), so a section
+        # keeps one set of weights
+        return _prune(w, bones, guide, _smooth(co, co, edges, HALTER_REFIT_AT))
     idx, ww = _prune(w, bones, guide, co)
     return _knot_pin(idx, ww, knot, bones)
 
@@ -6038,7 +6160,8 @@ def build_rig():
     _LAYER_SRC.clear()
     _LAYER_SRC.update({p: parts[p] for p in LAYER_PARTS if p in parts})
     _LAYER.clear()
-    order = sorted(parts, key=lambda n: n not in ('body', '_proxy'))   # the skin first: garments sample it
+    # the skin first (garments sample it); SKIN_LATE parts after the garments they read
+    order = sorted(parts, key=lambda n: (n not in ('body', '_proxy'), n in SKIN_LATE))
     for part in order:
         for o in parts[part]:
             if o.parent is None:
