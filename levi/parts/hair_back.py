@@ -498,7 +498,7 @@ def _cap_proxy():
 # The surface the under row of locks rests on, as an offset (px, along the volume normal)
 # from the envelope per row: just over the scalp cap high up (the envelope sits ENV_OFF
 # over it there), the under-layer's outer face lower down.
-BASE = [(0, -2.6), (110, -2.6), (122, -2.2), (134, -1.8), (165, -2.6), (210, -3.0), (340, -3.0), (386, -4.5)]
+BASE = [(0, -2.6), (110, -2.6), (122, -2.2), (134, -1.8), (165, -2.0), (210, -0.5), (340, 0.0), (386, -1.5)]
 # Under-layer: rows UNDER_ROWS every UNDER_STEP px, UNDER_COLS columns across. Its outer
 # face is BASE, its middle UNDER_T px thick (thinner at its top edge on the cap, UNDER_T_TOP
 # rows), thinning to UNDER_RIM px at its side edges, and it keeps UNDER_CAP_GAP px off the
@@ -616,7 +616,7 @@ PRIM_WRAP = (0.15, 0.12)     # crescent wrap at the root (hugging the skull) and
 PRIM_WAVE = (6.0, 170.0)     # sideways amplitude px, wavelength rows
 PRIM_WAVE_ROWS = (205.0, 285.0)   # rows over which the wave fades in
 TIP_LEN = 0.09               # m over which a lock without a curl closes into its blade
-CURL_TILT = 24.0             # deg a back-view curl turns out of the image plane (away from her)
+CURL_TILT = 34.0             # deg a back-view curl turns out of the image plane (away from her)
 N_RING = 16                  # vertices round a primary (12 / 14 / 16 by width otherwise)
 FLAT_TOP = (0.5, (140.0, 280.0))  # a primary's thickness share above the first row, full by the second
 
@@ -826,12 +826,13 @@ def _end_narrow(U, L, share=0.62, length=0.14):
 # px per point; face: the outer face's direction (world, character's left side).
 OUTER = [
     # shoulder flick: over the back of the shoulder, its end turning back and up in one
-    # open flick (the sheet's green flick at sx ~420, row ~230 in the side view)
-    dict(name='flick', pts=[('s', 86, 84), (252, 318, 128), (247, 323, 156), (243, 333, 190), (229, 344, 213),
-                            (217, 357, 229)],
-         w=[8, 11, 14, 16, 17, 17], face=(0.3, 1.0, 0.0), aspect=3.8, gr=(190, 255),
-         curl=dict(turn=90.0, toward=(0.2, 1.0, 0.6), face='plane', radius=0.028, core=0.85, lead=1.6,
-                   taper=(1.4, 0.8))),
+    # open flick (the sheet's green flick at sx ~420, row ~230 in the side view); long
+    # enough to be a lock with its own chain (see _check_islands)
+    dict(name='flick', pts=[('s', 86, 84), (252, 318, 128), (247, 323, 156), (243, 333, 190), (230, 345, 216),
+                            (219, 357, 236), (211, 366, 250)],
+         w=[8, 11, 14, 16, 17, 17, 17], face=(0.3, 1.0, 0.0), aspect=3.8, gr=(190, 255),
+         curl=dict(turn=90.0, toward=(0.2, 1.0, 0.6), face='plane', radius=0.028, core=0.8, lead=1.6,
+                   taper=(1.1, 1.0))),
     # wave lock: spreads over the back of the upper arm in two soft S lobes (the
     # green-tipped waves beside the sleeve top in the front view) and closes in a blade
     dict(name='wave', pts=[('s', 80, 98), (250, 326, 158), (236, 347, 200), (206, 353, 240),
@@ -1205,8 +1206,10 @@ def _island_test(p):
 
 
 def _check_islands(outer, inner, built):
-    """Every primary and every wave / crescent lock passes the rig's lock test (its own
-    chain); the under-layer fails it with a margin (the sector chains)."""
+    """Every primary and outer lock passes the rig's lock test (its own chain, weighted
+    along it: a lock never blends sector chains with the head bone, whose 4-bone pruning
+    tore the round-10-style short flick in a head turn); the under-layer fails it with a
+    margin (the sector chains)."""
     errs = []
     _ln, span = _island_test(np.concatenate([outer.reshape(-1, 3), inner.reshape(-1, 3)]))
     print(f'HAIR_BACK {len(built)} strands, under-layer {span:.0f} deg round the head, largest lift '
@@ -1216,8 +1219,6 @@ def _check_islands(outer, inner, built):
         errs.append(f'the under-layer spans {span:.0f} deg round the head (< {UNDER_SPAN_MIN:.0f}): it would '
                     'be rigged as a lock')
     for _obj, st, kind, _info in built:
-        if kind != 'mass' and kind[1]['name'] == 'flick':
-            continue                # (a short lock: the sector chains carry it, as in round 10)
         p = np.concatenate([tb.rings.reshape(-1, 3) for tb in st.all_tubes()])
         ln, span = _island_test(p)
         if ln < LOCK_LEN or span >= LOCK_SPAN or len(p) < 24:
