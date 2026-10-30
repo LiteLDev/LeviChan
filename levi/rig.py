@@ -3816,6 +3816,33 @@ def _mesh_tris(obj):
     return np.concatenate(out) if out else np.zeros((0, 3), dtype=np.int64)
 
 
+def _mirror_index(co):
+    """Each vertex's mirror image across x = 0 (positions to 0.01 mm), -1 where there is none;
+    a midline vertex is its own."""
+    key = np.round(co * 1e5).astype(np.int64)
+    at = {tuple(k): i for i, k in enumerate(key.tolist())}
+    return np.array([at.get((-k[0], k[1], k[2]), -1) for k in key.tolist()], dtype=np.int64)
+
+
+def _bone_mirror(bones):
+    """Column permutation swapping each .L bone with its .R twin."""
+    col = {b.name: i for i, b in enumerate(bones)}
+    return np.array([col.get(b.name[:-2] + ('.R' if b.name.endswith('.L') else '.L'), j)
+                     if b.name.endswith(('.L', '.R')) else j for j, b in enumerate(bones)], dtype=np.int64)
+
+
+def _mirror_average(w, co, bones):
+    """Rows of w (V, B) averaged with their mirror image's (.L / .R swapped): the skin is built
+    mirror-symmetric, and its weights are made so (round 11 review 3: the multilevel smoothing's
+    coarse graph pairs vertices unevenly, 0.046 at the gluteal cleft; rig_check.check_symmetry
+    on r11/body-hands allows 0.02)."""
+    mi = _mirror_index(co)
+    ok = mi >= 0
+    out = w.copy()
+    out[ok] = 0.5 * (w[ok] + w[mi[ok]][:, _bone_mirror(bones)])
+    return out
+
+
 def _capped_simplex(y, cap, total):
     """Rows of y projected onto {0 <= x <= cap, sum x = total} (bisection on the shift)."""
     lo = (y - cap).min(1) - 1.0
@@ -3922,14 +3949,28 @@ def _crotch_fit(idx, ww, co, edges, tris, bones):
         return f, np.where(adj, gW, 0.0)
 
     rows = np.nonzero(adj.any(1))[0]
+    # mirror pairs: each region vertex's mirror and the slot of each kept bone's twin there
+    mv = _mirror_index(co)[vs]
+    mj = np.where(mv >= 0, loc[np.maximum(mv, 0)], -1)
+    bm = _bone_mirror(bones)
+    slot = np.full((n, k), -1)
+    for s_ in range(k):
+        for t_ in range(k):
+            hit = (mj >= 0) & (I[np.maximum(mj, 0), t_] == bm[I[:, s_]])
+            slot[:, s_] = np.where(hit & (slot[:, s_] < 0), t_, slot[:, s_])
+    pair = (mj >= 0) & ((slot >= 0) | (W0 <= 0.0)).all(1)
+    pr = np.nonzero(pair)[0]
 
     def project(Y):
         Y = Y.copy()
         Y[rows] = np.where(adj[rows], _capped_simplex(Y[rows], cap[rows], total[rows]), Y[rows])
+        # the poses and limits are mirror-symmetric, so is the fit (to the last bit)
+        Z = Y[mj[pr][:, None], np.maximum(slot[pr], 0)]
+        Y[pr] = np.where(slot[pr] >= 0, 0.5 * (Y[pr] + Z), Y[pr])
         return Y
 
     # spectral projected gradient (Barzilai-Borwein steps, non-monotone Armijo search)
-    Wv = W0.copy()
+    Wv = project(W0)
     f, g = evaluate(Wv)
     f0 = f
     best = (f, Wv)
@@ -4982,9 +5023,13 @@ def _weights(obj, part, co, bones):
         _rigid_foot(w, bones)
     # which bones a vertex keeps is decided on a wider-smoothed copy of its weights, so
     # the set changes gradually along the surface instead of wherever two weak bones swap
+    if part in CROTCH_PARTS:
+        w = _mirror_average(w, co, bones)
     guide = _smooth(w, co, edges, PRUNE_SMOOTH, ref) if PRUNE_SMOOTH > 0 and radius > 0 else None
     if guide is not None and part in SHELL_PARTS:
         guide = _shell_share(guide, co, bones)
+    if guide is not None and part in CROTCH_PARTS:
+        guide = _mirror_average(guide, co, bones)
     idx, ww = _prune(w, bones, guide, co)
     if part in CROTCH_PARTS and CROTCH_FIT and _CROTCH:
         ww = _crotch_fit(idx, ww, co, edges, _mesh_tris(obj), bones)
