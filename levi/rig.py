@@ -4446,6 +4446,15 @@ HINT_FALLBACK = {'手捩': 'ひじ'}     # a missing bone's share goes here (fin
 # stretched x1.88 and folded to x0.08 in the fist pose (3 mm: x1.48 / x0.11; 5 mm: x1.53 /
 # x0.12, the knuckles still defined)
 HINT_SMOOTH = 0.005
+# Integration fix: the smoothed hints that leak past the bridge are cut below this. The smoothing
+# runs over the whole skin, and its tail reached the elbow, 13 cm up the arm, as 1e-35 of ひじ /
+# 手捩. That was enough to win _prune's tie between bones it folds to exactly zero, which it breaks
+# by column order. At single vertices of the inner elbow ひじ (weight 0) then took the 4th slot
+# from 上半身. Where 上半身 is kept, the motion refit (_motion_refit) gives it the vertex's ~2%
+# torso share; where ひじ is kept, nothing carries it. So the share dropped to 0 between
+# neighbours: x1.83 in dance_point, x1.88 in reach_up_back, x1.82 in dance_sway (round 10:
+# x1.6-1.7). Cut, the inner elbow's weights are round 10's again.
+HINT_EPS = 1e-9
 
 
 def _hints(obj, n):
@@ -4517,6 +4526,7 @@ def _hand_hint(obj, w, co, bones, edges=None):
         ref = _edge_ref(co, edges[inside])[1] if inside.any() else 0.0
         if ref > 0.0:
             H = _smooth(H, co, edges, HINT_SMOOTH, ref)
+            H[H < HINT_EPS] = 0.0
             a = H.sum(1)
     a = np.clip(a, 0.0, 1.0)
     out = w * (1.0 - a)[:, None] + H
