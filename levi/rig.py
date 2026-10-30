@@ -4548,31 +4548,29 @@ def _lock_weights(w, co, labels, bones):
 # of its own moves apart from theirs (the hair collision pushes each chain by its own
 # probes, the pitch gravity differs between sector and lock chains), so in a head turn or a
 # bend the lining came up through the locks (look_over_shoulder, head_left 70 deg: 25-45 mm
-# relative motion, 2500+ crossing triangle pairs). Each vertex (at its weighting point)
-# takes the chains of the two locks of the objects it names whose surfaces are nearest,
-# each by how much nearer it is than the third (continuous where the nearest locks change),
-# the distances smoothed along the lining first (LOCK_FOLLOW_SMOOTH m), and along each chain
-# the hat weights a lock of it carries (_lock_weights). Surfaces, not centre lines: the
-# lock it lies under, not the over-row lock whose centre line may be nearer (following that
-# one, reach_up_back pulled the lining through the lock it touches). Two locks, not a soft
-# minimum over all: with three or more chains' segments and the head bone the 4-bone prune
-# refitted neighbouring vertices to different bone sets (x3-5.7 in test, head_left, swing).
-# In the head bone's fade band (rig.HAIR_HEAD_FADE, from LOCK_FOLLOW_BAND m under its
-# foot) the position along each chain stops at its first bone's middle, so a vertex there
-# carries the head and the first bones of two chains only. The lining is smooth by
-# construction: _skin takes these weights as they are (_follow_lock_skin: no surface
-# smoothing, no prune, whose wider guide would mix a third chain in). Only locks less than obj['levi_follow_angle'] deg
-# round from straight back count (hair_back: the primaries over the lining, not the side
-# locks and flicks beside it, which the raised arms push). As the lining's vertices are
-# dominated by lock segments, the locks' collision probes also keep the lining's inner
-# face off her trunk (_hair_collision).
-LOCK_FOLLOW_SMOOTH = 0.03
+# relative motion, 2500+ crossing triangle pairs). As the skirt's and the old curtain's
+# ring weights do (_skirt_weights), each vertex (at its weighting point) blends the two
+# lock chains on either side of it round the head axis, linearly in its angle between
+# theirs at its height (the outermost alone beyond them), and along each chain takes the
+# hat weights a lock of it carries (_lock_weights): continuous, two chains at most, each
+# handing over across the whole spacing between two locks. (A soft minimum of the distance
+# to every lock put three or more chains' segments and the head bone on the vertices by
+# the nape, and the 4-bone prune tore it, x3-5.7 in test, head_left and swing; the two
+# nearest lock surfaces handed over within a few mm, x2.8.) In the head bone's fade band
+# (rig.HAIR_HEAD_FADE, from LOCK_FOLLOW_BAND m under its foot) the position along each
+# chain stops at its first bone's middle, so a vertex there carries the head and the first
+# bones of two chains only. _skin takes these weights as they are (_follow_lock_skin: no
+# surface smoothing, no prune, whose wider guide would mix a third chain in). Only locks
+# less than obj['levi_follow_angle'] deg round from straight back count (hair_back: the
+# primaries over the lining, not the side locks and flicks beside it, which the raised arms
+# push). As the lining's vertices are dominated by lock segments, the locks' collision
+# probes also keep the lining's inner face off her trunk (_hair_collision).
 LOCK_FOLLOW_BAND = 0.03
 
 
 def _follow_lock_skin(obj, co, bones, idx, w):
     """(idx, weights) of an object that follows the locks (obj['levi_follow_locks'], see
-    LOCK_FOLLOW_SMOOTH), weighted at its weighting points (obj['levi_weight_co']), at most
+    LOCK_FOLLOW_BAND), weighted at its weighting points (obj['levi_weight_co']), at most
     4 bones a vertex by construction (no smoothing or prune); (idx, w) as given when it
     finds no lock."""
     wco = _point_vec(obj, co, 'levi_weight_co')
@@ -4590,53 +4588,47 @@ def _follow_lock_skin(obj, co, bones, idx, w):
 
 def _follow_lock_weights(co, bones, obj_names, w, max_angle=180.0, edges=None):
     """(V, B) weights of points that follow the lock chains of the objects obj_names, less
-    than max_angle deg round from straight back (see LOCK_FOLLOW_SMOOTH); w unchanged when
+    than max_angle deg round from straight back (see LOCK_FOLLOW_BAND); w unchanged when
     there are none."""
-    from mathutils.kdtree import KDTree
     by_key = {}
     for j, b in enumerate(bones):
         if ('lock' in b.meta and b.meta.get('lock_obj') in obj_names
                 and b.meta.get('lock_angle', 0.0) < max_angle):
             by_key.setdefault(tuple(b.meta['lock']), []).append(j)
-    surf = {}
-    for name in obj_names:
-        o = bpy.data.objects.get(name)
-        if o is None or o.type != 'MESH':
-            continue
-        lco = _world_verts([o])
-        lab = _islands(len(lco), _topology(o, lco))
-        for k in np.unique(lab):
-            p = lco[lab == k]
-            if _lock_key(p) in by_key:
-                surf[_lock_key(p)] = p
-    if not surf:
+    if not by_key:
         return w
     head = [j for j, b in enumerate(bones) if b.name == '頭']
+    cy = L['head_center_y']
     z0 = HAIR_HEAD_FADE[0]
     cap = _smoothstep(z0 - LOCK_FOLLOW_BAND, z0, co[:, 2])
-    chains, dist = [], []
-    for key in sorted(surf):
-        p = surf[key]
+    th_p = np.degrees(np.arctan2(co[:, 0], co[:, 1] - cy))
+    chains, th = [], []
+    for key in sorted(by_key):
         cols = sorted(by_key[key], key=lambda j: bones[j].meta.get('seg', 0))
         A = np.array([bones[j].head for j in cols])
         B = np.array([bones[j].tail for j in cols])
         u = _polyline_u(co, A, B)
         chains.append((cols, u - np.maximum(0.0, u - 0.5) * cap))
-        kd = KDTree(len(p))
-        for i, q in enumerate(p):
-            kd.insert(Vector(q), i)
-        kd.balance()
-        dist.append([kd.find(Vector(q))[2] for q in co])
-    dist = np.array(dist).T                                     # (V, K)
-    if edges is not None and len(edges):
-        dist = _smooth(dist, co, edges, LOCK_FOLLOW_SMOOTH)
-    srt = np.sort(dist, 1)
-    d3 = srt[:, 2] if dist.shape[1] >= 3 else srt[:, -1] + LOCK_FOLLOW_SMOOTH
-    g = np.maximum(0.0, d3[:, None] - dist)
-    tot = g.sum(1)
-    none = tot <= 1e-12
-    g[none, np.argmin(dist[none], 1)] = 1.0
-    g /= np.maximum(g.sum(1, keepdims=True), 1e-12)
+        J = np.concatenate([A[:1], B])                       # joints, top down
+        order = np.argsort(J[:, 2])
+        x = np.interp(co[:, 2], J[order, 2], J[order, 0])
+        y = np.interp(co[:, 2], J[order, 2], J[order, 1])
+        th.append(np.degrees(np.arctan2(x, y - cy)))
+    th = np.array(th).T                                      # (V, K): each chain's angle at the point's height
+    V, K = th.shape
+    g = np.zeros((V, K))
+    below = np.where(th <= th_p[:, None], th, -np.inf)
+    above = np.where(th >= th_p[:, None], th, np.inf)
+    lo, hi = below.argmax(1), above.argmin(1)
+    has_lo, has_hi = np.isfinite(below.max(1)), np.isfinite(above.min(1))
+    rows = np.arange(V)
+    both = has_lo & has_hi
+    span = np.maximum(th[rows, hi] - th[rows, lo], 1e-9)
+    t = np.where(both, (th_p - th[rows, lo]) / span, 0.0)
+    g[rows[both], lo[both]] += 1.0 - t[both]
+    g[rows[both], hi[both]] += t[both]
+    g[rows[~has_lo], hi[~has_lo]] = 1.0                      # beyond the outermost chains
+    g[rows[~has_hi], lo[~has_hi]] = 1.0
     out = np.zeros_like(w)
     for (cols, u), gk in zip(chains, g.T):
         n = len(cols)
