@@ -1,0 +1,152 @@
+Round 4 (integration review 4): full merge r11/integrate 78bca50 + r11/petticoat 0f3b98a (scratch merge af2f695), full motion report 3516 s,
+against round 10 (out/motion_base), petticoat alone (lane) and integrate 1b06af3 (i14, round 3).
+
+target                                             r10       i14       now
+cross_legged skirt compress (>=0.069)            0.069     0.050     0.406
+lie_back core pen_frac (<=0.013)                 0.005     0.019     0.000
+cross_legged skirt x petticoat cross (<=220)   214.000   226.000     0.000
+run clip skirt pop m (<=0.055)                       -     0.055     0.055
+run clip petticoat pop m                         0.069         -         -
+walk clip skirt pop m                            0.008     0.010     0.010
+cross_legged petticoat flip                      3.000     7.000     2.000
+tails stretch kneel_one (1.57)                   1.542     1.683     1.683
+tails stretch deep_lunge (1.55)                  1.523     1.678     1.678
+tails stretch lie_back (1.68)                    1.652     1.700     1.700
+tails stretch cross_legged (<2.0)                1.740     2.091     2.091
+tails stretch run clip                           1.632     1.604     1.604
+tails jitter run clip (<=0.20)                       -     0.216     0.216
+tails pen_frac cross_legged                      0.024     0.020     0.020
+tier x tier crossings (sum)                          0         0         0
+
+ROWS r10      (round 10 itself: 42 rows over min(round 10, petticoat alone), excess 3.916)
+ROWS i14       1 over, excess 0.009: e/seiza ski 1.502>1.493
+ROWS now       0 over, excess 0.000: 
+
+Skirt / petticoat stretch per pose (worst object, where):
+set       pose                part          r10     pet     i14     now  where (now)
+core      test                petticoat   1.830   1.784   1.553   1.553  ('tier2', 'スカート1_2')
+core      test                skirt       1.552   1.578   1.418   1.414  ('skirt', 'スカート11_2')
+core      arms_up             petticoat   1.000   1.000   1.000   1.000  ('tier0', 'スカート12_2')
+core      arms_up             skirt       1.000   1.000   1.000   1.000  ('skirt', 'スカート14_2')
+core      arms_forward        petticoat   1.000   1.000   1.000   1.000  ('core', 'スカート12_0')
+core      arms_forward        skirt       1.000   1.000   1.000   1.000  ('skirt', '上半身')
+core      wrist_twist_pos     petticoat   1.000   1.000   1.000   1.000  ('core', 'スカート12_0')
+core      wrist_twist_pos     skirt       1.000   1.000   1.000   1.000  ('skirt', '上半身')
+core      wrist_twist_neg     petticoat   1.000   1.000   1.000   1.000  ('core', 'スカート12_0')
+core      wrist_twist_neg     skirt       1.000   1.000   1.000   1.000  ('skirt', '上半身')
+core      squat               petticoat   1.544   1.532   1.384   1.384  ('tier2', 'スカート11_2')
+core      squat               skirt       1.448   1.552   1.314   1.316  ('skirt', 'スカート4_2')
+core      walk                petticoat   1.740   1.744   1.567   1.567  ('tier2', 'スカート3_2')
+core      walk                skirt       1.514   1.521   1.481   1.482  ('skirt', 'スカート3_2')
+core      head_left           petticoat   1.000   1.000   1.000   1.000  ('core', 'スカート12_0')
+core      head_left           skirt       1.000   1.000   1.000   1.000  ('skirt', '上半身')
+core      head_right          petticoat   1.000   1.000   1.000   1.000  ('core', 'スカート12_0')
+core      head_right          skirt       1.000   1.000   1.000   1.000  ('skirt', '上半身')
+core      torso_left          petticoat   1.155   1.112   1.073   1.037  ('core', '下半身')
+core      torso_left          skirt       1.329   1.495   1.173   1.173  ('skirt', 'スカート6_0')
+core      torso_right         petticoat   1.193   1.140   1.069   1.034  ('core', '下半身')
+core      torso_right         skirt       1.378   1.618   1.153   1.153  ('skirt', '下半身')
+core      swing               petticoat   1.510   1.497   1.354   1.354  ('tier2', 'スカート15_2')
+core      swing               skirt       1.349   1.307   1.276   1.276  ('skirt', 'スカート0_2')
+core      fist                petticoat   1.000   1.000   1.000   1.000  ('core', 'スカート12_0')
+core      fist                skirt       1.000   1.000   1.000   1.000  ('skirt', '上半身')
+core      raise_bend          petticoat   1.000   1.000   1.000   1.000  ('core', 'スカート12_0')
+core      raise_bend          skirt       1.000   1.000   1.000   1.000  ('skirt', '上半身')
+core      reach_forward       petticoat   1.000   1.000   1.000   1.000  ('core', 'スカート12_0')
+core      reach_forward       skirt       1.000   1.000   1.000   1.000  ('skirt', '上半身')
+core      forward_bend        petticoat   1.409   1.311   1.253   1.253  ('tier2', 'スカート13_2')
+core      forward_bend        skirt       1.287   1.262   1.190   1.183  ('skirt', 'スカート4_2')
+core      side_bend           petticoat   1.067   1.038   1.037   1.018  ('core', '下半身')
+core      side_bend           skirt       1.203   1.289   1.207   1.207  ('skirt', '下半身')
+extended  sit_chair           petticoat   2.030   1.808   1.759   1.759  ('tier2', 'スカート10_2')
+extended  sit_chair           skirt       2.162   2.002   1.621   1.630  ('skirt', 'スカート10_2')
+extended  seiza               petticoat   1.778   1.681   1.625   1.625  ('tier2', 'スカート2_2')
+extended  seiza               skirt       1.730   1.493   1.502   1.463  ('skirt', 'スカート11_2')
+extended  kneel_one           petticoat   1.893   1.887   1.723   1.723  ('tier2', 'スカート1_2')
+extended  kneel_one           skirt       1.723   1.767   1.637   1.637  ('skirt', 'スカート14_0')
+extended  cross_legged        petticoat   2.177   2.256   2.129   2.129  ('tier2', 'スカート5_2')
+extended  cross_legged        skirt       2.604   2.712   2.050   2.051  ('skirt', 'スカート6_2')
+extended  deep_lunge          petticoat   1.901   1.880   1.797   1.797  ('tier2', 'スカート3_2')
+extended  deep_lunge          skirt       1.760   1.670   1.640   1.640  ('skirt', 'スカート14_0')
+extended  run_l               petticoat   1.778   1.877   1.775   1.775  ('tier2', 'スカート3_2')
+extended  run_l               skirt       1.701   1.636   1.596   1.586  ('skirt', 'スカート3_2')
+extended  run_r               petticoat   2.171   1.946   1.775   1.775  ('tier2', 'スカート13_2')
+extended  run_r               skirt       1.752   1.660   1.589   1.574  ('skirt', 'スカート13_2')
+extended  jump_tuck           petticoat   2.060   1.920   1.921   1.921  ('tier2', 'スカート13_2')
+extended  jump_tuck           skirt       2.195   2.017   1.694   1.695  ('skirt', 'スカート9_2')
+extended  high_kick           petticoat   2.168   2.054   1.881   1.828  ('tier2', 'スカート10_2')
+extended  high_kick           skirt       1.895   2.165   1.757   1.738  ('skirt', 'スカート4_2')
+extended  arms_crossed        petticoat   1.000   1.000   1.000   1.000  ('core', 'スカート12_0')
+extended  arms_crossed        skirt       1.000   1.000   1.000   1.000  ('skirt', '上半身')
+extended  hands_behind_head   petticoat   1.000   1.000   1.000   1.000  ('core', 'スカート12_0')
+extended  hands_behind_head   skirt       1.000   1.000   1.000   1.000  ('skirt', '上半身')
+extended  hands_behind_back   petticoat   1.000   1.000   1.000   1.000  ('core', 'スカート12_0')
+extended  hands_behind_back   skirt       1.000   1.000   1.000   1.000  ('skirt', '上半身')
+extended  hand_to_shoulder    petticoat   1.000   1.000   1.000   1.000  ('core', 'スカート12_0')
+extended  hand_to_shoulder    skirt       1.000   1.000   1.000   1.000  ('skirt', '上半身')
+extended  hands_on_hips       petticoat   1.000   1.000   1.000   1.000  ('core', 'スカート12_0')
+extended  hands_on_hips       skirt       1.000   1.000   1.000   1.000  ('skirt', '上半身')
+extended  reach_up_back       petticoat   1.033   1.028   1.019   1.009  ('core', '下半身')
+extended  reach_up_back       skirt       1.135   1.135   1.135   1.135  ('skirt', 'スカート0_0')
+extended  hug_self            petticoat   1.029   1.021   1.008   1.004  ('core', '下半身')
+extended  hug_self            skirt       1.041   1.041   1.040   1.040  ('skirt', '下半身')
+extended  twist_bend          petticoat   1.339   1.241   1.205   1.205  ('tier2', 'スカート13_2')
+extended  twist_bend          skirt       1.375   1.603   1.249   1.249  ('skirt', 'スカート12_0')
+extended  lie_back_elbows     petticoat   2.249   2.151   2.040   2.040  ('tier2', 'スカート5_2')
+extended  lie_back_elbows     skirt       2.645   2.348   1.848   1.848  ('skirt', 'スカート5_1')
+extended  look_over_shoulder  petticoat   1.162   1.117   1.077   1.038  ('core', '下半身')
+extended  look_over_shoulder  skirt       1.346   1.519   1.181   1.181  ('skirt', 'スカート6_0')
+extended  curtsy              petticoat   1.443   1.535   1.349   1.349  ('tier2', 'スカート1_2')
+extended  curtsy              skirt       1.321   1.344   1.270   1.232  ('skirt', 'スカート1_2')
+extended  dance_sway          petticoat   1.354   1.238   1.237   1.237  ('tier2', 'スカート2_2')
+extended  dance_sway          skirt       1.252   1.195   1.178   1.179  ('skirt', 'スカート12_2')
+extended  dance_point         petticoat   1.411   1.423   1.311   1.311  ('tier2', 'スカート13_2')
+extended  dance_point         skirt       1.329   1.341   1.225   1.214  ('skirt', 'スカート14_1')
+extended  dance_heart         petticoat   1.299   1.250   1.219   1.219  ('tier2', 'スカート13_2')
+extended  dance_heart         skirt       1.236   1.212   1.158   1.151  ('skirt', 'スカート12_2')
+extended  dance_clap          petticoat   1.429   1.384   1.296   1.296  ('tier2', 'スカート12_2')
+extended  dance_clap          skirt       1.328   1.272   1.232   1.227  ('skirt', 'スカート12_2')
+motion    walk                petticoat   1.606   1.597   1.415   1.415  ('tier2', 'スカート1_2')
+motion    walk                skirt       1.354   1.382   1.312   1.274  ('skirt', 'スカート1_2')
+motion    run                 petticoat   2.300   1.983   1.879   1.879  ('tier2', 'スカート1_2')
+motion    run                 skirt       1.823   1.772   1.683   1.635  ('skirt', 'スカート14_1')
+motion    turn                petticoat   1.399   1.291   1.256   1.256  ('tier2', 'スカート13_2')
+motion    turn                skirt       1.285   1.247   1.184   1.177  ('skirt', 'スカート12_2')
+motion    sit_stand           petticoat   2.030   1.818   1.759   1.759  ('tier2', 'スカート10_2')
+motion    sit_stand           skirt       2.162   2.002   1.621   1.630  ('skirt', 'スカート10_2')
+motion    spin                petticoat   1.988   2.001   1.760   1.760  ('tier2', 'スカート1_2')
+motion    spin                skirt       1.712   1.654   1.550   1.548  ('skirt', 'スカート8_2')
+motion    idol_dance          petticoat   1.778   1.877   1.775   1.775  ('tier2', 'スカート3_2')
+motion    idol_dance          skirt       1.701   1.636   1.596   1.586  ('skirt', 'スカート3_2')
+
+Issues and regressions vs i14 (tools: analysis/integ/mdiff.py):
+ISSUES part level: base -> new
+  hair/garment   major    8 ->    9
+  hair/garment   minor   13 ->   15
+  hair_back      minor    7 ->    9
+  hair_front     minor   21 ->   22
+  petticoat      minor   60 ->   53
+  skirt          major    4 ->    3
+  skirt          minor   23 ->   24
+  skirt/petticoat minor    1 ->    0
+total 481 -> 479
+
+REGRESSIONS past minor (set name part metric: base -> new  object where)
+  core     walk               hair/garment   cross     964.000 -> 1012.000  hair x garment hair x garment
+  core     head_left          hair/garment   cross     110.000 ->  118.000  hair x garment hair x garment
+  core     forward_bend       hair/garment   cross      33.000 ->   41.000  hair x garment hair x garment
+  extended run_l              hair/garment   cross     299.000 ->  325.000  hair x garment hair x garment
+  extended run_r              hair/garment   cross     387.000 ->  406.000  hair x garment hair x garment
+  extended hands_behind_back  hair/garment   cross       0.000 ->  110.000  hair x garment hair x garment
+  extended hand_to_shoulder   hair/garment   cross      72.000 ->   85.000  hair x garment hair x garment
+  extended dance_point        hair/garment   cross     124.000 ->  130.000  hair x garment hair x garment
+  extended dance_heart        hair/garment   cross    5329.000 -> 6037.000  hair x garment hair x garment
+  motion   walk               hair/garment   cross      34.000 ->   50.000  hair x garment hair x garment
+  motion   turn               hair/garment   cross      91.000 ->  117.000  hair x garment hair x garment
+  motion   spin               hair/garment   cross      77.000 ->   92.000  hair x garment hair x garment
+  motion   idol_dance         hair/garment   cross    5329.000 -> 6037.000  hair x garment hair x garment
+  core     test               hair/skirt     cross     154.000 ->  162.000  hair x skirt hair x skirt
+  motion   spin               hair/skirt     cross     918.000 -> 1044.000  hair x skirt hair x skirt
+  extended jump_tuck          hair_back      stretch     1.240 ->    1.674  hair_back_shell 後髪束6_3
+
+IMPROVEMENTS from past minor: 6
