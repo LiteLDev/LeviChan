@@ -61,6 +61,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
 import pmxread  # noqa: E402
+from levi.parts import _head_levi as HL  # noqa: E402  (constants only, no bpy)
 
 S = 0.08
 MATS = {'face': '颜', 'mouth': '口', 'teeth': '齿', 'tongue': '舌', 'white': '白目', 'iris': '目',
@@ -79,11 +80,22 @@ TEX = 1024
 SKIN = '#FEEAE1'
 NAVY = '#1B1C4D'
 LOW_LASH = '#3E3A63'
-BROW = '#857A92'
-CREASE = '#C9A39E'
-IRIS_LO, IRIS_UP, PUPIL, RIM = '#67AC80', '#5B855F', '#4F7A58', '#313855'
-LID_SHADE = '#D3DCEB'
+BROW = '#6D647D'
+IRIS_LO, IRIS_UP, RIM = '#67AC80', '#5B855F', '#313855'
 LIP_LINE = '#9C5A55'
+# Levi's eye paint (round 11 face pass, ref/setting.png front levelled; the shapes are in
+# levi/parts/_head_levi.py and _head_lash.py):
+SCLERA = ('#D8B6AA', '#F3E4DF', 0.011)   # the eye white skin-toned: under the lid .. lower, over [m]
+LASH_FEATHER = ('#6E6280', '#9B828C')     # the lash's nasal end, by colour (HL.LASH_FEATHER x')
+LASH_WALL_END = '#3E385D'                 # the wall line's last mm
+LOWER_LID = '#E2BDB4'                     # the lower lid line, low contrast (LOW_LASH in the outer third)
+TICK = ('#3E385D', (-0.33, -0.45, -0.57), 0.0005, 0.0032, 0.0010, 45.0)   # lower-lash ticks: colour, x' [D],
+#                                           start under the baked lower lid [m], length, width [m], deg below level
+CREASE = ('#957D8B', 0.09, 0.00035, (-0.72, 0.25))   # lid crease: colour, D above the lash top,
+#                                           half-width [m], x' run [D] (the design's short nasal dash is
+#                                           left out: the margin dives there, and the line ran down the
+#                                           inner corner's skin as a dotted streak)
+D_SHOW = 0.957                            # levi/parts/_head_lash.D_SHOW
 
 
 def hexrgb(h):
@@ -296,8 +308,8 @@ def lash_kinds(P):
     return kind, info
 
 
-SWATCH = {'skin': (SKIN, 1.0), 'white': ('#FFFFFF', 0.0), 'navy': (NAVY, 0.0)}   # 32 px cells, top right
-LOWER_LINER = '#B48A8E'      # her liner runs on under the eye (part of the upper strip): Levi's soft lid line
+SWATCH = {'skin': (SKIN, 1.0), 'white': ('#FFFFFF', 0.0), 'navy': (NAVY, 0.0),
+          'ring': ('#3E3A63', 0.0)}   # 32 px cells, top right ('ring': the highlight's thin dark ring)
 
 
 def swatch_uv(name):
@@ -331,12 +343,15 @@ def paint_atlas(tex, parts, kinds):
     rgba[..., 3] = 1.0
     painted = np.zeros((H, W), bool)
     face = parts['face']
-    # face sheet: flat skin, shaded; Levi's marks painted from the 3D position
-    cov, X, _ = raster(face['uv'], face['pos'][face['tri']] + ALIGN)
+    # face sheet: flat skin, shaded; Levi's marks painted from the 3D position (her rest, and
+    # baked: with Levi's lid bake, where the part shows it)
+    bake = parts['face']['lid_bake']
+    cov, XB, _ = raster(face['uv'], np.concatenate([face['pos'][face['tri']] + ALIGN, bake[face['tri']]], -1))
+    X = XB[..., :3]
     sheet, Xsheet = cov, X
     rgba[sheet, :3] = hexrgb(SKIN)
     rgba[sheet, 3] = 1.0
-    _levi_marks(rgba, sheet, X)
+    _levi_marks(rgba, sheet, X, X + XB[..., 3:], parts)
     # her rolled inner lip (a strip of the face with its own UVs, round the mouth
     # opening): Levi's lip line, darkest where it meets the cavity
     mouth = parts['mouth']
@@ -357,22 +372,25 @@ def paint_atlas(tex, parts, kinds):
     rgba[cov, :3] = hexrgb('#D88A86')
     rgba[cov, 3] = 1.0
     bleed(rgba, cov, painted)
-    # white cup: white, the lid shadow hanging from the opening's upper edge (unshaded)
+    # white cup: Levi's skin-toned sclera, shaded under the lid (the shade hangs from the
+    # opening's upper edge; unshaded paint, the only white is the highlight)
     P = parts['white']
     cov, X, _ = raster(P['uv'], P['pos'][P['tri']] + ALIGN)
     zup = _upper_rim(P)
     xa = np.abs(X[..., 0] - ALIGN[0])
-    t = smooth(0.0, 0.0045, np.interp(xa, zup[:, 0], zup[:, 1]) - X[..., 2])
-    col = hexrgb(LID_SHADE)[None, None] * (1 - t[..., None]) + np.ones(3) * t[..., None]
+    top, low, depth = SCLERA
+    t = smooth(0.0, depth, np.interp(xa, zup[:, 0], zup[:, 1]) - X[..., 2])
+    col = hexrgb(top)[None, None] * (1 - t[..., None]) + hexrgb(low) * t[..., None]
     rgba[cov, :3] = col[cov]
     rgba[cov, 3] = 0.0
     bleed(rgba, cov, painted)
     # iris
     _paint_iris(rgba, parts['iris'], painted)
-    # lashes and brows: flat
+    # lashes and brows: flat (the crease strips are welded into the face: skin)
     P = parts['lash']
-    colour = {'upper': NAVY, 'liner': NAVY, 'flick': NAVY, 'lower': LOWER_LINER, 'brow': BROW,
-              'crease': CREASE, 'other': NAVY}
+    colour = {'upper': NAVY, 'liner': NAVY, 'flick': NAVY, 'lower': LOWER_LID, 'brow': BROW,
+              'crease': SKIN, 'other': NAVY}
+    eyes = _eye_frames(parts)
     for k, hx in colour.items():
         sel = kinds == LASH_KIND.index(k)
         if not sel.any():
@@ -380,12 +398,20 @@ def paint_atlas(tex, parts, kinds):
         cov, X, _ = raster(P['uv'][sel], P['pos'][P['tri'][sel]] + ALIGN)
         rgba[cov, :3] = hexrgb(hx)
         rgba[cov, 3] = 1.0 if k == 'crease' else 0.0
-        xa = np.abs(X[..., 0] - ALIGN[0])
-        if k == 'upper':      # the outer corner runs down to the lower lid: navy fades to the lid line
-            low = (smooth(1.2945, 1.2905, X[..., 2]) * cov)[..., None]
-            rgba[..., :3] = rgba[..., :3] * (1 - low) + hexrgb(LOWER_LINER) * low
-        if k == 'lower':      # her lower liner: Levi's short lower lashes at the outer end only
-            out = (smooth(0.041, 0.046, xa) * cov)[..., None]
+        xp = _xprime(X, eyes)
+        if k == 'upper':
+            # navy all along (her strip's outer corner faded to mauve); the nasal end feathers
+            # by colour; the wall line's foot eases to a softer navy over its last mm
+            f0, f1 = HL.LASH_FEATHER
+            t = smooth(f0, f1, xp)
+            ramp = hexrgb(LASH_FEATHER[0])[None, None] * (1 - t[..., None]) + hexrgb(LASH_FEATHER[1]) * t[..., None]
+            w = (smooth(f0, f0 + 0.04, xp) * cov)[..., None]
+            rgba[..., :3] = rgba[..., :3] * (1 - w) + ramp * w
+            zlow = _upper_foot(P, kinds)
+            w = (smooth(zlow + 0.001, zlow, X[..., 2]) * (xp < 0) * cov)[..., None]
+            rgba[..., :3] = rgba[..., :3] * (1 - w) + hexrgb(LASH_WALL_END) * w
+        if k == 'lower':      # Levi's lower lid: soft, with the short lower lashes in the outer third
+            out = (smooth(-0.20, -0.30, xp) * cov)[..., None]
             rgba[..., :3] = rgba[..., :3] * (1 - out) + hexrgb(LOW_LASH) * out
         bleed(rgba, cov, painted)
     # highlight (rebuilt by the part as one oval): white
@@ -445,9 +471,68 @@ def _flush_marks(rgba, sheet, X):
         paint(0.55 * smooth(0.0006, 0.0, d) * inside * fade, '#E07479')
 
 
-def _levi_marks(rgba, sheet, X):
-    """Levi's skin marks on the face sheet, by 3D position (aligned): a faint blush
-    under the eyes, a small nose mark. (Lids, lashes, brows are geometry.)"""
+def _eye_frames(parts):
+    """{side: (iris centre, D)} (her rest, aligned; D the iris width incl. its rim, as
+    levi/parts/_head_lash.py)."""
+    ip = parts['iris']['pos'] + ALIGN
+    out = {}
+    for side in (1, -1):
+        q = ip[(ip[:, 0] - ALIGN[0]) * side > 0]
+        out[side] = (0.5 * (q.min(0) + q.max(0)), (q[:, 0].max() - q[:, 0].min()) * D_SHOW)
+    return out
+
+
+def _xprime(X, eyes):
+    """x' [D] of points (..., 3): from that side's iris centre, + toward the nose."""
+    side = np.where(X[..., 0] >= ALIGN[0], 1, -1)
+    out = np.zeros(X.shape[:-1])
+    for sd, (c, D) in eyes.items():
+        m = side == sd
+        out[m] = -sd * (X[..., 0][m] - c[0]) / D
+    return out
+
+
+def _upper_foot(P, kinds):
+    """z of the upper strip's lowest point (the wall line's foot), her rest."""
+    v = np.unique(P['tri'][kinds == LASH_KIND.index('upper')])
+    return float((P['pos'][v] + ALIGN)[:, 2].min())
+
+
+def _hole_runs(face, eyes):
+    """{side: (upper run, lower run)} of her face's eye-hole edge, baked (Levi's lids):
+    (x, z) points sorted by x."""
+    from collections import Counter
+    E = Counter()
+    for t in face['tri']:
+        for a, b in ((t[0], t[1]), (t[1], t[2]), (t[2], t[0])):
+            E[(min(a, b), max(a, b))] += 1
+    bv = np.unique([v for e, c in E.items() if c == 1 for v in e])
+    Q = face['pos'][bv] + ALIGN + face['lid_bake'][bv]
+    out = {}
+    for sd, (c, D) in eyes.items():
+        q = Q[(np.abs(Q[:, 0] - c[0]) < 0.75 * D) & (np.abs(Q[:, 2] - c[2]) < 0.6 * D)]
+        up, lo = q[q[:, 2] > c[2]], q[q[:, 2] <= c[2]]
+        out[sd] = (up[np.argsort(up[:, 0])][:, [0, 2]], lo[np.argsort(lo[:, 0])][:, [0, 2]])
+    return out
+
+
+def _seg_cover(px, pz, a, b, w0, w1, aa=0.00012):
+    """Coverage of a tapered stroke from a to b (width w0 -> w1) at points (px, pz)."""
+    d = np.array(b) - np.array(a)
+    L = np.linalg.norm(d)
+    d = d / L
+    rx, rz = px - a[0], pz - a[1]
+    t = np.clip((rx * d[0] + rz * d[1]) / L, 0.0, 1.0)
+    ex, ez = rx - t * L * d[0], rz - t * L * d[1]
+    hw = 0.5 * (w0 + (w1 - w0) * t)
+    return smooth(hw + aa, hw - aa, np.hypot(ex, ez))
+
+
+def _levi_marks(rgba, sheet, X, Xb, parts):
+    """Levi's skin marks on the face sheet, by 3D position (aligned; Xb: baked with Levi's
+    lids): a faint blush under the eyes, a small nose mark, the lid crease over the outer
+    side with a short nasal dash, short lower-lash ticks at the outer corner. (Lids,
+    lashes, brows are geometry; no hatching at rest: 照れ keeps its strokes.)"""
     x, y, z = X[..., 0] - ALIGN[0], X[..., 1], X[..., 2]
     ax = np.abs(x)
     eye_z = 1.2485 + ALIGN[2]
@@ -457,13 +542,32 @@ def _levi_marks(rgba, sheet, X):
         rgba[..., :3] = rgba[..., :3] * (1 - cov[..., None]) + hexrgb(hx) * cov[..., None]
     blush = np.exp(-(((ax - 0.040) / 0.015) ** 2 + ((z - (eye_z - 0.0175)) / 0.0058) ** 2))
     paint(0.30 * blush, '#F6B6AE')
-    for k in range(3):     # barely-there hatch strokes (as round 10)
-        xs = 0.034 + 0.0047 * k
-        d = np.abs((ax - xs) + 0.45 * (z - (eye_z - 0.0175))) - 0.0004
-        paint(0.10 * smooth(0.0006, 0.0, d) * (np.abs(z - (eye_z - 0.0175)) < 0.002), '#EE9C98')
     # nose: a faint small mark at the tip
     nose = np.exp(-((ax / 0.0016) ** 2 + ((z - (eye_z - 0.0305)) / 0.0010) ** 2))
     paint(0.25 * nose, '#E2A49C')
+    eyes = _eye_frames(parts)
+    runs = _hole_runs(parts['face'], eyes)
+    xb, zb = Xb[..., 0], Xb[..., 2]
+    front = Xb[..., 1] < -0.095
+    tx, tz = [p[0] for p in HL.LASH_T], [p[1] for p in HL.LASH_T]
+    for sd, (c, D) in eyes.items():
+        up, lo = runs[sd]
+        near = front & ((xb - ALIGN[0]) * sd > 0)
+        # lower-lash ticks: from just under the baked lower lid, down and outward
+        col, xs, gap, length, width, deg = TICK
+        for xq in xs:
+            x0 = c[0] - sd * xq * D
+            z0 = float(np.interp(x0, lo[:, 0], lo[:, 1])) - gap
+            a = np.radians(deg)
+            b = (x0 + sd * length * np.cos(a), z0 - length * np.sin(a))
+            paint(_seg_cover(xb, zb, (x0, z0), b, width, 0.15 * width) * near, col)
+        # the lid crease: a thin line over the outer side, CREASE[1] D above the lash's top
+        col, above, hw, (r0, r1) = CREASE
+        xp = -sd * (xb - c[0]) / D
+        mz = np.interp(xb, up[:, 0], up[:, 1])
+        zc = mz + (np.interp(xp, tx, tz) + above) * D
+        ends = smooth(r0, r0 + 0.04, xp) * smooth(r1, r1 - 0.04, xp)
+        paint(smooth(hw + 0.00012, hw - 0.00012, np.abs(zb - zc)) * ends * near, col)
 
 
 def _paint_iris(rgba, P, painted):
@@ -480,16 +584,19 @@ def _paint_iris(rgba, P, painted):
     v = (U[..., 1] - c[1]) / r[1]
     q = np.hypot(u, v)
     up = v                                         # +1 at the top of the iris (UV v up)
+    # (round 11 face pass: a crisp band over the top, the pupil merged into it in the band's
+    # tone, a lighter pool at the bottom, a thin crisp rim)
+    band = smooth(0.14, 0.20, up)[..., None]
     col = hexrgb(IRIS_LO)[None, None] * np.ones((H, W, 1))
-    # darker upper band, soft lower edge
-    band = smooth(0.05, 0.35, up)[..., None]
     col = col * (1 - band) + hexrgb(IRIS_UP) * band
-    # rounded darker pupil, a little above the centre, taller than wide
-    pq = np.hypot(u / 0.30, (v - 0.12) / 0.48)
+    pool = (smooth(-0.35, -0.55, v) * 0.6)[..., None]
+    col = col * (1 - pool) + hexrgb('#74B88B') * pool
+    pq = np.hypot(u / 0.33, (v - 0.12) / 0.48)
     pup = smooth(1.05, 0.9, pq)[..., None]
-    col = col * (1 - pup) + hexrgb(PUPIL) * pup
-    # navy rim
-    rim = smooth(0.80, 0.90, q)[..., None]
+    col = col * (1 - pup) + hexrgb(IRIS_UP) * pup
+    # navy rim: thin, a little wider along the bottom
+    r0 = 0.88 - 0.04 * smooth(-0.3, -0.5, v)
+    rim = smooth(r0, r0 + 0.05, q)[..., None]
     col = col * (1 - rim) + hexrgb(RIM) * rim
     rgba[cov, :3] = col[cov]
     rgba[cov, 3] = 0.0
@@ -529,6 +636,13 @@ def main():
     m = pmxread.read(args.pmx)
     parts = extract(m)
     names, src, mo = morphs(m, parts)
+    # Levi's lid bake (levi/parts/_head_levi.py) on her face: where the part shows the lid skin
+    bake = np.zeros_like(parts['face']['pos'])
+    ptr, mvi, moff = mo['face']
+    for nm, w in HL.NEUTRAL_LID:
+        k = names.index(nm)
+        bake[mvi[ptr[k]:ptr[k + 1]]] += w * np.array(moff[ptr[k]:ptr[k + 1]])
+    parts['face']['lid_bake'] = bake
     kinds, info = lash_kinds(parts['lash'])
     for row in info:
         print('LASH', row)
@@ -539,7 +653,8 @@ def main():
             'bone_head': np.array([our(m['bone_list'][bl[b]]['pos']) for b in BONES], np.float32),
             'lash_kind': np.array(LASH_KIND), 'lash_isl': kinds,
             'swatch_names': np.array(list(SWATCH)),
-            'swatch_uv': np.array([swatch_uv(n) for n in SWATCH], np.float32)}
+            'swatch_uv': np.array([swatch_uv(n) for n in SWATCH], np.float32),
+            'lid_k': np.float32(HL.LID_K)}
     for p, P in parts.items():
         data[p + '_pos'] = P['pos'].astype(np.float32)
         data[p + '_tri'] = P['tri'].astype(np.int32)

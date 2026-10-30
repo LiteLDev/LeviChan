@@ -53,8 +53,9 @@ FOREHEAD = (0.016, 0.030)            # m above the eye centre: the forehead pull
 SIDE = (0.052, 0.064)                # m from the midline: the side pull ramps in
 BACK = (-0.090, -0.072)              # y: her mask's sides behind this are pulled
 CHIN_FREE = (1.262, 1.250)           # z: the side pull fades out under the cheek (her jaw stays hers)
-NOSE_TONE = (0.42, 0.0022, 0.0105)   # share of the nose's relief taken out, lift [m], X sigma [m]
-NOSE_ROWS = (0.047, 0.036, 0.013, 0.004)   # m below the eye centre: nose zone fades in .. out
+NOSE_TONE = (0.20, 0.0, 0.0105)     # share of the nose's relief taken out, lift [m], X sigma [m]
+NOSE_ROWS = (0.034, 0.028, 0.006, 0.0)    # m below the eye centre: the nose zone fades in (under the
+#                                           subnasal, hers at -30 mm) .. out (at the bridge's root)
 INTERP_K, INTERP_SIGMA = 12, 0.003   # warp interpolation: nearest face vertices, Gaussian sigma [m]
 PROP_R = 0.022                       # m: the skull takes her border's morph motion over this distance
 # the body's neck (body.TORSO rows 148-178: half-width 13.5 px, front -44 px, back -17 px,
@@ -312,7 +313,89 @@ def nose_weight(P):
     X = np.abs(P[:, 0] - MID_X)
     z = P[:, 2] - EYE_C[1]
     a, b, c, d = NOSE_ROWS
-    return np.exp(-(X / NOSE_TONE[2]) ** 2) * smooth(-a, -b, z) * smooth(-c, -d, z)
+    # in from a .. b below the eye centre, out from c .. d below it
+    return np.exp(-(X / NOSE_TONE[2]) ** 2) * smooth(-a, -b, z) * smooth(-d, -c, z)
+
+
+# Levi's lower face (round 11 face pass): one smooth receding line from the nose to the
+# chin in profile, no pout (ref/setting.png profile). On her rest, before the warp, so her
+# morphs open the lips from it: the lips (and the mouth's pocket, teeth and tongue with
+# them) move along -Y onto a smooth surface fitted to the lower face round them; then the
+# mouth slides MOUTH_DROP down along the face (Levi's mouth sits lower under the nose).
+LIP_FLAT = 1.0                         # share of the lips' relief taken out
+LIP_SLIT = 0.0437                      # m below the eye centre: her slit
+LIP_FIT_ZONE = (0.020, 0.062, 0.026)   # |X| <, from .. to [m below the eye centre]: the fitted lower face
+LIP_HOLE = (0.0125, 0.0060)            # half-width, half-height round the slit left out of the fit
+LIP_REACH = (0.0155, 0.0095, 2.2)      # the flattening's ellipse round the slit (half-width, half-height), gain
+MOUTH_DROP = 0.002                     # m the mouth slides down along the face
+MOUTH_DROP_R = (0.025, 0.010)          # its Gaussian reach: X (wide: the corners drop as the middle), z [m]
+
+
+def _lip_feats(X, z):
+    u, v = X / 0.02, (z + LIP_SLIT) / 0.02
+    return np.stack([np.ones_like(u), v, v * v, v ** 3, u * u, u * u * v, u * u * v * v, u ** 4, u ** 4 * v], 1)
+
+
+class LipRest:
+    """The rest change of the mouth: D on the coarse face (fc), at() for other points."""
+
+    def __init__(self, fc):
+        P, T, M = fc['pos'], fc['tri'], fc['mat']
+        n = len(P)
+        skin = np.zeros(n, bool)
+        skin[np.unique(T[M == 0])] = True
+        cav = np.zeros(n, bool)
+        cav[np.unique(T[M == 1])] = True
+        self.border = np.nonzero(skin & cav)[0]
+        X, z, y = np.abs(P[:, 0] - MID_X), P[:, 2] - EYE_C[1], P[:, 1]
+        front = skin & (y < -0.095)
+        zone = front & (X < LIP_FIT_ZONE[0]) & (z > -LIP_FIT_ZONE[1]) & (z < -LIP_FIT_ZONE[2])
+        hole = np.hypot(X / LIP_HOLE[0], (z + LIP_SLIT) / LIP_HOLE[1]) < 1.0
+        fit = zone & ~hole
+        self.c, *_ = np.linalg.lstsq(_lip_feats(X[fit], z[fit]), y[fit], rcond=None)
+        e = np.clip(1.0 - np.hypot(X / LIP_REACH[0], (z + LIP_SLIT) / LIP_REACH[1]), 0.0, 1.0)
+        w = np.minimum(1.0, LIP_REACH[2] * e * e * (3.0 - 2.0 * e))
+        w = np.where(front, w, 0.0)
+        D = np.zeros_like(P)
+        D[:, 1] = LIP_FLAT * w * (_lip_feats(X, z) @ self.c - y)
+        # the pocket (her mouth piece behind the lips) moves with the lips
+        self.kd_b = KDTree(len(self.border))
+        for i, v in enumerate(self.border):
+            self.kd_b.insert(Vector(P[v]), i)
+        self.kd_b.balance()
+        self.Db = D[self.border].copy()
+        for v in np.nonzero(cav & ~skin)[0]:
+            D[v] = self._from_border(P[v])
+        D += self._drop(P)
+        self.D = D
+        print(f'HEAD lips: fitted lower face rms {self._rms(P, fit) * 1000:.2f} mm; the lip line moves '
+              f'{D[self.border, 1].min() * 1000:.1f} .. {D[self.border, 1].max() * 1000:.1f} mm along y, '
+              f'max {np.linalg.norm(D, axis=1).max() * 1000:.1f} mm')
+
+    def _rms(self, P, fit):
+        X, z = np.abs(P[fit, 0] - MID_X), P[fit, 2] - EYE_C[1]
+        return float(np.sqrt(((_lip_feats(X, z) @ self.c - P[fit, 1]) ** 2).mean()))
+
+    def _from_border(self, q):
+        hits = self.kd_b.find_n(Vector(q), 4)
+        dist = np.array([h[2] for h in hits])
+        wt = 1.0 / (dist + 1e-4) ** 2
+        return (wt[:, None] * self.Db[[h[1] for h in hits]]).sum(0) / wt.sum()
+
+    def _drop(self, Q):
+        X, z = np.abs(Q[:, 0] - MID_X), Q[:, 2] - EYE_C[1]
+        g = np.exp(-(X / MOUTH_DROP_R[0]) ** 2 - ((z + LIP_SLIT) / MOUTH_DROP_R[1]) ** 2)
+        # down along the fitted face at the slit's middle (it recedes: down and back)
+        h = 1e-4
+        f = _lip_feats(np.zeros(2), np.array([-LIP_SLIT + h, -LIP_SLIT - h])) @ self.c
+        fz = (f[0] - f[1]) / (2 * h)
+        t = np.array([0.0, -fz, -1.0])
+        t /= np.linalg.norm(t)
+        return MOUTH_DROP * g[:, None] * t
+
+    def at(self, Q):
+        """The change at points inside the mouth (teeth, tongue): the lips' move there, and the drop."""
+        return np.array([self._from_border(q) for q in Q]) + self._drop(Q)
 
 
 class Warp:
