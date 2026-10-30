@@ -4356,9 +4356,17 @@ HALTER_SMOOTH = 0.008    # m: surface smoothing of the halter's sampled weights
 # end takes the weights of the strap beside it.
 HALTER_RIDE_PART = 'bodice'
 HALTER_RIDE_K = 8        # nearest bodice vertices averaged (inverse distance, softened by SKIN_SOFT)
-HALTER_JOIN_K = 16       # nearest strap vertices (two rings) a joined strand vertex takes its weights from ...
-HALTER_JOIN_SOFT = 0.003  # ... inverse distance, softened by this (m): a strand ring sees one set
+HALTER_JOIN_K = 24       # nearest strap vertices (three rings) a joined strand vertex takes its weights from ...
+HALTER_JOIN_SOFT = 0.01   # ... inverse distance, softened by this (m): every vertex of a strand ring sees
+                          # the same set (with 2 rings softened by 3 mm the ring's weights differed by ~1 %, and
+                          # a raised arm's stage bones, ~8 cm away, flattened the ring to x0.05 in idol_dance@80)
 SKIN_LATE = ('accessories',)   # parts skinned after the other garments (the halter reads the bodice)
+# One set of weights per cord section: the shoulder stage bones' turn moves a chest point
+# ~12 cm, so vertices of one 2.8 mm section ~1.5 % apart in them flattened an X strand's
+# section at its junction to x0.05 in idol_dance@80. The strand's join is looked up, and the
+# prune's motion refit run, at each vertex's position smoothed along the surface by this (m),
+# about its section's centre.
+HALTER_REFIT_AT = 0.004
 
 
 def _choker_skin(co, bones):
@@ -4472,6 +4480,9 @@ def _halter_joins(obj, sk, co, edges):
     if j is None or not (j > 0).any() or edges is None:
         return sk
     lab = _islands(len(co), edges)
+    # queried at each vertex's position smoothed along the surface (about its section's
+    # centre), so the vertices of one strand section find the same strap vertices
+    cq = _smooth(co, co, edges, HALTER_REFIT_AT)
     out = sk.copy()
     for isl in np.unique(lab[j > 0]):
         host = np.nonzero((j <= 0) & (lab != isl))[0]
@@ -4479,7 +4490,7 @@ def _halter_joins(obj, sk, co, edges):
             continue
         tree = _kd(co[host])
         for v in np.nonzero((lab == isl) & (j > 0))[0]:
-            found = tree.find_n(co[v], HALTER_JOIN_K)
+            found = tree.find_n(cq[v], HALTER_JOIN_K)
             wt = np.array([1.0 / (d + HALTER_JOIN_SOFT) for _, _, d in found])
             wp = wt @ sk[host[[k for _, k, _ in found]]] / wt.sum()
             out[v] = sk[v] * (1.0 - j[v]) + wp * j[v]
@@ -4679,6 +4690,10 @@ def _weights(obj, part, co, bones):
         guide = _shell_share(guide, co, bones)
     if guide is not None and cord == 'halter':
         guide = _halter_joins(obj, guide, co, edges)   # a strand's end keeps the strap's bones
+    if cord == 'halter' and len(edges):
+        # the prune's motion refit at each cord section's centre (HALTER_REFIT_AT), so a section
+        # keeps one set of weights
+        return _prune(w, bones, guide, _smooth(co, co, edges, HALTER_REFIT_AT))
     return _prune(w, bones, guide, co)
 
 
