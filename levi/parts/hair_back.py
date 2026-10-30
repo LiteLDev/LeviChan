@@ -511,6 +511,8 @@ UNDER_COLS = 21
 UNDER_T = 1.6
 UNDER_T_TOP = (110.0, 142.0, 0.3)
 UNDER_RIM = 0.4
+UNDER_WRAP = 30.0           # px the side edges curl forward on the hanging length ...
+UNDER_WRAP_ROWS = (175.0, 335.0)   # ... faded in from / out after these rows
 UNDER_CAP_GAP = 0.4
 UNDER_HW = [(110, 76), (130, 78), (170, 76), (210, 76), (250, 82), (290, 90), (320, 92),
             (345, 84), (360, 66), (370, 42)]
@@ -545,11 +547,14 @@ def _under_layer():
         bxs = CX - hw * a
         t_mid = t0 + (UNDER_T - t0) * smooth01((r - r0) / (r1 - r0))
         thick = UNDER_RIM + (t_mid - UNDER_RIM) * (1.0 - a * a) ** 0.5
+        # the side edges curl forward round her back (seen from the side the mass reads
+        # solid down to the back, as on the sheet), on the hanging length only
+        wrap = UNDER_WRAP * smooth01((r - UNDER_WRAP_ROWS[0]) / 40.0) * (1.0 - smooth01((r - UNDER_WRAP_ROWS[1]) / 30.0))
         o_row, i_row = [], []
-        for bx, t in zip(bxs, thick):
+        for bx, t, aa in zip(bxs, thick, a):
             e = env_point(bx, r)
             n = volume_normal(e, lobes=False)
-            po = e + n * (base / PX)
+            po = e + n * (base / PX) - Vector((0.0, wrap * (1.0 - math.cos(aa * math.pi / 2)) / PX, 0.0))
             pb, psx, prow = to_px(po)
             # the inner face keeps off the cap and clears the skirt (the smooth envelope, as the locks)
             cs = cap_sx(pb, prow)
