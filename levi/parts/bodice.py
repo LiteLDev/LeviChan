@@ -306,7 +306,10 @@ LINE_VG = 'bodice_line'
 LINE_FADE = 0.0015
 KNOT_FAR = 0.006          # m: strands that come no nearer the knot than this keep 1.0 (far)
 LACE_KNOT_BLEND = 0.04
-TAIL_KNOT_BLEND = 0.018
+# Round 11 (integration review 2): 3 cm for the tails (1.8 cm, against the smoothed own weights of
+# rig._tail_weights, stretched the thin strands x1.72 just below the knot in lie_back_elbows;
+# 3 cm: x1.52). It ends just above the skirt chains' root.
+TAIL_KNOT_BLEND = 0.03
 
 # Ribbon tails (front view, px). Two strands per side meet at the tip.
 # name: (control points, ribbon width px, twist gain)

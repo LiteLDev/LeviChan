@@ -3036,13 +3036,42 @@ KNOT_PROP = 'levi_knot'
 KNOT_SAMPLES = 'levi_knot_samples'   # points (flat, m) whose mean weights the knot rides; else its box
 KNOT_HOLD = 0.0015
 KNOT_BLEND = 0.012
-# round 11: the ribbon tails lying on the skirt carry the skirt's field below its chains'
-# root, up to six bones there (two chains x two segments, 上半身, 下半身); the fourth kept
-# bone switched between 下半身 and the weaker chain's lower segment within one 3 mm station
-# step, and the motion refit amplified the difference (x2.5 in high_kick on R_wave). The
-# prune decides on a guide smoothed this much wider (m) along the tails, so it switches
-# over centimetres.
-BODICE_WIDE_GUIDE = ('bodice_ribbon_tails', 0.09)
+# Round 11 (integration review 2): the ribbon tails lying on the skirt take one field of
+# (angle round the body, height) with at most four bones by construction (_tail_weights):
+# no smoothing of the weights, no prune or motion refit. Smoothed 3.5 cm along the strands,
+# which wander across the front chains, the tails carried 5-9 bones (three chains x three
+# segments and the body); the refit picked four per vertex from the few generic samples
+# that move the chains, so stations 5 mm apart landed on different chain shares (chain 14:
+# 0.23 vs 0.12 on R_wave at the hip), wherever the drape tables put it: the petticoat lane's
+# round-3 drape moved it to x2.09 in cross_legged, x1.68 in kneel_one / deep_lunge (round
+# 10: x1.74 / 1.54 / 1.52) and a strain jitter of 0.22 in the run clip (the petticoat
+# core's mechanism, PLAIN_OBJECTS). The field:
+# - round the body, the two nearest skirt chains, linear in the angle (as _skirt_weights);
+#   the angle is smoothed along the strands (TAIL_SMOOTH[0]): a strand zigzagging across a
+#   chain's line takes its straightened course's blend (cross_legged at the tips x1.59 ->
+#   x1.34 from 4 to 6 cm);
+# - down each chain its segments by height (hat functions), but the first segment carries
+#   alone down to u1 = TAIL_ROOT[0] chain units below the root, and the hat to the second is
+#   centred on their joint (u1 .. 2 - u1): a hat that starts at a pivot stretches twice as
+#   much as one centred on it;
+# - the body hands over to the chains below their root, the pivot the drape turns them
+#   about, by an asinh profile of the distance s below it: asinh(s / d) / asinh(s1 / d), d =
+#   TAIL_ROOT[1], s1 at u1, s softened over TAIL_ROOT[2] at the root (C1 there). A point s
+#   below the pivot and d in front of it moves (R - 1)(s, d) relative to the body, so the
+#   hand-over stretches with share' * sqrt(s^2 + d^2), which this profile keeps level; a
+#   smoothstep peaks at the same x2.1 in high_kick over 5 or 10 cm (the plain blend,
+#   ROOT_BLEND). A sharper start at the root (no onset) compressed the strand just below
+#   it to x0.23 in jump_tuck, a larger d raised the peak (d 3 cm: x1.93);
+# - the body bones' split (上半身 / 下半身 / 上半身2: the bodice's skin sample handing over to
+#   the skirt's waist by SKIRT_BAND) is smoothed along the strands (TAIL_SMOOTH[1]) and
+#   blended into the bow knot (_knot_weights, over the part's 3 cm) before it hands over.
+# Measured on the full model (tails alone, the old weights -> these): high_kick x1.64 ->
+# 1.66, jump_tuck 1.82 -> 1.71, sit_chair 1.67 -> 1.55, kneel_one 1.68 -> 1.48, deep_lunge
+# 1.68 -> 1.40, cross_legged 2.09 -> 1.45, lie_back_elbows 1.70 -> 1.58, run 1.60 -> 1.34
+# (strain jitter 0.22 -> 0.12); the least compression 0.44 -> 0.38 (jump_tuck).
+TAIL_FIELD = 'bodice_ribbon_tails'      # name prefix of the objects weighted by _tail_weights
+TAIL_ROOT = (0.85, 0.01, 0.015)    # chain units the body hands over to the chains over; asinh scale, onset (m)
+TAIL_SMOOTH = (0.06, 0.035)  # m along the strands: the angle round the body; the body bones' split
 
 
 def _knot_weights(w, co, obj, part, bones):
@@ -3082,6 +3111,76 @@ def _knot_pin(idx, ww, knot, bones):
     idx[knot[1], :kk] = ik[0, :kk]
     ww[knot[1], :kk] = wk[0, :kk]
     return idx, ww
+
+
+def _tail_weights(w, co, obj, part, bones, edges):
+    """(idx, ww) of a TAIL_FIELD object (see there) from its base weights `w` (side-masked,
+    normalized), or None without skirt chains."""
+    chains = {}
+    for i, b in enumerate(bones):
+        if b.group == 'Skirt' and 'chain' in b.meta:
+            chains.setdefault(b.meta['chain'], []).append((b.meta['seg'], i, b))
+    col = {b.name: i for i, b in enumerate(bones)}
+    hip = [col[n] for n in ('上半身', '下半身') if n in col]
+    if not chains or not hip:
+        return None
+    is_chain = np.zeros(len(bones), dtype=bool)
+    for k in chains:
+        for _, j, _ in chains[k]:
+            is_chain[j] = True
+    # the body bones' split: the base weights' body share, which below the chains' root is
+    # the skirt's waist sample (_skirt_weights' rest share) until it runs out; that sample
+    # from there on
+    sub = [bones[j] for j in hip]
+    env = np.zeros_like(w)
+    env[:, hip] = _skin_sample(co, [b.name for b in sub], _envelope(co, sub))
+    env /= np.maximum(env.sum(1, keepdims=True), 1e-12)
+    bw = np.where(is_chain[None], 0.0, w)
+    bw = (bw + 1e-3 * env) / (bw.sum(1, keepdims=True) + 1e-3)
+    bw = _smooth(bw, co, edges, TAIL_SMOOTH[1])
+    bw /= np.maximum(bw.sum(1, keepdims=True), 1e-12)
+    knot = _knot_weights(bw, co, obj, part, bones)
+    if knot is not None:
+        bw = knot[0]
+    # round the body: the two nearest chains, by the angle smoothed along the strands
+    keys = sorted(chains, key=lambda k: chains[k][0][2].meta['angle'])
+    A = np.array([chains[k][0][2].meta['angle'] for k in keys])
+    cy = chains[keys[0]][0][2].meta['cy']
+    th = np.arctan2(co[:, 0], co[:, 1] - cy)
+    cs = _smooth(np.c_[np.cos(th), np.sin(th)], co, edges, TAIL_SMOOTH[0])
+    theta = np.degrees(np.arctan2(cs[:, 1], cs[:, 0]))
+    rows = np.arange(len(co))
+    d_fwd = (theta[:, None] - A[None]) % 360.0
+    d_bwd = (A[None] - theta[:, None]) % 360.0
+    prv, nxt = d_fwd.argmin(1), d_bwd.argmin(1)
+    dp, dn = d_fwd[rows, prv], d_bwd[rows, nxt]
+    gap = dp + dn
+    w_prv = np.where(gap > 1e-9, dn / np.maximum(gap, 1e-9), 1.0)
+    u1, d, e = TAIL_ROOT
+    W = np.zeros_like(w)
+    rest = np.zeros(len(co))
+    for c, k in enumerate(keys):
+        ac = w_prv * (prv == c) + (1.0 - w_prv) * (nxt == c)
+        segs = sorted(chains[k], key=lambda s: s[0])
+        n = len(segs)
+        zj = np.array([s[2].head.z for s in segs] + [segs[-1][2].tail.z])
+        u = np.interp(-co[:, 2], np.maximum.accumulate(-zj), np.arange(n + 1.0))
+        seg0 = zj[0] - zj[1]
+        s = np.maximum(u, 0.0) * seg0
+        s = np.sqrt(s * s + e * e) - e          # C1 onset at the root
+        s1 = math.sqrt((u1 * seg0) ** 2 + e * e) - e
+        share = np.clip(np.arcsinh(s / d) / np.arcsinh(s1 / d), 0.0, 1.0)
+        # the first segment alone down to u1, the hat to the second centred on their joint
+        um = np.interp(u, [u1, 2.0 - u1, 1.5, n + 1.0], [0.5, 1.5, 1.5, n + 1.0])
+        uc = np.clip(um, 0.5, n - 0.5)
+        for i, j, _ in segs:
+            W[:, j] += ac * share * np.maximum(0.0, 1.0 - np.abs(uc - (i + 0.5)))
+        rest += ac * (1.0 - share)
+    W += bw * rest[:, None]
+    # at most four bones by construction, but for the few where the knot's 上半身2 meets the
+    # chains: folded continuously, no refit
+    idx, ww = _prune(W, bones)
+    return _knot_pin(idx, ww, knot, bones)
 
 
 SKIN_K = 8                 # nearest skin vertices averaged (inverse distance) ...
@@ -5800,6 +5899,10 @@ def _weights(obj, part, co, bones):
     w = w / w.sum(1, keepdims=True)
     if TIER_FIELD and obj.name.startswith(TIER_FIELD[0]):
         return _tier_field_weights(co, bones)
+    if part == 'bodice' and TAIL_FIELD and obj.name.startswith(TAIL_FIELD):
+        tw = _tail_weights(w, co, obj, part, bones, edges)
+        if tw is not None:
+            return tw
     if obj.name.startswith(PLAIN_OBJECTS):
         return _plain_weights(w, co, part, bones)
     radius = SLEEVE_SMOOTH if part == 'sleeves' and SLEEVE_BUILD else SMOOTH_RADIUS.get(part, DEFAULT_SMOOTH)
@@ -5847,8 +5950,6 @@ def _weights(obj, part, co, bones):
     if part in CROTCH_PARTS:
         w = _mirror_average(w, co, bones)
     guide = _smooth_zones(w, co, edges, PRUNE_SMOOTH, ref, zone) if PRUNE_SMOOTH > 0 and radius > 0 else None
-    if guide is not None and part == 'bodice' and obj.name.startswith(BODICE_WIDE_GUIDE[0]):
-        guide = _smooth_zones(w, co, edges, BODICE_WIDE_GUIDE[1], ref, zone)
     if guide is not None and part in SHELL_PARTS:
         guide = _shell_share(guide, co, bones)
     if guide is not None and part in CROTCH_PARTS:
