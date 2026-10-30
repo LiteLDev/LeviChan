@@ -34,6 +34,7 @@ from rig_pose import bend, turn, twist
 
 FPS = mp.FPS
 KEY_STEP = 2          # frames between the Blender keys sampled from the parameter curves
+SMOOTH = 3            # half-width of the binomial low-pass on the sampled parameters (frames)
 
 # ------------------------------------------------------------------ parameters
 
@@ -192,8 +193,28 @@ class Clip:
         return SHOULDER + d * c[3](x)
 
     def at(self, frame):
+        """Parameters at `frame`, low-passed (binomial, +-SMOOTH frames): the monotone cubics are
+        only C1, and their acceleration steps at the keys read as pops on fast keys (fingers,
+        landings). The ends fade back to the exact curve, so frame 0 / the last are the stance."""
         if self.loop_fn:
             return self.loop_fn(frame)
+        raw = self._at(frame)
+        w = min(1.0, min(frame, self.frames - frame) / float(SMOOTH + 1))
+        if w <= 0.0:
+            return raw
+        taps = [math.comb(2 * SMOOTH, i) / 4.0 ** SMOOTH for i in range(2 * SMOOTH + 1)]
+        acc = None
+        for i, k in enumerate(taps):
+            P = self._at(min(max(frame + i - SMOOTH, 0), self.frames))
+            if acc is None:
+                acc = {p: (tuple(x * k for x in v) if isinstance(v, tuple) else v * k) for p, v in P.items()}
+            else:
+                for p, v in P.items():
+                    acc[p] = tuple(a + x * k for a, x in zip(acc[p], v)) if isinstance(v, tuple) else acc[p] + v * k
+        return {p: (tuple(r * (1 - w) + a * w for r, a in zip(raw[p], acc[p])) if isinstance(raw[p], tuple)
+                    else raw[p] * (1 - w) + acc[p] * w) for p in raw}
+
+    def _at(self, frame):
         out = {}
         for t in 'LR':
             x = min(max(frame - LAG[f'w{t}'], 0.0), self.frames)
@@ -240,7 +261,9 @@ def elbow_of(arm, t, wrist, swing):
     L2 = (wr.head_local - lo.head_local).length
     W = _m(t, wrist)
     d = W - S
-    dist = min(max(d.length, abs(L1 - L2) + 0.02), 0.985 * (L1 + L2))
+    # no straighter than at rest: the rest arm is already bent ~29 deg (its carrying angle), so a
+    # straight arm would bend the elbow backward
+    dist = min(max(d.length, abs(L1 - L2) + 0.02), 0.995 * (wr.head_local - S).length)
     dh = d.normalized()
     W = S + dh * dist
     a = (L1 * L1 - L2 * L2 + dist * dist) / (2 * dist)
@@ -354,7 +377,7 @@ def apply(arm, P):
 # wrist positions (left side, rest world m); shoulder 腕.L at (0.116, -0.043, 1.143), arm ~0.43 m
 
 HIPS = dict(w=(0.215, 0.0, 0.975), k=(1.0, 0.45, 0.15), p=25.0, b=-15.0, g=0.35, gi=0.3, gt=0.3)
-CHEEKS = dict(w=(0.115, -0.14, 1.185), k=(0.35, -0.35, -1.0), p=55.0, b=-25.0, g=0.15, gi=0.1, gt=0.2)
+CHEEKS = dict(w=(0.12, -0.16, 1.17), k=(0.35, -0.35, -1.0), p=55.0, b=-25.0, g=0.15, gi=0.1, gt=0.2)
 FACE_COVER = dict(w=(0.05, -0.18, 1.235), k=(0.45, -0.2, -1.0), p=75.0, b=-35.0, g=0.08, gi=0.05, gt=0.15)
 CLASP_FRONT = dict(w=(0.05, -0.245, 0.925), k=(1.0, 0.25, -0.3), p=-45.0, b=10.0, g=0.45, gi=0.4, gt=0.3)
 ARMS_OUT = dict(w=(0.52, -0.06, 1.10), k=(0.2, 0.6, -1.0), p=10.0, g=0.15, gi=0.1, gt=0.1)
@@ -421,7 +444,7 @@ clip('look_around', 150, [
     look=False, face=[(0, '瞳小', 0), (26, '瞳小', 0.3), (60, '瞳小', 0), (110, '口角上げ', 0.0), (118, '口角上げ', 0.6), (140, '口角上げ', 0)])
 
 # 2 stretch: fingers laced overhead, up on the toes, a lean each way, arms circle down
-STRETCH_UP = dict(w=(0.035, -0.03, 1.555), k=(1.0, 0.1, 0.25), p=-80.0, b=-25.0, g=0.55, gi=0.55, gt=0.3, sh=9.0)
+STRETCH_UP = dict(w=(0.04, -0.10, 1.54), k=(1.0, 0.1, 0.25), p=-80.0, b=-25.0, g=0.55, gi=0.55, gt=0.3, sh=9.0)
 clip('stretch', 180, [
     S(0), K(10, sp=8, hp=6, c=(0.0, 0.0, -0.03), w=(0.2, -0.18, 0.95), k=(1.0, 0.2, -0.5), p=-40.0),
     K(28, **STRETCH_UP, sp=-6, hp=-14, c=(0.0, 0.0, 0.0), tip=12),
@@ -513,7 +536,7 @@ clip('sneeze', 90, [
           (14, 'あ', 0), (30, 'あ', 0.7), (34, 'あ', 0), (34, 'う', 0), (36, 'う', 0.8), (44, 'う', 0), (46, '困る', 0), (52, '困る', 0.7), (84, '困る', 0)])
 
 # 10 sit_rest: crouches down hugging the knees, rocks a little, gets back up
-SQUAT = dict(c=(0.0, 0.05, -0.33), sp=34, lp=4, hp=-14)
+SQUAT = dict(c=(0.0, 0.05, -0.33), sp=30, lp=4, hp=-14)
 HUG = dict(w=(0.16, -0.40, 0.95), k=(1.0, 0.35, -0.3), p=-20.0, b=-5.0, g=0.35, gi=0.3, gt=0.3)   # hands on the knees
 clip('sit_rest', 300, [
     S(0), K(10, hp=10, sp=6),
