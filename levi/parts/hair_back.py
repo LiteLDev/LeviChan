@@ -572,8 +572,8 @@ UNDER_LIMITS = dict(turn=8.0, gap=0.010)
 # validated.
 LINING_CAP_IN = 6.0            # px into the cap's CAP_PROFILE envelope (hidden inside the real cap)
 LINING_CLEAR = 13.0            # px (2 cm) off her neck and back
-LINING_IN = [(170, 0.0), (230, 6.0), (250, 22.0), (270, 40.0), (290, 58.0), (310, 74.0), (330, 86.0)]
-LINING_ROWS = (265.0, 345.0)   # rows over which the lining eases back to the thin sheet
+LINING_IN = [(170, 0.0), (230, 6.0), (250, 22.0), (270, 50.0), (290, 76.0), (310, 92.0), (330, 100.0)]
+LINING_ROWS = (250.0, 315.0)   # rows over which the lining eases back to the thin sheet
 LINING_MAX = 60.0              # px
 LINING_EASE = (32.0, 25.0)     # px: the depth's ease-out length from the side edges, from the top edge
 LINING_REACH = 0.16            # m searched along -normal for her body
