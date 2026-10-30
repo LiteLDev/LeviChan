@@ -1,0 +1,17 @@
+| item | gpt-6-astra | gpt-6.1-sol |
+|---|---|---|
+| rest cel front | **old** (old/old): The visible flare and hem are nearly equivalent, but left avoids the isolated shadow blotch beneath the ribbon tip. | **old** (old/old): Left’s right-front fold transitions more smoothly toward the hem. Right adds a sharper shadow kink and an isolated shade mark below the ribbon. |
+| rest cel side | **tie** (tie/tie): The side folds, raised hem trough, and outward edge turn show no meaningful difference. | **tie** (tie/tie): The side drape, rear godet fan, and lifted hem look effectively equivalent. |
+| rest cel back | **tie** (tie/tie): The exposed back folds and hem contour look materially equivalent. | **tie** (tie/tie): Rear fold depth and hem curvature show no meaningful difference in cloth quality. |
+| rest cel q34_front_left | **new** (new/new): The leftmost visible crease finishes in a small curled hem rather than a sharper kink, making the edge read more like cloth. | **new** (new/new): Right has a small rounded outward return at the lower-left trough, giving the hem a more convincing cloth turn. |
+| rest cel q34_back_right | **tie** (tie/tie): The broad back panel, diagonal folds, and hem layering show no meaningful advantage on either side. | **tie** (tie/tie): The broad rear panels and raised right-side hem behave essentially identically. |
+| rest cel high | **new** (new/new): The front creases continue farther toward the hem, and the main lower shadow has a less chipped termination. | **old** (old/old): Left’s lower-front folds meet the hem more continuously. Right introduces an isolated shadow near the ribbon and more angular lower shading. |
+| rest clay front | **new** (new/new): The front troughs continue into the hem instead of fading into a rounded band, giving the skirt more convincing godet folds. | **old** (old/old): Left’s front troughs open more gently into the hem. Right carries narrow dark channels into sharper, more pinched hem junctions. |
+| rest clay side | **tie** (tie/tie): The side drape, fold depth, and hem turnover are essentially equivalent. | **tie** (tie/tie): The side folds and outward hem lift are practically equivalent, with no clear deformation advantage. |
+| rest clay back | **tie** (tie/tie): The visible back folds retain essentially the same depth and lower-edge shape. | **tie** (tie/tie): The rear drape and lower fold transitions are too similar to establish a meaningful preference. |
+| rest clay q34_front_left | **new** (new/new): The near front trough extends more clearly to the edge, reducing the padded appearance above the hem. | **old** (old/old): Left’s main front trough transitions more softly into the hem; right tightens it into a harder, more pinched vertical channel. |
+| rest clay q34_back_right | **tie** (tie/tie): The rear-quarter panels and hem show no meaningful difference in cloth behavior. | **tie** (tie/tie): The visible rear godets, side channel, and hem silhouette have no meaningful quality difference. |
+| rest clay high | **new** (new/new): Deeper front valleys continue through the lower skirt, separating the folds more naturally and reducing the inflated-lobe appearance. | **old** (old/old): Left’s lower-front troughs ease into a smoother cloth edge. Right’s deeper narrow channels make the hem junctions look more rigid. |
+
+**gpt-6-astra**: new 5, old 1, tie 6 (of which inconsistent across the two orders: 0)
+**gpt-6.1-sol**: new 1, old 5, tie 6 (of which inconsistent across the two orders: 0)
