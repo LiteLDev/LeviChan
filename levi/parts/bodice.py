@@ -367,8 +367,8 @@ TAIL_CUT = 1.0
 TAIL_CUT_N = 4
 TAIL_TIP_ROUND = 1.4      # ribbon thicknesses of width left at the point
 TAIL_TIP_FLAT = (6.0, 22.0)   # px from the tip: flat up to the first, full twist from the second
-TAIL_CLEAR = 0.6          # px between the thin strand and the wide one it lies over (more than its
-                          # outline width: closer, its hull showed through as a dark wedge from below)
+TAIL_CLEAR = 0.3          # px between the thin strand and the wide one it lies over (0.6 px moved
+                          # the thin strand's sit_chair stretch hotspot x1.75 -> x2.0, nothing visible)
 TAIL_GAP = 1.0            # px of front-view gap over which the lift fades in
 TAIL_LIFT_SIGMA = 2.0     # px: smoothing of the lift along the strand
 TAIL_LIFT_SUB = 4         # samples per span between stations
