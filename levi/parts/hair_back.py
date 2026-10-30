@@ -579,9 +579,6 @@ def _lift_field(need, sigma):
     return _blur2(np.maximum(sm, need), 0.5 * sigma)
 
 
-_UNDER_DBG = {}
-
-
 def _under_edges(rows):
     """Half widths (back-view px, character's left / right) of the under-layer at rows:
     UNDER_TUCK_IN of the outermost primary's width inside its outer rim (the primaries'
@@ -645,10 +642,8 @@ def _under_layer():
             cs = cap_sx(pb[j, k], prow[j, k])
             if cs is not None:
                 need[j, k] = max(need[j, k], cs + UNDER_CAP_GAP - inner_sx[j, k])
-    _UNDER_DBG.update(need=need, rows=rows, a=a)
     if need.max() > 0.0:
         lift = _lift_field(need, UNDER_LIFT_SIGMA)
-        _UNDER_DBG['lift'] = lift
         E = E + np.stack([np.zeros_like(lift), lift / PX, np.zeros_like(lift)], -1)
     outer = E
     inner = E - Nv * (thick / PX)[..., None]
