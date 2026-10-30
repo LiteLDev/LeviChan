@@ -1530,5 +1530,6 @@ def build(col):
         print(f"BODY shape master: hand scale (palm width, palm thickness, finger thickness) "
               f"{tuple(round(v, 3) for v in _hand_master())}; legs {LEG_MASTER_INFO}")
     common.shade_smooth(obj, 75.0)
-    common.add_outline(obj)
+    # round 11: the outline thins in 风堇's hand creases (_body_hand.Hands.outline)
+    common.add_outline(obj, **(hands.outline(obj) if hands is not None else {}))
     return obj

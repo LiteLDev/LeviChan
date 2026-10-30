@@ -24,7 +24,9 @@ each arm (built for the left side; the right one is its mirror image):
    step, no pinch, no crease); one zipper row from the arm's 24 vertices to her 22
    (equal-angle walk, triangle pairs merged into quads).
 
-The body stays one closed manifold. Rig data (rig.fit_fingers, rig._hand_hint):
+The body stays one closed manifold. Its outline thins in the hand's palm-side creases
+(Hands.outline: the vertex group OUTLINE_VG for add_outline). Rig data (rig.fit_fingers,
+rig._hand_hint):
   * obj['levi_fingers']: {finger: [knuckle, joint, joint, tip]} (left side, world) from her
     bones after the placement;
   * an int point attribute named by obj['levi_finger_attr'] (FINGER_ATTR): 0 palm, wrist and
@@ -56,6 +58,20 @@ BRIDGE_STEP = 0.0075   # m between bridge rings (the arm's rings are 1-2 cm apar
 # forearm past the wrist pivot (m)
 TAPER = (1.0, 1.0)
 TAPER_END = 0.012
+# Outline (round 11 review): her cage's sharpest concave creases (the thumb web, the palm's
+# creases, the finger webs: 35-60 deg between faces) stay narrow grooves after one Catmull-Clark
+# level, and the inverted hull drew the thumb's line running into the web as a jagged arrowhead
+# with a shade sliver. On the palm side (past OUTLINE_SIDE along hand_frame's n) the hull thins
+# there, down to OUTLINE_MIN of its width (the vertex group OUTLINE_VG, add_outline's per-vertex
+# width), by the cage's concave dihedral (OUTLINE_CREASE, deg) interpolated over the subdivided
+# hand: the line now tapers into the web. Not on the back: along the groove between the middle
+# and ring metacarpals a thinner hull lengthened its 1 px inner contour (the hull tilts with the
+# width), and neither a Taubin relax of the cage's creases nor filling that groove (2 umbrella
+# steps of 0.5) changed it; the speck stays, visible only in close-ups of the back of the hand.
+OUTLINE_SIDE = 0.005    # m
+OUTLINE_VG = 'levi_outline'
+OUTLINE_MIN = 0.3
+OUTLINE_CREASE = (30.0, 55.0)
 FINGER_ATTR = 'levi_finger'
 HINT_PREFIX = 'levi_hw_'
 # rig finger name -> her bones (knuckle, joint, joint, tip)
@@ -169,6 +185,30 @@ def taper(P, W, f, w, loop, ring):
     g = 1 - smoothstep(u0, TAPER_END, u)
     kx, ky = 1 + (k[0] - 1) * g, 1 + (k[1] - 1) * g
     return W + np.outer(u, f) + np.outer(x * kx, a) + np.outer(y * ky, b), k
+
+
+def cage_crease(P, faces, loop):
+    """(n,) the sharpest concave dihedral (deg) among each cage vertex's edges (0 where convex)."""
+    c = P[loop].mean(0)
+    vol = sum(float(np.dot(P[f[0]], np.cross(P[f[i]], P[f[i + 1]]))) for f in faces for i in range(1, len(f) - 1))
+    vol += sum(float(np.dot(c, np.cross(P[loop[(i + 1) % len(loop)]], P[loop[i]]))) for i in range(len(loop)))
+    sgn = 1.0 if vol > 0 else -1.0      # outward normals
+    FN, FC = np.zeros((len(faces), 3)), np.zeros((len(faces), 3))
+    for fi, f in enumerate(faces):
+        q = P[f]
+        fn = sum(np.cross(q[i], q[(i + 1) % len(f)]) for i in range(len(f)))
+        FN[fi], FC[fi] = sgn * fn / np.linalg.norm(fn), q.mean(0)
+    ef = {}
+    for fi, f in enumerate(faces):
+        for i in range(len(f)):
+            a, b = f[i], f[(i + 1) % len(f)]
+            ef.setdefault((min(a, b), max(a, b)), []).append(fi)
+    crease = np.zeros(len(P))
+    for (a, b), fl in ef.items():
+        if len(fl) == 2 and (FC[fl[1]] - FC[fl[0]]) @ FN[fl[0]] > 0:      # concave
+            ang = math.degrees(math.acos(float(np.clip(FN[fl[0]] @ FN[fl[1]], -1.0, 1.0))))
+            crease[a], crease[b] = max(crease[a], ang), max(crease[b], ang)
+    return crease
 
 
 def catmull_clark(V, faces, data, loop):
@@ -341,6 +381,7 @@ class Hands:
 
     def __init__(self):
         self.records = []     # (vertex index, finger id, hint row)
+        self.line = []        # (vertex index, outline width factor < 1)
         self.left = None      # rig data of the left hand
         self.info = {}
 
@@ -355,8 +396,13 @@ class Hands:
         prev = np.array([tuple(c) for c in prev_co], np.float64)
         P, head, f, scale = placed(W, frame, E)
         P, k = taper(P, W, f, frame[1], A['loop'], ring)
-        V2, quads, D2, loop2 = catmull_clark(P, A['faces'], A['weights'], A['loop'])
         bones = A['bones']
+        crease = cage_crease(P, A['faces'], A['loop'])
+        palm = smoothstep(OUTLINE_SIDE - 0.003, OUTLINE_SIDE + 0.003, (P - W) @ frame[2])
+        thin = smoothstep(OUTLINE_CREASE[0], OUTLINE_CREASE[1], crease) * palm
+        V2, quads, D2, loop2 = catmull_clark(P, A['faces'], np.hstack([A['weights'], thin[:, None]]), A['loop'])
+        line = 1.0 - (1.0 - OUTLINE_MIN) * D2[:, -1]
+        D2 = D2[:, :-1]
         fid = finger_ids(D2, bones)
         # her stub's surface direction at each loop vertex: the edge to the interior neighbour
         # running most along the stub, into the hand
@@ -394,8 +440,10 @@ class Hands:
         # vertex indices, not BMVerts: adding a layer later invalidates BMVert references (no
         # vertex is removed after the arms, so the indices hold)
         bm.verts.index_update()
-        for v, d, fi in zip(hv, D2, fid):
+        for v, d, fi, ln in zip(hv, D2, fid, line):
             self.records.append((v.index, int(fi), d))
+            if ln < 1.0:
+                self.line.append((v.index, float(ln)))
         for r, b in zip(iv, blend):
             for v, d in zip(r, lw):
                 self.records.append((v.index, 0, d * b))
@@ -405,6 +453,7 @@ class Hands:
             self.left = {'fingers': {jp: [tuple(float(c) for c in head[b]) for b in ch] for jp, ch in CHAINS},
                          'wrist': tuple(float(c) for c in W), 'fingertip': tuple(float(c) for c in tip)}
             self.info = {'scale': round(scale, 4), 'taper': tuple(round(float(x), 3) for x in k),
+                         'thin_line': int((line < 0.9).sum()),
                          'verts': len(V2) + sum(len(r) for r in inner), 'bridge_rings': len(inner),
                          'zipper': (sum(1 for fc in zfaces if len(fc) == 4), sum(1 for fc in zfaces if len(fc) == 3))}
 
@@ -421,6 +470,15 @@ class Hands:
             for k, x in enumerate(d):
                 if x > 0.0:
                     v[lh[k]] = float(x)
+
+    def outline(self, obj):
+        """add_outline's keyword arguments for the body: the vertex group OUTLINE_VG (1 everywhere,
+        thinner in the hands' creases)."""
+        vg = obj.vertex_groups.new(name=OUTLINE_VG)
+        vg.add(list(range(len(obj.data.vertices))), 1.0, 'REPLACE')
+        for i, ln in self.line:
+            vg.add([i], ln, 'REPLACE')
+        return {'vertex_group': OUTLINE_VG, 'min_factor': 0.0}
 
     def store(self, obj, joints):
         """Rig data on the body object; joints: the levi_joints dict, updated in place."""

@@ -283,6 +283,17 @@ def _part_labels(obj, co, labels):
     return out.reshape(-1)
 
 
+# Round 11 (review): the thumb's bones (親指０ metacarpal, 親指１, 親指２) are rolled about the
+# thumb's chain (knuckle -> tip) by these angles (deg) from the knuckle-line palm normal, positive
+# toward the index, so a turn about their X curls them like a thumb: the metacarpal swings out in
+# front of the palm (palmar abduction, as the real CMC joint does), the phalanges close across
+# the fingers. One roll for all three (the pad toward the index knuckle, ~75 deg) put the
+# metacarpal on the palm, so the fist's curled index went 6.7 mm into the thumb's base and the
+# fingertip 6.9 mm into the palm; (-30, 75, 75): the thumb rests on the index and middle
+# fingers' middle phalanges, nothing passes through it, the index tip 2.9 mm into the palm.
+THUMB_ROLL = (-30.0, 75.0, 75.0)
+
+
 def _mesh_islands(objs):
     """[(world points (n, 3))] per loose part of the meshes `objs` (finger regions split off)."""
     out = []
@@ -736,18 +747,22 @@ def _core_bones(J=None, H=None, F=None):
         # body mesh gives one (fit_fingers), each bone's Z rolled to the palm side so a
         # positive turn about its local X curls it toward the palm
         palm = d.cross(f).normalized()
-        thumb_z = palm
+        thumb_z = [palm] * 3
         if F:
             # round 11: the palm normal from the chains' knuckle line (index - little), not the
             # generic forward x hand direction (~42 deg off on Levi's hand, turned toward the
-            # thigh, so fingers curled sideways); the thumb's pad faces between the palm and
-            # the index knuckle, so it closes over the fingers
+            # thigh, so fingers curled sideways); the thumb's bones rolled about the thumb by
+            # THUMB_ROLL from it
             kn = F['人指'][0] - F['小指'][0]
             kn = kn - d * kn.dot(d)
             if kn.length > 1e-6:
                 palm = d.cross(kn).normalized()
-                tz = F['人指'][0] - F['親指'][1]
-                thumb_z = (palm + tz.normalized()).normalized() if tz.length > 1e-6 else palm
+                td = F['親指'][3] - F['親指'][0]
+                p0 = palm - td.normalized() * palm.dot(td.normalized()) if td.length > 1e-6 else Vector()
+                if p0.length > 1e-6:
+                    td, p0 = td.normalized(), p0.normalized()
+                    thumb_z = [p0 * math.cos(math.radians(a)) + td.cross(p0) * math.sin(math.radians(a))
+                               for a in THUMB_ROLL]
         for jp, en, pts in finger_chains(F, wr, d, f, hand_len, palm_end, fingers):
             parent = '手首' + sfx
             thumb = jp == '親指'
@@ -756,7 +771,7 @@ def _core_bones(J=None, H=None, F=None):
                 add(Bone(nm + sfx, jp_side + nm, f'{en}{i if thumb else i + 1}' + en_sfx, _mx(pts[i], s),
                          _mx(pts[i + 1], s), parent, connect=i > 0, r=0.014 if thumb else 0.012,
                          r_end=0.01 if thumb else 0.008, group='Fingers',
-                         meta={'align_z': tuple(_mx(thumb_z if thumb else palm, s)), 'finger': jp}))
+                         meta={'align_z': tuple(_mx(thumb_z[i] if thumb else palm, s)), 'finger': jp}))
                 parent = nm + sfx
 
         hip, knee, ankle, toe = J['hip'], J['knee'], J['ankle'], J['toe']
@@ -2925,13 +2940,19 @@ SMOOTH_RADIUS = {     # metres of weight smoothing along the surface, per part
     'body': 0.009, 'head': 0.01, 'shoes': 0.012, 'accessories': 0.012, 'bodice': 0.035,
     'hair_front': 0.025, 'hair_back': 0.03, 'sleeves': 0.065, 'skirt': 0.03, 'petticoat': 0.06,
 }
-# Round 11: the reference edge (m) a part's smoothing radii were tuned on, used in place of the
-# mesh's median edge. The body's radii (SMOOTH_RADIUS, CROTCH_SMOOTH, ARMPIT_SMOOTH,
-# PRUNE_SMOOTH) were tuned on the round-10 body's 9.35 mm median; 风堇's subdivided hands
-# (~2 mm edges, over half the body's vertices) brought it to 4.3 mm, which re-tuned the whole
-# skin (arms_up's armpit x1.78 -> x2.39; the hand-free median, 11.0 mm, still x2.04). Her
-# hands take her own weights (_hand_hint), so their smoothing does not matter.
-SMOOTH_REF = {'body': 0.00935}
+# Round 11: the reference edges (m) a part's smoothing radii were tuned on, one per level of the
+# multilevel smoothing (_smooth_ml: the fine mesh, then each coarsening), used in place of each
+# level's median edge. The body's radii (SMOOTH_RADIUS, CROTCH_SMOOTH, ARMPIT_SMOOTH,
+# PRUNE_SMOOTH) were tuned on the round-10 body (r11/base), whose levels these are (measured
+# with smooth_levels). 风堇's subdivided hands (~2 mm edges, over half the body's vertices)
+# brought the medians to 4.3 / 6.2 / 8.6 mm, which re-tuned the whole skin (arms_up's armpit
+# x1.78 -> x2.39) and, through the coarse level the crotch pass runs on, broke the hips' left /
+# right symmetry (up to 0.14). The hands are also left out of the body's smoothing graph
+# (_smooth_zones: they take her weights, _hand_hint, and are smoothed on their own), so away
+# from the forearms the body's weights are r11/base's.
+SMOOTH_REF = {'body': (0.009354644735714363, 0.011139147256875703, 0.015647158775001092,
+                       0.02070159577335434, 0.028074554799480053, 0.036939761281950985,
+                       0.047217178786414626, 0.0606149933215295)}
 # (petticoat, round 7: 0.04 -> 0.06. Its gathered inner tiers sit ~16 cm from the axis,
 # where neighbouring skirt chains are only ~6.5 cm apart, and a draped chain turning more
 # than its neighbour stretched them x2.2-3.2; 0.08 made the layers part in cross_legged.)
@@ -3002,7 +3023,7 @@ def _smooth(w, co, edges, radius, ref=None):
     Each edge pulls with (median edge / its length)^2 (at most 1), so every iteration
     spreads about one median edge length in metres whatever the edge: long edges down
     a thin ribbon don't carry weights much farther than `radius`. `ref`: the reference
-    edge in place of the mesh's median (SMOOTH_REF)."""
+    edge in place of the mesh's median, or one per level (SMOOTH_REF)."""
     if radius <= 0 or not len(edges):
         return w
     # only the bones this mesh uses: the rest stay zero under any averaging
@@ -3059,6 +3080,36 @@ def _match(co, edges, ln):
 SMOOTH_DIRECT = 64   # iterations above which smoothing runs on a coarsened mesh first
 
 
+def _level_ref(ref_edge, depth, median):
+    """The reference edge of smoothing level `depth` (0 the mesh itself): ref_edge's (a number
+    for the fine level only, or a sequence with one per level), else the level's median edge."""
+    if ref_edge is None:
+        return median
+    seq = ref_edge if isinstance(ref_edge, (tuple, list)) else (ref_edge,)
+    return float(seq[depth]) if depth < len(seq) and seq[depth] else median
+
+
+def smooth_levels(co, edges, depth=8):
+    """The median edge of each level of _smooth_ml's coarsening of a mesh (co, edges), as long as
+    it can pair vertices: what SMOOTH_REF records for a part (e.g. the body's, from r11/base)."""
+    out = []
+    for _ in range(depth):
+        ln, ref = _edge_ref(co, edges)
+        out.append(ref)
+        lab, nc = _match(co, edges, ln)
+        if nc > 0.85 * len(co) or len(co) < 64:
+            break
+        cnt = np.bincount(lab, minlength=nc).astype(float)[:, None]
+        cco = np.zeros((nc, 3))
+        np.add.at(cco, lab, co)
+        ce = np.stack([lab[edges[:, 0]], lab[edges[:, 1]]], 1)
+        ce = ce[ce[:, 0] != ce[:, 1]]
+        if not len(ce):
+            break
+        co, edges = cco / cnt, np.unique(np.sort(ce, 1), axis=0)
+    return out
+
+
 def _smooth_ml(w, co, edges, radius, depth, ref_edge=None):
     """Smoothing about `radius` metres whatever the mesh density. Within SMOOTH_DIRECT
     iterations of the plain diffusion (_diffuse) it runs directly; otherwise neighbouring
@@ -3066,11 +3117,10 @@ def _smooth_ml(w, co, edges, radius, depth, ref_edge=None):
     (recursively), the coarse change is added back to every vertex of its cluster, and a
     short diffusion on the fine mesh (about one coarse edge) evens out the cluster steps.
     Diffusion radii add in squares, so the two passes together give `radius`. Cost stays
-    about linear in the vertex count. ref_edge: the fine level's reference edge in place of
-    the median (SMOOTH_REF)."""
+    about linear in the vertex count. ref_edge: the reference edge in place of the median, of
+    the fine level only (a number) or one per level (SMOOTH_REF; _level_ref)."""
     ln, ref = _edge_ref(co, edges)
-    if ref_edge:
-        ref = ref_edge
+    ref = _level_ref(ref_edge, depth, ref)
     if ref <= 0.0:
         return w
     # fractional (round 9): a whole number of steps made a small radius jump with the mesh's
@@ -3094,10 +3144,12 @@ def _smooth_ml(w, co, edges, radius, depth, ref_edge=None):
     ce = ce[ce[:, 0] != ce[:, 1]]
     ce = np.unique(np.sort(ce, 1), axis=0) if len(ce) else ce
     _, cref = _edge_ref(cco, ce) if len(ce) else (None, 0.0)
+    if len(ce):
+        cref = _level_ref(ref_edge, depth + 1, cref)
     post = min(radius * 0.7, 1.5 * max(cref, ref))      # fine-level pass: about one coarse edge
     rc = math.sqrt(max(radius ** 2 - post ** 2, 0.0))
     if len(ce):
-        cw = _smooth_ml(cw, cco, ce, rc, depth + 1) - cw
+        cw = _smooth_ml(cw, cco, ce, rc, depth + 1, ref_edge) - cw
     else:
         cw = np.zeros_like(cw)
     w = w + cw[lab]
@@ -4410,6 +4462,34 @@ def _hints(obj, n):
     return out
 
 
+def _hint_zone(obj, n):
+    """(n,) bool: the vertices carrying hand weight hints (HAND_HINT_PROP: 风堇's hands, their
+    stubs and bridges), else None."""
+    z = np.zeros(n, dtype=bool)
+    for _, v in _hints(obj, n):
+        z |= v > 0.0
+    return z if z.any() else None
+
+
+def _smooth_zones(w, co, edges, radius, ref, zone):
+    """_smooth with the `zone` vertices (_hint_zone) split off: the rest of the mesh is smoothed
+    on its own graph against `ref` (SMOOTH_REF), the zone on its own graph against its own
+    medians, so nothing outside the zone sees its density (the multilevel smoothing's pairing
+    and medians are global) and the zone keeps its own smoothing in metres."""
+    if zone is None:
+        return _smooth(w, co, edges, radius, ref)
+    out = w.copy()
+    for m, r in ((~zone, ref), (zone, None)):
+        idx = np.nonzero(m)[0]
+        if not len(idx):
+            continue
+        new = -np.ones(len(co), dtype=np.int64)
+        new[idx] = np.arange(len(idx))
+        e = edges[m[edges[:, 0]] & m[edges[:, 1]]]
+        out[idx] = _smooth(w[idx], co[idx], new[e], radius, r)
+    return out
+
+
 def _hand_hint(obj, w, co, bones, edges=None):
     """w <- (1 - a) w + hint on the vertices carrying hand weight hints (HAND_HINT_PROP),
     the hints smoothed HINT_SMOOTH along the surface (`edges`)."""
@@ -4687,17 +4767,18 @@ def _weights(obj, part, co, bones):
     w = w / w.sum(1, keepdims=True)
     radius = SLEEVE_SMOOTH if part == 'sleeves' and SLEEVE_BUILD else SMOOTH_RADIUS.get(part, DEFAULT_SMOOTH)
     ref = SMOOTH_REF.get(part)
-    w = _smooth(w, co, edges, radius, ref)
+    zone = _hint_zone(obj, len(co))     # 风堇's hands: smoothed apart from the rest (_smooth_zones)
+    w = _smooth_zones(w, co, edges, radius, ref, zone)
     m = _crotch_mask(co, bones) if part in CROTCH_PARTS and CROTCH_SMOOTH > 0 else None
     if m is not None and m.max() > 0:
         # the crotch is pulled between both thighs in a stride: spread its L/R weight
         # change over a wider band than the rest of the skin
-        w = w * (1.0 - m[:, None]) + _smooth(w, co, edges, CROTCH_SMOOTH, ref) * m[:, None]
+        w = w * (1.0 - m[:, None]) + _smooth_zones(w, co, edges, CROTCH_SMOOTH, ref, zone) * m[:, None]
     m = _armpit_mask(co, bones) if part in CROTCH_PARTS and ARMPIT_SMOOTH > 0 else None
     if m is not None and m.max() > 0:
         # a raised arm pulls the armpit skin between the ribs and the arm: spread the
         # torso / arm weight change over a wider band there too
-        w = w * (1.0 - m[:, None]) + _smooth(w, co, edges, ARMPIT_SMOOTH, ref) * m[:, None]
+        w = w * (1.0 - m[:, None]) + _smooth_zones(w, co, edges, ARMPIT_SMOOTH, ref, zone) * m[:, None]
     if part in CROTCH_PARTS and HIP_AUX:
         _hat_remap(w, bones)
     if part == 'hair_back':
@@ -4720,7 +4801,7 @@ def _weights(obj, part, co, bones):
         _rigid_foot(w, bones)
     # which bones a vertex keeps is decided on a wider-smoothed copy of its weights, so
     # the set changes gradually along the surface instead of wherever two weak bones swap
-    guide = _smooth(w, co, edges, PRUNE_SMOOTH, ref) if PRUNE_SMOOTH > 0 and radius > 0 else None
+    guide = _smooth_zones(w, co, edges, PRUNE_SMOOTH, ref, zone) if PRUNE_SMOOTH > 0 and radius > 0 else None
     if guide is not None and part in SHELL_PARTS:
         guide = _shell_share(guide, co, bones)
     return _prune(w, bones, guide, co)
