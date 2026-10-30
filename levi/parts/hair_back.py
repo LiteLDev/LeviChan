@@ -1365,19 +1365,27 @@ SEAM_PROBE = 2.0            # px outside the rim where hair behind is looked for
 HAIR_BEHIND = 40.0          # ... this far down (along the volume normal)
 SEAM_GAP = 1.0              # px: at an open rim, a neighbour this close outside it makes a seam
 SEAM_IN = 2.0               # px: ... one ending this far inside it lies under / over it
+# A line's end along a rim tapers over about RIM_TAPER rings instead of stopping at one
+# ring (a blunt, wedge-cut end at 4x); and no hull is wider than THICK_HULL x the lock's
+# own thickness there: round a thin pointed tip a full-width hull showed through the
+# blade as a second line inside it, so the lines narrow into the points.
+RIM_TAPER = 2
+THICK_HULL = 1.0
 
 
-def outline_weights(meshes, vols, rims):
-    """Hull width per vertex (0, 1 / STRAND_LINE or 1) from its step over the
-    other loose parts, for meshes = [(mesh, part id per vertex)] seen together,
-    with their volume normals and rim directions (zero off the rims: _rim_dirs);
-    returns one weight list per mesh."""
+def outline_weights(meshes, vols, rims, thick):
+    """Hull width per vertex (0, 1 / STRAND_LINE or 1, tapered and capped as above)
+    from its step over the other loose parts, for meshes = [(mesh, part id per
+    vertex)] seen together, with their volume normals, rim directions (zero off the
+    rims) and lock thickness (m, 0 = none) (_rim_dirs); returns one weight list per
+    mesh."""
     from mathutils.bvhtree import BVHTree
-    co, rimv, part, vol, polys, nbr = [], [], [], [], [], []
-    for (me, pid), vl, rl in zip(meshes, vols, rims):
+    co, rimv, part, vol, polys, nbr, th = [], [], [], [], [], [], []
+    for (me, pid), vl, rl, tl in zip(meshes, vols, rims, thick):
         base = len(co)
         co += [v.co.copy() for v in me.vertices]
         rimv += [Vector(r) for r in rl]
+        th += list(tl)
         part += pid
         vol += vl
         polys += [tuple(base + i for i in p.vertices) for p in me.polygons]
@@ -1439,6 +1447,20 @@ def outline_weights(meshes, vols, rims):
         if ws and sum(1 for x in ws if x == w) * 2 < len(ws):
             w = max(set(ws), key=ws.count)
         out.append(w)
+    # taper a line's ends along each rim (lowered only: no new line on a seam)
+    along = []
+    for i in range(len(co)):
+        r = rimv[i]
+        if r.length < 0.5:
+            along.append([])
+            continue
+        along.append([j for j in nbr[i] if rimv[j].length >= 0.5
+                      and abs((co[j] - co[i]).dot(r)) < 0.5 * (co[j] - co[i]).length])
+    for _ in range(RIM_TAPER):
+        out = [min(w, (w + sum(out[j] for j in al)) / (1 + len(al))) if al else w
+               for w, al in zip(out, along)]
+    full = spec.OUTLINE_WIDTH * STRAND_LINE
+    out = [min(w, THICK_HULL * t / full) if t > 0.0 else w for w, t in zip(out, th)]
     res, k = [], 0
     for me, _pid in meshes:
         res.append(out[k:k + len(me.vertices)])
@@ -1447,6 +1469,7 @@ def outline_weights(meshes, vols, rims):
 
 
 _RIM_ATTRS = ('hb_rx', 'hb_ry', 'hb_rz')
+_THICK_ATTR = 'hb_th'
 
 
 def _rim_dirs(bm, em, top=True):
@@ -1455,26 +1478,33 @@ def _rim_dirs(bm, em, top=True):
     ring's own width axis (its principal axis), signed, on the vertices beyond
     RIM_S of the half width; at the apex, the lock's own direction. Taken from
     the rings, not the vertex normals: on a thin pointed blade those face the
-    viewer right up to the rim."""
+    viewer right up to the rim. Also each ring's thickness (_THICK_ATTR, m: its
+    extent across the width axis; ~0 at the apex)."""
     lays = [bm.verts.layers.float.get(a) for a in _RIM_ATTRS]
+    tlay = bm.verts.layers.float.get(_THICK_ATTR)
     rings = em['rings'] if top else em['rings'][1:]      # (a sub-tip's first ring is its parent's)
     c = None
     for vs in rings:
         P = np.array([v.co for v in vs])
         c = P.mean(0)
         D = P - c
-        axis = np.linalg.eigh(D.T @ D)[1][:, -1]
+        ev = np.linalg.eigh(D.T @ D)[1]
+        axis = ev[:, -1]
         sx = D @ axis
         smax = max(1e-9, float(np.abs(sx).max()))
+        ty = D @ ev[:, 1]
+        thick = float(ty.max() - ty.min()) + 1e-6
         for v, x in zip(vs, sx):
             d = np.sign(x) * axis if abs(x) >= RIM_S * smax else np.zeros(3)
             for lay, a in zip(lays, d):
                 v[lay] = float(a)
+            v[tlay] = thick
     if em['apex'] is not None and c is not None:
         d = np.array(em['apex'].co) - c
         d = d / max(1e-9, float(np.linalg.norm(d)))
         for lay, a in zip(lays, d):
             em['apex'][lay] = float(a)
+        em['apex'][tlay] = 1e-6
     for t in em['tips']:
         _rim_dirs(bm, t, top=False)
 
@@ -1598,7 +1628,7 @@ def build(col):
         bm.verts.layers.float.new(common.GRAD_ATTR)
         bm.verts.layers.float.new(_KEEP_ATTR)
         bm.verts.layers.float.new(_ROOT_ATTR)     # (before any vertex: a new layer drops BMVert refs)
-        for a in _RIM_ATTRS:
+        for a in _RIM_ATTRS + (_THICK_ATTR,):
             bm.verts.layers.float.new(a)
         bms[nm] = [bm, []]          # bmesh, loose part id per vertex
     pid = 0
@@ -1640,13 +1670,14 @@ def build(col):
         obj['levi_cast_shadow'] = cast
         objs.append((obj, part))
     vols = [[volume_normal(v.co) for v in o.data.vertices] for o, _p in objs]
-    rims = []
+    rims, thick = [], []
     for o, _p in objs:
         cols = [[a.value for a in o.data.attributes[n].data] for n in _RIM_ATTRS]
         rims.append(list(zip(*cols)))
-        for n in _RIM_ATTRS:
+        thick.append([a.value for a in o.data.attributes[_THICK_ATTR].data])
+        for n in _RIM_ATTRS + (_THICK_ATTR,):
             o.data.attributes.remove(o.data.attributes[n])
-    weights = outline_weights([(o.data, p) for o, p in objs], vols, rims)
+    weights = outline_weights([(o.data, p) for o, p in objs], vols, rims, thick)
     for (obj, _p), vol, ws in zip(objs, vols, weights):
         me = obj.data
         keep = [a.value for a in me.attributes[_KEEP_ATTR].data]
