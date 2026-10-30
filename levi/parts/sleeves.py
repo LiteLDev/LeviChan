@@ -1537,7 +1537,9 @@ OUTLINE_VG = 'outline_w'      # per-vertex outline width (see add_outline's min_
 # HD review's bell-shaped cuff tiers keep more of their vertices > 5 cm off the arm bones:
 # at the first pass's shares (cuff 0.625, under tier 0) the drape root sat 8.2 mm down the
 # forearm from round 10's and its joints 6.4 / 3.3 mm off; these put them 2.0 / 3.3 / 3.0 mm off.
-RIG_FIT_SHARE = {'sleeve_ruffle': 0.5, 'sleeve_cuff': 1 / 3, 'sleeve_cuff_under': 0.1, 'sleeve_ribbon': 0.5}
+# HD verify round 3: the upper tier's three more rings (belly, rim bead) at 1/3 moved the root
+# 4 mm down the forearm again; at 1/4 it is 1.7 mm from round 10's (joints 2.8 / 2.1 mm).
+RIG_FIT_SHARE = {'sleeve_ruffle': 0.5, 'sleeve_cuff': 0.25, 'sleeve_cuff_under': 0.1, 'sleeve_ribbon': 0.5}
 
 
 def _finish(col, name, bm, mat, grad=None, outline=None, soft=None, line=None, smooth=50.0):
