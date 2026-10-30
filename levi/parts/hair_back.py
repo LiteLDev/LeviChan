@@ -1,14 +1,43 @@
-"""Long back hair: white -> green wavy locks from under the crown to the skirt.
+"""Long back hair: white -> green wavy locks from the crown to the skirt (round 11).
 
-Built from scratch as swept locks: every lock is a Catmull-Rom spine carrying
-a lens cross-section - a convex outer face, a flatter inner face and soft
-edges - that tapers in width and thickness into a rounded point. Round 9: the
-back is a row of big primary locks (primaries(), PRIM_*: 3.5-5 cm apart, overlapping, alternately
-over and under their neighbours so grooves open between them from the shoulder
-blades down, each in an S-wave out of phase with the next), the three sheet-fitted
-curled primaries of MAIN among them (PRIMARY_LOCKS = False: the round-8 back,
-broad primaries with narrower wave locks over their edges), and every lock
-waves root to tip sideways and through depth.
+Every lock is a strand of the shared hair kernel (_hair_kernel, the 风堇 study):
+a C2 centreline held to the curvature limits (R >= max(12 mm, 0.6 w), rho <= 0.45,
+<= 8 deg of turn per ring), rotation-minimising frames with a rate-limited roll, a
+crescent section (convex top, flatter or concave underside, thin rims) that
+narrows into a flat blade or into an end curl grown G2 from the spine (it narrows
+before it tightens and tightens as it thins), split sub-tips welded into their
+lock. strand() validates every lock at build time and raises (HairKernelError)
+naming the lock, ring and point, so a build never carries a kink.
+
+Layout (back view, the character's left = image left):
+  - an UNDER-LAYER ('hair_back_shell'): one thin closed sheet (3 mm, rounded 1.6 mm rims)
+    under the locks, from below the head bone's fade band (rig.HAIR_HEAD_FADE: it rides
+    the chains only) down to a smooth arc tucked under the lock ends; its side edges lie
+    under the outermost primaries (UNDER_TUCK_IN), so no body shows between the locks and
+    no edge of it shows from the side. A C2 grid (even rows and columns <= 10 mm apart,
+    its clearances one smoothed lift field) validated row by row and column by column
+    with the strands' limits (_validate_grid). It spans > 70 deg round the head (checked
+    >= UNDER_SPAN_MIN), so the rig hangs it from the back-hair sector chains;
+  - PRIMARY locks (PRIMS): six broad crescent locks across the back in two lobes, each
+    its own loose part (its own 後髪束 chain), overlapping (PRIM_COVER) in two rows: the
+    under row on the under-layer and the cap, the over row on the under row. A, D and F
+    end in the sheet's curls (A the big C on the left, D the open curl right of the
+    parting, F the outer right curl) grown G2 from the spine as C-blades tilted
+    CURL_TILT out of the back plane (an arc from behind and from the side), A and D with
+    two welded sub-tips at the curl's last quarter; L1 ends in the side view's open curl
+    turning back; C and E end in blades;
+  - OUTER locks (OUTER, both sides): the wave lock over the back of the upper arm and the
+    crescent past the sleeve (a flat C-blade) under the mass's outer locks; the side
+    lock down the side of the mass, facing out (the side view reads full from her back
+    to the hair's back); the shoulder flick on top, a narrow lock whose green end flicks
+    back and up in its own plane.
+Every lock settles two-sided onto the layers under it (_settle: lifted where it cuts
+into them, lowered where a whole ring floats, each one smooth displacement of the spine),
+then the underside of each ring sinks onto what it bridges (_drape_section), so the
+layers rest on each other (0.75 mm) instead of floating over tunnels.
+Build-time checks: the kernel validator on every strand and the grid validator on the
+under-layer; _check_islands (every lock gets its own chain, the under-layer does not);
+_check_coverage (no back-view hole in the mass).
 Locks are authored in reference panel pixels so they can be fitted directly
 against ref/back.png and ref/side.png:
 
@@ -16,51 +45,32 @@ against ref/back.png and ref/side.png:
     sx  : column in the SIDE view   (image-right = behind her = +Y)
     row : row shared by all panels  (z = (951 - row) / 643)
 
-Control points can be written as
-    ('s', azimuth_deg, polar_deg)        a scalp point: its back-view column
-                                         and row come from the skull ellipsoid
-                                         (azimuth 0 = straight back, +90 =
-                                         character's left), its depth from the
-                                         hair envelope
-    (bx, row)                            on the hair envelope (env_sx)
-    (bx, sx, row)                        explicit.
+One envelope (env_sx): a few px over hair_front's scalp cap above the nape (its
+CAP_PROFILE data), blending into hanging superelliptic sections whose back
+follows the sheet's side silhouette (MASS_BACK). A mass lock's key points are
+(bx, row) on it; ('s', azimuth, polar) is a scalp point; (bx, sx, row) explicit.
 
-One envelope. Every scalp and mass point of every lock lies on ONE smooth
-surface (env_sx): a few px over hair_front's scalp cap above the nape (its
-CAP_PROFILE data), blending into a family of hanging superelliptic sections
-below it, whose back follows the sheet's side silhouette (MASS_BACK). A lock's
-own layer offset ('lay') fades in from zero over its first LAY_FADE px, and
-its root starts ROOT_SINK px inside the envelope (buried under the cap), so
-the locks grow out of one scalp volume instead of starting as stacked shells.
+Skirt clearance: the lock ends keep SKIRT_GAP off the skirt's real back surface,
+godet fold crests included (skirt_sx(): the skirt's pure surface functions
+skirt.profiles / skirt.fold_table, never its objects). Round 11 no longer
+projects spine or curl points onto it (the per-point push made the round-10
+pipes, telescoping steps and twist flips at the curl junctions): a smooth
+clearance envelope (clear_sx: a blurred max filter of the skirt surface + SKIRT_GAP)
+meets the hair envelope in a soft maximum, so the locks ride over the godet
+crests; whatever still clashes after the build lifts the whole lock end in one
+smooth displacement (_settle), and the lock is validated again.
 
-A lock may end in a curl (hook()): the bend eases in from above the curl,
-tightens towards the tip and climbs along its axis like a loose ringlet;
-curls drawn in the back view's image plane are tilted out of it so they turn
-through depth, and the section rolls over gradually through the curl.
+Colour: toon_material('hair', gradient='hair_tip'); toon_grad is one smooth
+field over the mass (grad_global), kept monotonic down each lock so curls that
+turn back up stay green; the outer locks keep their own ranges.
+Shading: custom normals blend one continuous volume normal (volume_normal) with
+each lock's own normal: mostly the volume high up, so the crown and back shade
+as a few large shapes, more of the own normal on the free lower lengths and
+curls (they read as forms). Outlines are on/off per vertex by how far a lock
+stands over its neighbours (outline_weights).
 
-Colour: toon_material('hair', gradient='hair_tip'); 'toon_grad' is ONE
-smooth function of the position (grad_global) shared by every lock and the
-backing curtain, so the white-to-mint fade runs coherently across the mass;
-it is made monotonic along each spine so curls that turn back up stay green.
-Only the outer side locks, which the sheet tips green higher up, keep their
-own ranges ('gr').
-
-Shading: one continuous normal field for the whole mass (volume_normal: the
-skull, then a cylinder that parts into two lobes at the VALLEY), with a
-small share of each lock's own normal that fades out at its side edges, so
-the pale back shades as a few large shapes instead of strips. Outlines are
-on/off per vertex by how far a lock stands over its neighbours
-(outline_weights), so flush seams draw nothing instead of broken scratches.
-Objects: 'hair_back' (the mass's locks), 'hair_back_side' (curled primaries
-and outer side locks) and 'hair_back_shell' (the backing curtain); see build.
-
-The scalp cap, bangs and face-framing side locks belong to hair_front (this
-part reads its CAP_PROFILE/CAP_EXP measurement data only). The lock ends keep
-SKIRT_GAP off the skirt's real back surface: skirt_sx() evaluates the skirt's
-pure surface functions (skirt.profiles / skirt.fold_table, its godet folds
-included), never its objects. A backing curtain
-under the locks keeps the mass solid from the crown to the hips. The locks
-hang roughly vertically so the rig's back-hair sector chains follow them.
+The scalp cap, bangs and face-framing side locks belong to hair_front (this part
+reads its CAP_PROFILE / CAP_EXP measurement data only).
 """
 import math
 
@@ -69,6 +79,7 @@ import numpy as np
 from mathutils import Vector
 
 from .. import common, spec
+from . import _hair_kernel as hk
 from . import skirt as _skirt                  # pure surface functions only (see docstring)
 from .hair_front import CAP_EXP, CAP_PROFILE   # measurement data only (see docstring)
 
@@ -77,48 +88,10 @@ CX = spec.PANEL_W / 2
 
 # Skull ellipsoid in panel px (back view hair is +-74 px wide at row 100, side
 # view back of head at sx 367). Centre depth follows spec.L['head_center_y'].
-# Used for scalp point positions (bx, row) and the hair's volume normals.
+# Used for scalp point positions and the hair's volume normals.
 SKULL_C = (0.0, spec.L['head_center_y'] * spec.PX_PER_M, 108.0)   # (X px, Y px, row)
 SKULL_R = (72.0, 82.0, 86.0)         # (rx, ry, rz) px
 SCALP_LIFT = 0.95
-
-RING = 16           # vertices per cross-section (default; primaries use 20)
-DENSE_PX = 2.0      # spine sampling before the adaptive resample (panel px)
-SEG_PX = 10.0       # ring spacing on straight runs (panel px) ...
-SEG_TURN = 7.0      # ... or sooner, once the spine has turned this many degrees
-CURL_SEG = 3.5      # ring spacing inside a curl (panel px) ...
-CURL_TURN = 5.0     # ... or this many degrees
-TH = 0.45           # outer half thickness / half width of a lock's lens section
-LENS_INNER = 0.65   # inner (body-side) bulge relative to the outer one
-TIP_PX = 44.0       # length over which a lock without a curl rounds into its point
-WAVE_ROWS = (175.0, 260.0)   # rows over which the root-to-tip waves fade in
-# Roots: every lock starts ROOT_SINK px under the envelope and rises onto it
-# over ROOT_LEN px of spine; its own layer offset fades in over LAY_FADE px
-# (~8 cm) and its width grows from ROOT_W over the first ROOT_LEN px.
-ROOT_SINK = 6.0
-ROOT_LEN = 40.0
-LAY_FADE = 55.0
-ROOT_W = 0.55
-TUCK_PX = 12.0      # px an un-curled lock end sinks under the mass (per lock: 'tuck_px') ...
-TUCK_LEN = 90.0     # ... over this many px of spine (the whole terminal section lies
-                    # ~1.9 cm under its cover, fading over ~14 cm: no wedge on the face)
-# Curls (see hook()):
-CURL_TILT = 30.0    # deg a back-view curl is tilted out of the image plane
-CURL_EASE = 1.5     # start radius / radius: the bend eases in from above
-CURL_SHRINK = 0.2   # the radius tightens by this share towards the tip
-CURL_PITCH = 0.25   # rise along the curl axis over the curl, x radius
-CURL_TWIST = 45.0   # default section twist through a curl (deg) ...
-CURL_ROLL = 0.85    # ... spread over this share of the curl
-CURL_TAPER = 1.0    # width taper exponent through a curl (1 = linear to the tip; per lock 'ctaper')
-TOP_ROWS = (150.0, 300.0)    # rows over which the crown's flatter, wider locks gain volume
-TOP_WIDE = 1.3      # lock width factor at the crown
-TOP_FLAT = 0.7      # lock thickness factor at the crown
-CURL_TH = 0.38      # thickness ratio the section rounds to through a curl
-TIP_TH = 0.55       # ... and at the point of a lock without a curl
-TIP_RINGS = ((0.35, 0.8), (0.7, 0.45))   # rounded point past the last ring: (reach, scale)
-CURL_KEEP = 0.6     # own-normal share at a curl tip (it shades as its own form)
-LOW_KEEP = 0.4      # ... and on the free lower lengths (LOW_ROWS)
-LOW_ROWS = (360.0, 460.0)
 
 # Back of the hair envelope on the centre line per row (side-view column),
 # from the back edge of the hair in ref/side.png minus the clump thickness.
@@ -127,29 +100,37 @@ MASS_BACK = [(110, 364), (140, 362), (170, 365), (200, 372), (230, 382), (260, 3
 # Valley between the two lower lobes: (parting column, depth px, half width px,
 # rows over which it deepens). The volume normals (VOL_LOBES) follow it.
 VALLEY = (306.0, 8.0, 20.0, (190.0, 300.0))
-# Hanging sections below the cap: row -> (half width rx, depth ry, superellipse
-# exponent). At the top they continue the cap's rounded back; lower down they
-# widen and flatten over the shoulders and back.
+# Hanging sections below the cap: row -> (half width rx, depth ry, superellipse exponent).
 SECT = [(116, 68, 60, 2.3), (140, 74, 66, 2.3), (175, 84, 62, 2.2), (210, 96, 56, 2.1),
         (260, 112, 52, 2.0), (320, 122, 50, 2.0)]
 ENV_OFF = 3.0             # px the envelope sits over hair_front's cap
 ENV_BLEND = (100.0, 132.0)  # rows over which the cap hands over to the hanging sections
-# Skirt back surface: the skirt's own outer cloth (skirt.profiles), sampled once on a
-# grid of back-view columns x rows (round 7; the round-2 table measured on a render
-# missed the godet fold crests by up to 1.2 cm, so the lock ends lay inside the skirt
-# at rest and any motion made them cross it).
+
+# Skirt back surface (skirt.profiles), sampled once on a grid of back-view columns x rows.
 SKIRT_GRID = (200, 1.0)   # +-px of back-view column and px step of the lookup grid
-# Round 9 (PRIMARY_LOCKS): the big locks lie on the skirt over a wider band, so they keep
-# 7 px off it (4 px crossed it more in jump_tuck / spin / run; 7 px halved the majors).
-PRIMARY_LOCKS = True    # round 9's big locks (primaries()); False goes back to MAIN + WAVES
-SKIRT_GAP = 7.0 if PRIMARY_LOCKS else 4.0   # px kept between the skirt and a lock's inner face
-SKIRT_BLEND = 36.0  # px of spine over which a skirt push is blended
-HOOK_LAY = 2.0      # px a back-view curl sits at least above its lock's layer
-# A back lock's layer offset ('lay') places its OUTER face: a lock thicker than
-# FACE_REF px (outer half thickness) sinks by the difference, so a broad primary does
-# not swell through the thinner locks layered over it. The stack order is then
-# exactly the order of 'lay', with no lock poking through another in patches.
-FACE_REF = 5.0
+SKIRT_GAP = 7.0           # px kept between the skirt and a lock's underside
+# Clearance envelope (clear_sx): the skirt's back surface max-filtered over
+# CLEAR_MAXF (+-px across, +-rows), Gaussian-blurred (CLEAR_SIGMA px across, rows)
+# with the filtered surface held under it, + SKIRT_GAP. A lock rides over the godet
+# crests instead of following them. It meets the hair envelope in a soft maximum
+# (CLEAR_SOFT px), so a lock end bends onto the skirt without a corner.
+CLEAR_MAXF = (20, 6)
+CLEAR_SIGMA = (25.0, 15.0)
+CLEAR_SOFT = 8.0
+# Any skirt clash left after a lock is built lifts its end in one smooth step along
+# the lock's normal, ramped in over at least SKIRT_LIFT_LEN px of spine.
+SKIRT_LIFT_LEN = 60.0
+
+# Shingling: a lock's underside rests on the convex top of the layers under it plus
+# GAP (m); the lift fades in over ROOT_FADE (m) from the root, which is buried in the
+# scalp cap by design (ROOT_SINK px under its rest, rising onto it within 0.8 ROOT_FADE).
+GAP = 0.00075
+ROOT_FADE = 0.05
+ROOT_SINK = 5.0
+ROOT_SINK_SIDE = 8.0
+SIDE_FACE_ROWS = (150.0, 215.0)   # rows over which an outer lock's face turns from the scalp's to its own
+SHINGLE_SMOOTH = 0.03       # m, sigma of the lift along a lock
+SETTLE_ITERS = 4
 
 # White-to-mint fade shared by the whole mass: it starts at row G0 (the left
 # lobe a little lower than the right, as on the sheet) and is full G_SPAN rows on.
@@ -157,15 +138,28 @@ G0 = ((250.0, 334.0), (360.0, 316.0))     # (bx, start row) at the two sides
 G_SPAN = 130.0
 G_RIPPLE = 9.0      # rows
 
+DEBUG = False       # print the shingle / skirt lift needs per settle pass
+RECORD = None       # a list: build() appends (object name, strand, info) per lock (diagnostics)
 
+
+# ---------------------------------------------------------------- panel frame
 def P(bx, sx, row):
     """Panel pixels (back-view column, side-view column, row) -> world Vector."""
     return Vector((spec.px_to_h(CX - bx), spec.px_to_h(sx - CX), spec.px_to_z(row)))
 
 
+def W(bx, sx, row):
+    """Panel pixels -> world numpy point(s) (broadcasts)."""
+    bx, sx, row = np.broadcast_arrays(np.asarray(bx, float), np.asarray(sx, float), np.asarray(row, float))
+    return np.stack([(CX - bx) / PX, (sx - CX) / PX, (spec.SHEET_GROUND_Y - row) / PX], -1)
+
+
 def to_px(v):
-    """World Vector -> (bx, sx, row) panel pixels."""
-    return CX - v.x * PX, CX + v.y * PX, spec.SHEET_GROUND_Y - v.z * PX
+    """World point(s) (Vector or (..., 3) array) -> (bx, sx, row) panel pixels."""
+    if isinstance(v, Vector):
+        return CX - v.x * PX, CX + v.y * PX, spec.SHEET_GROUND_Y - v.z * PX
+    v = np.asarray(v, float)
+    return CX - v[..., 0] * PX, CX + v[..., 1] * PX, spec.SHEET_GROUND_Y - v[..., 2] * PX
 
 
 def skull(az, pol, lift=SCALP_LIFT):
@@ -244,6 +238,11 @@ def env_sx(bx, row):
     return cap + (sect - cap) * b
 
 
+def env_point(bx, row):
+    return P(bx, env_sx(bx, row), row)
+
+
+# ---------------------------------------------------------------- skirt clearance
 _SKIRT_TAB = {}
 
 
@@ -284,875 +283,124 @@ def _skirt_table():
     return tab
 
 
-def skirt_sx(bx, row):
-    """Side-view column of the skirt's back surface at back-view column bx
-    (None above, below or beside the skirt's back half)."""
-    rows, xs, ys = _skirt_table()
+def _grid_lookup(tab, bx, row):
+    """Bilinear lookup (side-view column) in a (rows, xs, y) grid; NaN outside / at holes."""
+    rows, xs, ys = tab
+    bx, row = np.broadcast_arrays(np.asarray(bx, float), np.asarray(row, float))
     x = CX - bx                     # world x px (bx: image-left = +X)
-    if not (rows[0] <= row <= rows[-1] and xs[0] <= x <= xs[-1]):
-        return None
-    step = SKIRT_GRID[1]            # (uniform grids: plain arithmetic, called per vertex)
-    fr, fx = (row - rows[0]) / step, (x - xs[0]) / step
-    r0, c0 = min(int(fr), len(rows) - 2), min(int(fx), len(xs) - 2)
-    u, v = fr - r0, fx - c0
-    q = ys[r0:r0 + 2, c0:c0 + 2]
-    if np.isnan(q).any():           # at the cloth's edge: the nearest known sample, if any
-        q = q[~np.isnan(q)]
-        return None if not len(q) else float(CX + q.max())
-    y = (q[0, 0] * (1 - u) + q[1, 0] * u) * (1 - v) + (q[0, 1] * (1 - u) + q[1, 1] * u) * v
-    return float(CX + y)
-
-
-def mass_sx(bx, row, lay=0.0):
-    """Depth of the hair mass's back surface at back-view (bx, row)."""
-    sx = env_sx(bx, row) + lay
-    sk = skirt_sx(bx, row)
-    if sk is not None:
-        sx = max(sx, sk + SKIRT_GAP + max(lay, 0.0))
-    return sx
-
-
-def clear_skirt(p, gap=SKIRT_GAP):
-    """Push a world point back (+Y) until it clears the skirt."""
-    bx, sx, row = to_px(p)
-    sk = skirt_sx(bx, row)
-    if sk is not None and sx < sk + gap:
-        p = P(bx, sk + gap, row)
-    return p
-
-
-def grad_global(bx, row):
-    """Shared white (0) -> mint (1) fade of the back mass."""
-    (b0, r0), (b1, r1) = G0
-    g0 = r0 + (r1 - r0) * smooth01((bx - b0) / (b1 - b0))
-    # a slow ripple across the back: neighbouring locks start their fade at
-    # slightly different heights, but as one smooth field, not per lock
-    g0 += G_RIPPLE * math.sin((bx - CX) / 34.0)
-    return smooth01((row - g0) / G_SPAN)
-
-
-def _pt(p):
-    if p[0] == 's':
-        bx, _, row = to_px(skull(p[1], p[2]))
-        return P(bx, env_sx(bx, row), row)
-    if len(p) == 2:
-        return P(p[0], mass_sx(p[0], p[1]), p[1])
-    return P(*p)
-
-
-def catmull(pts, step_px):
-    """Uniform Catmull-Rom through pts, sampled densely (~step_px panel px).
-
-    Returns the samples (including both ends) and each sample's control
-    parameter (span index + fraction) for interpolating per-control values.
-    """
-    ext = [pts[0] * 2 - pts[1]] + pts + [pts[-1] * 2 - pts[-2]]
-    out, par = [], []
-    for i in range(len(pts) - 1):
-        p0, p1, p2, p3 = ext[i:i + 4]
-        samples = max(1, math.ceil((p2 - p1).length * PX / step_px))
-        for k in range(samples):
-            t = k / samples
-            t2, t3 = t * t, t * t * t
-            out.append(0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2
-                              + (-p0 + 3 * p1 - 3 * p2 + p3) * t3))
-            par.append(i + t)
-    out.append(pts[-1].copy())
-    par.append(len(pts) - 1)
-    return out, par
-
-
-def lerp_list(vals, u):
-    """Piecewise-linear lookup of vals at control parameter u."""
-    i = min(int(u), len(vals) - 2)
-    f = u - i
-    return vals[i] * (1 - f) + vals[i + 1] * f
-
-
-def smooth_list(vals, u):
-    """Monotone cubic (Fritsch-Carlson) lookup of scalar vals at control
-    parameter u: continuous slope, so widths swell and taper without kinks,
-    and never overshooting, so a steep taper cannot dip below its end value."""
-    n = len(vals)
-    i = min(int(u), n - 2)
-    f = u - i
-
-    def tangent(k):
-        if k <= 0:
-            return vals[1] - vals[0]
-        if k >= n - 1:
-            return vals[-1] - vals[-2]
-        a, b = vals[k] - vals[k - 1], vals[k + 1] - vals[k]
-        if a * b <= 0.0:
-            return 0.0
-        return 2.0 * a * b / (a + b)      # harmonic mean: keeps the cubic monotone
-
-    p1, p2 = vals[i], vals[i + 1]
-    m1, m2 = tangent(i), tangent(i + 1)
-    f2, f3 = f * f, f * f * f
-    return ((2 * f3 - 3 * f2 + 1) * p1 + (f3 - 2 * f2 + f) * m1
-            + (-2 * f3 + 3 * f2) * p2 + (f3 - f2) * m2)
-
-
-def _radial(p):
-    """Away from the body axis (slightly behind the spine)."""
-    v = Vector((p.x, p.y + 0.02, 0.0))
-    return v.normalized() if v.length > 1e-6 else Vector((0, 1, 0))
-
-
-def _arclen(pos):
-    acc = [0.0]
-    for a, b in zip(pos, pos[1:]):
-        acc.append(acc[-1] + (b - a).length * PX)
-    return acc
-
-
-def _wave(spine, d, on_mass):
-    """Root-to-tip S-wave on the dense spine (in place).
-
-    d['wave'] = (amp_px, wavelength_rows, phase_deg, depth_px): a sideways
-    (back-view) sine of amp_px plus a depth sine a quarter period out of
-    phase, so the lock undulates through depth as well as across the back.
-    It fades in below the shoulders (WAVE_ROWS) and eases to 40 % over the last
-    60 rows, so the fitted ends and curls move by a few px at most.
-    Points on the mass re-follow its surface after the sideways shift.
-    """
-    amp, lam, ph, dep = d['wave']
-    w0, w1 = d.get('wave_rows', WAVE_ROWS)
-    r_end = to_px(spine[-1])[2]
-    snap_row = min((p[1] for p in d['pts'] if p[0] != 's' and len(p) == 2), default=1e9)
-    for i, p in enumerate(spine):
-        bx, sx, row = to_px(p)
-        env = smooth01((row - w0) / (w1 - w0))
-        env *= 1.0 - 0.6 * smooth01((row - (r_end - 60.0)) / 60.0)
-        if env <= 0.0:
-            continue
-        a = 2 * math.pi * row / lam + math.radians(ph)
-        bx += amp * env * math.sin(a)
-        if on_mass and row >= snap_row:
-            sx = mass_sx(bx, row)
-        sx += dep * env * math.cos(a)
-        spine[i] = P(bx, sx, row)
-
-
-def _layer(spine, lay, sink, tuck, tuck_px=TUCK_PX):
-    """Offset the dense spine along the volume normal (in place): -sink px at
-    the root rising to 0 over ROOT_LEN, plus the lock's own layer offset
-    faded in over LAY_FADE - so every lock leaves the scalp on the shared
-    envelope and separates into its own layer only further down. With tuck,
-    the offset eases to -tuck_px over the last TUCK_LEN px, so a lock that
-    ends without a curl slips under its neighbours instead of ending as a
-    tongue on top of them."""
-    acc = _arclen(spine)
-    tot = acc[-1]
-    for i, p in enumerate(spine):
-        s = acc[i]
-        off = lay * smooth01(s / LAY_FADE) - sink * (1.0 - smooth01(s / ROOT_LEN))
-        if tuck:
-            t = smooth01((s - (tot - TUCK_LEN)) / TUCK_LEN)
-            off += (-tuck_px - off) * t
-        if off:
-            spine[i] = p + volume_normal(p, lobes=False) * (off / PX)
-
-
-def _clear_rings(rings, centres):
-    """Section-aware skirt clearance (in place): push each ring back (+Y) until
-    every one of its vertices clears the skirt by SKIRT_GAP, blending each
-    push over SKIRT_BLEND px of spine with a smoothstep falloff so the lock
-    bends round the skirt without a kink at the first contacting ring."""
-    push = []
-    for ring in rings:
-        m = 0.0
-        for co in ring:
-            bx, sx, row = to_px(co)
-            sk = skirt_sx(bx, row)
-            if sk is not None:
-                m = max(m, sk + SKIRT_GAP - sx)
-        push.append(m)
-    if not any(push):
-        return
-    acc = _arclen(centres)
-    n = len(rings)
-    for i in range(n):
-        m = push[i]
-        for j in range(n):
-            dist = abs(acc[i] - acc[j])
-            if j != i and dist < SKIRT_BLEND:
-                m = max(m, push[j] * smooth01(1.0 - dist / SKIRT_BLEND))
-        if m > 0.0:
-            off = Vector((0.0, m / PX, 0.0))
-            rings[i] = [co + off for co in rings[i]]
-
-
-def hook(p0, d0, curl, opts, on_mass):
-    """Dense points of a rounded curl that continues the spine from p0, d0.
-
-    curl = (radius_px, turn_deg, (img_x, depth)): the spine turns by
-    turn_deg towards the horizontal direction img_x * (back-view image right)
-    + depth * (+Y, behind her). Curls drawn in the back-view image plane
-    (depth == 0) are tilted CURL_TILT deg out of it (tip swinging away from
-    the body) so they turn through depth instead of lying flat on the mass.
-    The bend eases in (radius CURL_EASE times larger at the start, so the
-    curve begins above the hook), tightens by CURL_SHRINK towards the tip, and
-    climbs CURL_PITCH x radius along the curl axis like a loose ringlet so
-    the tip clears its own lock.
-    Returns [(point, u)] with u = 0..1 along the curl, and the curl axis.
-    """
-    R, turn, (ix, iy) = curl
-    tilt = math.radians(opts.get('tilt', CURL_TILT))
-    d = d0.normalized()
-    if iy == 0:
-        e = Vector((-ix, 0.0, 0.0)) * math.cos(tilt) + Vector((0.0, 1.0, 0.0)) * math.sin(tilt)
-        # enlarge a little so the curl's foreshortened back-view width stays close
-        # to the fitted one (its height grows by the same factor)
-        R = R / max(0.6, math.cos(tilt) ** 0.5)
-    else:
-        e = Vector((-ix, iy, 0.0))
-    e = (e - d * e.dot(d)).normalized()
-    axis = d.cross(e).normalized()
-    if axis.dot(_radial(p0)) < 0:
-        axis.negate()
-    T = math.radians(turn)
-    ease = opts.get('ease', CURL_EASE)
-    shrink = opts.get('shrink', CURL_SHRINK)
-    pitch = opts.get('pitch', CURL_PITCH) * R / PX
-    n = max(12, round(turn / 3.0))
-    out = []
-    p = p0.copy()
-    # depth the spine end already sits over the mass: the curl keeps at least
-    # that, growing by HOOK_LAY over its first third (no step in depth)
-    bx0, sx0, row0 = to_px(p0)
-    base = sx0 - env_sx(bx0, row0)
-    for k in range(n):
-        th = T * (k + 0.5) / n
-        f = th / T
-        r = R * (1.0 - shrink * f) * (1.0 + (ease - 1.0) * (1.0 - smooth01(f / 0.45))) / PX
-        p = p + (d * math.cos(th) + e * math.sin(th)) * (r * T / n) + axis * (pitch / n)
-        if on_mass and iy == 0:
-            bx, sx, row = to_px(p)
-            lift = base + HOOK_LAY * smooth01(3.0 * (k + 1) / n)
-            p = P(bx, max(sx, mass_sx(bx, row, lift)), row)
-        out.append((clear_skirt(p), (k + 1) / n))
-    return out, axis
-
-
-def _resample(n, pos, seg_px, turn_deg, curl_from):
-    """Indices of the dense samples kept as rings: a new ring every seg_px panel px
-    on straight runs, or sooner once the spine has turned by turn_deg (CURL_SEG /
-    CURL_TURN from sample curl_from on, so curls stay round)."""
-    keep = [0]
-    acc_l = acc_a = 0.0
-    for i in range(1, n - 1):
-        acc_l += (pos[i] - pos[i - 1]).length * PX
-        t0 = pos[i] - pos[i - 1]
-        t1 = pos[i + 1] - pos[i]
-        if t0.length > 1e-9 and t1.length > 1e-9:
-            acc_a += math.degrees(t0.angle(t1, 0.0))
-        curl = i >= curl_from
-        if acc_l >= (min(seg_px, CURL_SEG) if curl else seg_px) or acc_a >= (CURL_TURN if curl else turn_deg):
-            keep.append(i)
-            acc_l = acc_a = 0.0
-    if n - 1 - keep[-1] < 2 and len(keep) > 1:
-        keep.pop()          # avoid a sliver ring right before the tip
-    keep.append(n - 1)
-    return keep
-
-
-def clump(bm, layer, d):
-    """Add one hair lock to bm; returns its own-normal shares (see set_volume_normals).
-
-    d: pts (control points), w (width px, one per point), th (outer half
-    thickness as a ratio of the half width), lay (layer offset px, faded in
-    from the root), n ('radial' or a fixed normal-hint tuple: the lock's
-    outer face), tw (cross-section twist deg about the spine, scalar or one
-    per point), wave (see _wave), curl (optional, see hook()) with tip (tip
-    width px) and ctw (twist through the curl, deg), gr (optional own fade
-    rows; default: grad_global), ring (verts per section), keep (own-normal
-    share), seg (ring spacing px), tuck_px (depth px of a tucked end, see _layer),
-    ctaper / cth (width taper exponent / thickness ratio through the curl), inner
-    (inner face bulge), frame ('transport': parallel-transported section frames
-    from the first hint, for curl-less locks that turn through depth), wave_rows
-    (rows over which the wave fades in; default WAVE_ROWS), keep_rows (rows over
-    which the own-normal share grows from VOL_KEEP to keep), shrink (CURL_SHRINK).
-
-    The cross-section is a lens with a convex outer face and a flatter inner
-    one (LENS_INNER): rounded in the middle, thinning to soft edges. Width and
-    thickness both taper into the tip, which turns rounder (CURL_TH) so the
-    points read as soft, not cut from card.
-    """
-    lay = d.get('lay', 0.0)
-    ctrl = [_pt(p) for p in d['pts']]
-    w = list(d['w'])
-    assert len(w) == len(ctrl), 'one width per control point'
-    nctl = len(ctrl)
-    n = d.get('n', 'radial')
-    hints = [Vector(n).normalized() if isinstance(n, tuple) else _radial(c) for c in ctrl]
-    tw = d.get('tw', 0.0)
-    tw = list(tw) if isinstance(tw, (list, tuple)) else [tw] * nctl
-    th = d.get('th', TH)
-    keep0 = d.get('keep', VOL_KEEP)
-    # free lower lengths shade more as their own form, but only on locks that
-    # end in a curl: a tucked end keeps the shared field, or its rounded point
-    # prints a shade sliver where it slips under its neighbour
-    low_keep = LOW_KEEP if 'curl' in d else keep0
-    on_mass = len(d['pts'][-1]) == 2
-    rooted = d['pts'][0][0] == 's'
-    gr = d.get('gr')
-
-    def gfun(bx, row):
-        if gr is None:
-            return grad_global(bx, row)
-        return smooth01((row - gr[0]) / (gr[1] - gr[0]))
-
-    pos, par = catmull(ctrl, DENSE_PX)
-    if 'wave' in d:
-        _wave(pos, d, on_mass)
-    tuck = d.get('tuck', on_mass and 'curl' not in d)
-    _layer(pos, lay, ROOT_SINK if rooted else 0.0, tuck, d.get('tuck_px', TUCK_PX))
-    for i, p in enumerate(pos):
-        pos[i] = clear_skirt(p)
-    acc = _arclen(pos)
-    # per dense sample: width, thickness ratio, twist, normal hint, own-normal share
-    # Near the crown the locks are wider and flatter so they merge into one
-    # smooth mass; they gain their own volume as they fall (TOP_ROWS).
-    attrs = []
-    for p, u, s in zip(pos, par, acc):
-        bx, _, row = to_px(p)
-        # (back locks only: the side locks with a fixed outer face keep their size)
-        f = smooth01((row - TOP_ROWS[0]) / (TOP_ROWS[1] - TOP_ROWS[0])) if n == 'radial' else 1.0
-        ww = smooth_list(w, u) * (TOP_WIDE + (1.0 - TOP_WIDE) * f)
-        if rooted:
-            ww *= ROOT_W + (1.0 - ROOT_W) * smooth01(s / ROOT_LEN)
-        low = smooth01((row - LOW_ROWS[0]) / (LOW_ROWS[1] - LOW_ROWS[0]))
-        k0 = keep0
-        if 'keep_rows' in d:        # the own form fades in down the lock (a smooth crown)
-            kr = d['keep_rows']
-            k0 = VOL_KEEP + (keep0 - VOL_KEEP) * smooth01((row - kr[0]) / (kr[1] - kr[0]))
-        lk = low_keep if 'curl' in d else k0    # (curl-less locks: the keep_rows ramp alone)
-        attrs.append((ww, th * (TOP_FLAT + (1.0 - TOP_FLAT) * f), lerp_list(tw, u), lerp_list(hints, u),
-                      k0 + max(0.0, lk - k0) * low))
-    if n == 'radial' and on_mass:
-        # outer face on the layer (FACE_REF): sink by the extra outer half thickness,
-        # faded in like the layer offset so the root stays on the scalp envelope, and
-        # out over a tucked end, whose depth tuck_px already sets
-        tot = acc[-1]
-        for i, (p, a) in enumerate(zip(pos, attrs)):
-            ht = a[1] * a[0] / 2
-            sink = max(0.0, ht - FACE_REF) * smooth01(acc[i] / LAY_FADE)
-            if tuck:
-                sink *= 1.0 - smooth01((acc[i] - (tot - TUCK_LEN)) / TUCK_LEN)
-            if sink:
-                pos[i] = clear_skirt(p - volume_normal(p, lobes=False) * (sink / PX))
-    tip_w = d.get('tip', 2.0)
-    curl_from = len(pos)
-    if 'curl' in d:
-        d0 = pos[-1] - pos[-4]
-        pts, axis = hook(pos[-1], d0, d['curl'], d, on_mass)
-        w0, th0, tw0, h0, k0 = attrs[-1]
-        ctw = d.get('ctw', CURL_TWIST)
-        ctaper = d.get('ctaper', CURL_TAPER)
-        cth = d.get('cth', CURL_TH)
-        for p, u in pts:
-            s = smooth01(u)
-            # a gradual taper (half the width half way round at ctaper 1)
-            ww = tip_w + (w0 - tip_w) * (1.0 - u ** ctaper)
-            hb = h0.lerp(axis, smooth01(u / 0.35))
-            roll = ctw * smooth01(u / CURL_ROLL)
-            attrs.append((ww, th0 + (cth - th0) * smooth01(u / 0.5), tw0 + roll, hb,
-                          k0 + max(0.0, CURL_KEEP - k0) * s))
-            pos.append(p)
-    else:
-        # taper the last stretch into a rounder soft point
-        tot = acc[-1]
-        for i in range(len(pos)):
-            u = smooth01((acc[i] - (tot - TIP_PX)) / TIP_PX)
-            ww, tt, *rest = attrs[i]
-            attrs[i] = (ww, tt + (TIP_TH - tt) * u, *rest)
-    idx = _resample(len(pos), pos, d.get('seg', SEG_PX), SEG_TURN, curl_from)
-    nr = d.get('ring', RING)
-    inner = d.get('inner', LENS_INNER)
-    rings = []
-    prev_side = None
-    prev_nrm = None
-    gmax = 0.0
-    ns = len(idx)
-    # 'transport': the section frame starts on the normal hint and is carried along the
-    # spine without turning about it (parallel transport), so a lock that bends through
-    # depth turns its faces with it instead of staying square to the hint like a strap
-    # (locks without a curl only: a curl's rings turn toward its axis through the hints)
-    transport = d.get('frame') == 'transport'
-    assert not (transport and 'curl' in d), "frame='transport' is for locks without a curl"
-    for j, i in enumerate(idx):
-        p = pos[i]
-        t = (pos[idx[min(j + 1, ns - 1)]] - pos[idx[max(j - 1, 0)]]).normalized()
-        ww, tr, twi, nh, kk = attrs[i]
-        if transport and prev_nrm is not None:
-            nh = prev_nrm
-        nrm = nh - t * nh.dot(t)
-        if nrm.length < 1e-4:
-            nrm = prev_side.cross(t) if prev_side is not None else t.orthogonal()
-        nrm.normalize()
-        side = t.cross(nrm).normalized()
-        if prev_side is not None and side.dot(prev_side) < 0:
-            side.negate()       # keep the frame from flipping between rings
-            nrm.negate()
-        prev_side = side
-        prev_nrm = nrm.copy()
-        side, nrm = _twist(side, nrm, twi)
-        hw = ww / PX / 2
-        ht = tr * ww / PX / 2
-        if j == ns - 1:  # soft but non-degenerate tip
-            hw, ht = max(hw * 0.5, 0.5 / PX), max(ht * 0.5, 0.35 / PX)
-        ring = []
-        for k in range(nr):
-            a = 2 * math.pi * k / nr
-            ca, sa = math.cos(a), math.sin(a)
-            hy = ht * (1.0 if sa > 0 else inner)
-            ring.append(p + side * (hw * ca) + nrm * (hy * sa))
-        bx, _, row = to_px(p)
-        gmax = max(gmax, gfun(bx, row))
-        rings.append((ring, gmax, kk))
-    # the whole section, not just the spine, clears the skirt
-    geo = [r[0] for r in rings]
-    _clear_rings(geo, [pos[i] for i in idx])
-    rings = [(g, *r[1:]) for g, r in zip(geo, rings)]
-    # rounded point: two smaller rings and an apex continue the last section
-    # along the spine (no flat cap on the visible end)
-    last = rings[-1][0]
-    c = sum(last, Vector()) / nr
-    t = (c - sum(rings[-2][0], Vector()) / nr).normalized() if ns > 1 else Vector((0, 0, -1))
-    # (within about one section radius of the authored end, and clear of the
-    # skirt like the rings before it)
-    reach = max(max((co - c).length for co in last), 1.5 / PX)
-    tip = [[clear_skirt(c + t * (reach * f) + (co - c) * s) for co in last] for f, s in TIP_RINGS]
-    rings += [(r, rings[-1][1], rings[-1][2]) for r in tip]
-    apex = clear_skirt(c + t * reach)
-    # {vertex index: own-normal share}; the own normal is the final mesh's
-    # (set_volume_normals), so it describes the cleared rings
-    shading = {}
-    verts = []
-    for ring, g, kk in rings:
-        # mesh vertex indices follow creation order
-        shading.update((len(bm.verts) + k, kk) for k in range(nr))
-        vs = []
-        for co in ring:
-            v = bm.verts.new(co)
-            bx, _, row = to_px(co)
-            v[layer] = max(g, gfun(bx, row))
-            vs.append(v)
-        verts.append(vs)
-    for a, b in zip(verts, verts[1:]):
-        for k in range(nr):
-            k2 = (k + 1) % nr
-            bm.faces.new((a[k], a[k2], b[k2], b[k]))
-    bm.faces.new(list(reversed(verts[0])))     # the root, buried in the mass
-    shading[len(bm.verts)] = rings[-1][2]
-    va = bm.verts.new(apex)
-    va[layer] = verts[-1][0][layer]
-    for k in range(nr):
-        bm.faces.new((verts[-1][k], verts[-1][(k + 1) % nr], va))
-    return shading
-
-
-def _twist(side, nrm, deg):
-    """Rotate a section frame (side, nrm) by deg about the spine."""
-    if not deg:
-        return side, nrm
-    a = math.radians(deg)
-    c, s = math.cos(a), math.sin(a)
-    return side * c + nrm * s, nrm * c - side * s
-
-
-def mirror(d):
-    """Mirror a lock definition across the character's midline."""
-    e = dict(d)
-    pts = []
-    for p in d['pts']:
-        if p[0] == 's':
-            pts.append(('s', -p[1]) + tuple(p[2:]))
-        else:
-            pts.append((2 * CX - p[0],) + tuple(p[1:]))
-    e['pts'] = pts
-    if isinstance(d.get('n'), tuple):
-        x, y, z = d['n']
-        e['n'] = (-x, y, z)
-    if 'curl' in d:
-        R, turn, (ix, iy) = d['curl']
-        e['curl'] = (R, turn, (-ix, iy))
-    for k in ('tw', 'ctw'):
-        if k in d:
-            v = d[k]
-            e[k] = [-x for x in v] if isinstance(v, (list, tuple)) else -v
-    if 'wave' in d:
-        amp, lam, ph, dep = d['wave']
-        e['wave'] = (-amp, lam, ph, dep)
-    return e
-
-
-# ------------------------------------------------------------------ locks
-# Targets measured on the reference (panel px):
-#   back view, main mass edges: r150 252/387, r200 256/385 (bare shoulder
-#     skin at bx 233-250 between the mass and the shoulder lock), r250 251/391,
-#     r300 231/410, r320 219/418, r350-400 ~212/422.  Lower third: two lobes
-#     split at bx ~305; left lobe ends in a big C hook (outer edge 220 at
-#     row 450, bottom (262, 495), tip (302, 460)); right lobe: an S lock that
-#     hooks at the right edge (417, 402), a curl bottoming at (365, 510) with
-#     its tip back at (335, 492), and an outer curl out to (437, 460) with
-#     its tip at (400, 492).  Green starts ~row 375 (right) / 395 (left).
-#   side view, back edge (sx): r150 367, r200 392, r230 424 (shoulder flick),
-#     r250 397, r300 439, r330 450, r360 424 with the open curl 450-468 at
-#     rows 368-405 and the lower curl to 466 at rows 410-460.
-#   front/back view hooks past the sleeves: outer edge bx 61-66 at rows
-#     370-410, tip at (84, 347).
-
-# Primary masses (ring 12): broad, full locks that make up most of the back -
-# A/B the left lobe, D/F the right one - each with its own root-to-tip wave.
-# Secondary locks sit between and over them and break their edges; the
-# waves of neighbours are out of phase so the outlines cross like the sheet's.
-MAIN = [
-    # A (primary): left edge -> big C curl at the bottom left
-    dict(pts=[('s', 60, 30), ('s', 62, 62), ('s', 62, 92), (258, 150),
-              (252, 195), (246, 240), (236, 285), (224, 325), (216, 365), (215, 400),
-              (220, 430), (232, 452)],
-         w=[18, 24, 28, 32, 38, 44, 48, 50, 46, 40, 32, 24], ring=20, th=0.46,
-         wave=(8, 160, 0, 6), curl=(42, 215, (1, 0)), tilt=22, tip=1.5, ctw=35, ctaper=0.85, cth=0.55),
-    # B (primary): left inner; ends higher, tapering out behind the C curl
-    dict(pts=[('s', 40, 26), ('s', 42, 62), ('s', 41, 94), (280, 150),
-              (274, 195), (268, 240), (258, 290), (250, 335), (256, 372), (264, 396),
-              (272, 410)],
-         w=[18, 24, 28, 32, 38, 44, 48, 46, 38, 26, 8], ring=18, th=0.4,
-         wave=(8, 150, 140, 6), lay=3, tuck_px=14.0),
-    # C: along the central parting, under its neighbours; ends well above the
-    # lobes' split, so the two lobes hang apart at the bottom with air between
-    dict(pts=[('s', 18, 22), ('s', 21, 62), ('s', 20, 95), (302, 150),
-              (299, 195), (296, 240), (293, 290), (291, 330), (294, 368), (299, 394),
-              (302, 412)],
-         w=[16, 20, 24, 28, 32, 34, 34, 30, 24, 12, 4], th=0.38,
-         wave=(5, 140, 260, 4), lay=-3, ring=16),
-    # D (primary): right of the parting -> curl at the bottom (365, 510)
-    dict(pts=[('s', -2, 22), ('s', -2, 62), ('s', -2, 95), (322, 150),
-              (326, 195), (330, 240), (336, 290), (334, 330), (330, 368), (336, 404),
-              (345, 428), (352, 448)],
-         w=[18, 24, 28, 32, 38, 44, 48, 50, 46, 38, 28, 22], ring=20, th=0.5,
-         wave=(8, 160, 60, 6), curl=(30, 190, (-1, 0)), tilt=26, tip=1.5, ctw=-25, lay=1,
-         ctaper=0.85, cth=0.55, pitch=0.4),
-    # E: S lock that sweeps right and slips under F at the right edge (its small
-    # hook made the lower curl row crowded: fewer, larger curls read cleaner)
-    dict(pts=[('s', -20, 24), ('s', -21, 62), ('s', -20, 95), (342, 150),
-              (348, 195), (354, 240), (362, 290), (368, 326), (382, 352), (398, 370)],
-         w=[16, 20, 24, 28, 32, 34, 34, 30, 22, 10],
-         wave=(5, 130, 200, 4), lay=3, ring=16, tuck_px=13.0),
-    # F (primary): right outer -> outer curl at the bottom right
-    dict(pts=[('s', -40, 26), ('s', -42, 62), ('s', -41, 94), (360, 150),
-              (368, 195), (378, 240), (392, 290), (406, 330), (416, 370), (420, 404),
-              (424, 424), (427, 442)],
-         w=[18, 24, 28, 32, 38, 44, 46, 44, 38, 30, 24, 19], ring=20, th=0.42,
-         wave=(8, 160, 300, 6), curl=(21, 165, (-1, 0)), tilt=34, tip=1.5, ctw=-40,
-         ctaper=0.9, cth=0.55, lay=3),
-    # G: right edge, tucked in under F; turns inward at the tip (accent)
-    dict(pts=[('s', -60, 30), ('s', -62, 62), ('s', -62, 92), (380, 150),
-              (386, 195), (392, 240), (402, 290), (412, 330), (418, 370), (414, 402),
-              (408, 426)],
-         w=[16, 20, 24, 28, 32, 34, 32, 28, 22, 12, 4], th=0.4,
-         wave=(5, 140, 100, 4), lay=-4, ring=16),
-]
-
-# Wave locks on top of the mass: narrower locks with stronger S-waves that
-# draw the sheet's interior wave lines across the lobes and break the
-# primaries' edges. They end at different heights and taper into the mass.
-WAVES = [
-    dict(pts=[('s', 30, 50), ('s', 30, 92), (284, 160), (276, 215), (266, 270),
-              (252, 318), (244, 352), (250, 372), (256, 386)],
-         w=[12, 18, 22, 24, 26, 28, 24, 14, 4], lay=6, ring=14),
-    dict(pts=[('s', -10, 50), ('s', -10, 92), (328, 160), (334, 215), (342, 270),
-              (350, 315), (352, 350), (346, 384), (348, 404), (352, 416)],
-         w=[12, 18, 22, 24, 26, 28, 26, 22, 14, 4],
-         lay=6, ring=14),
-    dict(pts=[('s', -36, 50), ('s', -38, 92), (364, 160), (372, 215), (380, 268),
-              (392, 312), (398, 350), (392, 380), (392, 394)],
-         w=[12, 18, 22, 24, 26, 28, 22, 12, 4], lay=6, ring=14),
-]
-
-# Round 9: the back as a few BIG locks (PRIMARY_LOCKS; False goes back to MAIN + WAVES).
-# Rounds 2-8 built the back from 7 broad primaries laid flush (FACE_REF) plus narrow
-# wave locks on top: in cel it read as one smooth sheet with thin strand lines, about
-# 22-24 small crests across a 30 cm strip at the shoulder blades. Here the back is
-# len(PRIM_LOCKS) primaries side by side across the mass, spaced 3.5-5 cm apart (the mass
-# width / their number), each PRIM_OVERLAP times that wide so neighbours overlap (about
-# 3.5-5 cm of each shows), thicker (PRIM_TH), alternately over and under their
-# neighbours (each lock's 'lay'), so a groove 1-2 cm deep opens between them from the
-# shoulder blades down. Each waves in an S (PRIM_WAVE, a quarter period out of phase
-# with its neighbour) and a few end in big open curls (shrink PRIM_SHRINK), the others
-# in soft points tucked under them, at staggered heights. (The switch, PRIMARY_LOCKS, is
-# next to SKIRT_GAP above.)
-# Edges of the back mass in the back view: (row, left bx, right bx) (the measured
-# targets above; left = the character's left).
-PRIM_EDGES = [(150, 254, 386), (200, 254, 386), (250, 248, 392), (300, 230, 410),
-              (350, 214, 421), (400, 213, 423), (440, 218, 424)]
-PRIM_ROWS = (150, 200, 250, 300, 345, 390)   # rows of the hanging control points
-PRIM_SPREAD = (0.07, 0.93)   # share of the mass width the outer locks' centres sit at
-PRIM_OVERLAP = 2.0          # lock width / (mass width / len(PRIM_LOCKS))
-PRIM_TOP_OVERLAP = 2.3      # ... above row 200, easing to PRIM_OVERLAP by row 300
-PRIM_ROOT_W = (18.0, 24.0, 30.0)   # widths at the three scalp points
-PRIM_TH = 0.5                # outer half thickness / half width
-PRIM_WAVE = (14.0, 128.0, 2.0)   # sideways amp px, wavelength rows, depth amp px (below half the
-                                 # layer step between neighbours, or they pass through each other)
-PRIM_WAVE_ROWS = (150.0, 230.0)  # the waves start at the shoulder blades (WAVE_ROWS 175-260)
-PRIM_PHASE = 90.0            # wave phase step between neighbours (deg)
-PRIM_KEEP = 0.42             # own-normal share of the over-locks (VOL_KEEP 0.25): their form reads in cel
-PRIM_KEEP_ROWS = (200.0, 290.0)  # ... growing from VOL_KEEP over these rows (a smooth crown)
-PRIM_EDGE_AMP = 0.6          # wave amplitude share of the two outer locks (the mass's edges)
-PRIM_CURL_TAPER = 1.1        # width taper exponent through a curl
-PRIM_END_W = (0.5, 0.12)    # width share at the last two points of a lock without a curl
-PRIM_CURL_START = 0.45       # lock width share where the curl begins (open hooks, not lumps)
-PRIM_CURL_TIP = 4.0          # px width at a curl's tip
-PRIM_TILT = 24.0             # deg the curls turn out of the back-view plane (CURL_TILT 30): they stay
-                             # close to the mass in the side view
-PRIM_SHRINK = 0.08           # curls tighten only this much: big open hooks
-# One entry per lock, the character's left to right (image left to right in the back
-# view): (end row, layer px, curl (radius px, turn deg, image-x direction) or None,
-# width factor, shift of its place across the mass) - uneven, so the back does not
-# read as a row of equal tubes.
-PRIM_LOCKS = [
-    (444, 2.0, (40, 215, 1), 1.15, 0.0),     # outer left: the sheet's big C hook
-    (398, -2.0, None, 0.85, 0.01),
-    (408, 3.0, None, 1.0, -0.015),
-    (392, -6.0, None, 0.7, 0.01),            # along the parting, deep under its neighbours (a filler:
-                                             # seen as a narrow strip, it printed the lobe shade as a stripe)
-    (456, 2.0, (30, 200, -1), 1.2, 0.0),     # right lobe: the long open curl (as MAIN D)
-    (402, -1.5, None, 0.85, 0.02),
-    (410, 1.0, None, 1.0, -0.01),
-    (432, 3.0, (22, 190, -1), 1.1, 0.0),     # outer right: curls back in (as MAIN F)
-]
-# The three curled primaries keep the sheet-fitted MAIN locks A, D and F (their curls were
-# tuned against the back and side views over rounds 2-8); the generated curls (PRIM_LOCKS'
-# curl entries) are used with this off.
-PRIM_FITTED_CURLS = True
-PRIM_FITTED_DEPTH = None     # px cap on the fitted curled locks' depth wave (None: their own)
-PRIM_CURTAIN_SHORT = False   # end the backing curtain above the shortest primary (CURTAIN_HW_SHORT)
-PRIM_SWEEP_LAY = -8.0        # px the lower SWEEP lock sinks under the primaries
-PRIM_SECONDARY = False       # the narrow wave locks (WAVES) lie over the primaries' edges
-
-
-def primaries():
-    """Lock definitions (see clump) of the round-9 big back locks."""
-    n = len(PRIM_LOCKS)
-    out = []
-    for i, (end, lay, curl, wf, df) in enumerate(PRIM_LOCKS):
-        f = PRIM_SPREAD[0] + (PRIM_SPREAD[1] - PRIM_SPREAD[0]) * i / (n - 1) + df
-        az = 62.0 - 124.0 * f                       # scalp azimuth: + = her left
-        pol = 24.0 + 8.0 * abs(f - 0.5) * 2         # outer roots a little lower on the skull
-        rows = [r for r in PRIM_ROWS if r < end - 24] + [end]
-        pts = [('s', az, pol), ('s', az * 1.03, 62), ('s', az * 1.02, 93)]
-        w = list(PRIM_ROOT_W)
-        for k, r in enumerate(rows):
-            lo, hi = stable(PRIM_EDGES, r)
-            span = hi - lo
-            pts.append((lo + span * f, r))
-            # wider (more overlap) high up, so the crown stays one smooth mass
-            ov = PRIM_TOP_OVERLAP + (PRIM_OVERLAP - PRIM_TOP_OVERLAP) * smooth01((r - 200.0) / 100.0)
-            ww = span / n * ov * wf
-            # taper over the last two points: into the curl, or to a soft point
-            if k == len(rows) - 1:
-                ww *= PRIM_CURL_START if curl else PRIM_END_W[1]
-            elif k == len(rows) - 2:
-                ww *= 0.75 if curl else PRIM_END_W[0]
-            w.append(ww)
-        amp = PRIM_WAVE[0] * (PRIM_EDGE_AMP if i in (0, n - 1) else 1.0)
-        d = dict(pts=pts, w=w, ring=20, th=PRIM_TH, lay=lay,
-                 keep=PRIM_KEEP if lay > 0 else VOL_KEEP, keep_rows=PRIM_KEEP_ROWS,
-                 wave=(amp, PRIM_WAVE[1], PRIM_PHASE * i, PRIM_WAVE[2]), wave_rows=PRIM_WAVE_ROWS)
-        if curl and PRIM_FITTED_CURLS:
-            continue        # the fitted curled primaries of MAIN take this place (below)
-        if curl:
-            R, turn, ix = curl
-            d.update(curl=(R, turn, (ix, 0)), tilt=PRIM_TILT, tip=PRIM_CURL_TIP, ctw=30 * ix,
-                     ctaper=PRIM_CURL_TAPER, cth=0.62, shrink=PRIM_SHRINK, pitch=0.35)
-        out.append(d)
-    if PRIM_FITTED_CURLS:
-        # a little over their neighbours. They keep their own (fitted) wave: the curl turns
-        # from the spine's end direction, depth wave included, and with the primaries'
-        # 2 px depth wave the right lobe's curl closed into an angular notch in the 3/4
-        # view (pairwise A/B, posed). PRIM_FITTED_DEPTH clamps it instead.
-        for m in MAIN:
-            if 'curl' in m:
-                amp, lam, ph, dep = m['wave']
-                if PRIM_FITTED_DEPTH is not None:
-                    dep = min(dep, PRIM_FITTED_DEPTH)
-                out.append(dict(m, lay=m.get('lay', 0.0) + 1.0, wave=(amp, lam, ph, dep)))
+    step = rows[1] - rows[0]
+    fr, fx = (row - rows[0]) / step, (x - xs[0]) / (xs[1] - xs[0])
+    out = np.full(bx.shape, np.nan)
+    ok = (fr >= 0) & (fr <= len(rows) - 1) & (fx >= 0) & (fx <= len(xs) - 1)
+    if not ok.any():
+        return out
+    r0 = np.minimum(fr[ok].astype(int), len(rows) - 2)
+    c0 = np.minimum(fx[ok].astype(int), len(xs) - 2)
+    u, v = fr[ok] - r0, fx[ok] - c0
+    q00, q10, q01, q11 = ys[r0, c0], ys[r0 + 1, c0], ys[r0, c0 + 1], ys[r0 + 1, c0 + 1]
+    val = (q00 * (1 - u) + q10 * u) * (1 - v) + (q01 * (1 - u) + q11 * u) * v
+    # at the cloth's edge: the largest known corner, if any
+    corners = np.stack([q00, q10, q01, q11], -1)
+    edge = np.isnan(val) & ~np.all(np.isnan(corners), -1)
+    if edge.any():
+        val[edge] = np.nanmax(corners[edge], -1)
+    out[ok] = CX + val
     return out
 
 
-# Inner sheet: closer to the back, so the side view reads as a thick mass and
-# no body shows through between the back locks.
-INNER_LEFT = [
-    dict(pts=[('s', 30, 62), ('s', 32, 95), (272, 338, 150), (250, 340, 200),
-              (236, 350, 260), (236, 360, 320), (244, 372, 380), (258, 382, 425),
-              (266, 386, 445)],
-         w=[22, 24, 24, 34, 42, 44, 40, 28, 4], th=0.55, ring=14, seg=24),
-]
-
-# Side-view curls: locks on the character's left (nearest the side camera),
-# broad in the side view, that bulge backwards and end in the curls behind
-# the skirt. Their curls turn backwards (+Y) and roll through the turn, so
-# they read as round curls from the side and as part of the left lobe's curl
-# group from the back. They face sideways, so they keep more of their own
-# normals than the back-facing volume normal.
-SWEEP = [
-    # upper open curl: hole around sx 414-450, rows 375-402 (the dominant one)
-    dict(pts=[('s', 30, 50), ('s', 30, 92), (282, 362, 150), (276, 378, 195),
-              (268, 382, 250), (262, 416, 300), (262, 430, 335), (264, 412, 362),
-              (268, 404, 380), (272, 412, 400)],
-         w=[8, 12, 14, 20, 28, 34, 36, 34, 30, 26], th=0.55, n=(1, 0, 0), tw=30,
-         curl=(20, 225, (-0.4, 1)), tip=2.5, ctw=35, pitch=0.4, keep=0.6, ring=16),
-    # lower lock: bulges back under the upper curl and tapers out behind the
-    # left lobe above the lobes' split (a curl here knotted into the C curl of MAIN A)
-    dict(pts=[('s', 12, 50), ('s', 12, 92), (306, 362, 150), (304, 378, 195),
-              (300, 382, 250), (296, 418, 300), (294, 430, 335), (292, 418, 370),
-              (290, 420, 394), (288, 422, 412)],
-         w=[8, 12, 14, 20, 28, 32, 30, 26, 16, 4], th=0.55, n=(1, 0, 0), tw=30,
-         keep=0.6, ring=16),
-]
-
-# Outer side locks (mirrored pair): broad locks that grow out of the side of
-# the mass behind the ear, fall over the back of the shoulder and hang along
-# the back of the sleeve, a little behind it. Seen as the green-tipped lock
-# over the shoulder and the crescent curls past the sleeves in the front and
-# back views. Each is a rounded, tapering lock with an S through depth (it
-# leaves the mass, settles onto the sleeve and swings back out at the curl);
-# the curl rolls forward round the sleeve's outer edge.
-OUTER_LEFT = [
-    # shoulder lock: over the back of the shoulder, its tip turning back and up
-    # (the sheet's green flick at sx ~420, row ~230 in the side view)
-    dict(pts=[('s', 70, 70), ('s', 72, 100), (260, 150), (244, 340, 192),
-              (228, 350, 215), (214, 366, 232)],
-         w=[11, 14, 19, 21, 18, 14], n=(0.3, 1, 0), th=0.85, inner=0.85,
-         curl=(10, 150, (0.3, 1)), tip=2.0, ctw=25, gr=(190, 262), ring=16),
-    # wave lock: a broad lock that spreads out over the back of the upper arm
-    # in two soft S lobes (the green-tipped waves beside the sleeve top in the
-    # front view, out to bx ~125 at rows 270-330) and tapers to a point
-    dict(pts=[('s', 66, 95), (264, 150), (246, 344, 196), (214, 350, 238),
-              (184, 358, 270), (158, 366, 298), (142, 364, 320), (132, 370, 340),
-              (126, 378, 358)],
-         w=[13, 20, 25, 30, 33, 31, 26, 16, 4], n=(0.3, 1, 0), th=0.9, inner=0.85,
-         frame='transport', tw=[0, 0, 15, 30, 20, -10, -30, -20, 0],
-         wave=(7, 70, 90, 3), gr=(255, 330), ring=18),
-    # crescent lock: hangs behind the sleeve to the cuff, then turns out and
-    # up past the sleeve as the sheet's broad crescent (outer edge bx ~62 at
-    # rows 370-410, tip (84, 347)); through its lower third it swings ~1.5 cm
-    # back and in again (an S through depth), so its face turns instead of
-    # running as one diagonal plane
-    dict(pts=[('s', 64, 100), (262, 155), (240, 346, 205), (210, 352, 252),
-              (182, 362, 298), (150, 374, 340), (118, 372, 384), (100, 382, 414),
-              (87, 388, 427), (75, 390, 417), (70, 386, 398), (72, 383, 378),
-              (77, 379, 362), (84, 374, 352), (90, 370, 346)],
-         w=[15, 23, 28, 30, 28, 25, 22, 19, 16, 13, 10, 7, 5, 3.5, 2.2], n=(0.35, 1, 0), th=0.88,
-         tw=[0, 0, 10, 20, 15, 0, -15, -10, 10, 25, 35, 40, 42, 42, 42], frame='transport',
-         gr=(300, 395), ring=18, seg=8, inner=0.9),
-]
-
-# Backing curtain: one continuous shell under the locks so the mass reads
-# solid (no body showing between locks) from the crown to the hips.  Rows
-# above the skull equator wrap the back half of the skull; below, an arc
-# that follows the envelope a few px inside the locks.
-CURTAIN_STEP = 21   # verts per arc (outer and inner surface each)
-CURTAIN_T = 7.0     # shell thickness px
-CURTAIN_INSET = 7.0
-CURTAIN_WRAP = 24.0  # px the arc curls forward at its side edges
-# row -> half width of the curtain arc below the skull (px)
-# It stops above the curls and narrows there, so the lower lock groups hang free
-# with air between them instead of over one continuous mantle.
-CURTAIN_HW = [(175, 62), (200, 62), (240, 64), (280, 72), (320, 80), (360, 80),
-              (385, 72), (402, 54), (414, 28)]
-# PRIM_CURTAIN_SHORT: ends above the shortest round-9 primary (row 392) instead
-CURTAIN_HW_SHORT = [(175, 62), (200, 62), (240, 64), (280, 72), (320, 80), (350, 78),
-                    (368, 64), (380, 42), (388, 20)]
-CURTAIN_ROW_STEP = 10.0  # px between the curtain's rows (slope-continuous resample)
+def skirt_sx(bx, row):
+    """Side-view column of the skirt's back surface at back-view column bx
+    (None above, below or beside the skirt's back half)."""
+    v = float(_grid_lookup(_skirt_table(), bx, row))
+    return None if math.isnan(v) else v
 
 
-def _curtain_rows():
-    """[(row, [(X px, Y px), ...] outer->inner loop)]."""
-    rows = []
-    lift = 0.94
-    cx, cy, cr = SKULL_C
-    m = CURTAIN_STEP
-
-    def arc(rx, ry, cyy, ang):
-        A = math.radians(ang)
-        out = [(rx * math.sin(-A + 2 * A * k / (m - 1)), cyy + ry * math.cos(-A + 2 * A * k / (m - 1)))
-               for k in range(m)]
-        inn = [((rx - CURTAIN_T) * math.sin(A - 2 * A * k / (m - 1)),
-                cyy + (ry - CURTAIN_T) * math.cos(A - 2 * A * k / (m - 1))) for k in range(m)]
-        return out + inn
-
-    for r in (40, 56, 74, 92, 110):
-        dz = (r - cr) / (SKULL_R[2] * lift)
-        s = math.sqrt(max(0.0, 1 - dz * dz))
-        rows.append((r, arc(SKULL_R[0] * lift * s, SKULL_R[1] * lift * s, cy, 92.0)))
-    rows.append((130, arc(68, 70, -30, 95)))
-    rows.append((150, arc(60, 60, -15, 90)))
-    hw_tab = CURTAIN_HW_SHORT if (PRIMARY_LOCKS and PRIM_CURTAIN_SHORT) else CURTAIN_HW
-    r0, r1 = hw_tab[0][0], hw_tab[-1][0]
-    nrow = max(1, round((r1 - r0) / CURTAIN_ROW_STEP))
-    for i in range(nrow + 1):
-        r = r0 + (r1 - r0) * i / nrow
-        hw = max(stable(hw_tab, r)[0], CURTAIN_T + 4.0)   # no inside-out arc
-        out, inn = [], []
-        for k in range(m):
-            a = -1.0 + 2.0 * k / (m - 1)            # -1..1 across the arc
-            X = hw * math.sin(a * math.pi / 2)
-            wrap = CURTAIN_WRAP * (1 - math.cos(a * math.pi / 2))
-            sx = env_sx(CX - X, r) - CURTAIN_INSET - wrap
-            # keep the inner surface outside the skirt, at its own (narrower) column
-            # and half a row step either side (the faces between rows are flat)
-            sks = [skirt_sx(CX - x, r + dr) for x in (X, X * (hw - CURTAIN_T) / hw)
-                   for dr in (-CURTAIN_ROW_STEP / 2, 0.0, CURTAIN_ROW_STEP / 2)]
-            sks = [s for s in sks if s is not None]
-            if sks:
-                sx = max(sx, max(sks) + CURTAIN_T + SKIRT_GAP)
-            Y = sx - CX
-            out.append((X, Y))
-            inn.append((X * (hw - CURTAIN_T) / hw, Y - CURTAIN_T))
-        rows.append((r, out + inn[::-1]))
-    return rows
+def _maxf(a, r, axis):
+    """Sliding maximum (+-r samples) along an axis, NaN as -inf."""
+    a = np.where(np.isnan(a), -np.inf, a)
+    pad = [(0, 0)] * a.ndim
+    pad[axis] = (r, r)
+    p = np.pad(a, pad, constant_values=-np.inf)
+    win = np.lib.stride_tricks.sliding_window_view(p, 2 * r + 1, axis=axis)
+    return win.max(-1)
 
 
-def curtain(bm, layer):
-    verts = []
-    for row, loop in _curtain_rows():
-        vs = []
-        for X, Y in loop:
-            v = bm.verts.new(Vector((spec.px_to_h(X), spec.px_to_h(Y), spec.px_to_z(row))))
-            v[layer] = grad_global(CX - X, row)
-            vs.append(v)
-        verts.append(vs)
-    n = 2 * CURTAIN_STEP
-    for a, b in zip(verts, verts[1:]):
-        for k in range(n):
-            k2 = (k + 1) % n
-            bm.faces.new((a[k], a[k2], b[k2], b[k]))
-    bm.faces.new(list(reversed(verts[0])))
-    bm.faces.new(verts[-1])
+def _nblur(a, sigma, axis):
+    """Gaussian blur along an axis over the finite samples only (normalised)."""
+    ok = np.isfinite(a)
+    r = int(math.ceil(3 * sigma))
+    k = np.exp(-0.5 * (np.arange(-r, r + 1) / sigma) ** 2)
+    num = np.apply_along_axis(lambda v: np.convolve(v, k, 'same'), axis, np.where(ok, a, 0.0))
+    den = np.apply_along_axis(lambda v: np.convolve(v, k, 'same'), axis, ok.astype(float))
+    return np.where(den > 0.05 * k.sum(), num / np.maximum(den, 1e-12), np.nan)
+
+
+def _clear_table():
+    """(rows, xs, y): the smooth clearance envelope (see CLEAR_*), side-view y px - CX."""
+    if 'clear' in _SKIRT_TAB:
+        return _SKIRT_TAB['clear']
+    rows, xs, S = _skirt_table()
+    M = _maxf(_maxf(S, CLEAR_MAXF[0], 1), CLEAR_MAXF[1], 0)
+    M = np.where(np.isfinite(M), M, np.nan)
+
+    def blur(a):
+        return _nblur(_nblur(a, CLEAR_SIGMA[0], 1), CLEAR_SIGMA[1], 0)
+    E = blur(M)
+    for _ in range(3):
+        E = blur(np.fmax(E, M))
+    E = np.fmax(E, M)
+    E = _nblur(_nblur(E, CLEAR_SIGMA[0] / 4, 1), CLEAR_SIGMA[1] / 4, 0)
+    tab = (rows, xs, E + SKIRT_GAP)
+    _SKIRT_TAB['clear'] = tab
+    return tab
+
+
+def clear_sx(bx, row):
+    """Smooth clearance envelope (side-view column) at back-view (bx, row): NaN where
+    the skirt is not behind."""
+    return _grid_lookup(_clear_table(), bx, row)
+
+
+def _softmax(a, b, k=CLEAR_SOFT):
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    b = np.where(np.isnan(b), -1e9, b)
+    m = np.maximum(a, b)
+    return m + k * np.log(np.exp((a - m) / k) + np.exp((b - m) / k))
+
+
+# ---------------------------------------------------------------- colour
+def grad_global(bx, row):
+    """Shared white (0) -> mint (1) fade of the back mass (scalars or arrays)."""
+    (b0, r0), (b1, r1) = G0
+    bx, row = np.asarray(bx, float), np.asarray(row, float)
+    t = np.clip((bx - b0) / (b1 - b0), 0, 1)
+    g0 = r0 + (r1 - r0) * t * t * (3 - 2 * t)
+    # a slow ripple across the back: neighbouring locks start their fade at
+    # slightly different heights, but as one smooth field, not per lock
+    g0 = g0 + G_RIPPLE * np.sin((bx - CX) / 34.0)
+    return hk.smooth01((row - g0) / G_SPAN)
 
 
 # ---------------------------------------------------------------- normals
-# The custom normals are mostly the normal of one smooth volume plus a small
-# share (VOL_KEEP) of each strand's own (final mesh) normal, so the hair reads
-# as one continuously lit mass instead of a stack of strips, with no shading
-# seam where it meets hair_front:
+# The custom normals are mostly the normal of one smooth volume plus a share of each
+# strand's own (final mesh) normal, so the hair reads as one continuously lit mass
+# high up instead of a stack of strips, with no shading seam where it meets
+# hair_front:
 # - above the skull centre, the skull ellipsoid (as hair_front);
 # - below it, a vertical elliptic cylinder, blended in over VOL_BLEND_ROWS
 #   rows so there is no crease at the skull's equator;
 # - from the shoulder blades down, the cylinder splits into the sheet's two
 #   lobes (VOL_LOBES): two cylinders that meet in a soft valley at the lobes'
-#   parting. The left lobe's inner flank turns away from the key light, which
-#   gives the sheet's one long shade wedge beside the parting as a large,
-#   deliberate shape, instead of many slivers at every strand boundary.
+#   parting (the sheet's long shade wedge beside the parting).
 VOL_AXES_LOW = (92.0, 80.0)    # single cylinder half axes (X, Y) px below the skull
 VOL_BLEND_ROWS = 40.0
-# (the parting column is the geometric VALLEY's, so the shade wedge sits in the dip)
 VOL_LOBES = dict(offset=50.0, axes=(42.0, 110.0), valley=18.0, rows=(165.0, 285.0))
-VOL_KEEP = 0.25
+VOL_KEEP = 0.25     # own-normal share of the under-layer (and the floor of the blend)
+KEEP_TOP = 0.3      # ... of a lock high up,
+KEEP_LOW = 0.55     # ... on its free lower length (KEEP_ROWS) ...
+KEEP_ROWS = (210.0, 340.0)
+CURL_KEEP = 0.7     # ... and through a curl or sub-tip (it shades as its own form)
+SIDE_KEEP = 0.6     # the outer side locks
 
 
 def _lobe_normal(dx, dy, single):
@@ -1176,7 +424,7 @@ def _lobe_normal(dx, dy, single):
 def volume_normal(co, lobes=True):
     """Shading normal of the hair volume at world point co. lobes=False
     leaves out the two-lobe valley turn: the direction straight out of the
-    mass, used to offset a lock's layer (_layer)."""
+    mass (a lock's outer face)."""
     cx, cy, cr = SKULL_C
     dx = co.x * PX - cx
     dy = co.y * PX - cy
@@ -1186,8 +434,7 @@ def volume_normal(co, lobes=True):
     top = Vector((dx / rx ** 2, dy / ry ** 2, max(dz, 0.0) / rz ** 2))
     # Below the skull the field depends on the position across the back only
     # (the envelope's depth there, not the point's own): locks lying at
-    # slightly different depths then shade alike, so terminators run as clean
-    # curves across the whole mass instead of breaking at every lock.
+    # slightly different depths then shade alike.
     dy = env_sx(CX - cx - dx, row) - CX - cy
     ax, ay = VOL_AXES_LOW
     low = Vector((dx / ax ** 2, dy / ay ** 2, 0.0))
@@ -1204,18 +451,19 @@ def volume_normal(co, lobes=True):
     return n.normalized() if n.length > 1e-9 else Vector((0.0, 1.0, 0.0))
 
 
+def _out_normal(p):
+    """Direction straight out of the mass at numpy point p (a lock's facing)."""
+    return np.array(volume_normal(Vector(p), lobes=False))
+
+
 def set_volume_normals(me, shading, vol):
-    """shading: {vertex index: own-normal share} for the locks; other vertices
-    (the curtain) keep VOL_KEEP of their mesh normal. vol: volume normal per
-    vertex."""
+    """shading: own-normal share per vertex; vol: volume normal per vertex."""
     normals = []
-    for v, nv in zip(me.vertices, vol):
+    for v, nv, keep in zip(me.vertices, vol, shading):
         own = Vector(v.normal)
-        # On the hanging mass a lock's side edges (own normal across the
-        # volume) take the volume's normal: they shade with their neighbours
-        # instead of as thin strips. Curls and free ends (keep above
-        # VOL_KEEP) keep their own form shading all round.
-        keep = shading.get(v.index, VOL_KEEP)
+        # On the hanging mass a lock's side edges (own normal across the volume) take
+        # the volume's normal: they shade with their neighbours instead of as thin
+        # strips. Curls and free ends (keep above VOL_KEEP) keep their own form shading.
         edge = max(0.0, own.dot(nv)) ** 2
         keep *= edge + (1.0 - edge) * smooth01((keep - VOL_KEEP) / (CURL_KEEP - VOL_KEEP))
         n = nv * (1 - keep) + own * keep
@@ -1223,19 +471,870 @@ def set_volume_normals(me, shading, vol):
     me.normals_split_custom_set_from_vertices(normals)
 
 
+# ---------------------------------------------------------------- layers under the locks
+class _Surface:
+    """A lower layer for the kernel's shingling (hk.rest_on): just its triangles."""
+
+    def __init__(self, tris, name):
+        self.tris = np.asarray(tris, float)
+        self.name = name
+        self.lo, self.hi = self.tris.reshape(-1, 3).min(0), self.tris.reshape(-1, 3).max(0)
+
+    def triangles(self):
+        return self.tris
+
+
+def _grid_tris(G):
+    """(F, 3, 3) triangles of a (R, C, 3) point grid (open both ways)."""
+    a, b, c, d = G[:-1, :-1], G[:-1, 1:], G[1:, 1:], G[1:, :-1]
+    return np.concatenate([np.stack([a, b, c], -2).reshape(-1, 3, 3), np.stack([a, c, d], -2).reshape(-1, 3, 3)])
+
+
+def _cap_proxy():
+    """hair_front's scalp cap (the CAP_PROFILE superellipses: they contain the cap's
+    back half) as triangles over the back of the head: the locks rest on it."""
+    r0, r1 = CAP_PROFILE[0][0], CAP_PROFILE[-1][0]
+    rows = np.linspace(r0, r1, int((r1 - r0) / 3.0) + 1)
+    th = np.radians(np.linspace(-25.0, 205.0, 70))
+    G = []
+    for r in rows:
+        w, f, bk = table(CAP_PROFILE, r)
+        c, hd = (f + bk) / 2, (bk - f) / 2
+        cs, sn = np.cos(th), np.sin(th)
+        X = w * np.sign(cs) * np.abs(cs) ** (2 / CAP_EXP)
+        Y = hd * np.sign(sn) * np.abs(sn) ** (2 / CAP_EXP)
+        G.append(W(CX - X, c + Y, np.full_like(X, r)))
+    return _Surface(_grid_tris(np.array(G)), 'cap')
+
+
+# The surface the under row of locks rests on, as an offset (px, along the volume normal)
+# from the envelope per row: just over the scalp cap high up (the envelope sits ENV_OFF
+# over it there), the under-layer's outer face lower down.
+BASE = [(0, -2.6), (110, -2.6), (122, -2.2), (134, -1.8), (165, -2.0), (210, -0.5), (340, 0.0), (386, -1.5)]
+# Under-layer: one smooth closed sheet under the locks (hair_back_shell). Rows run evenly
+# (UNDER_STEP px, within the strands' 10 mm ring limit) from its top edge to its bottom
+# edge, columns evenly across its back-view width: each side edge lies UNDER_TUCK_IN of the
+# outermost primary's width inside that lock's outer rim (_under_edges: the locks' authored
+# paths), so the outer locks hide it from the back and the side. Its top edge lies below
+# the head bone's fade band (rig.HAIR_HEAD_FADE), where the locks cover the nape, so its
+# vertices ride the hair chains only and a turned head cannot shear it; its bottom edge
+# is a smooth arc (lowest in the middle) tucked a little toward her back under the lock
+# ends. It follows the hair envelope (BASE under it), UNDER_T px thick, thinning to a
+# rounded UNDER_RIM px rim over the outer UNDER_EDGE share at every edge. Clearances (the
+# skirt's smooth envelope, the cap) are one smoothed lift field, never per point; every
+# row and column is validated (_validate_grid, the strands' limits). It spans well over
+# rig.HAIR_LOCK_SPAN round the head (_check_islands), so the rig hangs it from the
+# back-hair sector chains, never a lock chain.
+UNDER_TOP = (206.0, 200.0)     # top edge row: in the middle, at the side edges
+UNDER_BOT = (350.0, 318.0)     # bottom edge row: in the middle, at the side edges
+UNDER_STEP = 5.0               # px between rows
+UNDER_COLS = 57
+UNDER_T = 2.0                  # px thick in the middle ...
+UNDER_RIM = 1.0                # ... at the rims (1.6 mm, rounded)
+UNDER_EDGE = 0.2               # share of the half width (and of the height) that thins to the rim
+UNDER_TUCK = (2.0, 36.0)       # px the bottom edge sinks toward her back, over this many rows
+UNDER_CAP_GAP = 0.4
+UNDER_TUCK_IN = 0.3            # share of the outer primary's width the side edge lies inside its rim
+UNDER_DEPTH_SMOOTH = (1.0, 2.5)  # grid samples (rows, columns): Gaussian on the sheet's depth
+UNDER_LIFT_SIGMA = 2.0         # grid samples: Gaussian of the clearance lift field
+UNDER_LIMITS = dict(turn=8.0, gap=0.010)
+
+
+def cap_sx(bx, row):
+    """Side-view column of hair_front's cap (its CAP_PROFILE superellipse) at back-view
+    (bx, row): None below the cap or beside it."""
+    if not CAP_PROFILE[0][0] <= row <= CAP_PROFILE[-1][0]:
+        return None
+    w, f, bk = table(CAP_PROFILE, row)
+    if abs(bx - CX) >= w:
+        return None
+    return (f + bk) / 2 + _se_back(bx - CX, w, (bk - f) / 2, CAP_EXP)
+
+
+def _blur2(a, sigma):
+    """Separable Gaussian (sigma in samples) over a 2-D field, edge-normalised."""
+    out = np.apply_along_axis(lambda v: hk._blur(v, sigma), 0, a)
+    return np.apply_along_axis(lambda v: hk._blur(v, sigma), 1, out)
+
+
+def _blur_lin(x, sigma):
+    """1-D Gaussian (sigma in samples) padded by odd reflection: a straight run, and the
+    slope at an end, pass unchanged (an edge-padded blur would flatten a curling edge)."""
+    x = np.asarray(x, float)
+    if sigma <= 0.3 or len(x) < 3:
+        return x.copy()
+    r = min(int(math.ceil(3.0 * sigma)), len(x) - 1)
+    pad = np.concatenate([2 * x[0] - x[r:0:-1], x, 2 * x[-1] - x[-2:-r - 2:-1]])
+    k = np.exp(-0.5 * (np.arange(-r, r + 1) / sigma) ** 2)
+    return np.convolve(pad, k / k.sum(), mode='valid')
+
+
+def _lift_field(need, sigma):
+    """A smooth field >= need (2-D, px): dilated, blurred and held over the raw need."""
+    r = int(math.ceil(1.5 * sigma))
+    dil = _maxf(_maxf(need, r, 0), r, 1)
+    sm = _blur2(dil, sigma)
+    for _ in range(3):
+        sm = _blur2(np.maximum(sm, need), sigma)
+    return _blur2(np.maximum(sm, need), 0.5 * sigma)
+
+
+def _under_edges(rows):
+    """Half widths (back-view px, character's left / right) of the under-layer at rows:
+    UNDER_TUCK_IN of the outermost primary's width inside its outer rim (the primaries'
+    authored centre lines and widths), smoothed along the rows."""
+    defs = prim_defs()
+    out = []
+    for d, sgn in ((min(defs, key=lambda q: q['f']), 1.0), (max(defs, key=lambda q: q['f']), -1.0)):
+        pts, w = _mass_spine(d, clear=False)
+        bx, _sx, row = to_px(pts)
+        i = np.argsort(row)
+        rr = np.arange(150.0, 420.0, 1.0)
+        c = np.interp(rr, row[i], bx[i])
+        ww = np.interp(rr, row[i], w[i])
+        hw = sgn * (CX - c) + (0.5 - UNDER_TUCK_IN) * ww
+        hw = hk._blur(hw, 12.0)
+        out.append(np.interp(rows, rr, hw))
+    return out[0], out[1]
+
+
+def _under_layer():
+    """(outer (R, C, 3), inner (R, C, 3)) world grids of the under-layer (validated)."""
+    a = np.linspace(-1.0, 1.0, UNDER_COLS)
+    edge_a = a * a                  # 0 in the middle -> 1 at the side edges (a parabola: bounded curvature)
+    top = UNDER_TOP[0] + (UNDER_TOP[1] - UNDER_TOP[0]) * edge_a
+    bot = UNDER_BOT[0] + (UNDER_BOT[1] - UNDER_BOT[0]) * edge_a
+    n_r = int(math.ceil((bot - top).max() / UNDER_STEP)) + 1
+    v = np.linspace(0.0, 1.0, n_r)
+    rows = top[None, :] + (bot - top)[None, :] * v[:, None]            # (R, C)
+    hl, hr = _under_edges(rows)
+    bxs = CX - 0.5 * (hl + hr) * a[None, :] - 0.5 * (hl - hr) * (a * a)[None, :]
+    # thickness: UNDER_T in the middle, a rounded UNDER_RIM rim round every edge
+    def ramp(d):
+        return np.clip(1.0 - (1.0 - np.clip(d / UNDER_EDGE, 0.0, 1.0)) ** 2, 0.0, 1.0) ** 0.6
+    shape = ramp(1.0 - np.abs(a))[None, :] * ramp(np.minimum(v, 1.0 - v) * 2.0)[:, None]
+    thick = UNDER_RIM + (UNDER_T - UNDER_RIM) * shape
+    # the bottom edge sinks a little toward her back, under the lock ends
+    tuck = UNDER_TUCK[0] * hk.smooth01((rows - (bot[None, :] - UNDER_TUCK[1])) / UNDER_TUCK[1])
+    E = np.zeros(rows.shape + (3,))
+    Nv = np.zeros(rows.shape + (3,))
+    for j in range(rows.shape[0]):
+        for k in range(rows.shape[1]):
+            e = env_point(bxs[j, k], rows[j, k])
+            n = volume_normal(e, lobes=False)
+            E[j, k] = np.array(e) + np.array(n) * ((stable(BASE, rows[j, k])[0] - tuck[j, k]) / PX)
+            Nv[j, k] = np.array(n)
+    # the envelope's narrow features (the lobes' parting valley) smoothed out of the sheet's
+    # depth (it lies under the locks): a C2 surface within the grid limits
+    for _ in range(2):
+        E[..., 1] = np.apply_along_axis(lambda q: _blur_lin(q, UNDER_DEPTH_SMOOTH[1]), 1, E[..., 1])
+        E[..., 1] = np.apply_along_axis(lambda q: _blur_lin(q, UNDER_DEPTH_SMOOTH[0]), 0, E[..., 1])
+    # clearance: the inner face keeps off the skirt's smooth envelope and off the cap,
+    # as one smooth lift (px, along +Y) over the grid
+    pb, psx, prow = to_px(E)
+    need = np.zeros(rows.shape)
+    cl = clear_sx(pb, prow)
+    ny = np.maximum(Nv[..., 1], 0.3)
+    inner_sx = psx - thick * ny
+    need = np.where(np.isfinite(cl), np.maximum(0.0, cl - inner_sx), 0.0)
+    for j in range(rows.shape[0]):
+        for k in range(rows.shape[1]):
+            cs = cap_sx(pb[j, k], prow[j, k])
+            if cs is not None:
+                need[j, k] = max(need[j, k], cs + UNDER_CAP_GAP - inner_sx[j, k])
+    if need.max() > 0.0:
+        lift = _lift_field(need, UNDER_LIFT_SIGMA)
+        E = E + np.stack([np.zeros_like(lift), lift / PX, np.zeros_like(lift)], -1)
+    outer = E
+    inner = E - Nv * (thick / PX)[..., None]
+    _validate_grid(outer, 'hair_back_shell (outer face)')
+    _validate_grid(inner, 'hair_back_shell (inner face)')
+    return outer, inner
+
+
+def _grid_metrics(G):
+    """(max turn deg, max spacing m) down the columns and across the rows of a grid."""
+    out = []
+    for A in (G, np.transpose(G, (1, 0, 2))):
+        d = np.diff(A, axis=0)
+        ln = np.linalg.norm(d, axis=-1)
+        du = d / np.maximum(ln, 1e-12)[..., None]
+        turn = np.degrees(np.arccos(np.clip(np.sum(du[1:] * du[:-1], -1), -1.0, 1.0)))
+        out.append((turn, ln))
+    return out
+
+
+def _validate_grid(G, name, limits=UNDER_LIMITS):
+    """Every row and column of a sheet's grid within the strands' limits (turn per step,
+    spacing): raises hk.HairKernelError naming the place."""
+    errs = []
+    for (turn, ln), what in zip(_grid_metrics(G), ('down column', 'across row')):
+        if turn.size and turn.max() > limits['turn']:
+            j, k = np.unravel_index(int(np.argmax(turn)), turn.shape)
+            errs.append(f'turn {turn.max():.1f} deg > {limits["turn"]} {what} {k} at step {j + 1}')
+        if ln.max() > limits['gap']:
+            j, k = np.unravel_index(int(np.argmax(ln)), ln.shape)
+            errs.append(f'spacing {1000 * ln.max():.1f} mm > {1000 * limits["gap"]:.0f} {what} {k} at step {j}')
+    if errs:
+        raise hk.HairKernelError(f'{name} fails the grid limits:\n  ' + '\n  '.join(errs))
+
+
+def _emit_grid_shell(bm, outer, inner, gfun, keep):
+    """A closed thin shell from outer / inner grids (R, C, 3) into bm: both faces,
+    the side rims and ladder caps at the first and last rows. Returns the new verts."""
+    R, C = outer.shape[:2]
+    glay = bm.verts.layers.float.get(common.GRAD_ATTR) or bm.verts.layers.float.new(common.GRAD_ATTR)
+    klay = bm.verts.layers.float.get(_KEEP_ATTR) or bm.verts.layers.float.new(_KEEP_ATTR)
+    vo = [[bm.verts.new(p.tolist()) for p in row] for row in outer]
+    vi = [[bm.verts.new(p.tolist()) for p in row] for row in inner]
+    verts = [v for row in vo + vi for v in row]
+    for v in verts:
+        bx, _, r = to_px(np.array(v.co))
+        v[glay] = float(gfun(bx, r))
+        v[klay] = keep
+    for j in range(R - 1):
+        for k in range(C - 1):
+            bm.faces.new((vo[j][k], vo[j][k + 1], vo[j + 1][k + 1], vo[j + 1][k]))      # outer (+N)
+            bm.faces.new((vi[j][k], vi[j + 1][k], vi[j + 1][k + 1], vi[j][k + 1]))      # inner
+        for k, s in ((0, 1), (C - 1, -1)):                                               # side rims
+            f = (vo[j][k], vo[j + 1][k], vi[j + 1][k], vi[j][k])
+            bm.faces.new(f if s > 0 else f[::-1])
+    for j, s in ((0, 1), (R - 1, -1)):                                                   # top / bottom
+        for k in range(C - 1):
+            f = (vo[j][k], vi[j][k], vi[j][k + 1], vo[j][k + 1])
+            bm.faces.new(f if s > 0 else f[::-1])
+    return verts
+
+
+def _shell_tris(outer, inner):
+    return np.concatenate([_grid_tris(outer), _grid_tris(inner),
+                           _grid_tris(np.stack([outer[:, 0], inner[:, 0]], 1)),
+                           _grid_tris(np.stack([outer[:, -1], inner[:, -1]], 1)),
+                           _grid_tris(np.stack([outer[0], inner[0]], 0)),
+                           _grid_tris(np.stack([outer[-1], inner[-1]], 0))])
+
+
+# ---------------------------------------------------------------- lock authoring
+# Mass edges in the back view: (row, left bx, right bx) (left = the character's left).
+PRIM_EDGES = [(150, 254, 386), (200, 254, 386), (250, 248, 392), (300, 230, 410),
+              (350, 214, 421), (400, 213, 423), (440, 218, 424)]
+PRIM_ROWS = (150.0, 200.0, 250.0, 300.0, 345.0, 390.0)   # rows of the hanging key points
+PRIM_SPREAD = (0.06, 0.94)   # share of the mass width the outer locks' centres sit at
+PRIM_COVER = 1.45            # lock width / (mass width / number of locks): neighbours overlap
+PRIM_W_MAX = 48.0            # px: the kernel's ring spacing (0.12 w) stays within its 10 mm limit
+PRIM_LAYER_W = (1.06, 0.95)  # width factor of the under / over row (the over row covers the gaps)
+PRIM_SCALP = ((26.0, 17.0), (60.0, 31.0), (92.0, 38.0))   # (polar deg, width px) of the scalp keys
+LAYER_STEP = 1.0             # the over row is authored this x its thickness over the under row
+PRIM_ASPECT = 4.0            # width / thickness at the widest point (back primaries: 2.5-3.5)
+PRIM_WRAP = (0.15, 0.12)     # crescent wrap at the root (hugging the skull) and down the lock
+PRIM_WAVE = (6.0, 170.0)     # sideways amplitude px, wavelength rows
+PRIM_WAVE_ROWS = (205.0, 285.0)   # rows over which the wave fades in
+TIP_LEN = 0.09               # m over which a lock without a curl closes into its blade
+CURL_TILT = 50.0             # deg a back-view curl turns out of the image plane (away from her): seen
+                             # as an arc from behind and from the side, never edge-on
+N_RING = 16                  # vertices round a primary (12 / 14 / 16 by width otherwise)
+FLAT_TOP = (0.5, (140.0, 280.0))  # a primary's thickness share above the first row, full by the second
+
+# One entry per primary, the character's left to right. f: place across the mass;
+# layer: 0 rests on the under-layer, 1 on the locks under it; end: last spine row;
+# wf: width factor; ph: wave phase (deg; the locks of one lobe wave nearly together);
+# keys: (bx, row) overrides of the lower key points (sheet-fitted ends); curl: (radius
+# px, turn deg, image-x direction or 'out', core); split: sub-tips.
+PRIMS = [
+    dict(name='A', f=0.0, layer=1, wf=1.08, ph=0.0, end=452,
+         keys=[(244, 240), (234, 285), (223, 325), (217, 365), (216, 400), (221, 430), (233, 452)],
+         curl=(40.0, 205.0, 1, 0.72), split=(0.95, (0.56, 0.44), 4.0, (1.0, 0.72))),
+    dict(name='L1', f=0.21, layer=0, wf=1.0, ph=20.0, end=380,
+         keys=[(264, 300), (254, 335), (252, 360), (257, 380)],
+         curl=(19.0, 200.0, (0.5, 1.0, 0.5), 0.7)),
+    dict(name='C', f=0.42, layer=1, wf=0.95, ph=40.0, end=402),
+    dict(name='D', f=0.6, layer=0, wf=1.0, ph=165.0, end=448,
+         keys=[(332, 240), (335, 290), (334, 330), (334, 368), (339, 404), (346, 428), (352, 448)],
+         curl=(30.0, 190.0, -1, 0.72), split=(0.95, (0.55, 0.45), 4.0, (1.0, 0.75))),
+    dict(name='E', f=0.8, layer=1, wf=1.0, ph=185.0, end=380,
+         keys=[(374, 290), (382, 326), (393, 354), (404, 380)]),
+    dict(name='F', f=1.0, layer=0, wf=1.0, ph=205.0, end=442,
+         keys=[(392, 248), (398, 290), (408, 330), (416, 370), (420, 404), (424, 424), (427, 442)],
+         curl=(22.0, 165.0, -1, 0.72)),
+]
+
+
+def _pchip(xk, yk, x):
+    """Monotone cubic (Fritsch-Carlson) interpolation (no overshoot)."""
+    xk, yk = np.asarray(xk, float), np.asarray(yk, float)
+    x = np.clip(np.asarray(x, float), xk[0], xk[-1])
+    h = np.diff(xk)
+    d = np.diff(yk) / h
+    m = np.zeros_like(yk)
+    m[0], m[-1] = d[0], d[-1]
+    for i in range(1, len(yk) - 1):
+        if d[i - 1] * d[i] > 0:
+            m[i] = 2 * d[i - 1] * d[i] / (d[i - 1] + d[i])
+    i = np.clip(np.searchsorted(xk, x, 'right') - 1, 0, len(xk) - 2)
+    t = (x - xk[i]) / h[i]
+    t2, t3 = t * t, t * t * t
+    return ((2 * t3 - 3 * t2 + 1) * yk[i] + (t3 - 2 * t2 + t) * h[i] * m[i]
+            + (-2 * t3 + 3 * t2) * yk[i + 1] + (t3 - t2) * h[i] * m[i + 1])
+
+
+def _key_xy(k):
+    """A key point -> (bx, row) (scalp points via the skull ellipsoid)."""
+    if k[0] == 's':
+        bx, _, row = to_px(skull(k[1], k[2]))
+        return bx, row
+    return float(k[0]), float(k[-1])
+
+
+def _section_under(w_px, t_px, s, wrap=hk.WRAP):
+    """How far below the spine (px) the crescent's underside reaches at across params s."""
+    _x, y = hk.section(2, w_px / PX, t_px / PX, wrap, s=np.asarray(s, float), top=np.zeros(len(s), bool))
+    return -np.asarray(y) * PX
+
+
+def prim_defs():
+    """Kernel inputs of the primaries: dicts with the key path, widths, layer, ends."""
+    n = len(PRIMS)
+    out = []
+    for i, p in enumerate(PRIMS):
+        f = p['f']
+        lw = PRIM_LAYER_W[p['layer']] * p['wf']
+        az = 64.0 - 128.0 * f                        # scalp azimuth: + = her left
+        drop = 6.0 * abs(f - 0.5) * 2                # outer roots a little lower on the skull
+        keys = [('s', az * (1.0 + 0.03 * k), pol + drop * (1.0 - 0.5 * k)) for k, (pol, _w) in enumerate(PRIM_SCALP)]
+        ws = [w * lw for _pol, w in PRIM_SCALP]
+        lower = {int(r): bx for bx, r in p.get('keys', [])}
+        rows = [r for r in PRIM_ROWS if r < p['end'] - 20] + [p['end']]
+        if 'keys' in p:
+            top = min(r for _bx, r in p['keys'])
+            rows = [r for r in rows if r < top] + [r for _bx, r in p['keys']]
+        for r in rows:
+            lo, hi = stable(PRIM_EDGES, r)
+            bx = lower.get(int(r), lo + (hi - lo) * (PRIM_SPREAD[0] + (PRIM_SPREAD[1] - PRIM_SPREAD[0]) * f))
+            keys.append((bx, r))
+            ws.append(min((hi - lo) / n * PRIM_COVER * lw, PRIM_W_MAX))
+        out.append(dict(p, keys=keys, w=ws, curled=p.get('curl') is not None))
+    return out
+
+
+def _dense_path(keys, step=1.5):
+    """Dense (bx, row) samples (about step px apart) of a C2 spline through the keys."""
+    Q = np.array([(*_key_xy(k), 0.0) for k in keys])
+    tk, ev = hk._c2_spline(Q, 0.5)
+    t = np.concatenate([np.linspace(tk[i], tk[i + 1], 40, endpoint=False) for i in range(len(Q) - 1)] + [[tk[-1]]])
+    D = ev(t)[:, :2]
+    s = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(D, axis=0), axis=1))])
+    ss = np.linspace(0.0, s[-1], max(8, int(s[-1] / step)))
+    D = np.stack([np.interp(ss, s, D[:, 0]), np.interp(ss, s, D[:, 1])], 1)
+    # the key points' arc positions (for per-key widths)
+    sk = np.interp(tk, t, np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(ev(t)[:, :2], axis=0), axis=1))]))
+    return D, ss, sk
+
+
+def _mass_spine(d, clear=True):
+    """World control points and the width profile (px) of a mass lock (clear: its underside
+    kept over the skirt's clearance envelope)."""
+    D, s2, sk = _dense_path(d['keys'])
+    bx, row = D[:, 0].copy(), D[:, 1].copy()
+    w = _pchip(sk, d['w'], s2)
+    # sideways S-wave, faded in below the shoulders and down to 40 % over the last 60 rows
+    amp, lam = PRIM_WAVE
+    amp *= d.get('amp', 1.0)
+    r_end = row[-1]
+    env = np.array([smooth01((r - PRIM_WAVE_ROWS[0]) / (PRIM_WAVE_ROWS[1] - PRIM_WAVE_ROWS[0]))
+                    * (1.0 - 0.8 * smooth01((r - (r_end - 70.0)) / 70.0)) for r in row])
+    bx = bx + amp * env * np.sin(2 * np.pi * row / lam + math.radians(d['ph']))
+    w_max = float(w.max())
+    t_mid = w_max / d.get('aspect', PRIM_ASPECT)
+    t = np.maximum(1.0, t_mid * (w / w_max) ** hk.T_EXP)
+    # the underside on the layer under it: the base surface (BASE) + GAP for the under
+    # row, about half an under lock higher for the over row (the shingling then lifts it
+    # exactly onto the locks under it)
+    wrap = PRIM_WRAP[1] + (PRIM_WRAP[0] - PRIM_WRAP[1]) * (1.0 - hk.smooth01(s2 / s2[-1] / 0.3))
+    s_across = np.linspace(-1.0, 1.0, 9)
+    und_mid = np.array([_section_under(w[i], t[i], s_across, wrap[i]).max() for i in range(len(row))])
+    step = LAYER_STEP * t if d['layer'] else 0.0
+    off = np.array([stable(BASE, r)[0] for r in row]) + GAP * PX + und_mid + step
+    pts = []
+    for i in range(len(row)):
+        e = env_point(bx[i], row[i])
+        n = volume_normal(e, lobes=False)
+        sink = ROOT_SINK * (1.0 - smooth01(s2[i] / (0.8 * ROOT_FADE * PX)))
+        p = e + n * ((off[i] - sink) / PX)
+        # the section's underside clears the smooth skirt envelope (a soft maximum)
+        pb, psx, pr = to_px(p)
+        und = _section_under(w[i], t[i], s_across, wrap[i])
+        cl = clear_sx(pb + 0.5 * w[i] * s_across, np.full(9, pr)) if clear else np.full(9, np.nan)
+        if np.isfinite(cl).any():
+            need = float(np.nanmax(cl + und))
+            psx = float(_softmax(psx, need))
+            p = P(pb, psx, pr)
+        pts.append(np.array(p))
+    pts = np.array(pts)
+    return pts, w
+
+
+def _resample(pts, spacing):
+    """Resample a dense 3-D polyline about `spacing` m apart."""
+    s = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(pts, axis=0), axis=1))])
+    n = max(4, int(round(s[-1] / spacing)) + 1)
+    ss = np.linspace(0.0, s[-1], n)
+    return np.stack([np.interp(ss, s, pts[:, c]) for c in range(3)], 1)
+
+
+def _width_fn(U, w_px, taper_len=None, length=None):
+    """Kernel width callable (u -> m) from a width profile over the arc fraction U,
+    closed into a blade over the last taper_len m of a lock of `length` m."""
+    w_m = np.asarray(w_px, float) / PX
+    if taper_len is None:
+        return lambda u: np.interp(u, U, w_m)
+    ut = max(0.4, 1.0 - taper_len / length)
+    return lambda u: np.interp(u, U, w_m) * hk.taper(u, swell=None, tip=(ut, 2.2, 0.7))
+
+
+def _curl_params(c, w_end_px):
+    """Kernel curl() from (radius px, turn deg, image-x direction | 'out', core)."""
+    R, turn, ix, core = c
+    face = 'plane'
+    if ix == 'out':
+        # (a lock rolling back over itself, the broad face toward the curl centre: no roll)
+        toward, face = 'out', 'keep'
+    elif isinstance(ix, tuple):
+        toward = ix                                              # a world direction
+    else:
+        tilt = math.radians(CURL_TILT)
+        toward = (-ix * math.cos(tilt), math.sin(tilt), 0.0)     # image right = -X; +Y away from her
+    w_c = core * w_end_px / PX
+    # (a flat blade bending in its own plane: rho = (w / 2) / R, so R >= 1.25 w at rho 0.4)
+    return hk.curl(turn=turn, toward=toward, face=face, radius=max(R / PX, 1.3 * w_c) if face == 'plane' else R / PX,
+                   core=core, lead=1.8, taper=(1.5, 0.8))
+
+
+def mass_lock_kwargs(d):
+    """hk.strand keyword arguments for a primary (see prim_defs)."""
+    pts, w = _mass_spine(d)
+    P_ = _resample(pts, 0.012)
+    Uw = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(pts, axis=0), axis=1))])
+    Uw /= Uw[-1]
+    L = float(np.sum(np.linalg.norm(np.diff(pts, axis=0), axis=1)))
+    kw = dict(points=P_, name=f'hair_back_{d["name"]}', facing=_out_normal, aspect=d.get('aspect', PRIM_ASPECT), flat=True,
+              n=d.get('n', N_RING),
+              wrap=lambda u: PRIM_WRAP[1] + (PRIM_WRAP[0] - PRIM_WRAP[1]) * (1.0 - hk.smooth01(u / 0.3)))
+    if d['curled']:
+        kw['width'] = _width_fn(Uw, w * _end_narrow(Uw, L))
+        kw['curl'] = _curl_params(d['curl'], float(w[-1] * 0.62))
+        if d.get('split'):
+            at, shares, div, lengths = d['split']
+            kw['split'] = hk.split(at=at, shares=shares, diverge=div, lengths=lengths)
+    else:
+        kw['width'] = _width_fn(Uw, w, TIP_LEN, L)
+    return kw
+
+
+def _end_narrow(U, L, share=0.62, length=0.14):
+    """Width factor easing to `share` over the last `length` m of a spine that curls."""
+    u0 = max(0.3, 1.0 - length / L)
+    return 1.0 - (1.0 - share) * np.array([smooth01((u - u0) / (1.0 - u0)) for u in U])
+
+
+# Outer side locks (character's left; the right side mirrors them): broad locks that
+# grow out of the side of the mass behind the ear, fall over the back of the shoulder
+# and hang along the back of the sleeve. Points as in the module docstring; w: width
+# px per point; face: the outer face's direction (world, character's left side).
+OUTER = [
+    # shoulder flick: a narrow lock down the outer edge of the mass over the shoulder blade,
+    # its green end turning back and up in one open flick in its own plane (the sheet's
+    # green flick at sx ~400, row ~225 in the side view); it narrows to under half its width
+    # before the flick (a blade, not a spoon) and rests on the locks under it; it reaches
+    # 0.2 m below eye level, so it is a lock with its own chain (see _check_islands)
+    dict(name='flick', pts=[('s', 84, 86), (250, 322, 130), (245, 330, 160), (239, 340, 192), (233, 350, 220),
+                            (228, 358, 242), (225, 364, 256)],
+         w=[8, 11, 13, 13, 12, 10, 8], face=(0.45, 1.0, 0.0), aspect=3.2, gr=(185, 250),
+         curl=dict(turn=100.0, toward=(0.1, 1.0, 0.8), face='plane', radius=0.02, core=0.6, lead=1.8,
+                   taper=(1.3, 0.9))),
+    # wave lock: spreads over the back of the upper arm in two soft S lobes (the
+    # green-tipped waves beside the sleeve top in the front view) and closes in a blade
+    dict(name='wave', pts=[('s', 80, 98), (250, 326, 158), (236, 347, 200), (206, 353, 240),
+                           (178, 360, 270), (154, 366, 298), (140, 366, 322), (131, 371, 342),
+                           (126, 377, 360)],
+         w=[15, 18, 22, 25, 26, 24, 20, 15, 8], face=(0.3, 1.0, 0.0), aspect=4.2, gr=(255, 330), tip=0.07),
+    # crescent: hangs behind the sleeve to the cuff, then turns out and up past it as one
+    # flat C-blade (the sheet's crescent: outer edge bx ~62 at rows 370-410, tip ~(84, 347))
+    dict(name='crescent', pts=[('s', 72, 110), (254, 338, 170), (240, 357, 210), (215, 362, 252),
+                               (188, 368, 298), (156, 375, 340), (124, 378, 380), (104, 381, 410)],
+         w=[15, 18, 20, 22, 21, 20, 18, 16], face=(0.3, 1.0, 0.0), aspect=4.2, gr=(300, 395),
+         curl=dict(turn=200.0, toward=(1.0, 0.15, 0.0), face='plane', radius=0.026, core=0.62, lead=1.8,
+                   taper=(1.6, 0.8))),
+    # side lock: down the side of the mass between the crescent and the outer primary,
+    # facing out to the side: seen from the side the mass reads full from her back to the
+    # hair's back (the sheet), seen from behind it closes the gap beside the mass
+    dict(name='side', pts=[('s', 82, 102), (248, 340, 170), (242, 354, 210), (234, 366, 250),
+                           (226, 375, 290), (220, 381, 325), (216, 385, 352), (214, 388, 378)],
+         w=[15, 22, 30, 34, 34, 31, 26, 16], face=(0.8, 0.6, 0.0), aspect=3.5, gr=(285, 380), tip=0.08),
+]
+OUTER_BY = {d['name']: d for d in OUTER}
+
+
+def _base_point(bx, row, w_px, t_px, wrap=hk.WRAP):
+    """World point of a spine resting on the base surface (BASE + GAP) at (bx, row)."""
+    e = env_point(bx, row)
+    n = volume_normal(e, lobes=False)
+    und = float(_section_under(w_px, t_px, np.linspace(-1.0, 1.0, 9), wrap).max())
+    return np.array(e + n * ((stable(BASE, row)[0] + GAP * PX + und) / PX))
+
+
+def _side_spine(d):
+    """World spine (key points) and widths (px) of an outer lock: the root on the scalp
+    (sunk into the cap by design), the rest explicit (bx, sx, row) points; a lock lying
+    along the side of the head is lifted off the cap by the shingling (_settle)."""
+    w_k = np.array(d['w'], float)
+    t_k = (w_k.max() / d.get('aspect', 3.0)) * (w_k / w_k.max()) ** hk.T_EXP
+    pts = []
+    for k, wi, ti in zip(d['pts'], w_k, t_k):
+        if k[0] == 's':
+            bx, _, row = to_px(skull(k[1], k[2]))
+            p = _base_point(min(bx, CX - 1.0) if bx < CX else max(bx, CX + 1.0), row, wi, ti)
+            p = p - np.array(volume_normal(Vector(p), lobes=False)) * (ROOT_SINK_SIDE / PX)
+        elif len(k) == 2:
+            p = _base_point(k[0], k[1], wi, ti)
+        else:
+            p = np.array(P(*k))
+        pts.append(p)
+    return np.array(pts), w_k
+
+
+def side_lock_kwargs(d, side=1):
+    """hk.strand keyword arguments for an outer lock; side -1 mirrors it to her right."""
+    pts, w = _side_spine(d)
+    L = float(np.sum(np.linalg.norm(np.diff(pts, axis=0), axis=1)))
+    U = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(pts, axis=0), axis=1))]) / L
+    mir = np.array([side, 1.0, 1.0])
+    pts = pts * mir
+    face = np.array(d['face'], float) * mir
+    def facing(p, face=face / np.linalg.norm(face)):
+        # on the scalp the outer face follows the surface; hanging, it turns to `face`
+        b = hk.smooth01((to_px(p)[2] - SIDE_FACE_ROWS[0]) / (SIDE_FACE_ROWS[1] - SIDE_FACE_ROWS[0]))
+        return (1.0 - b) * _out_normal(p) + b * face
+    kw = dict(points=pts, name=f'hair_back_{d["name"]}_{"L" if side > 0 else "R"}', facing=facing,
+              aspect=d.get('aspect', 3.0))
+    if 'curl' in d:
+        c = dict(d['curl'])
+        if not isinstance(c['toward'], str):
+            c['toward'] = tuple(np.array(c['toward'], float) * mir)
+        kw['curl'] = hk.curl(**c)
+        kw['width'] = _width_fn(U, w)
+    else:
+        kw['width'] = _width_fn(U, w, d.get('tip', TIP_LEN), L)
+    return kw
+
+
+# ---------------------------------------------------------------- building a lock
+def _strand_px(st):
+    """Every vertex of a strand (all tubes and apexes) with its tube's ring index and
+    the spine arc fraction it maps to (curl / sub-tip rings map to the spine's end)."""
+    sl = st.meta['spine_len']
+    out = []
+    for tb in st.all_tubes():
+        R = tb.rings
+        u = np.minimum(tb.arc / sl, 1.0)
+        out.append((R.reshape(-1, 3), np.repeat(u, R.shape[1]), np.repeat(tb.N, R.shape[1], 0)))
+        if tb.apex is not None:
+            out.append((tb.apex[None], np.array([min(1.0, tb.arc[-1] / sl)]), tb.N[-1:]))
+    return (np.concatenate([o[0] for o in out]), np.concatenate([o[1] for o in out]),
+            np.concatenate([o[2] for o in out]))
+
+
+def _skirt_short(st):
+    """(u, shortfall px along +Y) of every strand vertex against the real skirt + SKIRT_GAP."""
+    V, u, N = _strand_px(st)
+    bx, sx, row = to_px(V)
+    sk = _grid_lookup(_skirt_table(), bx, row)
+    short = np.where(np.isfinite(sk), sk + SKIRT_GAP - sx, 0.0)
+    return u, np.maximum(short, 0.0), N
+
+
+def _smooth_need(u, need, length, sigma_m):
+    """A smooth lift profile over u (401 knots) at least `need` at each u: dilated,
+    blurred and held over the raw need (as hk.rest_on)."""
+    su = np.linspace(0.0, 1.0, 401)
+    raw = np.zeros_like(su)
+    idx = np.clip(np.round(np.asarray(u) * 400).astype(int), 0, 400)
+    np.maximum.at(raw, idx, need)
+    sig = max(1.0, sigma_m / max(length, 1e-6) * 400.0)
+    r = int(math.ceil(1.5 * sig))
+    dil = np.array([raw[max(0, i - r):i + r + 1].max() for i in range(len(raw))])
+    sm = hk._blur(dil, sig)
+    for _ in range(3):
+        sm = hk._blur(np.maximum(sm, raw), sig)
+    sm = np.maximum(sm, raw)
+    return su, hk._blur(sm, 0.25 * sig)
+
+
+class _Lift:
+    def __init__(self, u, v):
+        self.u, self.v = u, v
+
+    def __call__(self, u):
+        return np.interp(u, self.u, self.v)
+
+
+def _settle(kw, lowers, root_fade=ROOT_FADE, iters=SETTLE_ITERS, drape=True):
+    """Build a lock (hk.strand) and lay it on the layers under it, two-sided:
+    - up: lift its spine until its underside rests on the layers under it (hk.rest_on,
+      + GAP) and every vertex clears the real skirt by SKIRT_GAP (the skirt's lift ramped
+      in over SKIRT_LIFT_LEN px or more toward the end);
+    - down: where a whole ring floats more than DROP_SLACK over the layers under it, lower
+      the spine onto them (_drop_profile), then up again;
+    every lift or drop one smooth displacement of the spine along its normal, the lock
+    rebuilt and validated each time. Then (drape) the underside of each ring settles onto
+    whatever it bridges (_drape_section). Returns (strand, info)."""
+    st = _strand(kw)
+    su = np.linspace(0.0, 1.0, 401)
+    total = np.zeros_like(su)
+    near = [lo for lo in lowers if _overlaps(st, lo)]
+    info = {'drop_max': 0.0}
+    for cycle in range(DROP_CYCLES + 1):
+        for _ in range(iters):
+            L = st.meta['spine_len']
+            need = np.zeros_like(su)
+            sh = need
+            if near:
+                # the raw per-ring need, with the buried root (root_fade) asking for nothing
+                # BEFORE the smoothing spreads it (spread first, the root's burial would
+                # ask again on every pass and pile the lift up behind it)
+                # (the spine's rings only: a curl's rings turn their normals away from the
+                # spine's, and lifting the spine would not answer them)
+                lf = hk.rest_on(st, near, gap=GAP, smooth=SHINGLE_SMOOTH, root_fade=0.0)
+                spine = st.arc <= L + 1e-6
+                raw = lf.need[:len(st.arc)] * hk.smooth01(st.arc / root_fade) * spine
+                _su, sh = _smooth_need(np.minimum(st.arc / L, 1.0), raw, L, SHINGLE_SMOOTH)
+                need = np.maximum(need, sh)
+            u, short, _N = _skirt_short(st)
+            if short.max() > 0.05:
+                # the lift moves a vertex along the spine's normal where it maps (a curl with
+                # the spine's end): its +Y share answers the skirt
+                c = st.curve
+                ny = np.interp(u * L, c['s'], c['N'][:, 1])
+                _su, sk = _smooth_need(u, short / PX / np.maximum(ny, 0.35), L, SKIRT_LIFT_LEN / PX / 1.5)
+                need = np.maximum(need, sk)
+            if DEBUG:
+                print('  settle %-22s c%d it %d shingle %5.1f mm  skirt %5.1f px at u %.2f' % (
+                    kw['name'], cycle, _, 1000 * sh.max(), short.max(), u[int(np.argmax(short))]))
+            if need.max() < 0.25 * GAP:
+                break
+            total = total + need
+            st = _lifted(kw, su, total, st.meta['spine_len'])
+        if cycle == DROP_CYCLES or not near or not drape:
+            break
+        drop = _drop_profile(st, near, root_fade)
+        if DEBUG:
+            print('  settle %-22s c%d drop %5.1f mm' % (kw['name'], cycle, 1000 * drop.max()))
+        if drop.max() < DROP_MIN:
+            break
+        tmp = total - drop
+        try:
+            st = _lifted(kw, su, tmp, st.meta['spine_len'], tries=1)
+        except hk.HairKernelError:
+            info['drop_failed'] = True      # the drop would bend the lock too tightly: keep it up
+            break
+        info['drop_max'] = max(info['drop_max'], float(drop.max()))
+        total = tmp
+    info['lift_max'] = float(total.max())
+    if near and drape:
+        info['drape_max'] = _drape_section(st, near, root_fade)
+        hk.validate(st)
+    if near:
+        lf = hk.rest_on(st, near, gap=GAP, smooth=SHINGLE_SMOOTH, root_fade=root_fade)
+        free = (st.arc > root_fade) & (st.arc <= st.meta['spine_len'] + 1e-6)
+        nd = lf.need[:len(free)]
+        info['overlap'] = lf.overlap
+        info['residual_mm'] = 1000 * float(nd[free].max()) if free.any() else 0.0
+        c = _clearance_below(st, near, DROP_REACH)[0]
+        fr = c[free[:len(c)]]
+        fr = fr[np.isfinite(fr)]
+        if len(fr):
+            info['gap_med'], info['gap_p90'] = (1000 * float(np.median(fr)), 1000 * float(np.percentile(fr, 90)))
+    _u, short, _N = _skirt_short(st)
+    info['skirt_short_px'] = float(short.max())
+    return st, info
+
+
+# Two-sided settling (_settle): a ring whose whole underside floats more than DROP_SLACK
+# over the layers under it (within DROP_REACH) is lowered onto them, DROP_CYCLES times.
+DROP_CYCLES = 2
+DROP_REACH = 0.03         # m searched below the underside
+DROP_SLACK = 0.0008       # m of float left alone (over GAP)
+DROP_MIN = 0.0008         # m: a smaller drop is not worth a rebuild
+DROP_SMOOTH = 0.02        # m, sigma of the drop along the lock
+# Section drape (_drape_section): the underside of a ring bridging a valley (two locks
+# below it, the under-layer further down) sinks into it, the outer face unchanged, so
+# the lock rests on the layer along its width instead of touching at one point.
+DRAPE_MAX = 2.0           # x the ring's own thickness at most
+DRAPE_SMOOTH = (1.2, 0.015)   # sigma across (vertices) and along the lock (m)
+DRAPE_RIM = 0.3           # the drape fades to the rims as (1 - s^2)^DRAPE_RIM
+
+
+def _clearance_below(st, lowers, reach):
+    """Per spine ring and underside vertex: the distance (m) down along the ring's normal
+    to the nearest surface of `lowers` below it (NaN where none within reach); also the
+    underside mask and the spine ring count. (n_rings, n/2) array."""
+    tris = np.concatenate([lo.triangles() for lo in lowers], 0)
+    tmin, tmax = tris.min(1), tris.max(1)
+    under = ~hk.ring_params(st.n)[1]
+    L = st.meta['spine_len']
+    nr = int(np.sum(st.arc <= L + 1e-6))
+    out = np.full((nr, int(under.sum())), np.nan)
+    for j in range(nr):
+        q = st.rings[j][under]
+        Nj = st.N[j]
+        lo_box, hi_box = q.min(0) - reach - 0.005, q.max(0) + reach + 0.005
+        sel = np.all(tmax >= lo_box, 1) & np.all(tmin <= hi_box, 1)
+        if not sel.any():
+            continue
+        mu = hk._line_hits(q, Nj, tris[sel])
+        mu = np.where((mu <= 1e-4) & (mu >= -reach), mu, np.nan)
+        has = ~np.all(np.isnan(mu), 1)
+        if has.any():
+            out[j, has] = -np.nanmax(mu[has], 1)
+    return out, under, nr
+
+
+def _drop_profile(st, lowers, root_fade):
+    """How far (m, over the spine's u knots) the spine may come down: per ring the least
+    clearance of its underside over the layers below less GAP and DROP_SLACK (0 where a
+    ring has nothing below it), eroded and blurred so it never exceeds the ring's own."""
+    c, _under, nr = _clearance_below(st, lowers, DROP_REACH)
+    L = st.meta['spine_len']
+    least = np.where(np.isfinite(c).any(1), np.min(np.where(np.isfinite(c), c, np.inf), 1), np.nan)
+    allow = np.where(np.isfinite(least), np.maximum(least - GAP - DROP_SLACK, 0.0), 0.0)
+    allow *= hk.smooth01((st.arc[:nr] - root_fade) / root_fade)
+    su = np.linspace(0.0, 1.0, 401)
+    raw = np.interp(su, np.minimum(st.arc[:nr] / L, 1.0), allow)
+    top = float(raw.max())
+    if top <= 0.0:
+        return np.zeros_like(su)
+    _u, sm = _smooth_need(su, top - raw, L, DROP_SMOOTH)
+    return np.clip(top - sm, 0.0, None)
+
+
+def _drape_section(st, lowers, root_fade):
+    """Sink each spine ring's underside onto the layers below it where it bridges them
+    (see DRAPE_*): an underside vertex comes down by its clearance less GAP, smoothed
+    across and along the lock, faded to the rims and to the root, at most DRAPE_MAX x the
+    ring's thickness, never below GAP over the layer. The outer face does not move.
+    Returns the largest sink (m)."""
+    c, under, nr = _clearance_below(st, lowers, DROP_REACH)
+    e = np.where(np.isfinite(c), np.maximum(c - GAP, 0.0), 0.0)
+    s_par = hk.ring_params(st.n)[0][under]
+    rim = np.clip(1.0 - s_par * s_par, 0.0, 1.0) ** DRAPE_RIM
+    d = e * rim[None, :]
+    d = np.minimum(d, DRAPE_MAX * st.thick[:nr, None])
+    d *= hk.smooth01((st.arc[:nr] - root_fade) / root_fade)[:, None]
+    # smooth across (vertex index) and along (arc) the lock, then hold under the clearance
+    d = np.apply_along_axis(lambda v: hk._blur(v, DRAPE_SMOOTH[0]), 1, d)
+    step = float(np.median(np.diff(st.arc[:nr]))) if nr > 2 else 0.005
+    d = np.apply_along_axis(lambda v: hk._blur(v, DRAPE_SMOOTH[1] / max(step, 1e-4)), 0, d)
+    d = np.minimum(d, e)
+    # fade out before the last spine rings (a curl or a blade continues from there)
+    tail = hk.smooth01((st.meta['spine_len'] - st.arc[:nr]) / 0.03)
+    d *= tail[:, None]
+    idx = np.flatnonzero(under)
+    for j in range(nr):
+        st.rings[j][idx] -= d[j][:, None] * st.N[j][None, :]
+    return float(d.max()) if d.size else 0.0
+
+
+def _strand(kw):
+    """hk.strand(**kw), flattened high up (FLAT_TOP) and validated."""
+    st = hk.strand(**dict({k: v for k, v in kw.items() if k != 'flat'}, check=False))
+    if kw.get('flat'):
+        _flatten(st)
+    hk.validate(st)
+    return st
+
+
+def _flatten(st):
+    """Thin a lock's section toward the crown (FLAT_TOP): each ring's offsets along its
+    normal shrink about its underside, so the locks over the skull and shoulders lie
+    as flat shingles (the kernel's thickness only follows the width)."""
+    k0, (r0, r1) = FLAT_TOP
+    R, C, N = st.rings, st.centres, st.N
+    _bx, _sx, row = to_px(C)
+    k = k0 + (1.0 - k0) * hk.smooth01((row - r0) / (r1 - r0))
+    for j in np.flatnonzero(k < 0.999):
+        y = (R[j] - C[j]) @ N[j]
+        R[j] -= ((1.0 - k[j]) * (y - y.min()))[:, None] * N[j]
+
+
+def _lifted(kw, su, total, length, tries=3):
+    """hk.strand lifted by `total` (over the knots su); a lift whose bends break the
+    kernel's limits is spread wider along the lock (never lower) and tried again."""
+    sig = SHINGLE_SMOOTH
+    for k in range(tries + 1):
+        try:
+            return _strand(dict(kw, lift=_Lift(su, total.copy())))
+        except hk.HairKernelError:
+            if k == tries:
+                raise
+        sig *= 1.6
+        _u, sm = _smooth_need(su, total, length, sig)
+        total[:] = np.maximum(total, sm)
+
+
+def _overlaps(st, lo, pad=0.02):
+    a = np.concatenate([tb.rings.reshape(-1, 3) for tb in st.all_tubes()])
+    alo, ahi = a.min(0) - pad, a.max(0) + pad
+    if isinstance(lo, _Surface):
+        blo, bhi = lo.lo, lo.hi
+    else:
+        b = np.concatenate([tb.rings.reshape(-1, 3) for tb in lo.all_tubes()])
+        blo, bhi = b.min(0), b.max(0)
+    return bool(np.all(ahi >= blo) and np.all(bhi >= alo))
+
+
+# ---------------------------------------------------------------- painting
+_KEEP_ATTR = 'hb_keep'
+_ROOT_ATTR = 'hb_root'
+ROOT_RINGS = 3            # rings at a lock's root (buried in the cap / under the lock above): no outline
+
+
+def _paint(st, gfun, keepfun):
+    """toon_grad (monotone down the lock: a curl turning back up stays green) and the
+    own-normal share (attribute _KEEP_ATTR) on every tube of a strand."""
+    sl = st.meta['spine_len']
+
+    def tube(tb, g_start):
+        bx, _sx, row = to_px(tb.rings)
+        g = np.asarray(gfun(bx, row), float)
+        cb, _s, cr = to_px(tb.centres)
+        gc = np.maximum.accumulate(np.maximum(np.asarray(gfun(cb, cr), float), g_start))
+        tb.grad = np.clip(np.maximum(g, gc[:, None]), 0.0, 1.0)
+        ab, _s, ar = to_px(tb.apex) if tb.apex is not None else (cb[-1], 0, cr[-1])
+        tb.grad_apex = float(np.clip(max(gc[-1], float(gfun(ab, ar))), 0.0, 1.0))
+        k = np.array([keepfun(r, a / sl) for r, a in zip(cr, tb.arc)])
+        tb.attrs = {_KEEP_ATTR: np.repeat(k[:, None], tb.rings.shape[1], 1)}
+        tb.attrs_apex = {_KEEP_ATTR: float(k[-1])}
+        for t in tb.tips:
+            tube(t, gc[-1])
+    tube(st, 0.0)
+
+
+def _mass_keep(row, u):
+    k = KEEP_TOP + (KEEP_LOW - KEEP_TOP) * smooth01((row - KEEP_ROWS[0]) / (KEEP_ROWS[1] - KEEP_ROWS[0]))
+    if u > 1.0:                     # the curl and the sub-tips
+        k += (CURL_KEEP - k) * smooth01((u - 1.0) / 0.08)
+    return k
+
+
 # ---------------------------------------------------------------- outline
 # The inverted hull draws a line wherever a lock's silhouette passes over
 # whatever lies behind it. Where two locks run nearly flush (within about a
 # line width), the hull pokes in and out of the neighbour's surface and
-# prints short broken scratches all over the pale mass. So each vertex's hull
+# prints short broken scratches over the pale mass. So each vertex's hull
 # width (OUTLINE_VG) follows its STEP: how far it stands out, along the volume
-# normal, over the highest surface of any OTHER loose part (lock or curtain)
-# right beside it. Nothing beside it (the mass's own edge over the body or
-# the skirt, a curl hanging free) keeps the full line; a clear step (a lock
-# lying well over another) draws a bolder strand line; a flush seam gets
-# none. Weights are on/off (and isolated vertices follow their neighbours),
-# because a hull thinner than a pixel prints a faint grey hairline that reads
-# exactly like the scratches it is meant to remove.
+# normal, over the highest surface of any OTHER loose part right beside it.
+# Nothing beside it keeps the full line; a clear step draws a bolder strand
+# line; a flush seam gets none. Weights are on/off (isolated vertices follow
+# their neighbours): a hull thinner than a pixel prints a faint grey hairline.
 OUTLINE_VG = 'outline_width'
 STRAND_LINE = 1.6           # strand lines x the silhouette width (a solid stroke)
 STEP_PX = 8.0               # step (px) over the neighbour that draws a strand line
@@ -1296,57 +1395,177 @@ def outline_weights(meshes, vols):
 
 
 # ---------------------------------------------------------------- build
-# Three objects. The locks of the mass ('hair_back') do not cast sun
-# shadows: at the low key light every lock edge printed a hard 1 px shadow
-# copy of itself onto the lock beside it, the pale mass's remaining
-# scratches. The smooth backing shell ('hair_back_shell', the curtain) casts
-# for the whole mass instead, so the hair still shadows the dress and back
-# behind it. The curled primaries and the outer side locks
-# ('hair_back_side') do cast: their curls shadow the skirt below them and
-# the side locks the sleeves, as on the sheet (without them the back dress
-# shade share fell from 0.20 to 0.12, sheet 0.30). That costs a few lock-on-
-# lock slivers where those primaries overlap the mass.
+# Three objects. The locks of the mass ('hair_back') do not cast sun shadows: at the
+# low key light every lock edge printed a hard 1 px shadow copy of itself onto the
+# lock beside it. The under-layer ('hair_back_shell') casts for the whole mass
+# instead, so the hair still shadows the dress and back behind it. The curled
+# primaries and the outer side locks ('hair_back_side') do cast: their curls shadow
+# the skirt below them and the side locks the sleeves, as on the sheet.
+def build_strands():
+    """All back-hair strands, in build (layer) order: [(object, strand, kind, info)] and
+    the under-layer grids."""
+    cap = _cap_proxy()
+    outer, inner = _under_layer()
+    under = _Surface(_shell_tris(outer, inner), 'under')
+    built = []
+    lowers = [cap, under]
+    # the wave and crescent side locks grow from the side of the head below the crown,
+    # under the mass's outer locks (the crescent behind the wave); the shoulder flick
+    # lies over them all on top of the shoulder
+    def side(d):
+        for sd in (1, -1):
+            st, info = _settle(side_lock_kwargs(d, sd), lowers)
+            built.append(('hair_back_side', st, ('side', d), info))
+            lowers.append(st)
+    side(OUTER_BY['wave'])
+    side(OUTER_BY['crescent'])
+    defs = prim_defs()
+    for layer in (0, 1):
+        for d in (d for d in defs if d['layer'] == layer):
+            st, info = _settle(mass_lock_kwargs(d), lowers)
+            built.append(('hair_back_side' if d['curled'] else 'hair_back', st, 'mass', info))
+            lowers.append(st)
+    side(OUTER_BY['side'])
+    side(OUTER_BY['flick'])
+    return built, (outer, inner)
+
+
+# The rig's lock test (rig._hair_locks, HAIR_LOCK_LEN / HAIR_LOCK_SPAN / 24 vertices),
+# repeated here so a build that would change the rig's lock / sector split fails loudly.
+LOCK_LEN = 0.2
+LOCK_SPAN = 70.0
+UNDER_SPAN_MIN = 73.0       # the under-layer keeps this margin over LOCK_SPAN (a sector island)
+
+
+def _island_test(p):
+    """(length below eye level m, span deg round the skull) of a loose part's points."""
+    ang = np.degrees(np.arctan2(p[:, 0], p[:, 1] - spec.L['head_center_y']))
+    c = math.degrees(math.atan2(float(np.sin(np.radians(ang)).mean()), float(np.cos(np.radians(ang)).mean())))
+    dev = (ang - c + 180.0) % 360.0 - 180.0
+    span = float(np.percentile(dev, 95) - np.percentile(dev, 5))
+    return min(spec.L['eye_z'], float(p[:, 2].max())) - float(p[:, 2].min()), span
+
+
+def _check_islands(outer, inner, built):
+    """Every primary and outer lock passes the rig's lock test (its own chain, weighted
+    along it: a lock never blends sector chains with the head bone, whose 4-bone pruning
+    tore the round-10-style short flick in a head turn); the under-layer fails it with a
+    margin (the sector chains)."""
+    errs = []
+    _ln, span = _island_test(np.concatenate([outer.reshape(-1, 3), inner.reshape(-1, 3)]))
+    print(f'HAIR_BACK {len(built)} strands, under-layer {span:.0f} deg round the head, largest lift '
+          f'{1000 * max(i.get("lift_max", 0.0) for _o, _s, _k, i in built):.0f} mm, skirt shortfall '
+          f'{max(i.get("skirt_short_px", 0.0) for _o, _s, _k, i in built):.1f} px')
+    if span < UNDER_SPAN_MIN:
+        errs.append(f'the under-layer spans {span:.0f} deg round the head (< {UNDER_SPAN_MIN:.0f}): it would '
+                    'be rigged as a lock')
+    for _obj, st, kind, _info in built:
+        p = np.concatenate([tb.rings.reshape(-1, 3) for tb in st.all_tubes()])
+        ln, span = _island_test(p)
+        if ln < LOCK_LEN or span >= LOCK_SPAN or len(p) < 24:
+            errs.append(f'{st.name}: {ln:.2f} m below eye level, {span:.0f} deg round the head: not a lock')
+    if errs:
+        raise ValueError('hair_back islands break the rig contract:\n  ' + '\n  '.join(errs))
+
+
+# Back-view coverage (_check_coverage): rays from behind on a COVER_STEP grid between
+# COVER_ROWS; on each row, between the hair's outermost hits (above COVER_MASS_ROW) or
+# within the mass edges (PRIM_EDGES, below it, where the outer locks leave the mass over
+# the arms), every ray must meet the back hair or the scalp cap.
+COVER_ROWS = (170.0, 340.0)
+COVER_MASS_ROW = 244.0
+COVER_STEP = 0.002
+COVER_MAX = 0          # holes allowed (rays)
+
+
+def _check_coverage(built, outer, inner):
+    """Count the back-view holes in the hair mass (see COVER_*); raise above COVER_MAX."""
+    from mathutils import Vector
+    from mathutils.bvhtree import BVHTree
+    tris = [_shell_tris(outer, inner), _cap_proxy().tris] + [st.triangles() for _o, st, _k, _i in built]
+    T = np.concatenate(tris, 0)
+    tree = BVHTree.FromPolygons([Vector(p) for p in T.reshape(-1, 3)],
+                                [(3 * i, 3 * i + 1, 3 * i + 2) for i in range(len(T))], epsilon=0.0)
+    xs = np.arange(-0.26, 0.26 + 1e-9, COVER_STEP)
+    holes = []
+    for row in np.arange(COVER_ROWS[0], COVER_ROWS[1] + 1e-9, COVER_STEP * PX):
+        z = spec.px_to_z(row)
+        hit = np.array([tree.ray_cast(Vector((x, 1.0, z)), Vector((0.0, -1.0, 0.0)), 2.0)[0] is not None for x in xs])
+        if not hit.any():
+            continue
+        lo, hi = xs[hit].min(), xs[hit].max()
+        if row > COVER_MASS_ROW:
+            el, er = stable(PRIM_EDGES, row)
+            lo, hi = max(lo, (CX - er) / PX), min(hi, (CX - el) / PX)
+        m = (xs >= lo) & (xs <= hi) & ~hit
+        holes += [(float(x), float(row)) for x in xs[m]]
+    return holes
+
+
 def build(col):
     mat = common.toon_material('hair', gradient='hair_tip')
-    back = primaries() if PRIMARY_LOCKS else MAIN
-    waves = WAVES if (PRIM_SECONDARY or not PRIMARY_LOCKS) else []
-    # the lower side-view lock faces sideways: between the primaries it printed a
-    # long shade stripe beside the parting, so it lies under them (PRIM_SWEEP_LAY)
-    sweep = [d if ('curl' in d or not PRIMARY_LOCKS) else dict(d, lay=d.get('lay', 0.0) + PRIM_SWEEP_LAY)
-             for d in SWEEP]
-    groups = (('hair_back_shell', None, True),
-              ('hair_back', INNER_LEFT + [mirror(d) for d in INNER_LEFT]
-               + [d for d in back if 'curl' not in d] + sweep + waves, False),
-              ('hair_back_side', [d for d in back if 'curl' in d] + OUTER_LEFT + [mirror(d) for d in OUTER_LEFT], True))
-    objs = []
-    pid = 0                             # loose part id (shell 0, then one per lock)
-    for name, defs, cast in groups:
+    built, (outer, inner) = build_strands()
+    names = ('hair_back_shell', 'hair_back', 'hair_back_side')
+    bms = {}
+    for nm in names:
         bm = bmesh.new()
-        layer = bm.verts.layers.float.new(common.GRAD_ATTR)
-        shading = {}
-        if defs is None:
-            curtain(bm, layer)
-            part = [0] * len(bm.verts)
+        bm.verts.layers.float.new(common.GRAD_ATTR)
+        bm.verts.layers.float.new(_KEEP_ATTR)
+        bm.verts.layers.float.new(_ROOT_ATTR)     # (before any vertex: a new layer drops BMVert refs)
+        bms[nm] = [bm, []]          # bmesh, loose part id per vertex
+    pid = 0
+    _emit_grid_shell(bms['hair_back_shell'][0], outer, inner, grad_global, VOL_KEEP)
+    bms['hair_back_shell'][1] += [pid] * len(bms['hair_back_shell'][0].verts)
+    _check_islands(outer, inner, built)
+    holes = _check_coverage(built, outer, inner)
+    print(f'HAIR_BACK coverage: {len(holes)} back-view holes in the mass'
+          + (' (first at x %.3f m, row %.0f)' % holes[0] if holes else ''))
+    if len(holes) > COVER_MAX:
+        raise ValueError(f'hair_back: {len(holes)} back-view holes in the hair mass (max {COVER_MAX}), '
+                         'first at x %.3f m, row %.0f: close the coverage' % holes[0])
+    for obj_name, st, kind, info in built:
+        pid += 1
+        if kind == 'mass':
+            _paint(st, grad_global, _mass_keep)
         else:
-            part = []
-            for d in defs:
-                pid += 1
-                shading.update(clump(bm, layer, d))
-                part += [pid] * (len(bm.verts) - len(part))
-        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-        obj = common.new_object(col, name, bm, [mat])
+            gr = kind[1]['gr']
+            _paint(st, lambda bx, row, gr=gr: hk.smooth01((np.asarray(row) - gr[0]) / (gr[1] - gr[0])),
+                   lambda row, u: SIDE_KEEP if u <= 1.0 else CURL_KEEP)
+        bm, part = bms[obj_name]
+        n0 = len(bm.verts)
+        em = hk.emit(bm, st)
+        part += [pid] * (len(bm.verts) - n0)
+        rlay = bm.verts.layers.float.get(_ROOT_ATTR)
+        for ring in em['rings'][:ROOT_RINGS]:
+            for v in ring:
+                v[rlay] = 1.0
+        if RECORD is not None:
+            v = hk.validate(st, raise_=False)
+            RECORD.append((obj_name, st, dict(info, **{k: v[k] for k in ('max_turn', 'max_rho', 'folds', 'max_twist',
+                                                                          'max_gap', 'faces', 'rings')})))
+    objs = []
+    for nm, cast in zip(names, (True, False, True)):
+        bm, part = bms[nm]
+        obj = common.new_object(col, nm, bm, [mat])
         common.shade_smooth(obj, angle_deg=70.0)
         obj['levi_cast_shadow'] = cast
-        objs.append((obj, part, shading))
-    vols = [[volume_normal(v.co) for v in o.data.vertices] for o, _p, _s in objs]
-    weights = outline_weights([(o.data, p) for o, p, _s in objs], vols)
-    for (obj, _p, shading), vol, ws in zip(objs, vols, weights):
-        set_volume_normals(obj.data, shading, vol)
+        objs.append((obj, part))
+    vols = [[volume_normal(v.co) for v in o.data.vertices] for o, _p in objs]
+    weights = outline_weights([(o.data, p) for o, p in objs], vols)
+    for (obj, _p), vol, ws in zip(objs, vols, weights):
+        me = obj.data
+        keep = [a.value for a in me.attributes[_KEEP_ATTR].data]
+        me.attributes.remove(me.attributes[_KEEP_ATTR])
+        if _ROOT_ATTR in me.attributes:
+            # a root buried in the cap or under the lock above draws no hull line (a band of
+            # broken outline fragments round the skull seen from above)
+            root = [a.value > 0.5 for a in me.attributes[_ROOT_ATTR].data]
+            me.attributes.remove(me.attributes[_ROOT_ATTR])
+            ws = [0.0 if r else w for w, r in zip(ws, root)]
+        set_volume_normals(me, keep, vol)
         vg = obj.vertex_groups.new(name=OUTLINE_VG)
         for i, w in enumerate(ws):
             vg.add([i], w, 'REPLACE')
         common.add_outline(obj, width=spec.OUTLINE_WIDTH * STRAND_LINE, vertex_group=OUTLINE_VG,
                            min_factor=0.0)
     return objs[1][0]
-
-
