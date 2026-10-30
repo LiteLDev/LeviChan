@@ -1,32 +1,36 @@
 """Front and side hair: scalp cap, ahoge, bangs and the face-framing side locks.
 
-Everything is built from clumped strand ribbons (flattened tubes with real
-thickness, so they still read edge-on in the side view) laid over a closed
-superellipsoid scalp cap. Inner hair lines come from the strands' own
-inverted-hull outlines where they overlap the cap and each other.
+Round 11: every strand is built by the shared hair kernel (_hair_kernel.py),
+which applies the technique learnt from the 风堇 (Hyacine) model: crescent
+sections (a convex top, a concave underside and thin rims), C2 centrelines held
+to R >= max(12 mm, 0.6 w) and rho <= 0.45 (no sharp turns), adaptive rings,
+strands that narrow before an end curl tightens, blade tips, and a validator
+that fails the build on any strand past the limits. Overlapping clumps nest (an
+upper clump rests on the ones below it) instead of cutting through each other.
+The scalp cap is a grid around the crown whorl, so the crown's grooves run along
+its columns as smooth pleats. Roots are pressed into the cap along the smooth
+radial direction (settle), and after that every strand's root ring must start
+inside the cap and its surface turn at most SURFACE_TURN per ring outside it
+(check_surface), so no root stands proud of the scalp or creases where it meets it.
 
-Shapes are authored directly in reference-panel pixels so they can be fitted
-against ref/{front,side}.png:  P(fx, row, sc)
+Shapes are authored in reference-panel pixels so they can be fitted against
+ref/{front,side}.png:  P(fx, row, sc)
     fx  = front-view column offset from the panel centre (+ = image right,
           i.e. the character's left, +X)
     row = panel row (shared by all views)
     sc  = side-view panel column (smaller = further forward, -Y)
 The long hair below the shoulders is unit `hair_back`; leaves/flowers are
-`accessories`.
-
-Round 5 (8k face budget): a smooth, denser scalp cap with a rounded apex;
-strands with 10-12-sided sections, 14-30 rings, smoothly transported section
-frames and separate thickness/wrap tapers; roots that are pressed onto the
-actual cap surface (settle()) so each clump grows out of the scalp in one
-smooth ridge instead of cutting through it.
+`accessories`. hair_back reads CAP_PROFILE / CAP_EXP (measurement data only).
 """
 import math
 
 import bmesh
+import numpy as np
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 
 from .. import common, spec
+from . import _hair_kernel as hk
 
 PX = 1.0 / spec.PX_PER_M
 MID = spec.PANEL_W / 2
@@ -540,22 +544,72 @@ def crown_groove(p, frame):
     return CROWN_DEPTH * env * g, env
 
 
-def _sheet_cap_bvh():
-    """BVH of the sheet (procedural, unfitted) cap with its crown grooves: the
-    cheek wisps settle on it (see build)."""
-    frame = _crown_frame(sheet_point)
-    verts, faces = [P(0, *CAP_TOP)], []
-    rows = []
-    for r0, r1 in zip(CAP_RINGS, CAP_RINGS[1:] + (None,)):
-        rows.append(r0)
-        if r1 is not None and r1 <= CROWN_RING_SPLIT[0] and r1 - r0 > CROWN_RING_SPLIT[1]:
-            rows.append((r0 + r1) / 2)
+
+# ---------------------------------------------------------------- scalp cap (round 11)
+# Round 9-10 carved the crown grooves into a latitude-longitude grid around the
+# vertical axis; the grooves radiate from the whorl, so they crossed the grid
+# diagonally and were sampled as staircases (zig-zag shade streaks, the jagged
+# crown of the round-11 analysis, D10). Round 11 builds the cap on a grid around
+# the whorl axis instead: rings of constant polar angle from the whorl (CAP_PHI),
+# spokes of constant angle round it (CAP_SPOKE...), denser across each groove and
+# with a spoke on every groove line. A groove therefore runs along a column of
+# the grid as a smooth pleat. The surface itself is the sheet cap (CAP_PROFILE,
+# unchanged): every grid vertex is cast from the skull centre onto a dense mesh
+# of sheet_point() (outermost hit), then the grooves are carved in along
+# head_normal as before. The whorl and the point opposite it (under the cap,
+# inside the head) are the two poles.
+CAP_RAY_ROW = 1.0               # px between rows of the dense sheet mesh the grid is cast onto
+CAP_RAY_AZ = 288                # ... and its sections
+CAP_PHI_CROWN = (0.035, 1.45, 24)   # rad from the whorl: first ring, end of the visible crown, rings
+CAP_PHI_LOW = 10                # rings from there to the lower pole (hidden under the hair and head)
+CAP_SPOKE = 7.5                 # deg between spokes away from the grooves ...
+CAP_SPOKE_GROOVE = 2.5          # ... and across a groove, CAP_SPOKE_BAND deg either side of its line
+CAP_SPOKE_BAND = 5.0
+# Under the fringe the cap is a hidden layer: it is carved in by CAP_RECESS (m) over
+# the front sector (CAP_RECESS_AZ deg either side of the face, fading out over the
+# next CAP_RECESS_AZ_FADE) between CAP_RECESS_ROWS (fading in / out over
+# CAP_RECESS_FADE rows), so the clumps' concave undersides and rims rest on it
+# instead of sinking into it (round 11 first build: 10-23 % of the eye primaries'
+# and outer clumps' vertices past their roots lay inside the cap). The cap only
+# shrinks, so CAP_PROFILE stays an envelope of it (hair_back reads the table).
+CAP_RECESS = 0.008
+CAP_RECESS_AZ = (60.0, 25.0)
+CAP_RECESS_ROWS = (58.0, 112.0)
+CAP_RECESS_FADE = 10.0
+
+
+def cap_recess(p):
+    """Inward depth (m) of the fringe recess at cap point p."""
+    if CAP_RECESS <= 0:
+        return 0.0
+    row = spec.SHEET_GROUND_Y - p.z * spec.PX_PER_M
+    w = smooth01((row - CAP_RECESS_ROWS[0]) / CAP_RECESS_FADE)
+    w *= 1.0 - smooth01((row - CAP_RECESS_ROWS[1]) / CAP_RECESS_FADE)
+    if w <= 0:
+        return 0.0
+    ang = math.degrees(math.atan2(abs(p.x), -(p.y - HEAD_AXIS.y)))
+    w *= 1.0 - smooth01((ang - CAP_RECESS_AZ[0]) / CAP_RECESS_AZ[1])
+    return CAP_RECESS * w
+
+_CAP = {}
+
+
+def _sheet_rows():
+    rows = list(np.arange(CAP_TOP[0] + 0.25, CAP_RINGS[-1], CAP_RAY_ROW)) + [CAP_RINGS[-1]]
+    return [float(r) for r in rows]
+
+
+def _sheet_mesh():
+    """(verts, faces) of the dense, ungrooved sheet cap (closed)."""
+    if 'sheet' in _CAP:
+        return _CAP['sheet']
+    rows = _sheet_rows()
+    n = CAP_RAY_AZ
+    verts = [tuple(P(0, *CAP_TOP))]
     for r in rows:
-        for i in range(CAP_AZ):
-            p = sheet_point(-90 + 360.0 * i / CAP_AZ, r)
-            verts.append(p - head_normal(p) * crown_groove(p, frame)[0])
-    verts.append(P(0, *CAP_BOTTOM))
-    n = CAP_AZ
+        verts += [tuple(sheet_point(-90 + 360.0 * i / n, r)) for i in range(n)]
+    verts.append(tuple(P(0, *CAP_BOTTOM)))
+    faces = []
     for i in range(n):
         k = (i + 1) % n
         faces.append((0, 1 + k, 1 + i))
@@ -563,45 +617,133 @@ def _sheet_cap_bvh():
             faces.append((1 + j * n + i, 1 + j * n + k, 1 + (j + 1) * n + k, 1 + (j + 1) * n + i))
         last = 1 + (len(rows) - 1) * n
         faces.append((last + i, last + k, len(verts) - 1))
-    bm = bmesh.new()
-    bv = [bm.verts.new(v) for v in verts]
-    for fc in faces:
-        bm.faces.new([bv[i] for i in fc])
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    return BVHTree.FromBMesh(bm)
+    _CAP['sheet'] = (verts, faces)
+    return _CAP['sheet']
+
+
+def _sheet_bvh():
+    """BVH of the dense, ungrooved sheet cap (a side lock with bvh='sheet' settles on it;
+    rounds 9-10 and the first round-11 build settled the cheek locks and wisps there)."""
+    if 'sheet_bvh' not in _CAP:
+        verts, faces = _sheet_mesh()
+        bm = bmesh.new()
+        bv = [bm.verts.new(v) for v in verts]
+        for fc in faces:
+            bm.faces.new([bv[i] for i in fc])
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        _CAP['sheet_bvh'] = BVHTree.FromBMesh(bm)
+        bm.free()
+    return _CAP['sheet_bvh']
+
+
+def cap_spokes():
+    """Spoke angles (deg, round the whorl axis, 0 = toward the face, + toward +X)."""
+    G, B, S = CAP_SPOKE_GROOVE, CAP_SPOKE_BAND, CAP_SPOKE
+    dense = set()
+    for ang, _share in CROWN_GROOVES:
+        for k in range(-int(round(B / G)), int(round(B / G)) + 1):
+            dense.add(round(((ang + k * G + 180.0) % 360.0) - 180.0, 6))
+    dense = sorted(dense)
+    out = []
+    for a, b in zip(dense, dense[1:] + [dense[0] + 360.0]):
+        gap = b - a
+        m = max(1, int(math.ceil(gap / S - 1e-6)))
+        out += [a + gap * i / m for i in range(m)]
+    return [((a + 180.0) % 360.0) - 180.0 for a in out]
+
+
+def cap_rings():
+    """Ring polar angles (rad from the whorl axis)."""
+    p0, p1, k = CAP_PHI_CROWN
+    top = list(np.linspace(p0, p1, k))
+    step = (math.pi - p1) / (CAP_PHI_LOW + 1)
+    return top + [p1 + step * (i + 1) for i in range(CAP_PHI_LOW)]
+
+
+def _cast(bvh, c, d):
+    """Outermost hit of the line c + t d (t > 0) on bvh, cast inward from 0.4 m out."""
+    hit = bvh.ray_cast(c + d * 0.4, -d, 0.45)
+    if hit[0] is None:
+        raise RuntimeError(f'hair_front cap: no sheet-cap hit along {tuple(d)}')
+    return hit[0]
+
+
+def cap_grid():
+    """(whorl point, rings (R, S) of Vectors on the grooved cap, lower pole) and the
+    groove envelope per vertex (for the normal blend)."""
+    if 'grid' in _CAP:
+        return _CAP['grid']
+    verts, faces = _sheet_mesh()
+    bvh = BVHTree.FromPolygons(verts, faces)
+    frame = _crown_frame()
+    c, a, e1, e2 = frame
+    spokes = [math.radians(t) for t in cap_spokes()]
+    rings, envs = [], []
+    for ph in cap_rings():
+        ring, env = [], []
+        for th in spokes:
+            d = a * math.cos(ph) + (e1 * math.cos(th) + e2 * math.sin(th)) * math.sin(ph)
+            p = _cast(bvh, c, d.normalized())
+            dep, ev = crown_groove(p, frame)
+            ring.append(p - head_normal(p) * (dep + cap_recess(p)))
+            env.append(ev)
+        rings.append(ring)
+        envs.append(env)
+    top = _cast(bvh, c, a)
+    bot = _cast(bvh, c, -a)
+    _CAP['grid'] = (top, rings, bot, envs)
+    return _CAP['grid']
 
 
 def build_cap(col, mat):
-    """The scalp cap. Returns (object, BVH of its surface) so the strands can
-    settle their roots onto it. Round 9: the crown grooves (crown_groove) are
-    carved in along head_normal, with more of the cap's own normal kept in them."""
+    """The scalp cap on the whorl grid. Returns (object, BVH of its surface): the
+    strands settle their roots onto it."""
+    top, rings, bot, envs = cap_grid()
     bm = bmesh.new()
     klay = _layer(bm, KEEP_ATTR, -1.0)
-    frame = _crown_frame()
 
-    def vert(p):
-        dep, env = crown_groove(p, frame)
-        v = bm.verts.new(p - head_normal(p) * dep)
+    def vert(p, env):
+        v = bm.verts.new(p)
         v[klay] = VOL_KEEP + (CROWN_KEEP - VOL_KEEP) * env
         return v
-    top = vert(cap_point(-90.0, CAP_TOP[0]))
-    bot = vert(P(0, *CAP_BOTTOM))
-    rows = []
-    for r0, r1 in zip(CAP_RINGS, CAP_RINGS[1:] + (None,)):
-        rows.append(r0)
-        if r1 is not None and r1 <= CROWN_RING_SPLIT[0] and r1 - r0 > CROWN_RING_SPLIT[1]:
-            rows.append((r0 + r1) / 2)
-    rings = [[vert(cap_point(-90 + 360.0 * i / CAP_AZ, r)) for i in range(CAP_AZ)]
-             for r in rows]
-    for i in range(CAP_AZ):
-        k = (i + 1) % CAP_AZ
-        bm.faces.new((top, rings[0][k], rings[0][i]))
-        for a, b in zip(rings, rings[1:]):
-            bm.faces.new((a[i], a[k], b[k], b[i]))
-        bm.faces.new((rings[-1][i], rings[-1][k], bot))
+    vt = vert(top, 0.0)
+    vb = vert(bot, 0.0)
+    vr = [[vert(p, e) for p, e in zip(r, er)] for r, er in zip(rings, envs)]
+    S = len(vr[0])
+    for i in range(S):
+        k = (i + 1) % S
+        bm.faces.new((vt, vr[0][i], vr[0][k]))
+        for ra, rb in zip(vr, vr[1:]):
+            bm.faces.new((ra[i], rb[i], rb[k], ra[k]))
+        bm.faces.new((vr[-1][i], vb, vr[-1][k]))
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    if bm.calc_volume(signed=True) < 0:
+        bmesh.ops.reverse_faces(bm, faces=bm.faces)
     bvh = BVHTree.FromBMesh(bm)
-    return finish(col, 'hair_cap', bm, mat, angle=80), bvh
+    return finish(col, 'hair_cap', bm, mat, angle=80, recalc=False), bvh
+
+
+def cap_profile_error():
+    """How far (m) the built cap stands outside CAP_PROFILE's superellipses (hair_back's
+    envelope sits ENV_OFF over them): max over the cap vertices above the lowest row."""
+    top, rings, bot, _ = cap_grid()
+    prof = __getattr__('CAP_PROFILE')
+    rows = [r[0] for r in prof]
+    worst = 0.0
+    for ring in rings:
+        for p in ring:
+            row = spec.SHEET_GROUND_Y - p.z * spec.PX_PER_M
+            if not rows[0] <= row <= rows[-1]:
+                continue
+            i = max(0, min(len(rows) - 2, next((k for k in range(len(rows) - 1) if row <= rows[k + 1]), 0)))
+            u = (row - rows[i]) / (rows[i + 1] - rows[i])
+            w, f, b = (prof[i][c] * (1 - u) + prof[i + 1][c] * u for c in (1, 2, 3))
+            mid, hd = (f + b) / 2, (b - f) / 2
+            x = abs(p.x) * spec.PX_PER_M
+            y = p.y * spec.PX_PER_M + MID - mid
+            k = ((x / w) ** CAP_EXP + (abs(y) / hd) ** CAP_EXP) ** (1.0 / CAP_EXP)
+            worst = max(worst, (k - 1.0) * min(w, hd) * PX)
+    return worst
 
 
 # ---------------------------------------------------------------- normals
@@ -615,7 +757,7 @@ VOL_CENTER = P(0, 100, 296)
 VOL_AXES = (66 * PX, 70 * PX, 86 * PX)
 VOL_FORWARD = 0.55      # forward (-Y) tilt of the side-facing volume normals
 VOL_KEEP = 0.3
-KEEP_ATTR = 'hf_keep'   # per-vertex `keep` written by strand(keep=...)
+KEEP_ATTR = 'hf_keep'   # per-vertex `keep` (strand attrs)
 LINE_ATTR = 'hf_line'   # per-vertex outline weight (1; settle() fades the roots)
 LINE_GROUP = 'hair_line'
 LINE_MIN = 0.05         # outline width share where a root is still buried
@@ -641,7 +783,7 @@ def volume_normal(p):
 
 def set_volume_normals(me, keep):
     """keep: share of the mesh's own vertex normal; overridden per vertex by
-    the KEEP_ATTR attribute when the strands wrote one (it is then removed)."""
+    the KEEP_ATTR attribute where a strand wrote one >= 0 (it is then removed)."""
     attr = me.attributes.get(KEEP_ATTR)
     ks = [d.value for d in attr.data] if attr is not None else None
     if attr is not None:
@@ -654,54 +796,6 @@ def set_volume_normals(me, keep):
     me.normals_split_custom_set_from_vertices(normals)
 
 
-# ---------------------------------------------------------------- strands
-def arc_params(samples, tip_dense=0.0):
-    """Arc-length fractions 0..1 for `samples` points; tip_dense > 0 packs them
-    toward the end (spacing x(1 + tip_dense) at the root, x(1 - tip_dense) at
-    the tip) so a rounded tip gets rings without adding segments."""
-    out = []
-    for s in range(samples):
-        x = s / (samples - 1)
-        out.append(x + tip_dense * math.sin(math.pi * x) / math.pi)
-    return out
-
-
-def catmull(pts, samples, tip_dense=0.0):
-    """Centripetal Catmull-Rom through pts, resampled by arc length (evenly, or
-    denser toward the end, see arc_params)."""
-    pts = [Vector(p) for p in pts]
-    ext = [pts[0] * 2 - pts[1]] + pts + [pts[-1] * 2 - pts[-2]]
-    dense = []
-    for i in range(1, len(ext) - 2):
-        p0, p1, p2, p3 = ext[i - 1], ext[i], ext[i + 1], ext[i + 2]
-        t0 = 0.0
-        t1 = t0 + max((p1 - p0).length, 1e-6) ** 0.5
-        t2 = t1 + max((p2 - p1).length, 1e-6) ** 0.5
-        t3 = t2 + max((p3 - p2).length, 1e-6) ** 0.5
-        for k in range(16):
-            t = t1 + (t2 - t1) * k / 16
-            a1 = p0 * ((t1 - t) / (t1 - t0)) + p1 * ((t - t0) / (t1 - t0))
-            a2 = p1 * ((t2 - t) / (t2 - t1)) + p2 * ((t - t1) / (t2 - t1))
-            a3 = p2 * ((t3 - t) / (t3 - t2)) + p3 * ((t - t2) / (t3 - t2))
-            b1 = a1 * ((t2 - t) / (t2 - t0)) + a2 * ((t - t0) / (t2 - t0))
-            b2 = a2 * ((t3 - t) / (t3 - t1)) + a3 * ((t - t1) / (t3 - t1))
-            dense.append(b1 * ((t2 - t) / (t2 - t1)) + b2 * ((t - t1) / (t2 - t1)))
-    dense.append(pts[-1])
-    acc = [0.0]
-    for a, b in zip(dense, dense[1:]):
-        acc.append(acc[-1] + (b - a).length)
-    total = acc[-1]
-    out, j = [], 0
-    for f in arc_params(samples, tip_dense):
-        target = total * f
-        while j < len(acc) - 2 and acc[j + 1] < target:
-            j += 1
-        seg = acc[j + 1] - acc[j]
-        u = 0.0 if seg <= 0 else (target - acc[j]) / seg
-        out.append(dense[j].lerp(dense[j + 1], min(1.0, max(0.0, u))))
-    return out
-
-
 def head_normal(p):
     """Outward direction used to orient ribbons: radial from the cap centre
     above it, horizontal-radial from the head axis below it."""
@@ -710,11 +804,6 @@ def head_normal(p):
     if n.length < 1e-6:
         return Vector((0, -1, 0))
     return n.normalized()
-
-
-def grad_layer(bm):
-    """The bmesh float layer that becomes the 'toon_grad' point attribute."""
-    return bm.verts.layers.float.get(common.GRAD_ATTR) or bm.verts.layers.float.new(common.GRAD_ATTR)
 
 
 def _layer(bm, name, default):
@@ -727,197 +816,18 @@ def _layer(bm, name, default):
     return lay
 
 
-class Strand:
-    """What strand() built: rings of BMVerts root -> tip (the apex is the last
-    one-vertex ring) and the arc length (m) from the root to each ring."""
-
-    def __init__(self, rings, arc):
-        self.rings = rings
-        self.arc = arc
-
-
-def strand(bm, ctrl, width, thick, segs=10, n=6, base_taper=0.25, tip_pow=0.8,
-           normal=head_normal, tip_from=0.0, back=1.0, wrap=0.0, tip_thick=0.35,
-           ogive=1.0, tip_dense=0.0, grad=None, frame_smooth=0.0, thin=None,
-           wrap_tip=None, keep=None, swell=0.18):
-    """Append a flattened, tapered tube along `ctrl` to bm; returns a Strand.
-
-    width/thick: full width and thickness (m) at the widest point.
-    swell: arc fraction over which the section grows from base_taper to full
-    size at the root.
-    tip_from: fraction of the length kept at full width before the tip taper.
-    tip_pow / ogive: tip width profile (1 - u**ogive)**tip_pow over the taper
-    (u 0..1). ogive 1 is a straight wedge; ~2 keeps the width longer and
-    closes it in a rounded arc, so tips read soft instead of as sawteeth.
-    tip_dense: packs rings toward the tip (see arc_params).
-    tip_thick: share of the thickness kept toward the tip (lower = the tip
-    thins out with the width instead of ending in a thick wall).
-    thin: (t0, share): the thickness also eases down to `share` from arc
-    fraction t0 to the tip, independently of the width (a fuller root, a
-    lighter lower half).
-    back: thickness of the inner (-normal) half relative to the outer half;
-    < 1 gives a rounded wedge: a domed outer face over a flatter underside.
-    wrap: how far the two edges curl back toward the head (x width), so a
-    broad clump is a curved shell across its width instead of a flat plate;
-    wrap_tip: the wrap at the tip (eased from `wrap`).
-    frame_smooth: Gaussian width (arc fraction) over which the facing
-    direction from `normal` is averaged before the section frame is built,
-    so a lock turns its broad side gradually along a bend (no twist kinks).
-    grad: (start, end) arc-length fractions of the white-to-mint 'toon_grad'
-    ramp along this strand (smoothstep; None keeps it white), so the tint
-    follows each lock's own flow instead of a shared world height.
-    keep: (root, tip, t0, t1): the share of the strand's own normal in its
-    custom normals (finish), eased from `root` at arc fraction t0 to `tip` at
-    t1; None leaves the object's default.
-    Tip is closed by a single apex vertex; the root is capped flat."""
-    tip_from = min(max(tip_from, 0.0), 0.9)
-    pts = catmull(ctrl, segs + 1, tip_dense)
-    params = arc_params(segs + 1, tip_dense)
-    layer = grad_layer(bm)
-    klay = _layer(bm, KEEP_ATTR, -1.0)
-    llay = _layer(bm, LINE_ATTR, 1.0)
-    arc = [0.0]
-    for a, c in zip(pts, pts[1:]):
-        arc.append(arc[-1] + (c - a).length)
-
-    def gval(t):
-        if grad is None:
-            return 0.0
-        return smooth01((t - grad[0]) / (grad[1] - grad[0]))
-
-    def kval(t):
-        if keep is None:
-            return -1.0
-        k0, k1, t0, t1 = keep
-        return k0 + (k1 - k0) * smooth01((t - t0) / (t1 - t0))
-
-    tans = [(pts[min(i + 1, segs)] - pts[max(i - 1, 0)]).normalized() for i in range(segs)]
-    want = [normal(p) for p in pts[:-1]]
-    if frame_smooth > 0:
-        sm = []
-        for i in range(segs):
-            acc = Vector((0.0, 0.0, 0.0))
-            for j in range(segs):
-                acc += want[j] * math.exp(-0.5 * ((params[i] - params[j]) / frame_smooth) ** 2)
-            sm.append(acc if acc.length > 1e-9 else want[i])
-        want = sm
-
-    rings = []
-    prev_b = None
-    for i, p in enumerate(pts[:-1]):
-        t = params[i]
-        tan = tans[i]
-        nrm = want[i] - tan * want[i].dot(tan)
-        if nrm.length < 1e-6:
-            nrm = tan.orthogonal()
-        nrm.normalize()
-        b = tan.cross(nrm).normalized()
-        if prev_b is not None and b.dot(prev_b) < 0:
-            b = -b
-        prev_b = b
-        # width profile: quick swell from the root, long taper to the tip
-        sw = min(1.0, base_taper + (1 - base_taper) * min(1.0, t / swell))
-        u = max(0.0, t - tip_from) / (1 - tip_from)
-        tip = max(0.0, 1 - u ** ogive) ** tip_pow
-        w = 0.5 * width * sw * tip
-        h = 0.5 * thick * sw * max(tip, tip_thick)
-        if thin is not None:
-            h *= 1 - (1 - thin[1]) * smooth01((t - thin[0]) / (1 - thin[0]))
-        wr = wrap if wrap_tip is None else wrap + (wrap_tip - wrap) * smooth01(t)
-        gv, kv = gval(t), kval(t)
-        ring = []
-        for k in range(n):
-            a = 2 * math.pi * k / n
-            sa, ca = math.sin(a), math.cos(a)
-            off = sa * h * (1.0 if sa > 0 else back) - wr * w * ca * ca
-            v = bm.verts.new(p + b * (ca * w) + nrm * off)
-            v[layer] = gv
-            v[klay] = kv
-            v[llay] = 1.0           # full outline unless settle() fades it
-            ring.append(v)
-        rings.append(ring)
-    apex = bm.verts.new(pts[-1])
-    apex[layer] = gval(1.0)
-    apex[klay] = kval(1.0)
-    apex[llay] = 1.0
-    for a, c in zip(rings, rings[1:]):
-        for k in range(n):
-            kk = (k + 1) % n
-            bm.faces.new((a[k], a[kk], c[kk], c[k]))
-    for k in range(n):
-        bm.faces.new((rings[-1][k], rings[-1][(k + 1) % n], apex))
-    bm.faces.new(list(reversed(rings[0])))
-    return Strand(rings + [[apex]], arc)
-
-
-def settle(bm, st, cap_bvh, emerge, depth=1.5, squash=0.35):
-    """Press a strand's root onto the cap so it grows out of the scalp.
-
-    Over the first `emerge` metres of arc every vertex's height over the cap
-    surface (nearest point, along the cap normal) is eased from
-    squash * h - depth (the whole section flattened and buried) to its own h
-    (smoothstep). The section follows the cap's curvature across its width,
-    so the clump surfaces as one soft ridge, middle first, without a cut.
-    The outline weight (LINE_ATTR) is 0 until the root is LINE_ON of the way
-    out, then rises quickly to 1: a hull line on a barely raised ridge only
-    shows as a faint grey sliver (it reads as a shade speck, not a line)."""
-    llay = bm.verts.layers.float.get(LINE_ATTR)
-    for ring, s_arc in zip(st.rings, st.arc):
-        if s_arc >= emerge:
-            break
-        s = smooth01(s_arc / emerge)
-        for v in ring:
-            co, nrm, _i, _d = cap_bvh.find_nearest(v.co)
-            if co is None:
-                continue
-            h = (v.co - co).dot(nrm)
-            # never raise a vertex that already lies deeper than the target
-            # (a deeply buried root keeps its section instead of folding)
-            h2 = min(h, s * h + (1 - s) * (squash * h - depth * PX))
-            v.co = v.co + nrm * (h2 - h)
-            if llay is not None:
-                v[llay] = smooth01((s - LINE_ON) / LINE_RAMP)
-
-
-def orient_outward(bm):
-    """Round 10: recalc_face_normals orients each closed strand consistently but
-    can pick the inside of a thin, curved crescent (a fringe clump lying close
-    over the cap came out inside out: dark, with its outline hull inside). Flip
-    every island whose enclosed (signed) volume is negative."""
-    seen = set()
-    for f0 in bm.faces:
-        if f0 in seen:
-            continue
-        island, stack = [], [f0]
-        seen.add(f0)
-        while stack:
-            f = stack.pop()
-            island.append(f)
-            for e in f.edges:
-                for g in e.link_faces:
-                    if g not in seen:
-                        seen.add(g)
-                        stack.append(g)
-        vol = 0.0
-        for f in island:
-            vs = [v.co for v in f.verts]
-            for a, b in zip(vs[1:], vs[2:]):
-                vol += vs[0].dot(a.cross(b))
-        if vol < 0:
-            bmesh.ops.reverse_faces(bm, faces=island)
-
-
-def finish(col, name, bm, mat, angle=70, keep=VOL_KEEP, line_min=None):
-    """Mesh object from bm. toon_grad comes from the strands' own arc-length
-    ramp (strand(grad=...)).
+def finish(col, name, bm, mat, angle=70, keep=VOL_KEEP, line_min=None, recalc=False):
+    """Mesh object from bm (the kernel emits outward-facing closed strands;
+    recalc re-derives the orientation for other meshes). toon_grad comes from
+    the strands' own arc-length ramp (kernel grad).
 
     keep: share of the strands' own normals in the custom normals (the rest is
-    the smooth hair-volume normal, see volume_normal); strand(keep=...)
+    the smooth hair-volume normal, see volume_normal); a strand's KEEP_ATTR
     overrides it per vertex.
     line_min: thin the outline where settle() buried a root (outline width
     x line_min there, full on the free strand); None = uniform outline."""
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    orient_outward(bm)
+    if recalc:
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     llay = bm.verts.layers.float.get(LINE_ATTR)
     lw = [v[llay] for v in bm.verts] if llay is not None else None
     obj = common.new_object(col, name, bm, [mat])
@@ -939,15 +849,358 @@ def finish(col, name, bm, mat, angle=70, keep=VOL_KEEP, line_min=None):
     return obj
 
 
-def mirror_pts(pts):
-    return [Vector((-p.x, p.y, p.z)) for p in pts]
+# ---------------------------------------------------------------- kernel glue (round 11)
+# Every strand is built by the shared kernel (_hair_kernel): a C2 centreline held
+# to R >= max(12 mm, 0.6 w) and rho <= 0.45, rotation-minimising frames with a
+# rate-limited roll, crescent sections (convex top, concave underside, thin rims),
+# adaptive rings, grown end curls and split tips. hk.strand() validates every
+# strand (turn <= 8 deg / ring, rho <= 0.5, no folded quads, twist <= 10 deg / ring,
+# ring gap <= 10 mm) and raises HairKernelError naming the strand; settle() below
+# re-validates after pressing a root into the scalp. Overlapping clumps are nested
+# with hk.strand_on() (the upper clump's underside rests on the lower's top + a gap)
+# instead of cutting through each other.
+def A(v):
+    return np.array((float(v[0]), float(v[1]), float(v[2])))
 
 
-# ---------------------------------------------------------------- layout
-# The crown is the cap itself: one smooth scalp volume. Round 4 dropped the
-# separate crown clumps (their overlapping edges read as stepped plates from
-# above); the soft clump lines over the crown are the bang roots, which start
-# buried in the cap and surface gradually (see bangs()).
+def Vv(a):
+    return Vector((float(a[0]), float(a[1]), float(a[2])))
+
+
+def facing_fn(fn):
+    """A mathutils facing function as a kernel facing callable."""
+    return lambda p: A(fn(Vv(p)))
+
+
+def keep_attr(keep):
+    """KEEP_ATTR value per vertex: (root, tip, u0, u1) eased over the arc fraction,
+    or None (the object's default)."""
+    if keep is None:
+        return -1.0
+    k0, k1, t0, t1 = keep
+    return lambda p, u: k0 + (k1 - k0) * float(hk.smooth01((u - t0) / (t1 - t0)))
+
+
+SETTLE_SQUASH = 0.35
+LOG = []                # per-strand summary lines (printed by build)
+STATS = {}              # object -> [vertices, vertices buried in the cap past the root]
+
+
+def _cap_height(bvh, q):
+    """(height of q over the cap along head_normal(q), that direction): the cap is hit by
+    a ray cast in along the smooth radial direction, not at its nearest point (round 11
+    first build: the nearest point jumped between the faces of a crown groove, and the
+    roots pressed onto it creased 23-100 deg across the groove, D-review p3)."""
+    n = head_normal(q)
+    hit = bvh.ray_cast(q + n * 0.05, -n, 0.12)
+    if hit[0] is None:
+        return None, n
+    return (q - hit[0]).dot(n), n
+
+
+def settle(st, bvh, emerge, depth=1.5, squash=SETTLE_SQUASH, line=True):
+    """Press a strand's root onto the cap so it grows out of the scalp.
+
+    Over the first `emerge` metres of arc every ring vertex's height over the cap
+    surface (along the smooth radial direction head_normal) is eased from
+    squash * h - depth (the section flattened and just buried) to its own h
+    (smoothstep): the clump surfaces as one soft ridge, middle first, without a cut.
+    The outline weight (LINE_ATTR) is 0 until the root is LINE_ON of the way out,
+    then rises to 1. Ring vertices only (the spine, frames and the sections' layout
+    stay), then the strand is validated again."""
+    R = st.rings
+    lw = np.ones(R.shape[:2])
+    for j in range(len(R)):
+        a = float(st.arc[j])
+        if a >= emerge:
+            break
+        s = float(hk.smooth01(a / emerge))
+        for k in range(R.shape[1]):
+            q = Vv(R[j, k])
+            h, nrm = _cap_height(bvh, q)
+            if h is None:
+                continue
+            h2 = min(h, s * h + (1 - s) * (squash * h - depth * PX))
+            R[j, k] = A(q + nrm * (h2 - h))
+        lw[j] = float(hk.smooth01((s - LINE_ON) / LINE_RAMP))
+    if line:
+        st.attrs[LINE_ATTR] = lw
+        st.attrs_apex[LINE_ATTR] = 1.0
+    st.meta['emerge'] = emerge
+    hk.validate(st)
+    return st
+
+
+_RAYS = (Vector((0.0, 0.0, 1.0)), Vector((0.6, 0.0, -0.8)), Vector((-0.5, 0.7, 0.5)).normalized())
+
+
+def _inside(bvh, p):
+    """Point inside the closed mesh of bvh (ray parity, majority of 3 directions)."""
+    votes = 0
+    for d in _RAYS:
+        n, q = 0, Vector(p)
+        for _ in range(16):
+            hit = bvh.ray_cast(q, d, 1.0)
+            if hit[0] is None:
+                break
+            n += 1
+            q = hit[0] + d * 1e-6
+        votes += n % 2
+    return votes >= 2
+
+
+def _inside_flags(st, cap_bvh):
+    """[(tube, (rings, n) bool: vertex inside the cap)] of a strand."""
+    out = []
+    for tb in st.all_tubes():
+        f = np.array([[_inside(cap_bvh, Vv(p)) for p in ring] for ring in tb.rings], dtype=bool)
+        out.append((tb, f))
+    return out
+
+
+def buried(st, cap_bvh, flags=None):
+    """(vertices, vertices inside the cap past the root's emergence) of a strand: the
+    burial beyond the designed root (round 10: 14-73 % of each hair_front object's
+    vertices lay inside the cap or another lock)."""
+    em = st.meta.get('emerge', 0.0)
+    tot = bad = 0
+    for tb, f in (flags or _inside_flags(st, cap_bvh)):
+        tot += f.size
+        bad += int(f[np.asarray(tb.arc) > em].sum())
+    return tot, bad
+
+
+# Post-settle surface checks (round 11 review): the kernel validates the spine; pressing
+# a root into the cap moves ring vertices one by one, so the surface itself is checked
+# too: every strand's root ring starts inside the cap (no flat-cut stump standing proud
+# of it, ROOT_INSIDE), and along every column of the rings outside the cap the surface
+# line turns at most SURFACE_TURN deg per ring (no crease where a root meets the scalp).
+ROOT_INSIDE = 1.0       # share of the root ring's vertices inside the cap
+SURFACE_TURN = 20.0     # deg
+
+
+def surface_turn(tb, flags):
+    """(largest turn (deg) of a ring column's surface line at a vertex outside the cap,
+    the arc (m) of that ring)."""
+    R = np.asarray(tb.rings)
+    if len(R) < 3:
+        return 0.0, 0.0
+    e = np.diff(R, axis=0)                                   # (rings - 1, n, 3)
+    ln = np.linalg.norm(e, axis=2)
+    ok = (ln[:-1] > 1e-6) & (ln[1:] > 1e-6)
+    c = np.sum(e[:-1] * e[1:], axis=2) / np.maximum(ln[:-1] * ln[1:], 1e-12)
+    ang = np.degrees(np.arccos(np.clip(c, -1.0, 1.0)))
+    ang[~ok | flags[1:-1]] = 0.0
+    if not ang.size:
+        return 0.0, 0.0
+    j = int(np.unravel_index(int(ang.argmax()), ang.shape)[0])
+    return float(ang.max()), float(np.asarray(tb.arc)[j + 1])
+
+
+def check_surface(st, cap_bvh, flags):
+    """(root ring share inside the cap, worst surface turn outside it); raises past the limits."""
+    tb0, f0 = flags[0]
+    root = float(f0[0].mean())
+    turn, at = max(surface_turn(tb, f) for tb, f in flags)
+    st.meta.update(root_inside=root, surface_turn=turn, surface_turn_at=at)
+    if CHECK_SURFACE and root < ROOT_INSIDE:
+        raise hk.HairKernelError(f'{st.name}: {100 * (1 - root):.0f} % of its root ring stands outside the cap')
+    if CHECK_SURFACE and turn > SURFACE_TURN:
+        raise hk.HairKernelError(f'{st.name}: its surface turns {turn:.1f} deg between two rings outside the cap')
+    return root, turn
+
+
+CHECK_SURFACE = True
+
+
+# Nesting (round 11). hk.strand_on() lifts a strand wherever a line along its section
+# normal from its underside meets a lower strand within reach, which also lifts it
+# over a neighbour lying BESIDE it when its facing tilts toward that neighbour (the
+# side locks round the head: 2-4 cm). nested() lifts only where the underside really
+# lies inside a lower strand (odd crossings ahead along N, per lower strand), by the
+# distance to that strand's top plus NEST_GAP, smoothed along the arc and faded in
+# from the root; the spine moves, never single vertices.
+NEST_GAP = 0.0008       # m left between a strand's underside and the strand below it
+NEST_SMOOTH = 0.018     # m, Gaussian sigma of the lift along the arc
+NEST_ITERS = 5
+
+
+def _nest_need(st, lowers):
+    """(per-ring lift needed (m), share of the width over a lower strand, top-face
+    points inside a lower strand) of strand st."""
+    s_par, top = hk.ring_params(st.n)
+    under = ~top
+    caps = [lo for lo in lowers if isinstance(lo, CapLower)]
+    lowers = [lo for lo in lowers if not isinstance(lo, CapLower)]
+    tri = [lo.triangles() for lo in lowers]
+    box = [(t.min((0, 1)), t.max((0, 1))) for t in tri]
+    need = np.zeros(len(st.rings))
+    cov = np.zeros(len(st.rings))
+    inv = 0
+    for j, ring in enumerate(st.rings):
+        Nj = st.N[j]
+        for cp in caps:
+            nd, k = cp.need(ring[under], Nj)
+            if k:
+                need[j] = max(need[j], nd)
+                cov[j] = max(cov[j], k / float(under.sum()))
+        lo_r, hi_r = ring.min(0) - 0.002, ring.max(0) + 0.002
+        for t, (lo, hi) in zip(tri, box):
+            if np.any(hi < lo_r) or np.any(lo > hi_r):
+                continue
+            tmin, tmax = t.min(1), t.max(1)
+            ext = float(st.thick[j]) + 0.03
+            sel = np.all(tmax >= lo_r - ext, 1) & np.all(tmin <= hi_r + ext, 1)
+            if not sel.any():
+                continue
+            for face, sign in ((under, 1.0), (top, -1.0)):
+                q = ring[face]
+                mu = hk._line_hits(q, Nj * sign, t[sel])
+                pos = np.where(np.isnan(mu), -1.0, mu)
+                cnt = (pos > 1e-7).sum(1)
+                ins = cnt % 2 == 1
+                if not ins.any():
+                    continue
+                if sign > 0:
+                    need[j] = max(need[j], float(pos[ins].max(1).max()) + NEST_GAP)
+                    cov[j] = max(cov[j], float(ins.mean()))
+                else:
+                    inv += int(ins.sum())
+    return need, cov, inv
+
+
+def _smooth_lift(st, need, root_fade):
+    """The lift over the spine's arc fraction (strand(lift=...) reads it on the spine;
+    a grown curl moves with the spine's end, so its rings' need lands there)."""
+    L = float(st.meta.get('spine_len', st.length)) if st.meta.get('curl') else st.length
+    on = st.arc < L - 1e-6
+    u = np.append(st.arc[on] / L, 1.0)
+    need = np.append(need[on], need[~on].max() if (~on).any() else need[on][-1])
+    su = np.linspace(0.0, 1.0, 401)
+    raw = np.interp(su, u, need)
+    sig = NEST_SMOOTH / L * 400.0
+    r = int(math.ceil(1.0 * sig))
+    dil = np.array([raw[max(0, i - r):i + r + 1].max() for i in range(len(raw))])
+    sm = dil
+    for _ in range(3):
+        sm = np.maximum(hk._blur(sm, sig), raw)
+    sm = hk._blur(sm, 0.25 * sig)
+    if root_fade > 0:
+        sm = sm * hk.smooth01(su * L / root_fade)
+    return su, sm
+
+
+class CapLower:
+    """The scalp cap as a 'lower' for nested(): past its root's emergence a lock
+    rests on the cap instead of sinking its concave underside and rims into it
+    (round 11 first build: 15-18 % of the fringe and curtain vertices lay inside
+    the cap beyond their designed root burial). Its need is the depth under the
+    cap surface (nearest point), over the cosine between the lock's facing and
+    the cap normal there (a line along a lock's tilted facing would run along the
+    cap surface)."""
+
+    def __init__(self, bvh):
+        self.bvh = bvh
+
+    def need(self, pts, N):
+        out = 0.0
+        hits = 0
+        for p in pts:
+            q = Vv(p)
+            if not _inside(self.bvh, q):
+                continue
+            co, nrm, _i, d = self.bvh.find_nearest(q)
+            if co is None:
+                continue
+            hits += 1
+            c = max(0.35, float(np.dot(N, A(nrm))))
+            out = max(out, d / c + NEST_GAP)
+        return out, hits
+
+
+_CAP_LOWER = []
+
+
+def cap_lower(bvh=None):
+    if bvh is not None:
+        _CAP_LOWER[:] = [CapLower(bvh)]
+    return _CAP_LOWER[0]
+
+
+def nested(lowers, root_fade=0.0, **kw):
+    """hk.strand(**kw) lifted out of the strands `lowers` it would cut into (see above).
+    meta: lift_max, overlap (share of the width inside a lower at the worst ring),
+    residual (m of lift still needed past root_fade), inverted (top-face points inside
+    a lower strand: the layer order is wrong there)."""
+    st = hk.strand(**kw)
+    total = None
+    lowers = list(lowers)
+    hist = []
+    for _ in range(NEST_ITERS if lowers else 0):
+        need, cov, inv = _nest_need(st, lowers)
+        hist.append((st.arc.copy(), need.copy()))
+        if need.max() < 0.25 * NEST_GAP:
+            break
+        # the absolute lift each ring needs (the lift it already has + what it still
+        # lacks), smoothed; never below the lift so far (a sum of smoothed bumps from
+        # successive passes would pile up where they overlap)
+        # (within the root's emergence the clumps are pressed into the scalp, where
+        # neighbouring roots merge like pleats: no lift is asked for there, or the
+        # faded lift creeps up toward the root pass after pass)
+        if root_fade > 0:
+            need = need * hk.smooth01((st.arc - 0.5 * root_fade) / (0.5 * root_fade))
+        if total is not None:
+            L = float(st.meta.get('spine_len', st.length)) if st.meta.get('curl') else st.length
+            have = np.interp(np.minimum(st.arc / L, 1.0), np.linspace(0.0, 1.0, len(total)), total)
+            need = np.where(need > 0, need + have, 0.0)
+        su, sm = _smooth_lift(st, need, root_fade)
+        total = sm if total is None else np.maximum(total, sm)
+        for k in range(4):
+            # a lift that bends the spine past the ring limits is spread wider
+            try:
+                st = hk.strand(**dict(kw, lift=hk.Lift(su, total.copy(), float(cov.max()), need)))
+                break
+            except hk.HairKernelError:
+                if k == 3:
+                    raise
+                tb = hk._blur(total, 0.75 * NEST_SMOOTH / st.length * 400.0)
+                total = tb * (total.max() / max(tb.max(), 1e-9))
+    if lowers:
+        need, cov, inv = _nest_need(st, lowers)
+        free = st.arc > root_fade
+        st.meta.update(lift_max=0.0 if total is None else float(total.max()), overlap=float(cov.max()), need=need,
+                       lift=None if total is None else total,
+                       residual=float(need[free].max()) if free.any() else 0.0, inverted=inv, need_hist=hist)
+    return st
+
+
+def log_strand(st, obj, cap_bvh=None):
+    v = hk.validate(st)
+    m = st.meta
+    bur = ''
+    if cap_bvh is not None:
+        flags = _inside_flags(st, cap_bvh)
+        tot, bad = buried(st, cap_bvh, flags)
+        STATS.setdefault(obj, [0, 0])
+        STATS[obj][0] += tot
+        STATS[obj][1] += bad
+        root, turn = check_surface(st, cap_bvh, flags)
+        bur = (f'  buried past root {100 * bad / max(tot, 1):.1f}%  root in cap {100 * root:.0f}%  '
+               f'surface turn {turn:.1f} at {1000 * m["surface_turn_at"]:.0f} mm')
+    LOG.append(f'{obj:15s} {st.name:16s} len {1000 * st.length:5.0f} mm  n {st.n:2d}  rings {v["rings"]:3d}  '
+               f'faces {v["faces"]:4d}  turn {v["max_turn"]:4.1f}  rho {v["max_rho"]:.2f}  twist '
+               f'{v["max_twist"]:4.1f}  gap {1000 * v["max_gap"]:4.1f} mm{bur}'
+               + (f'  overlap {100 * m["overlap"]:.0f}% lift {1000 * m["lift_max"]:.1f} mm '
+                  f'residual {1000 * m["residual"]:.2f} mm inverted {m.get("inverted", 0)}'
+                  if 'overlap' in m else ''))
+
+
+def emit_all(bm, strands, obj, cap_bvh=None):
+    for st in strands:
+        log_strand(st, obj, cap_bvh)
+        hk.emit(bm, st)
+
+
 def cap_front_point(fx, row, grow):
     """Point on the cap's front surface at front offset fx, moved `grow` px
     outward along head_normal (negative = buried inside the cap)."""
@@ -957,13 +1210,22 @@ def cap_front_point(fx, row, grow):
     return p + head_normal(p) * (grow * PX)
 
 
+def _polyline_len(pts):
+    return sum((b - a).length for a, b in zip(pts, pts[1:]))
+
+
+# ---------------------------------------------------------------- bangs
 BANG_NORMAL = Vector((0, -1, 0.25)).normalized()
 
 
 def bang_normal(p):
     """Bangs face the front; the outer ones turn toward their side so they
-    read as a mass, not edge-on slivers, in the side view."""
-    return (BANG_NORMAL + Vector((0.6 * p.x / (40 * PX), 0, 0))).normalized()
+    read as a mass, not edge-on slivers, in the side view. Over the crown the
+    facing leans to the scalp's own normal (the root lies on it)."""
+    n = (BANG_NORMAL + Vector((0.6 * p.x / (40 * PX), 0, 0))).normalized()
+    row = spec.SHEET_GROUND_Y - p.z * spec.PX_PER_M
+    t = smooth01((row - 30.0) / 40.0)
+    return (head_normal(p) * (1 - t) + n * t).normalized()
 
 
 # Front-most side-view column of the face skin vs |front offset|, rows ~80-120
@@ -971,7 +1233,25 @@ def bang_normal(p):
 # constant here). The bang tips keep a small air gap in front of it.
 FACE_FRONT = ((0, 240), (10, 241), (20, 245), (30, 254), (40, 268), (46, 290))
 BANG_TIP_GAP = 5        # px in front of the skin at the tips
+# ... and this much more where a tip ends over an eye (its upper lid and lashes stand
+# in front of the skin table; round 11 review: with the r11 head a primary's tip lay
+# 0.2 mm in front of the right upper lash): full within BANG_EYE_REACH px of the eye
+# centre column (spec eye_x, out to the outer corners) and over BANG_EYE_ROWS, fading
+# out over BANG_EYE_FADE px.
+BANG_EYE_GAP = 1.5
+BANG_EYE_REACH = 18.0
+BANG_EYE_ROWS = (90.0, 112.0)
+BANG_EYE_FADE = 8.0
 BANG_BULGE = 8          # px in front of the skin where the fringe arches out (row 84)
+
+
+def bang_eye_gap(fx, row):
+    """Extra tip gap (px) of a fringe tip ending at (fx, row) over an eye."""
+    ex = spec.L['eye_x'] * spec.PX_PER_M
+    w = 1.0 - smooth01((abs(abs(fx) - ex) - BANG_EYE_REACH) / BANG_EYE_FADE)
+    w *= smooth01((row - BANG_EYE_ROWS[0] + BANG_EYE_FADE) / BANG_EYE_FADE)
+    w *= 1.0 - smooth01((row - BANG_EYE_ROWS[1]) / BANG_EYE_FADE)
+    return BANG_EYE_GAP * w
 
 
 def face_front_sc(fx):
@@ -983,202 +1263,288 @@ def face_front_sc(fx):
     return t[-1][1]
 
 
-# A few broad, overlapping clumps of varied width and length (sheet: the
-# longest falls between the eyes, slightly to the image-left; the outer pair
-# frame the face past the outer eye corners). Roots converge on the crown.
-# (fx root, fx tip, tip row, width px, lift px, tip roundness, taper start,
-# kind). The lift layers the clumps so overlapping ones never share a
-# surface: higher lift = on top. Roundness is strand()'s `ogive`: higher keeps
-# the width longer and closes the tip in an arc, so neighbouring tips differ
-# instead of forming a row of identical teeth. kind: 'in' = inner clump rooted
-# at the crown; 'out' = outer clump (thinner, arches out less, so the brow
-# doesn't read as a visor, rooted part way down the crown); 'temple' = outer
-# lock rooted near the temple. Only the inner clumps start at the crown, so no
-# long root seams run down the sides of the crown.
-# Round 5: the clumps beside the dominant central lock are ~12% narrower and
-# their tips swing 2 px further out, so the central sweep leads the fringe.
-# Round 9 (the reference's strength: thick masses, not paper strips): the same
-# layout, but the three primary locks (the central sweep and one over each eye)
-# are ~4.2 cm wide at the root and the secondaries narrower; every clump is a
-# crescent: last field = the strand's `thick` (m), and with BANG_BACK < 0 the
-# underside is concave (convex top, hollow underside), so a primary is ~1 cm
-# through its middle and thinner toward its edges, which curl back (wrap).
-# (A rebuild as three wide primaries plus four small locks lost the pairwise
-# front-view review: the eyes-level fringe read as fewer, blunter tips.)
+# A few broad, nested clumps of varied width and length (sheet: the longest
+# falls between the eyes, slightly to the image-left; the outer pair frame the
+# face past the outer eye corners). Roots converge on the crown.
+# (fx root, fx tip, tip row, width px, layer, tip roundness, taper start, kind).
+# layer: higher = on top (built later, resting on the clumps below it, see
+# BANG_GAP). Roundness is the tip ogive's exponent: higher keeps the width longer
+# and closes the tip in an arc. kind: 'in' = inner clump rooted at the crown;
+# 'out' = outer clump (arches out less, rooted part way down the crown); 'temple'
+# = outer lock rooted near the temple.
+# Round 9: the three primary locks (the central sweep and one over each eye) are
+# ~4.2 cm wide at the root and the secondaries narrower.
+# Round 11 (kernel): crescent sections of aspect BANG_ASPECT (convex top, concave
+# underside, rims curling back by BANG_WRAP), one smooth arch from the crown to
+# the tip (the control points are B-spline control vertices: round 10 interpolated
+# a corner at row 84, a 24-35 deg / ring crease across the primaries), nested in
+# layer order instead of interpenetrating, the primaries split into two sub-tips
+# and every tip turning in toward the face like a comma (BANG_COMMA).
 BANG_CLUMPS = (
-    (-3, -7, 129, 27, 7.0, 1.4, 0.32, 'in', 0.024),     # primary: central sweep, on top
-    (5, 14, 108, 19, 4.0, 2.4, 0.4, 'in', 0.016),       # secondary right of the parting
-    (-15, -25, 101, 27, 5.0, 2.2, 0.38, 'in', 0.022),   # primaries over the eyes, shorter,
-    (19, 29, 97, 27, 5.5, 2.0, 0.4, 'in', 0.022),       # so the tip rows vary by ~3 cm
-    (-29, -38, 114, 24, 6.0, 1.9, 0.5, 'out', 0.017),
-    (31, 40, 110, 22, 6.5, 2.3, 0.5, 'out', 0.017),
-    (35, 44, 124, 17, 3.5, 1.7, 0.55, 'temple', 0.014),  # past the outer eye corners
-    (-37, -45, 126, 17, 3.5, 1.7, 0.55, 'temple', 0.014),
+    (-3, -7, 129, 27, 7.0, 1.4, 0.40, 'in'),     # primary: central sweep, on top
+    (6, 15, 108, 19, 4.0, 2.4, 0.45, 'in'),      # secondary right of the parting
+    (-16, -26, 101, 27, 5.0, 2.2, 0.42, 'in'),   # primaries over the eyes, shorter,
+    (19, 29, 97, 27, 5.5, 2.0, 0.44, 'in'),      # so the tip rows vary by ~3 cm
+    (-31, -40, 114, 24, 6.0, 1.9, 0.50, 'out'),
+    (33, 42, 110, 22, 6.5, 2.3, 0.50, 'out'),
+    (42, 53, 128, 14, 3.5, 1.7, 0.55, 'temple'),  # past the outer eye corners, under the outs
+    (-43, -53, 129, 14, 3.5, 1.7, 0.55, 'temple'),
 )
-BANG_BACK = -0.15       # underside offset share (strand back=): < 0 = concave
-BANG_WRAP = (0.22, 0.12)  # edge curl-back at the root and the tip (x width)
-# The thicker crescent stands further out than round 8's 11.5 mm lens: the
-# centreline moves back by this share of the extra outer half-thickness (px
-# scale: root/forehead, mid-fringe, tip), so the fringe keeps its outline and
-# the tips their gap to the face.
+BANG_PRIMARY = ()       # clumps whose tips split (BANG_SPLIT). Round 11 review: the split
+                        # primaries (0, 2, 3) drew outline spurs at each fork and a notch at
+                        # the longer sub-tip over the eyes, so the fringe tips stay whole
+BANG_SPLIT = dict(at=0.80, shares=(0.56, 0.44), diverge=6.0, lengths=(1.0, 0.72))
+BANG_ASPECT = 5.0       # width / thickness at the widest ring
+BANG_SWELL = (0.35, 0.30)
+BANG_TIP_B = 0.75
+BANG_WRAP = (0.22, 0.14)  # rim curl-back at the root and the tip (x width)
+BANG_COMMA = 0.0        # px the tip control vertex moves in toward the face (0: the tips keep
+                        # BANG_TIP_GAP; at 3 px some tips met the brow)
+# The crescent's outer face stands 0.625 x its thickness over the spine; the spine
+# moves back by this share of the outer half over BANG_REF_HALF (px scale: root /
+# forehead, mid-fringe, tip), so the fringe keeps round 10's outline and its tips
+# their gap to the face.
 BANG_REF_HALF = 0.00575
 BANG_SINK = (1.0, 0.7, 0.3)
 OUTER_BULGE_LESS = 6    # px less forward arch on the outer clumps
-BANG_STAGGER = 0.8      # px of forward offset per px of lift over the forehead
+BANG_STAGGER = 0.5      # px of forward offset per layer over the forehead
+BANG_GAP = 0.0008       # m: an upper clump's underside rests this far over the clumps below
 # Root path: four stations from the crown to the hairline, on the cap surface
-# (grow base px + share x lift); settle() then buries and raises the root
+# (grow base px + share x layer); settle() then buries and raises the root
 # section against the real cap, so the stations only steer the path.
-# ROOT_FX / ROOT_FX_TIP place them between the root and fx0 (and toward fx1).
 ROOT_GROW = ((0.0, 0.0), (0.5, 0.1), (1.0, 0.25), (1.2, 0.45))
 ROOT_FX = (0.0, 0.45, 0.75, 0.95)
 ROOT_FX_TIP = (0.0, 0.0, 0.03, 0.1)
 # per kind: (station rows, share of fx0 the root starts at)
-ROOTS = {'in': ((20, 38, 54, 68), 0.25),
-         'out': ((28, 42, 56, 70), 0.55),
-         'temple': ((34, 46, 58, 70), 0.7)}
-BANG_EMERGE = 0.92      # emergence length: x the arc to the third station
+ROOTS = {'in': ((20, 38, 54, 68), 0.35),
+         'out': ((26, 40, 55, 69), 0.6),
+         'temple': ((32, 45, 57, 69), 0.75)}
+BANG_EMERGE = 1.0       # emergence length: x the arc to station BANG_EMERGE_AT
+BANG_EMERGE_AT = 4      # (stations from the crown: 3 = the third)
+BANG_WSCALE = 0.85      # x the widths in BANG_CLUMPS
+BANG_SPREAD = 1.25      # x the tips' front-view offset from the root line (fan)
+BANG_DEPTH = 1.5        # px each layer below the top one sits further back (pre-nesting)
+BANG_BULGE_OUT = 3.0    # px the row-84 control vertex stands past the arch it shapes
 # Normals: pure scalp-volume normal while a root emerges (its flanks shade
 # exactly like the cap around it, no shade slivers along the ridges), then
 # VOL_KEEP of the clump's own normal on the free fringe.
 BANG_KEEP = (0.0, VOL_KEEP, 0.25, 0.55)
 
 
-def _polyline_len(pts):
-    return sum((b - a).length for a, b in zip(pts, pts[1:]))
+def bang_points(fx0, fx1, row1, wpx, lift, kind, thick):
+    """B-spline control vertices (m) of one fringe clump, and its emergence arc (m)."""
+    outer = kind != 'in'
+    sink = max(0.0, 0.625 * thick - BANG_REF_HALF) / PX     # px
+    tip = face_front_sc(fx1) - BANG_TIP_GAP - bang_eye_gap(fx1, row1)
+    fxm = fx0 + (fx1 - fx0) * 0.45
+    # On the forehead the cap (which recedes behind the face only below the
+    # hairline) usually binds; the face term only limits where the cap is set
+    # back. Outer clumps then sit OUTER_BULGE_LESS px further back.
+    bulge = min(face_front_sc(fxm) - BANG_BULGE, cap_front_sc(fxm, 84) - lift - 2)
+    if outer:
+        bulge += OUTER_BULGE_LESS
+    stag = BANG_STAGGER * (lift - 5.0)
+    bulge -= stag + BANG_BULGE_OUT
+    bulge += BANG_DEPTH * (max(c[4] for c in BANG_CLUMPS) - lift)
+    rowm = (84 + row1) / 2
+    fxq = fx0 + (fx1 - fx0) * 0.75
+    rows, share = ROOTS[kind]
+    fxr = fx0 * share
+    s0, s1, s2 = (k * sink for k in BANG_SINK)
+    ctrl = [cap_front_point(fxr + (fx0 - fxr) * a + (fx1 - fx0) * b, row, g0 + g1 * lift - s0)
+            for row, (g0, g1), a, b in zip(rows, ROOT_GROW, ROOT_FX, ROOT_FX_TIP)]
+    emerge = _polyline_len(ctrl[:BANG_EMERGE_AT]) * BANG_EMERGE
+    ctrl += [P(fxm, 84, bulge + s0),
+             P(fxq, rowm, (bulge + tip) / 2 - 1 + s1),
+             P(fx1, row1, tip + s2 + BANG_COMMA)]
+    return [A(p) for p in ctrl], emerge
 
 
-def bangs(bm, cap_bvh):
-    """The fringe: rounded-wedge clumps that grow out of the cap above the
-    hairline, arch out over the forehead and come back to rest just in front
-    of it.
-
-    Each root follows the cap surface and is pressed onto it (settle): it
-    starts flattened just under the scalp and lifts out over ~3-4 cm, the
-    middle ridge first, so the crown keeps one surface with soft clump lines."""
-    for fx0, fx1, row1, wpx, lift, rnd, tf, kind, thick in BANG_CLUMPS:
-        outer = kind != 'in'
-        sink = max(0.0, thick / 2 - BANG_REF_HALF) / PX     # px
-        tip = face_front_sc(fx1) - BANG_TIP_GAP
-        fxm = fx0 + (fx1 - fx0) * 0.45
-        # On the forehead the cap (which recedes behind the face only below
-        # the hairline) usually binds; the face term only limits where the cap
-        # is set back. Outer clumps then sit OUTER_BULGE_LESS px further back.
-        bulge = min(face_front_sc(fxm) - BANG_BULGE, cap_front_sc(fxm, 84) - lift - 2)
-        if outer:
-            bulge += OUTER_BULGE_LESS
-        # stagger the clumps in depth by their layer (higher lift = further
-        # forward) so the exposed fringe reads as overlapping clumps, not one
-        # shell; the stagger fades out toward the tips
-        stag = BANG_STAGGER * (lift - 5.0)
-        bulge -= stag
-        tip -= 0.4 * stag
-        rowm = (84 + row1) / 2
-        fxq = fx0 + (fx1 - fx0) * 0.75
-        rows, share = ROOTS[kind]
-        fxr = fx0 * share
-        s0, s1, s2 = (k * sink for k in BANG_SINK)
-        ctrl = [cap_front_point(fxr + (fx0 - fxr) * a + (fx1 - fx0) * b, row, g0 + g1 * lift - s0)
-                for row, (g0, g1), a, b in zip(rows, ROOT_GROW, ROOT_FX, ROOT_FX_TIP)]
-        emerge = _polyline_len(ctrl[:3]) * BANG_EMERGE
-        ctrl += [P(fxm, 84, bulge + s0),
-                 P(fxq, rowm, (bulge + tip) / 2 - 1 + s1),
-                 P(fx1, row1, tip + s2)]
-        # 16 sides on the broad clumps: a rounded centre ridge and flanks
-        st = strand(bm, ctrl, wpx * PX, thick, segs=18, n=12 if outer or wpx < 20 else 16,
-                    base_taper=0.7, tip_pow=0.75, ogive=rnd, tip_dense=0.35, normal=bang_normal,
-                    tip_from=tf, back=BANG_BACK, wrap=BANG_WRAP[0], wrap_tip=BANG_WRAP[1], tip_thick=0.1,
-                    thin=(0.45, 0.5), frame_smooth=0.08, keep=BANG_KEEP)
-        settle(bm, st, cap_bvh, emerge, depth=1.2)
+def bangs(cap_bvh):
+    """The fringe: crescent clumps that grow out of the cap above the hairline,
+    arch out over the forehead and come back to rest just in front of it, each
+    resting on the clumps below it. Returns the kernel strands."""
+    order = sorted(range(len(BANG_CLUMPS)), key=lambda i: (BANG_CLUMPS[i][4], i))
+    built = []
+    top = max(c[4] for c in BANG_CLUMPS)
+    for i in order:
+        fx0, fx1, row1, wpx, lift, rnd, tf, kind = BANG_CLUMPS[i]
+        fx1 = fx0 + (fx1 - fx0) * BANG_SPREAD
+        wpx *= BANG_WSCALE
+        w = wpx * PX
+        thick = w / BANG_ASPECT
+        pts, emerge = bang_points(fx0, fx1, row1, wpx, lift, kind, thick)
+        kw = dict(name=f'bang{i}', points=pts, mode='bspline', width=w, thick=thick,
+                  facing=facing_fn(bang_normal), swell=BANG_SWELL, tip=(tf, rnd, BANG_TIP_B),
+                  wrap=BANG_WRAP, n=16 if wpx >= 24 else (14 if wpx >= 19 else 12),
+                  grad=None, attrs={KEEP_ATTR: keep_attr(BANG_KEEP), LINE_ATTR: 1.0},
+                  split=hk.split(**BANG_SPLIT) if i in BANG_PRIMARY else None)
+        st = nested(built, root_fade=emerge, **kw)
+        settle(st, cap_bvh, emerge, depth=1.2)
+        built.append(st)
+    return built
 
 
-def ahoge(bm, cap_bvh):
-    """Two crown tufts. They leave the scalp tangentially just behind the
-    apex and curve forward and away from it, so the top reads as a tuft on a
-    round crown rather than as the cap's own spike."""
-    sh = cap_shift      # round 10: the tufts ride the reshaped crown
-    st = strand(bm, [sh(P(-2, 34, 304)), sh(P(-2, 22, 292)), sh(P(-1, 15, 279)), sh(P(1, 11, 268)),
-                     sh(P(3, 11, 261))],
-                0.016, 0.007, segs=14, n=8, base_taper=0.6, tip_pow=0.8, ogive=1.6, tip_dense=0.4,
-                tip_from=0.35, normal=lambda p: Vector((1, 0, 0)))
-    settle(bm, st, cap_bvh, 14 * PX, depth=1.0)
-    st = strand(bm, [sh(P(4, 36, 308)), sh(P(6, 25, 296)), sh(P(6, 19, 283)), sh(P(8, 17, 276))],
-                0.012, 0.006, segs=10, n=8, base_taper=0.6, tip_pow=0.8, ogive=1.4,
-                tip_dense=0.3, tip_from=0.3, normal=lambda p: Vector((1, 0, 0)))
-    settle(bm, st, cap_bvh, 12 * PX, depth=1.0)
+# ---------------------------------------------------------------- ahoge
+# Round 11: one short tuft, the sheet's pointed peak on the crown. It leaves the
+# front slope of the crown at AHOGE_RISE (>= AHOGE_MIN_RISE to the scalp) with only
+# its first few mm buried and the broad side up (round 10's tufts were settled into
+# the cap edge-on and read as a slit, D9), sweeps back over the crown in one arc
+# (AHOGE_BEND) that still rises at its tip, and narrows to a point from AHOGE_TIP
+# on. Seen from the front its sections stack into a pointed peak (the highest,
+# narrowest one on top); from the side it is a short blade lying close over the
+# crown (tip <= AHOGE_MAX_HEIGHT over the cap). Review of the first round-11 build:
+# two tufts arching 1.5-3 cm over the crown toward the front camera, one seen
+# end-on at its full width as a flat-topped stub, the other hooking down like a
+# claw; a forward tuft that rises to its tip is still seen end-on from the front
+# and the 3/4 views (a stub), so this one sweeps back.
+AHOGE_ROOT = (0.0, 265.0)       # (front-view px, side-view col) of the root on the cap top
+AHOGE_HEADING = 180.0   # deg from straight forward toward +X (seen from above): back
+AHOGE_RISE = 22.0       # deg over the scalp's tangent plane where it leaves the cap
+AHOGE_BEND = -22.0      # deg the spine turns down over its length (a circular arc in its
+                        # vertical plane; it ends still rising, so the tip is the highest point)
+AHOGE_LENGTH = 0.034    # m of free spine (plus the buried root)
+AHOGE_WIDTH = 0.015
+AHOGE_ASPECT = 2.6
+AHOGE_FACE_FWD = 0.0    # forward lean of the broad side (added to the scalp normal)
+AHOGE_TIP = (0.30, 1.15, 1.0)   # kernel tip taper from 30 % of the length, (1 - x^1.15): nearly straight
+                                # sides to a point (x^1.6 read as a round knob from the front), no kink
+                                # where it starts (x^1 turned the rims there)
+AHOGE_SWELL = (0.7, 0.22)   # root width share, over this share of the length (a gentle swell ending
+                            # before the taper starts: (0.6, 0.25) turned the rims 20 deg per ring)
+AHOGE_BURY = 0.0025     # m the root ring starts under the scalp
+AHOGE_EMERGE = 0.014    # m of arc over which settle() lets the root surface
+AHOGE_SQUASH = 0.9      # ... from this share of its height over the cap (a short tuft has few rings
+                        # there: flattened to 0.35 its top creased 20 deg between two of them)
+AHOGE_MIN_RISE = 20.0   # deg: the tuft leaves the scalp at least this steeply (checked)
+AHOGE_MAX_HEIGHT = 10.0  # px: the tip stands at most this far over the cap below it (checked)
+AHOGE_LOG = {}
 
 
-# Side locks for the character's left (+X, image right); mirrored for the right.
-# ctrl points (fx, row, sc), full width (m). The side view of the sheet shows
-# the face clear from the nose back to col ~260 (rows 90-155), with only a
-# short cheek lock behind the eye: every lock stays behind that line.
+def _cap_below(cap_bvh, p):
+    """(point, normal) of the cap straight below p (cast down from 5 cm above)."""
+    hit = cap_bvh.ray_cast(p + Vector((0.0, 0.0, 0.05)), Vector((0.0, 0.0, -1.0)), 0.2)
+    if hit[0] is None:
+        raise RuntimeError(f'hair_front ahoge: no cap below {tuple(p)}')
+    return hit[0], hit[1]
+
+
+def ahoge(cap_bvh):
+    fx, sc = AHOGE_ROOT
+    p, n = _cap_below(cap_bvh, P(fx, CAP_TOP[0], sc))
+    h = math.radians(AHOGE_HEADING)
+    head = Vector((math.sin(h), -math.cos(h), 0.0))
+    head = (head - n * head.dot(n)).normalized()           # in the scalp's tangent plane
+    r = math.radians(AHOGE_RISE)
+    d0 = (head * math.cos(r) + n * math.sin(r)).normalized()
+    up = Vector((0.0, 0.0, 1.0))
+    up = (up - d0 * up.dot(d0)).normalized()
+    b = math.radians(AHOGE_BEND)
+    R = AHOGE_LENGTH / abs(b) if abs(b) > 1e-6 else None
+    path = []
+    for k in range(1, 7):
+        s_ = AHOGE_LENGTH * k / 6
+        if R is None:
+            path.append(p + d0 * s_)
+        else:
+            phi = s_ / R
+            path.append(p + d0 * (R * math.sin(phi)) + up * (math.copysign(1.0, b) * R * (1 - math.cos(phi))))
+    rise = math.degrees(math.asin(max(-1.0, min(1.0, d0.dot(n)))))
+    if rise < AHOGE_MIN_RISE:
+        raise RuntimeError(f'hair_front ahoge: leaves the scalp at {rise:.1f} deg (< {AHOGE_MIN_RISE})')
+    p0 = p - n * AHOGE_BURY - d0 * (0.5 * AHOGE_BURY / math.sin(math.radians(rise)))
+    pts = [A(p0), A(p)] + [A(q) for q in path]
+
+    def face(q):
+        # broad side up, off the scalp (AHOGE_FACE_FWD leans it forward)
+        return A((head_normal(Vv(q)) + Vector((0.0, -AHOGE_FACE_FWD, 0.0))).normalized())
+    st = hk.strand(pts, name='ahoge', width=AHOGE_WIDTH, aspect=AHOGE_ASPECT, facing=face,
+                   tangents=(A(d0), None), swell=AHOGE_SWELL, tip=AHOGE_TIP, wrap=0.15,
+                   attrs={KEEP_ATTR: -1.0, LINE_ATTR: 1.0})
+    settle(st, cap_bvh, AHOGE_EMERGE, depth=0.6, squash=AHOGE_SQUASH)
+    tip = Vv(st.apex)
+    under, _n = _cap_below(cap_bvh, tip)
+    height = (tip.z - under.z) * spec.PX_PER_M
+    top = max(float(c[2]) for c in st.centres)
+    AHOGE_LOG.update(rise=rise, height=height, tip_highest=bool(tip.z >= top - 1e-4))
+    if height > AHOGE_MAX_HEIGHT:
+        raise RuntimeError(f'hair_front ahoge: tip {height:.1f} px over the cap (> {AHOGE_MAX_HEIGHT})')
+    return [st]
+
+
+# ---------------------------------------------------------------- side locks
+# Side locks for the character's left (+X, image right); the right side is the
+# kernel's exact mirror (hk.mirrored). ctrl points (fx, row, sc) and full width (m).
+# The side view of the sheet shows the face clear from the nose back to col ~260
+# (rows 90-155), with only a short cheek lock behind the eye: every lock stays
+# behind that line.
+# Round 11 (kernel): crescent sections (aspect LOCK_ASPECT), adaptive rings, and
+# the ends re-authored within the curvature limits: the cheek locks and wisps
+# end in a grown outward turn (<= 120 deg, R >= 12 mm, narrowing to a blade;
+# round 10: barbs turning 94 deg in one ring, D6), the shoulder curl in a spiral
+# that tightens as it narrows (round 10: a 180 deg hook in 2.3 cm, D5).
+# Each entry: (ctrl, width, end turn or None).
 CHEEK_LOCKS = [
-    # Beside the cheek, behind the eye in the side view (the face shows from
-    # the nose back to col ~255). They leave the cap at the temple, come in
-    # toward the cheek, and turn their green tips outward at jaw level.
-    # Below the cheekbone they drift back toward the ear so the jaw stays
-    # clear in the side view while the front view still sees them beside it.
-    # Round 5: thinner, rounder bundles; the outward turn starts ~10 rows
-    # earlier, ~3 px higher and further out, and closes in a ~1.2 cm radius
-    # with a short upward hook; the two tips end ~1 cm apart in height and
-    # ~0.5 cm apart in depth.
-    ([(38, 48, 252), (51, 72, 252), (50, 96, 257), (49, 112, 263), (52, 124, 270),
-      (58, 134, 277), (65, 140, 283), (71, 140, 287), (75, 136, 290), (76, 131, 291)], 0.022),
-    ([(46, 52, 262), (59, 78, 263), (57, 102, 269), (58, 117, 276), (62, 128, 283),
-      (68, 134, 288), (73, 133, 292), (76, 128, 295), (76, 123, 296)], 0.023),
+    # Beside the cheek, behind the eye in the side view. They leave the cap at
+    # the temple, come in toward the cheek, and turn their green tips outward
+    # at jaw level; below the cheekbone they drift back toward the ear so the
+    # jaw stays clear in the side view. The tips turn out and a little forward,
+    # in front of the long lock behind them.
+    # (round 11 review: the roots start 6 px lower than the first build, under the temple
+    # clumps, so a forearm laid over the head, dance_heart, crosses less of them)
+    ([(40, 54, 252), (51, 72, 252), (50, 96, 257), (49, 112, 263), (51, 124, 269), (54, 132, 274)], 0.021,
+     dict(turn=75, toward=(0.7, -0.7, 0.15), radius=0.024, core=0.6, lead=1.5)),
+    ([(46, 58, 262), (57, 78, 263), (58, 102, 272), (60, 115, 279), (62, 126, 284)], 0.019,
+     dict(turn=70, toward=(1.0, -0.35, 0.2), radius=0.024, core=0.6, lead=1.5)),
 ]
 WISP_LOCKS = [
     # outer wisps flaring out at rows 115-140 (front), behind the eye (side);
-    # they keep falling as they flare, and only the last ~1 cm turns softly
-    # back up toward the head (no horizontal spike)
-    # Round 5: narrower, and the second wisp ~3 px deeper so the two don't
-    # read as one broad temple panel.
-    ([(52, 48, 270), (63, 82, 272), (71, 104, 276), (77, 120, 280), (82, 131, 283),
-      (86, 138, 285), (88, 139, 287), (89, 136, 289)], 0.019),
-    ([(58, 58, 290), (70, 94, 291), (78, 116, 293), (83, 128, 295), (86, 134, 297),
-      (87, 133, 299), (86, 129, 300)], 0.017),
+    # they keep falling as they flare and close in a blade (round 10: a soft
+    # upward turn on wisp 0, a 94 deg barb on wisp 1). The accessories' flower
+    # sits on wisp 0 at the temple (its path there is round 10's).
+    ([(52, 48, 273), (64, 82, 275), (72, 104, 278), (77, 120, 281), (82, 131, 284), (86, 138, 287)], 0.019,
+     None),
+    # (wisp 1: round 11 review, 3-7 px in and forward of the first build, ending 3 rows
+    # higher: a raised upper arm beside the head, reach_up_back, met its lower half)
+    ([(58, 58, 291), (69, 94, 292), (75, 114, 294), (79, 125, 296), (81, 130, 298)], 0.017, None),
 ]
-# The lock in front of each shoulder: a two-strand bundle. The dominant
-# S-shaped lock (A) turns forward gradually over rows ~140-225 and ends with
-# a slight turn back toward the chest. The support (B) is under-layer volume
-# behind A: it runs ~5-8 px deeper, never swings forward, and ends ~5 cm
-# higher pointing down and back, so the two never read as parallel prongs.
-# Round 5: the run through rows 85-150 is one shallow outward bow into the
-# forward swing (no straight drop then bend); A keeps a near-round section
-# (2.6 x 2.2 cm) and thins only over its last third.
+# The lock in front of each shoulder: an S-shaped lock that turns forward
+# gradually over rows ~140-225 and ends with a slight turn back toward the chest.
+# Round 11: round 10's support lock (an under-layer lying in the same place as the
+# shoulder curl's upper half) is gone; the curl now runs behind this lock there.
 FRONT_LONG_MAIN = [
     ([(52, 60, 276), (62, 86, 283), (67, 112, 288), (67, 132, 288), (67, 149, 281),
       (69, 164, 268), (72, 179, 255), (75, 193, 245), (78, 206, 240), (80, 217, 239),
-      (80, 227, 241)], 0.026),
+      (80, 227, 241)], 0.026, None),
 ]
-FRONT_LONG_SUPPORT = [
-    ([(56, 66, 278), (65, 100, 290), (69, 130, 295), (71, 148, 294), (73, 162, 290),
-      (75, 175, 285), (76, 186, 281), (76, 193, 280)], 0.022),
-]
-# The outward shoulder curl: round 4 gives it a rounder section (8 sides,
-# thicker) and a wider, more gradual terminal turn instead of a tight hook.
-# Round 5: it crosses the shoulder ~8 px further forward and a few rows
-# higher, in front of the raised upper arm's path (arms_up: the curl sank
-# 1.1-1.6 cm into the arm; now below the bodice's own 1.2 cm).
-# Round 9: rerouted in front of the shoulder. Round 5-8's curl crossed the top of
-# the shoulder at the arm's own depth (side col 276-292, the deltoid spans ~277-313)
-# and hooked over the outer upper arm, so any raised arm (spin, high_kick, arms_up)
-# swept up into it (15-20 % inside). Below row 150 it now comes forward over the
-# front of the shoulder and hooks out in front of the arm's plane (CURL_FRONT px
-# in front of round 8's path at the hook, eased in from CURL_FRONT_ROWS); the
-# front view keeps the same outward flip at the shoulder line. CURL_FRONT = 0
-# restores round 8's path.
-CURL_PATH = ((60, 70, 282), (66, 100, 284), (64, 130, 285), (64, 150, 282), (72, 170, 277),
-             (81, 183, 276), (90, 195, 280), (98, 205, 285), (106, 214, 290), (118, 220, 291),
-             (127, 226, 292), (132, 233, 292), (131, 241, 292), (126, 246, 292), (120, 246, 292))
+# The outward shoulder curl (round 9 reroute kept): below row 150 it comes forward
+# over the front of the shoulder and turns out in front of the arm's plane
+# (CURL_FRONT px in front of round 8's path, eased in over CURL_FRONT_ROWS; the
+# raised arm used to sweep up into it), its reach past CURL_IN[0] (front-view px)
+# scaled by CURL_IN[1] so the loop does not float out over a raised or bent arm.
+# Round 11: the path ends where round 10's hook began; the kernel grows the end as
+# a spiral (CURL_SPIRAL) that narrows to CURL_SPIRAL['core'] of the lock before it
+# tightens from R ~ 20 mm to ~10 mm, the width in the bend plane (风堇's end curls).
+# (round 11: rows 70-150 run ~8-10 px deeper than round 10's, under the long lock; rows
+# 150-195 2-4 px less deep than the first round-11 build, where arms_up raised the
+# shoulder into it: 0.9 cm / 1 % of the curl inside, now 0.5 cm / 0.2 %, round 10 0.2 cm)
+CURL_PATH = ((58, 72, 292), (64, 100, 295), (63, 130, 294), (64, 150, 287), (72, 170, 279),
+             (81, 183, 274), (90, 195, 279), (98, 205, 285), (106, 213, 290))
 CURL_FRONT = 22.0
 CURL_FRONT_ROWS = (170.0, 215.0)   # (it stays behind the long front lock above)
-# ... and the hook hangs closer to the arm: its reach past CURL_IN[0] (front-view
-# px) is scaled by CURL_IN[1], so the open loop does not float out over a raised
-# or bent arm (pairwise review: "outward loops above the sleeves").
 CURL_IN = (92.0, 0.9)
 # The curl's broad side turns this far toward the front (lock_normal forward; round 8
 # 1.2): in front of the shoulder a front-facing ribbon read as a thin strip in profile.
 CURL_FORWARD = 0.7
+# Round 11 review: the spiral turns outward and down first (round 10's hook did too) and
+# curls back in and up, in front of the shoulder's outer side: the first build's spiral
+# turned in toward the chest, in front of the shoulder joint, where the upper arm swept
+# through it as it came down (idol_dance@56: 40 % of the curl inside the arm; outward,
+# 0 %, and the clip's worst frame 0.067 against round 10's 0.128). The width holds at
+# `core` of the lock over most of the turn and closes in a short blade (taper (3, 0.8):
+# the first build's (1.4, 1.2) closed it to a needle).
+CURL_SPIRAL = dict(turn=235, toward=(0.6, 0.0, -0.8), face='plane', radius=0.021, core=0.4, lead=1.5,
+                   exp=0.8, taper=(3.0, 0.8))
 
 
 def _curl_lock():
@@ -1188,15 +1554,17 @@ def _curl_lock():
         if fx > CURL_IN[0]:
             fx = CURL_IN[0] + (fx - CURL_IN[0]) * CURL_IN[1]
         pts.append((fx, row, sc - CURL_FRONT * f))
-    return pts, 0.028
+    return pts, 0.028, CURL_SPIRAL
 
 
-# One strand behind the face frame filling the gap to the back hair (round 4
-# dropped the second, deeper one: it only added a step at the temple).
-# Round 5: a station at row 145 and a tapered end instead of a straight blade;
-# ~3 px further back so it no longer shares a depth with the support lock.
+# One strand behind the face frame filling the gap to the back hair.
+# Round 11 review: 2-5 px further in over rows 62-202 than the first build (round 10's
+# path + 1-3 px back): a raised upper arm beside the head met it there (reach_up_back:
+# 11 % of it inside the arm, round 10 5 %, now 2 %; with the first build's path above
+# row 145 the arm met its middle and the curl resting on it, 10 %). Its inner rim then
+# lies inside the cap behind the ear (16 % of it past its root, hidden; 8 % before).
 SIDE_CURTAIN = [
-    ([(56, 62, 303), (62, 108, 303), (64, 145, 303), (66, 176, 304), (67, 202, 306)], 0.032),
+    ([(57, 62, 304), (63, 108, 305), (65, 145, 306), (66, 176, 307), (67, 202, 309)], 0.032, None),
 ]
 
 
@@ -1214,124 +1582,140 @@ def lock_normal(p, forward=1.2, lateral=False):
     return (n.normalized() + Vector((0, -forward, 0))).normalized()
 
 
-LOCK_SHIFT = (1.0, 1.0, 0.5)    # share of cap_shift on the root, the first and second points
 ROOT_SINK = 5.0         # px the first control point is pushed into the cap
 ROOT_BURY = (12, 4)     # extra root point: px back up along the cap, px into it
-LOCK_EMERGE = 10.0      # px of arc past the first visible control point over
+CHEEK_EMERGE = 24.0     # ... the cheek locks and wisps (they converge at the temple, under the flower)
+LOCK_EMERGE = 16.0      # px of arc past the first visible control point over
                         # which settle() lets the lock lift off the cap
-
-
-def side_set(bm, defs, segs, thick, mirror, forward=1.2, lateral=False, cap_bvh=None, shift=True, **kw):
-    """forward: how much the ribbons turn to face the front (0 = face out
-    sideways, broad in the side view). Other keywords go to strand().
-
-    The root is buried: an extra control point continues the lock back up
-    along the cap (tangentially, just under its surface), so the narrow first
-    rings sit inside it and the lock surfaces at a shallow angle; with
-    cap_bvh the root rings are then pressed onto the cap (settle) up to
-    LOCK_EMERGE px past the first visible control point. The strand's
-    arc-length fractions (tip_from, grad, keep) include this hidden ~12-17 px
-    root, so the visible ramps start a little earlier than the numbers; they
-    are tuned per family.
-    shift: move the root with the reshaped cap (cap_shift, LOCK_SHIFT)."""
-    def nfn(p):
-        return lock_normal(p, forward, lateral)
-    for ctrl, w in defs:
-        pts = [P(*c) for c in ctrl]
-        n0 = head_normal(pts[0])
-        p0 = pts[0] - n0 * (ROOT_SINK * PX)
-        up = p0 - pts[1]
-        up = up - n0 * up.dot(n0)
-        if up.length < 1e-6:        # lock leaves the cap radially: go straight up
-            up = Vector((0.0, 0.0, 1.0)) - n0 * n0.z
-        up.normalize()
-        root = p0 + up * (ROOT_BURY[0] * PX)
-        root = root - head_normal(root) * (ROOT_BURY[1] * PX)
-        pts = [root, p0] + pts[1:]
-        if mirror:
-            pts = mirror_pts(pts)
-        # round 10: the buried root and the first visible point ride the reshaped
-        # cap of their own side (after mirroring); the rest of the lock keeps its path
-        if shift:
-            pts = [p.lerp(cap_shift(p), k) for p, k in zip(pts, LOCK_SHIFT)] + pts[len(LOCK_SHIFT):]
-        emerge = _polyline_len(pts[:2]) + LOCK_EMERGE * PX
-        st = strand(bm, pts, w, thick, segs=segs, normal=nfn, **kw)
-        if cap_bvh is not None:
-            settle(bm, st, cap_bvh, emerge, depth=1.0)
-
-
-# Normal blend per family (finish(keep=...)): the cap and fringe keep the
-# smooth scalp volume; the hanging locks fade from it near the scalp to more
-# of their own rounded section below the cheek, so they read as bundles, not
-# flat plates, at oblique angles (strand(keep=LOCK_KEEP)).
+LOCK_GAP = 0.0008       # m: a lock resting on another (hk.strand_on)
+# The cheek locks and wisps settle on the built (grooved) cap like every other strand
+# (rounds 9-10 and the first round-11 build: on the ungrooved sheet cap, where wisp 1's
+# root crosses a crown groove and stood 2-2.5 mm proud of the cap as a flat-cut stump).
+CHEEK_BVH = 'cap'
+CHEEK_SWELL = (0.7, 0.5)    # kernel swell of the cheek locks and wisps (root width share, over u;
+                            # round 11 first build 0.2: a 4 mm root packed rings 2 mm apart into
+                            # the hidden root, where a forearm laid over the head met them)
+CHEEK_DEPTH = 1.0           # px settle() buries the cheek locks' and wisps' roots (others: 1.0)
+# Normal blend per family: the hanging locks fade from the scalp volume near the
+# scalp to more of their own rounded section below the cheek, so they read as
+# bundles, not flat plates, at oblique angles.
 LOCK_KEEP = (0.0, 0.7, 0.12, 0.55)
+
+
+def side_strand(name, entry, *, forward, lateral, aspect, swell, tip, wrap, grad, keep, bvh,
+                lowers=(), n=12, curl_face='keep', curl_exp=0.3, emerge_px=LOCK_EMERGE, depth=1.0):
+    """One side lock (left side), its root buried: an extra control point continues
+    the lock back up along the cap (just under its surface), so the narrow first
+    rings sit inside it and the lock surfaces at a shallow angle; settle() then
+    presses the root rings onto the cap up to LOCK_EMERGE px past the first
+    visible control point. The arc fractions (tip, grad, keep) include this
+    hidden root."""
+    ctrl, w, end = entry
+    pts = [P(*c) for c in ctrl]
+    n0 = head_normal(pts[0])
+    p0 = pts[0] - n0 * (ROOT_SINK * PX)
+    up = p0 - pts[1]
+    up = up - n0 * up.dot(n0)
+    if up.length < 1e-6:
+        up = Vector((0.0, 0.0, 1.0)) - n0 * n0.z
+    up.normalize()
+    root = p0 + up * (ROOT_BURY[0] * PX)
+    root = root - head_normal(root) * (ROOT_BURY[1] * PX)
+    pts = [root, p0] + pts[1:]
+    emerge = _polyline_len(pts[:2]) + emerge_px * PX
+    curl = None
+    if end is not None:
+        prm = dict(dict(face=curl_face, exp=curl_exp), **end)
+        curl = hk.curl(**prm)
+    kw = dict(name=name, points=[A(p) for p in pts], width=w, aspect=aspect,
+              facing=facing_fn(lambda p: lock_normal(p, forward, lateral)), swell=swell,
+              tip=tip, wrap=wrap, n=n, curl=curl, grad=grad,
+              attrs={KEEP_ATTR: keep_attr(keep), LINE_ATTR: 1.0})
+    st = nested(lowers, root_fade=emerge, **kw)
+    settle(st, bvh, emerge, depth=depth)
+    return st
+
+
+# The side bundle is nested as one stack, from the head outward (SIDE_ORDER): each
+# lock rests on the ones before it that it would otherwise cut through (round 10:
+# 14-19 % of every side family's vertices inside another lock). The families still
+# ride their own chains (rig.SIDE_HAIR_FAMILIES).
+SIDE_ORDER = ('curtain', 'curl', 'main', 'cheek0', 'cheek1', 'wisp1', 'wisp0')
+
+
+def side_specs():
+    """{key: (family, name, entry, settings)} of the side locks (left side)."""
+    out = {}
+    for k, e in enumerate(CHEEK_LOCKS):
+        out[f'cheek{k}'] = ('hair_cheek', e, dict(
+            forward=0.7, lateral=True, aspect=2.8, swell=CHEEK_SWELL, tip=None, wrap=0.15,
+            grad=(0.5, 1.0), keep=LOCK_KEEP, bvh=CHEEK_BVH, emerge_px=CHEEK_EMERGE, depth=CHEEK_DEPTH))
+    for k, e in enumerate(WISP_LOCKS):
+        out[f'wisp{k}'] = ('hair_cheek', e, dict(
+            forward=0.6, lateral=False, aspect=2.8, swell=CHEEK_SWELL, tip=(0.5, 1.9, 0.6), wrap=0.15,
+            grad=(0.55, 1.0), keep=LOCK_KEEP, bvh=CHEEK_BVH, emerge_px=CHEEK_EMERGE, depth=CHEEK_DEPTH))
+    out['main'] = ('hair_lock', FRONT_LONG_MAIN[0], dict(
+        forward=0.9, lateral=True, aspect=2.8, swell=(0.3, 0.25), tip=(0.40, 2.0, 0.7), wrap=0.12,
+        grad=(0.42, 1.0), keep=LOCK_KEEP, bvh='cap'))
+    out['curl'] = ('hair_curl', _curl_lock(), dict(
+        forward=CURL_FORWARD, lateral=False, aspect=3.2, swell=(0.3, 0.25), tip=None, wrap=0.15,
+        grad=(0.55, 0.85), keep=LOCK_KEEP, bvh='cap', curl_face='plane', curl_exp=0.8))
+    # The curtain hangs behind the face frame and ends at the choker, well above
+    # the other locks' green: its ramp ends past the tip (~45% mint there).
+    out['curtain'] = ('hair_curtain', SIDE_CURTAIN[0], dict(
+        forward=1.2, lateral=False, aspect=2.8, swell=(0.3, 0.25), tip=(0.55, 1.8, 0.7), wrap=0.15,
+        grad=(0.78, 1.25), keep=None, bvh='cap'))
+    return out
+
+
+def side_locks(cap_bvh, sheet_bvh):
+    """{family: [left strands]} of the side locks."""
+    specs = side_specs()
+    fam = {'hair_cheek': [], 'hair_lock': [], 'hair_curl': [], 'hair_curtain': []}
+    built = []
+    for key in SIDE_ORDER:
+        family, entry, cfg = specs[key]
+        cfg = dict(cfg, bvh=sheet_bvh if cfg['bvh'] == 'sheet' else cap_bvh)
+        st = side_strand(f'{key}_L', entry, lowers=built, **cfg)
+        built.append(st)
+        fam[family].append(st)
+    return fam
 
 
 def build(col):
     mat = common.toon_material('hair', gradient='hair_tip')
-
-    cap_bvh = build_cap(col, mat)[1]
-    # Round 10: the cheek wisps keep round 9's roots exactly (settled on the sheet
-    # cap, no cap_shift): their roots at the temple moved ~4 mm with the reshaped cap
-    # and that alone took their pen_frac in dance_heart / idol_dance@48 from 2.0-2.5%
-    # (minor) to 3.2-3.8% (major). The fitted cap differs from the sheet cap there by
-    # a few mm at most.
-    sheet_bvh = _sheet_cap_bvh()
+    LOG.clear()
+    STATS.clear()
+    _cap_obj, cap_bvh = build_cap(col, mat)
+    sheet_bvh = _sheet_bvh()
 
     bm = bmesh.new()
-    ahoge(bm, cap_bvh)
+    emit_all(bm, ahoge(cap_bvh), 'hair_crown', cap_bvh)
     crown = finish(col, 'hair_crown', bm, mat, line_min=LINE_MIN)
-    crown['levi_cast_shadow'] = False   # a hard slit on the crown from above otherwise
+    crown['levi_cast_shadow'] = False   # a thin tuft prints a hard sliver on the crown otherwise
 
     bm = bmesh.new()
-    bangs(bm, cap_bvh)
+    emit_all(bm, bangs(cap_bvh), 'hair_bangs', cap_bvh)
     bangs_obj = finish(col, 'hair_bangs', bm, mat, line_min=LINE_MIN)
     # The fringe does not cast: with the low key light every clump ridge over
-    # the crown printed a hard 1-2 px shadow sliver along its neighbour (round
-    # 5: front hair islands 18 -> 13), and its shadow on the forehead is too
-    # thin to read. Its own N.L shading still separates the clumps.
+    # the crown printed a hard 1-2 px shadow sliver along its neighbour, and its
+    # shadow on the forehead is too thin to read. Its own N.L shading still
+    # separates the clumps.
     bangs_obj['levi_cast_shadow'] = False
 
-    for side, mirror in (('L', False), ('R', True)):
-        bm = bmesh.new()
-        # the temple locks swell out of the cap over ~35% of their length
-        # (no broad shoulder where they surface)
-        side_set(bm, CHEEK_LOCKS, 18, 0.0125, mirror, forward=0.7, lateral=True, n=12,
-                 cap_bvh=sheet_bvh, shift=False, base_taper=0.2, swell=0.35, tip_pow=0.6, ogive=1.8, tip_dense=0.4,
-                 tip_from=0.55, back=0.7, wrap=0.1, tip_thick=0.15, grad=(0.5, 1.0),
-                 frame_smooth=0.08, thin=(0.6, 0.75), keep=LOCK_KEEP)
-        side_set(bm, WISP_LOCKS, 16, 0.011, mirror, forward=0.6, n=10, cap_bvh=sheet_bvh, shift=False,
-                 base_taper=0.2, swell=0.35, tip_pow=0.6, ogive=1.9, tip_dense=0.5, tip_from=0.45,
-                 back=0.8, wrap=0.08, tip_thick=0.15, grad=(0.55, 1.0),
-                 frame_smooth=0.08, keep=LOCK_KEEP)
-        finish(col, f'hair_cheek_{side}', bm, mat, line_min=LINE_MIN)
-
-        bm = bmesh.new()
-        # near-round sections (width / thickness ~1.3) so the locks read as
-        # bundles from every angle, not as blades with a broad flat face;
-        # the width holds to mid-length and closes in an arc, while the
-        # thickness eases off over the lower half
-        side_set(bm, FRONT_LONG_MAIN, 30, 0.022, mirror, forward=0.9, lateral=True, n=12,
-                 cap_bvh=cap_bvh, base_taper=0.3, tip_pow=0.7, ogive=2.0, tip_dense=0.35,
-                 tip_from=0.4, back=0.85, wrap=0.05, tip_thick=0.15, grad=(0.42, 1.0),
-                 frame_smooth=0.1, thin=(0.6, 0.65), keep=LOCK_KEEP)
-        side_set(bm, FRONT_LONG_SUPPORT, 24, 0.015, mirror, forward=0.9, lateral=True, n=10,
-                 cap_bvh=cap_bvh, base_taper=0.3, tip_pow=0.7, ogive=1.6, tip_dense=0.3,
-                 tip_from=0.3, back=0.85, wrap=0.05, tip_thick=0.12, grad=(0.4, 1.0),
-                 frame_smooth=0.1, thin=(0.4, 0.5), keep=LOCK_KEEP)
-        finish(col, f'hair_lock_{side}', bm, mat, line_min=LINE_MIN)
-
-        bm = bmesh.new()
-        side_set(bm, [_curl_lock()], 32, 0.018, mirror, forward=CURL_FORWARD, n=10, cap_bvh=cap_bvh,
-                 base_taper=0.3, tip_pow=0.6, ogive=1.3, tip_from=0.3, tip_dense=0.3, back=0.85, tip_thick=0.15,
-                 grad=(0.55, 0.85), frame_smooth=0.06, keep=LOCK_KEEP)
-        finish(col, f'hair_curl_{side}', bm, mat, line_min=LINE_MIN)
-
-        bm = bmesh.new()
-        # The curtain hangs behind the face frame and ends at the choker, well
-        # above the other locks' green: its ramp ends past the tip (~45% mint
-        # there), as the earlier height ramp did.
-        side_set(bm, SIDE_CURTAIN, 14, 0.014, mirror, n=10, cap_bvh=cap_bvh, base_taper=0.3,
-                 tip_pow=0.7, ogive=1.8, tip_from=0.55, tip_dense=0.3, tip_thick=0.2,
-                 grad=(0.78, 1.25), frame_smooth=0.1)
-        finish(col, f'hair_curtain_{side}', bm, mat, line_min=LINE_MIN)
+    fams = side_locks(cap_bvh, sheet_bvh)
+    for side in ('L', 'R'):
+        for name, strands in fams.items():
+            bm = bmesh.new()
+            sts = strands if side == 'L' else [hk.mirrored(s) for s in strands]
+            emit_all(bm, sts, f'{name}_{side}', cap_bvh)
+            finish(col, f'{name}_{side}', bm, mat, line_min=LINE_MIN)
+    err = cap_profile_error()
+    print(f'HAIR_FRONT cap: {len(cap_spokes())} spokes x {len(cap_rings())} rings; '
+          f'outside CAP_PROFILE by at most {1000 * err:.2f} mm')
+    print(f"HAIR_FRONT ahoge: leaves the scalp at {AHOGE_LOG['rise']:.1f} deg, tip {AHOGE_LOG['height']:.1f} px "
+          f"over the cap, tip the highest point: {AHOGE_LOG['tip_highest']}")
+    for line in LOG:
+        print('HAIR_FRONT', line)
+    for obj, (tot, bad) in STATS.items():
+        print(f'HAIR_FRONT {obj:15s} vertices {tot:5d}, inside the cap past the root {100 * bad / max(tot, 1):4.1f}%')

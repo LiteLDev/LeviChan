@@ -94,10 +94,16 @@ SEGMENT = {
     '足補助': 'thigh', '足': 'thigh', 'ひざ補助': 'shin', 'ひざ補助2': 'shin', 'ひざ': 'shin', '足首': 'foot',
     'つま先': 'foot',
 }
+# Round 11: the hands are one piece (风堇's), so each finger is its own segment (its bones by
+# stem prefix; the palm stays 'hand'): a thumb passing through the curled index finger is
+# 'self'; a finger pressing on the palm or on the finger beside it is 'contact'. A finger keeps
+# the hand's neighbours (the forearm), so only pairs inside the hands read differently.
+FINGER_SEGMENT = {'親指': 'thumb', '人指': 'index', '中指': 'middle', '薬指': 'ring', '小指': 'little'}
 ADJACENT = {frozenset(p) for p in (
     ('chest', 'pelvis'), ('chest', 'neck'), ('neck', 'head'), ('chest', 'shoulder'), ('shoulder', 'upperarm'),
     ('chest', 'upperarm'), ('upperarm', 'forearm'), ('forearm', 'hand'), ('pelvis', 'thigh'),
-    ('thigh', 'shin'), ('shin', 'foot'))}
+    ('thigh', 'shin'), ('shin', 'foot'), ('index', 'middle'), ('middle', 'ring'), ('ring', 'little'))
+    + tuple((h, f) for f in FINGER_SEGMENT.values() for h in ('hand', 'forearm'))}
 
 # joint bands: (centre bone head, band radius m, allowed dominant bone stems, axis segments
 # as (bone whose motion carries it, rest point a, rest point b) with points 'bone.head' /
@@ -185,7 +191,7 @@ def _side(name):
 def _seg(bone):
     s = SEGMENT.get(_stem(bone))
     if s is None and '指' in _stem(bone):
-        s = 'hand'
+        s = FINGER_SEGMENT.get(_stem(bone)[:2], 'hand')
     if s is None:
         return 'other'
     return s + (_side(bone) if s not in ('chest', 'pelvis', 'neck', 'head') else '')

@@ -7,12 +7,12 @@ With no parts in levi/parts the throwaway test meshes from tools/rig_fixtures.py
 
 Checks: MMD core bones exist with the right parents under a single root; every
 vertex of every part mesh is weighted to deform bones only, weights sum to 1,
-at most 4 influences; Armature modifier targets the rig and sits before the
-Outline hull; leg/toe IK constraints exist and actually reach their targets;
-the standard PMX bone names (センター ... 足ＩＫ, 捩, 親指０) are all there; every pose in
-tools/rig_pose.py produces finite geometry without torn or exploded edges, clothes
-and hair stay out of the body, and the leg IK never bends a knee backward;
-rigging twice gives identical bones and weights.
+at most 4 influences; the skin's weights are mirror-symmetric; Armature modifier
+targets the rig and sits before the Outline hull; leg/toe IK constraints exist
+and actually reach their targets; the standard PMX bone names (センター ... 足ＩＫ,
+捩, 親指０) are all there; every pose in tools/rig_pose.py produces finite geometry
+without torn or exploded edges, clothes and hair stay out of the body, and the
+leg IK never bends a knee backward; rigging twice gives identical bones and weights.
 
     --extended   also report (not gate) the motion metrics of tools/motion_check.py on the
                  extended poses (motion_poses.EXTENDED; --report-core adds the core poses)
@@ -155,6 +155,42 @@ def check_weights(arm, errors):
             if n:
                 errors.append(f'{o.name}: {n} {what} vertices')
     print(f'weights checked on {total} vertices')
+
+
+MAX_ASYM = 0.02       # largest left / right weight difference between mirror vertices of the skin
+
+
+def check_symmetry(arm, errors):
+    """The skin (PEN_BODY) is built mirror-symmetric, so its weights must be too: each vertex
+    against its mirror image (positions to 0.01 mm), .L / .R bones swapped. Round 11: 风堇's
+    dense hands changed the multilevel crotch smoothing's coarse graph, and the hips' weights
+    went up to 0.14 asymmetric (r11/base: 0.0012); a cheap guard for any part that reshapes it."""
+    for o in skinned_meshes(arm):
+        if o.name not in PEN_BODY:
+            continue
+        me = o.data
+        names = [vg.name for vg in o.vertex_groups]
+        col = {n: j for j, n in enumerate(names)}
+        mir = [col.get(n[:-2] + ('.R' if n.endswith('.L') else '.L'), j) if n.endswith(('.L', '.R')) else j
+               for j, n in enumerate(names)]
+        W = np.zeros((len(me.vertices), len(names)))
+        for v in me.vertices:
+            for g in v.groups:
+                W[v.index, g.group] = g.weight
+        co = np.empty(len(me.vertices) * 3)
+        me.vertices.foreach_get('co', co)
+        key = np.round(co.reshape(-1, 3) * 1e5).astype(np.int64)
+        at = {tuple(k): i for i, k in enumerate(key)}
+        # the midline's vertices are their own mirror images (their .L / .R weights must match)
+        pairs = [(i, at[(-k[0], k[1], k[2])]) for i, k in enumerate(key) if k[0] >= 0 and (-k[0], k[1], k[2]) in at]
+        if not pairs:
+            continue
+        a, b = np.array(pairs).T
+        asym = np.abs(W[a] - W[b][:, mir]).max(1)
+        print(f'{o.name}: weight asymmetry max {asym.max():.4f} over {len(pairs)} mirror pairs '
+              f'({int((asym > 0.01).sum())} above 0.01)')
+        if asym.max() > MAX_ASYM:
+            errors.append(f'{o.name}: left / right weights differ by {asym.max():.3f} (> {MAX_ASYM})')
 
 
 def _eval_edges(objs):
@@ -495,6 +531,7 @@ def main():
     check_mmd_names(arm, errors)
     check_ik(arm, errors)
     check_weights(arm, errors)
+    check_symmetry(arm, errors)
     check_eyes(arm, errors)
     # the throwaway fixtures (tubes, no hands) only make sense for the round-1 test pose
     fixtures = args.fixtures or not (args.parts or builder.available_parts())

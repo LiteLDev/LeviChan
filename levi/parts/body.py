@@ -18,10 +18,33 @@ of the chest and the inner arm. The torso rings bunch their vertices around
 the socket's front and back edges (the armpit folds), and the shoulder joint
 sits inside the deltoid volume.
 
+Round 11: the palms and fingers are 风堇's hand (levi/parts/_body_hand.py, from
+assets/hyacine/hands.npz), placed on hand_frame() at WRIST and bridged to the arm, which
+then stops before the rig's wrist band; the procedural hand below (HAND_R, FINGERS,
+THUMB) is the LEVI_HYACINE_HANDS=0 fallback.
+
+Round 11: the pelvis, legs and feet are 风堇's (levi/parts/_body_legs.py, from
+assets/hyacine/legs.npz), welded under the torso ring at _body_legs.WELD_ROW (the torso's
+pelvis block below it is dropped) and running on into the stiletto foot: one surface, no hip
+collars, crotch block or ankle step. The procedural legs and feet below (the _r10 functions,
+build_leg, build_foot, FOOT) are the target her legs are warped to (and FOOT stays the shoes'
+foot); LEVI_HYACINE_LEGS=0 builds them as before.
+
 Joint anatomy carried by the loops: a rounded kneecap dome and a shallow crease
 behind the knee (where the fold forms in a squat), a straight shin front with
 the calf fullness at the back, a gluteal fold under the buttock, the armpit
 hollow, and dense loops over the elbow and wrist.
+
+Round 11 (upper body; 风堇 has no torso, shoulders or elbows to reuse): the neck,
+shoulder and upper-chest rings carry twice the vertices across the middle of their front
+(TORSO_DENSE), the exposed upper chest rises evenly into the bust instead of stepping
+forward at the bodice's top edge (UPPER_CHEST) and stays clear of the bodice's rim
+(_rim_clearance), and soft anatomy relief sits on the shape master's surface:
+collarbones, the hollow above them, the notch at the base of the neck and its two
+tendons, the trapezius at the neck's base, the spine and the shoulder blades
+(_torso_relief). (A rounded elbow, with a filleted centre line and an elbow point, was
+tried and dropped: hidden by the sleeves, it spread the bent elbow's turn, motion span
+1.17 -> 1.29 in hand_to_shoulder.)
 
 All shape data below is in *panel pixels* measured on ref/{front,side}.png
 (see `P()`): x = offset from the panel centre column (+ = character's left),
@@ -45,6 +68,7 @@ on below the malleoli into the heel round the ankle pivot).
 """
 import math
 import os
+from collections.abc import Mapping
 
 import bmesh
 import numpy as np
@@ -52,6 +76,8 @@ from mathutils import Matrix, Vector
 from mathutils.kdtree import KDTree
 
 from .. import common, spec
+from . import _body_hand
+from . import _body_legs
 
 MARGIN = 1.0  # px pulled in so the outline hull lands on the reference line
 
@@ -326,28 +352,44 @@ TORSO = [
 # and its neckline rises toward the sides, so off-centre the upper bust is
 # pushed forward to sit ~2-3 px inside the shell (no visible gap into the
 # neckline from above); the centre, where the neckline dips and skin shows, is
-# left alone.
-BUST_PUSH = [(230, 0.0, 0, 20), (235, 14.0, 10, 26), (240, 10.5, 2, 20), (247, 6.0, 0, 20),
-             (256, 4.3, 0, 20), (266, 4.0, 0, 20), (278, 2.0, 0, 20), (290, 1.8, 0, 20),
-             (305, 0.0, 0, 20)]
+# left alone. Round 11: the exposed upper chest above it no longer stops in a shelf at
+# row 230 (UPPER_CHEST fairs it into this fill), and the centre takes a share (last
+# column) of the push at the neckline rows, so the cleavage is a shallow valley ~5 px
+# deep between the two bust lobes instead of a narrow groove 7 px deep (which the faired
+# chest carried up as a crease).
+BUST_PUSH = [(230, 0.0, 0, 20, 0.0), (235, 13.0, 0, 24, 0.33), (240, 10.5, 2, 20, 0.2),
+             (247, 6.0, 0, 20, 0.0), (256, 4.3, 0, 20, 0.0), (266, 4.0, 0, 20, 0.0),
+             (278, 2.0, 0, 20, 0.0), (290, 1.8, 0, 20, 0.0), (305, 0.0, 0, 20, 0.0)]
 # where the push has faded out toward the side (share of the half width):
 # sooner along the rising neckline edge
 BUST_FADE = [(235, 0.5), (240, 0.64), (247, 0.82)]
-# soft collarbone ridge (+) and the shallow hollow under it (-): forward push
-# px across the upper chest as smooth bumps (row, amplitude, vertical sigma),
-# so the loops of the shoulder band (196, 203, 210...) sample the measured
-# ridge at row 199 and hollow at row 209 without a kink
-CLAVICLE = ((199, 1.2, 5.0), (209, -0.8, 4.0))
-NECK_TILT = 0.6  # the neck-top rings rise toward the back to hide behind the jaw
-NECK_SEAM_ROW = 161  # rings at/above this row (spec chin_z) get the tilt
+# Neck-top tilt: the rings rise toward the back (NECK_TILT px per px of depth behind the
+# front) to follow the jaw line into the head; round 11 fades it out linearly from the top
+# ring (full) to NECK_TILT_END (none), so the rings stay evenly spaced up the nape too
+# (round 10 tilted rows <= 161 fully and none from 170: a 25 px gap at the nape).
+NECK_TILT = 0.6
+NECK_TILT_END = 178.0
 TORSO_N = 32
+# Round 11: the rings down to TORSO_DENSE_LAST (neck, shoulders, upper chest and back,
+# under the bodice down to the bust) carry TORSO_DENSE x the vertices across their front
+# arc's middle (between the shoulder sockets), so the notch at the base of the neck, its
+# tendons and the inner collarbones are sampled ~1 cm apart: 36 vertices instead of 32
+# (the front arc's middle 4 steps are split). The socket arcs, the steps beside them and
+# the back keep their TORSO_N spacing, so the 24-vertex socket border and the skin round
+# the shoulders and the armpits are unchanged; see _ring_arcs.
+# The next ring has TORSO_N again; the band between them (hidden under the bodice) joins
+# each pair of dense segments to one with a quad and a triangle.
+TORSO_DENSE = 2
+TORSO_DENSE_KEEP = (3, 5)    # plain TORSO_N steps kept at each end of the (front, back) arc
+TORSO_DENSE_LAST = 256
 # Loft rows: the TORSO table sampled (linearly) at these rows. Every table row
 # outside the shoulder band is kept, so the surface between them is unchanged;
 # the extra rings give the shoulder band, the waist (forward / side bends) and
 # the hips (leg swings) evenly spaced loops. Inside the band (rows 189-230)
 # the socket needs seven evenly spaced rows, so table rows 199/209/219 are
-# resampled (the chest front moves < 1 px).
-TORSO_ROWS = (148, 161, 170, 175, 178, 180, 182, 184, 186.5,
+# resampled (the chest front moves < 1 px). Round 11: rows 154.5 and 165.5 on the
+# neck (the visible neck from the jaw down is the body's: loops ~5 px apart).
+TORSO_ROWS = (148, 154.5, 161, 165.5, 170, 175, 178, 180, 182, 184, 186.5,
               189, 196, 203, 210, 217, 224, 230,            # shoulder band = SOCKET_ROWS
               235, 240, 247, 256, 266, 278, 290, 298, 305, 313, 320, 328, 335, 343, 350,
               360, 370, 382, 395, 407, 420, 432, 445, 455, 465, 472, 480, 489)
@@ -385,19 +427,80 @@ def torso_table():
     return out
 
 
+def _ring_arcs(dense):
+    """Arcs of a torso ring from the left side (k = 0) round the front: (TORSO_N index
+    steps, vertices per step): the left socket's front half, the front arc, the right
+    socket, the back arc, the left socket's back half. A dense ring splits the front and
+    back arcs' steps except TORSO_DENSE_KEEP steps at each end, so the skin next to the
+    socket border, where the staged shoulder helpers hand over, keeps round 10's spacing
+    and weights. The rig's weight smoothing reads the mesh graph, so a denser patch
+    beside the shoulder shifts the shrug / stage weights round it: split up to the border,
+    the back armpit stretched x2.25 in arms_up (round 10 x1.78); with two plain steps the
+    肩 weight spread over the back (x2.05-2.13 in dance_sway / idol_dance) and the front
+    socket edge (x1.80 in hands_behind_head, round 10 x1.70). With three plain steps in
+    front and a plain back these are back at round 10's values."""
+    n, K = TORSO_N, SOCKET_K
+    a = n // 2 - 2 * K
+    if not dense:
+        return ((K, 1), (a, 1), (2 * K, 1), (a, 1), (K, 1))
+    m = TORSO_DENSE
+
+    def arc(e):
+        e = min(e, a // 2)
+        return tuple(s for s in ((e, 1), (a - 2 * e, m), (e, 1)) if s[0] > 0)
+    front, back = TORSO_DENSE_KEEP
+    return ((K, 1),) + arc(front) + ((2 * K, 1),) + arc(back) + ((K, 1),)
+
+
+def ring_size(dense):
+    """Vertices per torso ring (TORSO_N, or the dense rings' count)."""
+    return sum(a * m for a, m in _ring_arcs(dense))
+
+
+def ring_index(k, dense):
+    """Ring vertex index of the plain ring's (integer) index k on a socket arc (the mirror
+    of coarse_index there)."""
+    j, c = 0, 0
+    for a, m in _ring_arcs(dense):
+        if k <= c + a:
+            return j + (k - c) * m
+        j += a * m
+        c += a
+    return j
+
+
+def coarse_index(j, dense):
+    """Ring vertex j as a (fractional) TORSO_N ring index: the same angle on a plain ring."""
+    c = 0.0
+    for a, m in _ring_arcs(dense):
+        if j <= a * m:
+            return c + j / m
+        j -= a * m
+        c += a
+    return c
+
+
 def _torso_thetas(table):
     """Per-ring vertex angles. Rings in the shoulder band put vertices
     +-1..+-SOCKET_K (each side) at even fractions of the socket's depth; above
-    and below the band they ease back to uniform spacing."""
+    and below the band they ease back to uniform spacing (the dense neck rings: uniform
+    over each half; below the band: a plain ring's angles, the dense arcs split
+    evenly, so the last dense ring's even vertices sit on the plain ring's)."""
     n, K = TORSO_N, SOCKET_K
     h = n // 2
     out = []
     r_top, r_bot = SOCKET_ROWS[0], SOCKET_ROWS[-1]
     for row, hw, yf, yb, p, ysd in table:
-        uni = [2 * math.pi * k / n for k in range(n)]
+        dense = row <= TORSO_DENSE_LAST
+        m = ring_size(dense)
+        kc = [coarse_index(j, dense) for j in range(m)]
         if row < r_top:
+            # uniform over each half (the front and back arcs may differ in density)
+            r = ring_index(h, dense)
+            uni = [math.pi * j / r if j <= r else math.pi + math.pi * (j - r) / (m - r) for j in range(m)]
             w = smoothstep(r_top - 9, r_top, row)
         else:
+            uni = [2 * math.pi * k / n for k in kc]
             w = 1.0 - smoothstep(r_bot, r_bot + 26, row)
         if w <= 0:
             out.append(uni)
@@ -423,24 +526,30 @@ def _torso_thetas(table):
             sock[k] = a[K] + (math.pi - 2 * a[K]) * (k - K) / (h - 2 * K)
         for k in range(h + K + 1, n - K):
             sock[k] = math.pi + b[K] + (math.pi - 2 * b[K]) * (k - h - K) / (h - 2 * K)
-        out.append([u + (s - u) * w for u, s in zip(uni, sock)])
+        # a dense ring's extra vertices: linear in k along the (uniform) front / back arcs
+        sock.append(2 * math.pi)
+        sk = [sock[int(k)] + (sock[min(int(k) + 1, n)] - sock[int(k)]) * (k - int(k)) for k in kc]
+        out.append([u + (s - u) * w for u, s in zip(uni, sk)])
     return out
 
 
 def _bust(row):
-    """(amp, x0, x1) of BUST_PUSH at `row`; no push outside the table."""
+    """(amp, x0, x1, centre share) of BUST_PUSH at `row`; no push outside the table."""
     if row <= BUST_PUSH[0][0] or row >= BUST_PUSH[-1][0]:
-        return 0.0, 0.0, 20.0
-    return _interp([(r, (a, x0, x1)) for r, a, x0, x1 in BUST_PUSH], row)
+        return 0.0, 0.0, 20.0, 0.0
+    return _interp([(r, tuple(v)) for r, *v in BUST_PUSH], row)
 
 
-def _clavicle(row):
-    return sum(a * math.exp(-0.5 * ((row - c) / s) ** 2) for c, a, s in CLAVICLE)
+def _neck_tilt(row):
+    """NECK_TILT share at `row`: full on the top ring, none from NECK_TILT_END."""
+    top = TORSO_ROWS[0]
+    return NECK_TILT * max(0.0, min(1.0, (NECK_TILT_END - row) / (NECK_TILT_END - top)))
 
 
 def build_torso(bm):
     """Neck + torso loft (closed: no shoulder sockets cut). Returns the vertex
-    rings, one per TORSO_ROWS entry (torso_table())."""
+    rings, one per TORSO_ROWS entry (torso_table()); the rings down to
+    TORSO_DENSE_LAST have ring_size(True) vertices, the rest TORSO_N."""
     table = torso_table()
     centers, hints, radii, ps = [], [], [], []
     for row, hw, yf, yb, p, ys in table:
@@ -449,25 +558,20 @@ def build_torso(bm):
         radii.append((px(hw), px(hw), px(ys - yf), px(yb - ys)))
         ps.append(p)
     # Rings are horizontal slices (the table rows); t=-Z, side=+X -> up=-Y.
-    # per ring: (clavicle push, (bust amp, x0, x1), bust fade, armpit hollow)
-    per_ring = [(_clavicle(r[0]) if r[0] < 230 else 0.0, _bust(r[0]),
-                 _interp(BUST_FADE, r[0]), _interp(ARMPIT_HOLLOW, r[0])) for r in table]
+    # per ring: ((bust amp, x0, x1), bust fade, armpit hollow)
+    per_ring = [(_bust(r[0]), _interp(BUST_FADE, r[0]), _interp(ARMPIT_HOLLOW, r[0])) for r in table]
 
     def tilt(i, co):
         row, hw, yf, _, _, ys = table[i]
-        cl, (amp, x0, x1), s0, hol = per_ring[i]
+        (amp, x0, x1, c), s0, hol = per_ring[i]
         co = co.copy()
-        if row <= NECK_SEAM_ROW:
-            co.z += max(0.0, co.y - px(yf)) * NECK_TILT
+        co.z += max(0.0, co.y - px(yf)) * _neck_tilt(row)
         front = co.y < px(ys)
         ax = abs(co.x) / px(1)
-        if abs(cl) > 1e-3 and front:
-            # soft collarbone ridge and the shallow hollow under it
-            co.y -= px(cl * smoothstep(6, 14, ax) * (1 - smoothstep(38, 52, ax)))
         if amp and front:
             # fade out toward the side; sooner along the rising neckline edge
             s1 = 0.9 * hw + 0.08 * hw * smoothstep(0.64, 0.82, s0)
-            co.y -= px(amp * smoothstep(x0, x1, ax) * (1 - smoothstep(s0 * hw, s1, ax)))
+            co.y -= px(amp * (c + (1 - c) * smoothstep(x0, x1, ax)) * (1 - smoothstep(s0 * hw, s1, ax)))
         if hol:
             # armpit hollow: the side wall between the front and back folds
             g = math.exp(-((co.y / px(1) - ARM_Y) / ARMPIT_HOLLOW_W) ** 2)
@@ -475,10 +579,269 @@ def build_torso(bm):
             co.x -= math.copysign(px(hol * g * f), co.x)
         return co
 
-    rings, frames = ring_points(centers, hints, radii, TORSO_N, ps, (0, 0, -1), _torso_thetas(table))
+    thetas = _torso_thetas(table)
+    nd = sum(1 for r in table if r[0] <= TORSO_DENSE_LAST)
+    rings, frames = [], []
+    for a, b in ((0, nd), (nd, len(table))):
+        r, f = ring_points(centers[a:b], hints[a:b], radii[a:b], len(thetas[a]), ps[a:b], (0, 0, -1),
+                           thetas[a:b])
+        rings += r
+        frames += f
     rings = [[tilt(i, co) for co in ring] for i, ring in enumerate(rings)]
-    rings = _torso_master(table, rings)
-    return skin_rings(bm, rings, frames, 'ngon', 'pole', 0.0, px(4))
+    # the shape master, then the upper chest and the anatomy on the dense rings (all the
+    # master's rows are dense)
+    dense = _torso_master(table[:nd], rings[:nd])
+    dense = _upper_chest(table[:nd], dense)
+    dense = _rim_clearance(table[:nd], dense)
+    dense = _torso_relief(table[:nd], dense)
+    top = skin_rings(bm, dense, frames[:nd], 'ngon', None)
+    low = skin_rings(bm, rings[nd:], frames[nd:], None, 'pole', 0.0, px(4))
+    _join_dense(bm, top[-1], low[0])
+    return top + low
+
+
+def _join_dense(bm, a, b):
+    """Faces between the last dense ring `a` and the plain ring `b` below it: a quad per
+    socket-arc segment, a quad + a triangle per pair of dense segments (the dense ring's
+    even vertices sit on the plain ring's)."""
+    i = j = 0
+    na, nb = len(a), len(b)
+    for steps, m in _ring_arcs(True):
+        for _ in range(steps):
+            if m == 1:
+                bm.faces.new((a[i], a[(i + 1) % na], b[(j + 1) % nb], b[j]))
+            else:
+                bm.faces.new((a[i], a[i + 1], b[j]))
+                bm.faces.new((a[i + 1], a[(i + 2) % na], b[(j + 1) % nb], b[j]))
+            i += m
+            j += 1
+
+
+# Upper chest (round 11): above the bodice the exposed chest used to stay flat down to
+# row 230 and then step forward into the bust fill under the neckline (BUST_PUSH: 18 px in
+# 5 rows off the centre line): a ridge across the chest at the bodice's top edge. Each
+# front column (front arc) is now one cubic Hermite in the row from UPPER_CHEST[0] to
+# UPPER_CHEST[1] through the rings' own values there (the end ring is the bust fill at the
+# neckline, which keeps its fit inside the bodice); the slopes are the column's one-sided
+# slope above the start and its three-point slope at the end (through the start and the
+# next ring), so the upper chest rises evenly into the bust (the upper pole of the
+# breast). Columns near the sockets (UPPER_CHEST_EDGE TORSO_N steps from the socket
+# border) blend out. (Over 2.5 steps, the fuller skin beside the armpit under the halter
+# strap gave the strap steeper shoulder weights: x2.14 in idol_dance@78, round 10 x1.64;
+# over 4 steps x1.91, and the chest looks the same.)
+UPPER_CHEST = (203.0, 235.0)
+UPPER_CHEST_EDGE = 4.0
+
+
+def _upper_chest(table, rings):
+    rows = [r[0] for r in table]
+    r0, r1 = UPPER_CHEST
+    i0, i1 = rows.index(r0), rows.index(r1)
+    if i0 < 1 or i1 + 1 >= len(rows):
+        return rings
+    n, K = TORSO_N, SOCKET_K
+    h = n // 2
+    m = len(rings[0])
+    out = [list(r) for r in rings]
+    span = r1 - r0
+    for j in range(m):
+        kc = coarse_index(j, True)
+        if not K < kc < h - K:
+            continue                # front arc only
+        w = smoothstep(0.0, UPPER_CHEST_EDGE, min(kc - K, h - K - kc))
+        y0, y1 = rings[i0][j].y, rings[i1][j].y
+        # slopes (m per row): one-sided above the span, three-point at its end
+        m0 = (y0 - rings[i0 - 1][j].y) / (rows[i0] - rows[i0 - 1])
+        h2 = rows[i1 + 1] - rows[i1]
+        d1, d2 = (y1 - y0) / span, (rings[i1 + 1][j].y - y1) / h2
+        m1 = (d1 * h2 + d2 * span) / (span + h2)
+        for i in range(i0 + 1, i1):
+            t = (rows[i] - r0) / span
+            h00, h10 = 2 * t ** 3 - 3 * t ** 2 + 1, t ** 3 - 2 * t ** 2 + t
+            h01, h11 = -2 * t ** 3 + 3 * t ** 2, t ** 3 - t ** 2
+            y = h00 * y0 + h10 * m0 * span + h01 * y1 + h11 * m1 * span
+            co = rings[i][j].copy()
+            co.y += (y - co.y) * w
+            out[i][j] = co
+    return out
+
+
+# Bodice rim clearance (round 11). Where the exposed skin meets the bodice's top edge it
+# must stay clear of the edge's turned lip and of its outline hull (1.25 px), or the skin
+# hides part of the rim line from above and at 3/4 (the faired chest left 1.0-1.3 mm at
+# +-15-25 deg from the front centre; round 10 1.2 mm at +-20-25 deg). Each front column's
+# profile (the rings' y, interpolated between rows like the mesh) is checked from
+# RIM_SAMPLES px above to below the bodice's neckline row at that column, against the shell's
+# front (levi.parts.bodice: profile / neck_row_t / front_y, the outer layer's pure surface
+# functions; above the neckline its rim row's front); where it comes closer than RIM_CLEAR
+# px, the column is pushed back by a smooth bump in the row (RIM_DENT px row sigma) centred
+# on the neckline, sized so the interpolated profile clears it. The socket border's rings
+# (rows <= SOCKET_ROWS[-1]) are moved only on the front arc, fading in over RIM_EDGE steps.
+RIM_CLEAR = 2.6
+RIM_SAMPLES = (-1.0, 0.0, 1.0, 2.0)
+RIM_DENT = 4.0
+RIM_EDGE = 1.5
+
+
+def _rim_row(x):
+    """The bodice's neckline row at world x (front half)."""
+    from . import bodice   # the outer layer's pure surface functions (no objects)
+    row = bodice.neck_row_t(0.0)
+    for _ in range(4):
+        row = bodice.neck_row_t(min(abs(x) / bodice.profile(row)[0], 1.0))
+    return row
+
+
+def _rim_clearance(table, rings):
+    from . import bodice
+    rows = [r[0] for r in table]
+    n, K = TORSO_N, SOCKET_K
+    h = n // 2
+    m = len(rings[0])
+    out = [list(r) for r in rings]
+    lo = rows.index(SOCKET_ROWS[-1])
+
+    def col(j, s):
+        """(x, y) of column j at row s, linear between the rings (as the mesh is)."""
+        i = max(k for k in range(len(rows) - 1) if rows[k] <= s)
+        t = (s - rows[i]) / (rows[i + 1] - rows[i])
+        a, b = out[i][j], out[i + 1][j]
+        return a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, i, t
+
+    for j in range(m):
+        kc = coarse_index(j, True)
+        front_arc = K < kc < h - K
+        we = smoothstep(0.0, RIM_EDGE, min(kc - K, h - K - kc)) if front_arc else 0.0
+        for _ in range(2):
+            x = out[rows.index(240)][j].x
+            if out[rows.index(240)][j].y >= px(table[rows.index(240)][5]) or abs(x) >= bodice.profile(240)[0]:
+                break                       # not on the front half under the neckline
+            rr = _rim_row(x)
+            need, geff = 0.0, 1.0
+            for ds in RIM_SAMPLES:
+                s = rr + ds
+                if not rows[0] < s < rows[-1]:
+                    continue
+                xs, ys, i, t = col(j, s)
+                sr = max(s, rr)
+                # the shell's backmost of either side's (its gathers are skewed) and of the
+                # fold-free turned edge: the body stays an exact mirror
+                shell = max(bodice.front_y(sx * abs(xs), sr, folds=f) for sx in (1, -1) for f in (True, False))
+                d = shell + px(RIM_CLEAR) - ys
+                if d > need:
+                    need = d
+                    g = [math.exp(-0.5 * ((rows[k] - rr) / RIM_DENT) ** 2) * (we if k <= lo else 1.0)
+                         for k in (i, i + 1)]
+                    geff = g[0] * (1 - t) + g[1] * t
+            if need <= 1e-6 or geff < 1e-3:
+                break
+            for k in range(len(rows)):
+                g = math.exp(-0.5 * ((rows[k] - rr) / RIM_DENT) ** 2) * (we if k <= lo else 1.0)
+                if g > 1e-4:
+                    co = out[k][j].copy()
+                    co.y += need * g / geff
+                    out[k][j] = co
+    return out
+
+
+# Anatomy relief (round 11), on the dense rings after the shape master (which would
+# otherwise flatten it): soft displacements along the surface normal (px, + outward) of
+# the strapless neckline's skin, wide enough for the ~1 cm loops that the cel ramp turns
+# each into one clean terminator curve. Front (y ahead of the ring's side point):
+#   the collarbones: a ridge whose crest row runs CLAVICLE (|x| px, row) from the notch out
+#     to the shoulder, rising a little; CLAVICLE_AMP (height, row sigma above, below,
+#     |x| fade in (from, to), fade out (from, to));
+#   the hollow above them (supraclavicular): SUPRACLAV (depth, |x| centre, |x| sigma,
+#     row centre, row sigma), which also turns the flat shoulder ledge in front of the neck
+#     into a slope from the trapezius down to the collarbone;
+#   the notch at the base of the neck between the collarbones' heads: NOTCH (depth, bottom
+#     row, top row, half width at the bottom, widening per row up), framed by
+#   the two neck tendons (sternocleidomastoid) running up from it: SCM (height, (|x|, row)
+#     at the notch, (|x|, row) under the choker, sigma).
+# Back (under the hair): the groove of the spine SPINE (depth, sigma, rows in, out), the
+#   shoulder blades SCAPULA (height; medial border |x| at the top row, per row; lateral
+#   border likewise; rows: top in, full, bottom fade out (under the bodice's back edge);
+#   top row), and the trapezius TRAPEZIUS (height, rows in (from, to), out (from, to)):
+#   the neck's back-sides thicken toward its base (peak 45 deg either side of the back),
+#   so the neck sweeps down into the shoulders instead of standing on them like a tube.
+# Every term fades out over the socket border (as the shape master does), which stays put.
+# The halter strap and the start of its X strand lie on the collarbones (accessories lifts
+# them along the skin's normal), so the collarbones and the hollow above them are broad
+# rather than high: with 2.6 / 4.5 px row sigmas and a 2.4 px deep hollow the strap jogged
+# 45-63 deg at the crest (25-43 deg/mm; now ~5, round 10 ~4). The notch is shallow and wide
+# enough that the side profile stays monotone (1.6 px deep and 4 px wide, the outline hull
+# folded in it: a dark tick under the choker in the side view).
+CLAVICLE = ((6.0, 196.0), (16.0, 195.2), (30.0, 193.6), (44.0, 192.0), (58.0, 191.0))
+CLAVICLE_AMP = (1.6, 4.5, 6.0, (4.0, 12.0), (46.0, 58.0))
+SUPRACLAV = (1.4, 30.0, 8.0, 186.5, 4.2)
+NOTCH = (1.0, 194.0, 183.0, 5.5, 0.4)
+SCM = (0.6, (7.0, 193.0), (14.0, 178.0), 2.8)
+SPINE = (0.5, 6.0, (186.0, 196.0), (240.0, 250.0))
+SCAPULA = (1.1, (16.0, 0.25), (54.0, -0.5), (200.0, 210.0, 238.0, 250.0), 205.0)
+TRAPEZIUS = (1.6, (166.0, 176.0), (182.0, 189.0))
+RELIEF_SOCKET = (0.5, 2.5, 176.0, 182.0, 238.0, 244.0)   # dk fade (from K+, to K+), rows in, out
+
+
+def _relief_front(ax, row):
+    c = _interp(CLAVICLE, ax)
+    a, s_up, s_dn, (i0, i1), (o0, o1) = CLAVICLE_AMP
+    s = s_up if row < c else s_dn
+    f = a * smoothstep(i0, i1, ax) * (1 - smoothstep(o0, o1, ax)) * math.exp(-0.5 * ((row - c) / s) ** 2)
+    d, xc, xs, rc, rs = SUPRACLAV
+    f -= d * math.exp(-0.5 * ((ax - xc) / xs) ** 2 - 0.5 * ((row - rc) / rs) ** 2)
+    d, rb, rt, w0, dw = NOTCH
+    w = w0 + dw * max(0.0, rb - row)
+    f -= d * math.exp(-0.5 * (ax / w) ** 2) * smoothstep(rt - 4, rt + 6, row) * (1 - smoothstep(rb - 1, rb + 3, row))
+    a, (xb, rb2), (xt, rt2), s = SCM
+    xs_ = xb + (xt - xb) * (row - rb2) / (rt2 - rb2)
+    f += a * math.exp(-0.5 * ((ax - xs_) / s) ** 2) * smoothstep(rt2 - 2, rt2 + 3, row) * (1 - smoothstep(rb2 - 3, rb2 + 1, row))
+    return f
+
+
+def _relief_back(ax, row, phi):
+    """phi: the vertex's angle round the ring from the back centre (rad)."""
+    a, (t0, t1), (t2, t3) = TRAPEZIUS
+    f = a * max(0.0, math.sin(2 * phi)) ** 1.5 * smoothstep(t0, t1, row) * (1 - smoothstep(t2, t3, row))
+    d, s, (r0, r1), (r2, r3) = SPINE
+    f -= d * math.exp(-0.5 * (ax / s) ** 2) * smoothstep(r0, r1, row) * (1 - smoothstep(r2, r3, row))
+    a, (m0, mk), (l0, lk), (t0, t1, b0, b1), top = SCAPULA
+    xm = m0 + mk * (row - top)
+    xl = l0 + lk * (row - top)
+    if xl > xm:
+        f += (a * smoothstep(xm - 4, xm + 6, ax) * (1 - smoothstep(xl - 10, xl + 2, ax))
+              * smoothstep(t0, t1, row) * (1 - smoothstep(b0, b1, row)))
+    return f
+
+
+def _torso_relief(table, rings):
+    n, K = TORSO_N, SOCKET_K
+    h = n // 2
+    k0, k1, a0, a1, b0, b1 = RELIEF_SOCKET
+    m = len(rings[0])
+    out = []
+    for i, ((row, hw, yf, yb, p, ys), ring) in enumerate(zip(table, rings)):
+        band = smoothstep(a0, a1, row) * (1 - smoothstep(b0, b1, row))
+        up, dn = rings[max(i - 1, 0)], rings[min(i + 1, len(rings) - 1)]
+        new = []
+        for j, co in enumerate(ring):
+            ax, r = abs(co.x) / px(1), spec.SHEET_GROUND_Y - co.z * spec.PX_PER_M
+            if co.y < px(ys):
+                f = _relief_front(ax, r)
+            else:   # angle from the back centre on the ring's (half width, back depth) ellipse
+                f = _relief_back(ax, r, math.atan2(abs(co.x) / px(hw), (co.y - px(ys)) / px(yb - ys)))
+            kc = coarse_index(j, True)
+            dk = min(kc, n - kc, abs(kc - h))
+            f *= 1 - band * (1 - smoothstep(K + k0, K + k1, dk))
+            if abs(f) < 1e-4:
+                new.append(co)
+                continue
+            # the surface normal from the ring grid, outward from the ring's centre line
+            nrm = (ring[(j + 1) % m] - ring[j - 1]).cross(dn[j] - up[j])
+            if nrm.dot(Vector((co.x, co.y - px(ys), 0.0))) < 0:
+                nrm = -nrm
+            new.append(co + nrm.normalized() * px(f))
+        out.append(new)
+    return out
 
 
 # Shape master on the torso: rows where the master's skin counts (ramp in, full,
@@ -503,7 +866,11 @@ def _torso_master(table, rings):
     master where its skin is outermost."""
     if not MASTER:
         return rings
+    # (round 11) the dense rings: ring vertex counts and the side distance in TORSO_N
+    # steps; the column smoothing scales with the front / back arcs' density
     n, K = TORSO_N, SOCKET_K
+    m = len(rings[0])
+    dense = m != n
     key = tuple(round(c, 6) for ring in rings for co in ring for c in co)
     if key not in _TORSO_MASTER:
         C, D, R, W = [], [], [], []
@@ -516,8 +883,9 @@ def _torso_master(table, rings):
                 C.append((0.0, px(ys), co.z))
                 D.append(tuple(v.normalized()) if v.length > 1e-9 else (1.0, 0.0, 0.0))
                 R.append(max(v.length, 1e-6))
-                # ring distance (vertices) from the nearer side (k = 0 left, n / 2 right)
-                dk = min(k % n, n - k % n, abs(k - n // 2))
+                # ring distance (TORSO_N steps) from the nearer side (k = 0 left, n / 2 right)
+                kc = coarse_index(k, dense)
+                dk = min(kc, n - kc, abs(kc - n // 2))
                 band = smoothstep(s0 - 6, s0, row) * (1 - smoothstep(s1, s1 + 6, row))
                 back = 1 - smoothstep(*TORSO_MASTER_BACK, D[-1][1])
                 W.append(win * back * (1 - band * (1 - smoothstep(K + 0.5, K + 0.5 + ks, dk))))
@@ -526,13 +894,16 @@ def _torso_master(table, rings):
         sel = W > 0
         if sel.any():
             r_t[sel] = _master_radii(np.array(C)[sel], np.array(D)[sel], np.array(R)[sel])
-        delta = ((r_t - np.array(R)) / px(1) - MASTER_INSET).reshape(len(rings), n)
-        W = W.reshape(len(rings), n)
+        delta = ((r_t - np.array(R)) / px(1) - MASTER_INSET).reshape(len(rings), m)
+        W = W.reshape(len(rings), m)
+        sm = TORSO_MASTER_SMOOTH
+        if dense:
+            sm = tuple((a, b * TORSO_DENSE) for a, b in sm)
         # the soft window is applied again after smoothing: zero on the socket border
         # and outside the rows
-        _TORSO_MASTER[key] = (_blend_table(delta, W, *TORSO_MASTER_SMOOTH) * W, D)
+        _TORSO_MASTER[key] = (_blend_table(delta, W, *sm) * W, D)
     off, D = _TORSO_MASTER[key]
-    return [[co + Vector(D[i * n + k]) * px(off[i, k]) for k, co in enumerate(ring)]
+    return [[co + Vector(D[i * m + k]) * px(off[i, k]) for k, co in enumerate(ring)]
             for i, ring in enumerate(rings)]
 
 
@@ -542,13 +913,16 @@ def cut_socket(bm, rings, side):
 
     Arm ring order (ARM_N = 24): 0 outer (top edge middle), 6 front,
     12 inner (armpit), 18 back."""
-    n, K = TORSO_N, SOCKET_K
     rows = list(TORSO_ROWS)
     ri = [rows.index(r) for r in SOCKET_ROWS]
     i0, i4 = ri[0], ri[-1]
+    # the socket rings' vertex count (round 11: the dense rings; the socket arcs keep their
+    # TORSO_N spacing, so k = -K..K still spans the socket) and the right side's index
+    n, K = len(rings[i0]), SOCKET_K
+    r = ring_index(TORSO_N // 2, n != TORSO_N)
 
-    def K_(k):  # left ring index -> this side's
-        return k % n if side > 0 else (n // 2 - k) % n
+    def K_(k):  # left ring index -> this side's (the ring is mirror symmetric about x = 0)
+        return k % n if side > 0 else (r - k) % n
     faces = []
     for i in range(i0, i4):
         for k in range(-K, K):
@@ -898,8 +1272,11 @@ def arm_rings(loop, tans):
     return trans + rings, frames
 
 
-def build_arm(bm, loop, tans, side):
-    """Arm + hand + fingers for one side (+1 left, -1 right) from its socket."""
+def build_arm(bm, loop, tans, side, hands=None):
+    """Arm + hand + fingers for one side (+1 left, -1 right) from its socket.
+
+    hands (round 11, _body_hand.Hands): 风堇's hand instead of the procedural palm and
+    fingers, bridged to the arm, which then stops before the wrist band."""
     mirror = side < 0
     # socket data are in world space; design the left arm, mirror for the right
     if mirror:
@@ -908,6 +1285,13 @@ def build_arm(bm, loop, tans, side):
     else:
         lp = [v.co.copy() for v in loop]
     rings, frames = arm_rings(lp, tans)
+    if hands is not None:
+        S, E, W = P(*SHOULDER), P(*ELBOW), P(*WRIST)
+        n = _body_hand.keep_stations(ARM_STATIONS, S, E, W, px(1))
+        vr = skin_rings(bm, [loop] + rings[:len(SOCKET_STEPS) + n], mirror=mirror)
+        hands.build(bm, vr[-1], rings[len(SOCKET_STEPS) + n - 1], rings[len(SOCKET_STEPS) + n - 2],
+                    W, hand_frame(), E, mirror)
+        return
     skin_rings(bm, [loop] + rings, frames, cap1='pole', cap1_len=px(2), mirror=mirror)
     W = P(*WRIST)
     d, w, n = hand_frame()
@@ -1033,7 +1417,7 @@ def build_fingers(bm, W, d, w, n, mirror=False):
 # Front view: row -> (outer, inner) offsets of the left leg from the midline.
 # Side view: row -> (front y, back y). Measured every 10 rows on the reference
 # (rows <= 620 are under the petticoat and extrapolated toward the hip).
-LEG_FRONT = {
+_LEG_FRONT_R10 = {
     455: (60, 6), 472: (62.3, 6.5), 490: (64.5, 7), 510: (65, 8.5), 530: (65.5, 10),
     550: (65.3, 11.2), 570: (65, 12.5), 600: (64.5, 14.5),
     630: (63, 16.5), 640: (61.5, 15.8), 650: (61.5, 16.5), 660: (63.5, 17.5),
@@ -1047,7 +1431,7 @@ LEG_FRONT = {
     820: (48.5, 23.5), 830: (47.5, 22.5), 842: (47, 21.5), 852: (46, 21.5),
     862: (42.5, 23), 874: (39, 25),
 }
-LEG_SIDE = {
+_LEG_SIDE_R10 = {
     455: (-50, 22), 472: (-49, 21), 490: (-48, 20), 510: (-47, 18), 530: (-46, 16),
     550: (-45, 14.5), 570: (-44, 13), 600: (-42, 11),
     630: (-41, 9), 640: (-38.5, 10), 650: (-35.5, 12), 660: (-32, 15.5),
@@ -1215,10 +1599,10 @@ def _leg_shape(row):
     return f
 
 
-def knee_joint():
+def _knee_joint_r10():
     """Left knee pivot (world): on the leg axis at KNEE_ROW, KNEE_FWD px forward."""
-    xo, xi = _smoothed(LEG_FRONT, KNEE_ROW, 10.0)
-    yf, yb = _smoothed(LEG_SIDE, KNEE_ROW, LEG_SIGMA_SIDE)
+    xo, xi = _smoothed(_LEG_FRONT_R10, KNEE_ROW, 10.0)
+    yf, yb = _smoothed(_LEG_SIDE_R10, KNEE_ROW, LEG_SIGMA_SIDE)
     return P((xo + xi) / 2, (yf + yb) / 2 - KNEE_FWD, KNEE_ROW)
 
 
@@ -1300,7 +1684,7 @@ def _leg_master():
     ang = 2 * math.pi * np.arange(LEG_MASTER_N) / LEG_MASTER_N
     C, D, R, Q = [], [], [], []
     for row in rows:
-        cx, cy, hw, hd = leg_section(row)
+        cx, cy, hw, hd = _leg_section_r10(row)
         f = _leg_shape(row)
         for a in ang:
             dx, dy = math.cos(a), math.sin(a)
@@ -1346,27 +1730,28 @@ def _leg_master():
     return _LEG_MASTER
 
 
-def ankle_joint():
+def _ankle_joint_r10():
     """Left ankle pivot (world): on the leg axis at ANKLE_ROW, ANKLE_BACK px behind it."""
-    cx, cy, _, _ = leg_section(ANKLE_ROW)
+    cx, cy, _, _ = _leg_section_r10(ANKLE_ROW)
     return P(cx, cy + ANKLE_BACK, ANKLE_ROW)
 
 
-def leg_section(row):
+def _leg_section_r10(row):
     """Left leg ring at `row` (panel px): (centre x, centre y, half width, half depth),
     before the anatomy offsets (leg_offset). shoes.py clears its shell against it."""
     r0, r1, r2, r3, sk = LEG_SIGMA_KNEE
     knee = smoothstep(r0, r1, row) * (1 - smoothstep(r2, r3, row))
-    xo, xi = _smoothed(LEG_FRONT, row, LEG_SIGMA + (sk - LEG_SIGMA) * knee)
-    yf, yb = _smoothed(LEG_SIDE, row, LEG_SIGMA_SIDE)
+    xo, xi = _smoothed(_LEG_FRONT_R10, row, LEG_SIGMA + (sk - LEG_SIGMA) * knee)
+    yf, yb = _smoothed(_LEG_SIDE_R10, row, LEG_SIGMA_SIDE)
     return (xo + xi) / 2, (yf + yb) / 2, (xo - xi) / 2 - MARGIN, (yb - yf) / 2 - MARGIN
 
 
-def leg_offset(row):
+def _leg_offset_r10(row, anatomy=True):
     """f(dx, dy) -> (d_side, d_front) px: how the anatomy (kneecap, calf, malleoli,
     tendon, heel) and the shape master move the point of the leg ring at `row` at unit
-    direction (dx: + outer, dy: + front). shoes.py clears its shell against it."""
-    anat = _leg_shape(row)
+    direction (dx: + outer, dy: + front). anatomy=False: the shape master's correction
+    alone (round 11: the proportions 风堇's legs are warped to)."""
+    anat = _leg_shape(row) if anatomy else (lambda dx, dy: (0.0, 0.0))
     tab = _leg_master()
     if tab is None or not tab[0][0] <= row <= tab[0][-1]:
         return anat
@@ -1377,7 +1762,7 @@ def leg_offset(row):
     if not np.any(np.abs(o) > 1e-6):
         return anat
     n = len(o)
-    _, _, hw, hd = leg_section(row)
+    _, _, hw, hd = _leg_section_r10(row)
 
     def f(dx, dy):
         a, b = anat(dx, dy)
@@ -1392,15 +1777,87 @@ def leg_offset(row):
     return f
 
 
+# Round 11: the legs are 风堇's (levi/parts/_body_legs.py), so what other parts read of them
+# (shoes: LEG_FRONT / LEG_SIDE / leg_section / leg_offset; the rig: knee / ankle) describes
+# slices of that surface; round 10's procedural legs above (the _r10 functions, build_leg,
+# build_foot) are the target her legs are warped to, and the LEVI_HYACINE_LEGS=0 fallback.
+class _LegTable(Mapping):
+    """LEG_FRONT (row -> (outer x, inner x)) / LEG_SIDE (row -> (front y, back y)) in panel px,
+    MARGIN outside the slices of the final leg (as round 10's sheet-measured tables were),
+    one entry per panel row; computed on first use."""
+
+    def __init__(self, side):
+        self.side = side
+        self._cache = None
+
+    def _d(self):
+        if self._cache is None:
+            t = _body_legs.legs().tables()
+            out = {}
+            for row, (cx, cy), (hw, hd) in zip(t['rows'], t['c'], t['h']):
+                if self.side:
+                    out[int(row)] = (float(cy - hd - MARGIN), float(cy + hd + MARGIN))
+                else:
+                    out[int(row)] = (float(cx + hw + MARGIN), float(cx - hw - MARGIN))
+            self._cache = out
+        return self._cache
+
+    def __getitem__(self, row):
+        return self._d()[row]
+
+    def __iter__(self):
+        return iter(self._d())
+
+    def __len__(self):
+        return len(self._d())
+
+
+if _body_legs.ENABLED:
+    LEG_FRONT, LEG_SIDE = _LegTable(0), _LegTable(1)
+else:
+    LEG_FRONT, LEG_SIDE = _LEG_FRONT_R10, _LEG_SIDE_R10
+
+
+def leg_section(row):
+    """Left leg at `row` (panel px): (centre x, centre y, half width, half depth) of the skin's
+    slice (round 10: of the table ellipse, before leg_offset). shoes.py clears its shell
+    against it."""
+    if _body_legs.ENABLED:
+        return _body_legs.legs().section(row)
+    return _leg_section_r10(row)
+
+
+def leg_offset(row):
+    """f(dx, dy) -> (d_side, d_front) px from the leg_section ellipse's point at unit direction
+    (dx: + outer, dy: + front) to the skin along it."""
+    if _body_legs.ENABLED:
+        return _body_legs.legs().offset(row)
+    return _leg_offset_r10(row)
+
+
+def knee_joint():
+    """Left knee pivot (world): on the leg axis at KNEE_ROW, KNEE_FWD px forward."""
+    if _body_legs.ENABLED:
+        return Vector(_body_legs.legs().joints()['knee'])
+    return _knee_joint_r10()
+
+
+def ankle_joint():
+    """Left ankle pivot (world): on the leg axis at ANKLE_ROW, ANKLE_BACK px behind it."""
+    if _body_legs.ENABLED:
+        return Vector(_body_legs.legs().joints()['ankle'])
+    return _ankle_joint_r10()
+
+
 def build_leg(bm):
     centers, hints, radii, shapes = [], [], [], []
     for row in LEG_ROWS:
-        cx, cy, hw, hd = leg_section(row)
+        cx, cy, hw, hd = _leg_section_r10(row)
         centers.append(P(cx, cy, row))
         hints.append(Vector((1, 0, 0)))
         # side+ = outer, side- = inner, up+ = front, up- = back
         radii.append((px(hw), px(hw), px(hd), px(hd)))
-        shapes.append(leg_offset(row))
+        shapes.append(_leg_offset_r10(row))
 
     def shape(i, dx, dy):
         a, b = shapes[i](dx, dy)
@@ -1486,27 +1943,41 @@ def _mirror_x(bm_src):
 
 def build(col):
     bm = bmesh.new()
-    build_leg(bm)
-    build_foot(bm)
-    _mirror_x(bm)
+    legs = _body_legs.legs() if _body_legs.ENABLED else None
+    if legs is None:
+        build_leg(bm)
+        build_foot(bm)
+        _mirror_x(bm)
     rings = build_torso(bm)
+    if legs is not None:
+        legs.attach(bm, rings)     # 风堇's pelvis, legs and feet, welded under the waist
     sockets = [(cut_socket(bm, rings, s), s) for s in (1, -1)]
     arms = []
+    hands = _body_hand.Hands() if _body_hand.ENABLED else None
     for (loop, tans), s in sockets:
         before = set(bm.verts)
-        build_arm(bm, loop, tans, s)
+        build_arm(bm, loop, tans, s, hands)
         arms.append((loop, set(bm.verts) - before, s))
     _socket_param(bm, arms)
+    if hands is not None:
+        hands.write_layers(bm)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     obj = common.new_object(col, 'body', bm, [common.toon_material('skin')])
     obj['levi_socket_param'] = SOCKET_PARAM_ATTR
     joints = {'knee': tuple(knee_joint()), 'ankle': tuple(ankle_joint())}
+    if legs is not None:
+        joints['hip'], joints['toe'] = tuple(legs.joints()['hip']), tuple(legs.joints()['toe'])
+        print(f"BODY legs (风堇): {legs.info}; joints {legs.joints()}")
     if SHOULDER_JOINT is not None:
         joints['shoulder_joint'] = tuple(P(*SHOULDER_JOINT))
+    if hands is not None:
+        hands.store(obj, joints)
+        print(f"BODY hands (风堇): {hands.info}")
     obj['levi_joints'] = joints
     if MASTER:
         print(f"BODY shape master: hand scale (palm width, palm thickness, finger thickness) "
               f"{tuple(round(v, 3) for v in _hand_master())}; legs {LEG_MASTER_INFO}")
     common.shade_smooth(obj, 75.0)
-    common.add_outline(obj)
+    # round 11: the outline thins in 风堇's hand creases (_body_hand.Hands.outline)
+    common.add_outline(obj, **(hands.outline(obj) if hands is not None else {}))
     return obj

@@ -252,16 +252,73 @@ FINGER_NAMES = (('親指', 'Thumb'), ('人指', 'IndexFinger'), ('中指', 'Midd
                 ('薬指', 'RingFinger'), ('小指', 'LittleFinger'))
 
 
+# Round 11: the body's hands are 风堇's (levi/parts/_body_hand.py), one piece with the palm,
+# so the fingers are no longer loose parts. The body stores the chains it placed from her
+# bones (FINGER_CHAINS_PROP, left side, world) and a finger id per vertex (the int point
+# attribute named by FINGER_ATTR_PROP: 0 palm, 1 thumb .. 5 little). fit_fingers takes the
+# stored chains; without them it fits loose parts split by the finger id (then plain loose
+# parts, the round-10 contract). _island_rules applies its finger rule per finger region.
+FINGER_CHAINS_PROP = 'levi_fingers'
+FINGER_ATTR_PROP = 'levi_finger_attr'
+FINGER_SRC = {}     # how the last fit_fingers found its chains (for the build log)
+
+
+def _finger_ids(obj, n):
+    """(n,) finger id per vertex from the attribute named by obj[FINGER_ATTR_PROP], else None."""
+    name = obj.get(FINGER_ATTR_PROP)
+    attr = obj.data.attributes.get(name) if name else None
+    if attr is None or attr.domain != 'POINT' or len(attr.data) != n or attr.data_type != 'INT':
+        return None
+    v = np.empty(n, dtype=np.int32)
+    attr.data.foreach_get('value', v)
+    return v.astype(np.int64)
+
+
+def _part_labels(obj, co, labels):
+    """Loose-part labels, each finger region (finger id > 0) of a loose part its own label."""
+    fid = _finger_ids(obj, len(co))
+    if fid is None or not fid.any():
+        return labels
+    _, out = np.unique(labels.astype(np.int64) * 8 + fid, return_inverse=True)
+    return out.reshape(-1)
+
+
+# Round 11 (review): the thumb's bones (親指０ metacarpal, 親指１, 親指２) are rolled about the
+# thumb's chain (knuckle -> tip) by these angles (deg) from the knuckle-line palm normal, positive
+# toward the index, so a turn about their X curls them like a thumb: the metacarpal swings out in
+# front of the palm (palmar abduction, as the real CMC joint does), the phalanges close across
+# the fingers. One roll for all three (the pad toward the index knuckle, ~75 deg) put the
+# metacarpal on the palm, so the fist's curled index went 6.7 mm into the thumb's base and the
+# fingertip 6.9 mm into the palm; (-30, 75, 75): the thumb rests on the index and middle
+# fingers' middle phalanges, nothing passes through it, the index tip ~3 mm into the palm.
+THUMB_ROLL = (-30.0, 75.0, 75.0)
+
+
 def _mesh_islands(objs):
-    """[(world points (n, 3))] per loose part of the meshes `objs`."""
+    """[(world points (n, 3))] per loose part of the meshes `objs` (finger regions split off)."""
     out = []
     for o in objs:
         co = _world_verts([o])
         if not len(co):
             continue
-        lab = _islands(len(co), _topology(o, co))
+        lab = _part_labels(o, co, _islands(len(co), _topology(o, co)))
         out += [co[lab == k] for k in np.unique(lab)]
     return out
+
+
+def _stored_fingers(body_objs):
+    """{jp: [knuckle, joint, joint, tip]} a body object stores (FINGER_CHAINS_PROP), else {}."""
+    for o in body_objs:
+        d = o.get(FINGER_CHAINS_PROP)
+        if not d:
+            continue
+        try:
+            out = {jp: [Vector(tuple(p)) for p in d[jp]] for jp, _ in FINGER_NAMES}
+        except (KeyError, TypeError, ValueError):
+            continue
+        if all(len(v) == 4 and all(len(p) == 3 for p in v) for v in out.values()):
+            return out
+    return {}
 
 
 def _finger_line(pts, d):
@@ -288,7 +345,15 @@ def fit_fingers(body_objs, J):
     The hand's five fingers are the loose parts lying past the wrist within reach of
     the fingertip; the thumb is the one most angled away from the hand direction, the
     others are ordered from the thumb side. Both hands are fitted (the right one
-    mirrored) and averaged. Returns {} unless every finger is found."""
+    mirrored) and averaged. Returns {} unless every finger is found.
+
+    Round 11: the chains the body stores (FINGER_CHAINS_PROP: 风堇's finger bones, placed on
+    the hand) come first; the loose parts are split by the finger id (_part_labels)."""
+    FINGER_SRC.clear()
+    stored = _stored_fingers(body_objs)
+    if stored:
+        FINGER_SRC['src'] = 'stored by the body'
+        return stored
     wr, tip = J['wrist'], J['fingertip']
     d = (tip - wr).normalized()
     hand_len = (tip - wr).length
@@ -311,6 +376,7 @@ def fit_fingers(body_objs, J):
         sides.append([found[i][0] for i in [thumb] + rest])
     if not sides:
         return {}
+    FINGER_SRC['src'] = 'loose parts'
     return {jp: [sum((sd[i][k] for sd in sides), Vector()) / len(sides) for k in range(4)]
             for i, (jp, _) in enumerate(FINGER_NAMES)}
 
@@ -681,6 +747,22 @@ def _core_bones(J=None, H=None, F=None):
         # body mesh gives one (fit_fingers), each bone's Z rolled to the palm side so a
         # positive turn about its local X curls it toward the palm
         palm = d.cross(f).normalized()
+        thumb_z = [palm] * 3
+        if F:
+            # round 11: the palm normal from the chains' knuckle line (index - little), not the
+            # generic forward x hand direction (~42 deg off on Levi's hand, turned toward the
+            # thigh, so fingers curled sideways); the thumb's bones rolled about the thumb by
+            # THUMB_ROLL from it
+            kn = F['人指'][0] - F['小指'][0]
+            kn = kn - d * kn.dot(d)
+            if kn.length > 1e-6:
+                palm = d.cross(kn).normalized()
+                td = F['親指'][3] - F['親指'][0]
+                p0 = palm - td.normalized() * palm.dot(td.normalized()) if td.length > 1e-6 else Vector()
+                if p0.length > 1e-6:
+                    td, p0 = td.normalized(), p0.normalized()
+                    thumb_z = [p0 * math.cos(math.radians(a)) + td.cross(p0) * math.sin(math.radians(a))
+                               for a in THUMB_ROLL]
         for jp, en, pts in finger_chains(F, wr, d, f, hand_len, palm_end, fingers):
             parent = '手首' + sfx
             thumb = jp == '親指'
@@ -689,7 +771,7 @@ def _core_bones(J=None, H=None, F=None):
                 add(Bone(nm + sfx, jp_side + nm, f'{en}{i if thumb else i + 1}' + en_sfx, _mx(pts[i], s),
                          _mx(pts[i + 1], s), parent, connect=i > 0, r=0.014 if thumb else 0.012,
                          r_end=0.01 if thumb else 0.008, group='Fingers',
-                         meta={'align_z': tuple(_mx(palm, s)), 'finger': jp}))
+                         meta={'align_z': tuple(_mx(thumb_z[i] if thumb else palm, s)), 'finger': jp}))
                 parent = nm + sfx
 
         hip, knee, ankle, toe = J['hip'], J['knee'], J['ankle'], J['toe']
@@ -959,7 +1041,10 @@ DRAPE_LEG_EXT = 1.45
 DRAPE_SHIN_R = 0.05
 # (m from the hip joint along the thigh, the thigh's skin weight there): measured on the
 # round-6 body (足 vs 下半身, mean round the thigh); the obstacle near the groin moves as
-# much as the blended skin does
+# much as the blended skin does. Round 11 (风堇's continuous pelvis): re-measured as
+# 足 + HIP_AUX x 足補助 round the thigh, 0.49 / 0.52 / 0.70 / 0.84 / 0.97 at 0 / 5 / 10 / 14 /
+# 20 cm (the round-10 body 0.54 / 0.63 / 0.69 / 0.91 / 1.0): within 0.07 of round 10, so the
+# table stays (moved by the difference, it raised the run clip's skirt pop 69 -> 83 mm)
 DRAPE_SKIN_W = ((0.0, 0.5), (0.05, 0.6), (0.10, 0.75), (0.14, 0.97), (0.17, 1.0))
 DRAPE_RES = 2.0             # deg: resolution of the clearance search (round 7: 1)
 DRAPE_SLACK = 0.004         # m: where nothing clears, the least turn within this of the best depth
@@ -1076,6 +1161,17 @@ def skirt_follow(angle, s):
     return total * own / max(own + other, 1e-9)
 
 
+# Round 11: the drape's thigh is round 10's (r11/base). 风堇's pelvis is fuller round the hip
+# joints (the profile's 90th percentile +8 / +11 / +7 mm at t = 0 / 0.1 / 0.2, then 1-4 mm
+# thinner down the thigh) and her knee joint sits 5 mm further in; measured on the new body they
+# re-tuned the drape tables and the run clip's skirt pop (frame 16) rose from 68.5 to 89 mm (80
+# with round 10's profile alone, 86 with its knee alone). With both it is 65.6 mm, the
+# petticoat's stretch as round 10's (x2.30) and the cloth's clearance unchanged. The profile is
+# round 10's measurement (radius at t = 0, 0.1 .. 1 along hip -> knee); None measures the body.
+DRAPE_THIGH_PROFILE = (0.0722, 0.0628, 0.0603, 0.0582, 0.0554, 0.0546, 0.0537, 0.0525, 0.0489, 0.0484, 0.0576)
+DRAPE_KNEE_OUT = 0.0049     # m: the drape's knee this far out of the knee joint (round 10's knee)
+
+
 def _thigh_profile(body, hip, knee, s):
     """(t, radius) samples of one thigh (side s) along hip -> knee from the body mesh:
     the 90th percentile distance of the body's vertices from the axis, per slab."""
@@ -1093,6 +1189,8 @@ def _thigh_profile(body, hip, knee, s):
             sel = lat[(np.abs(t - tk) < 0.05) & (lat < 0.12)]
             if len(sel) >= 8:
                 rs[i] = float(np.percentile(sel, 90))
+    if DRAPE_THIGH_PROFILE is not None:
+        rs = np.array(DRAPE_THIGH_PROFILE, dtype=float)
     return ts, rs
 
 
@@ -1782,6 +1880,13 @@ HAIR_COLLIDE_GRID = 0.006        # m: collider points are thinned to this grid b
 # only points this near the parent bone's head (m) or None, Blender collider, PMX capsule).
 # The sleeves count only where an arm bone dominates them (not the hanging drape).
 _ARM_STEMS = ('肩補助2', '肩補助3', '腕D', '腕', '腕捩')
+# RIG_FIT_PROP (object, 0..1, default 1): the share of an object's vertices that the rig's
+# point-count fits sample (the hair colliders here, the sleeve drape chains in
+# _secondary_bones; _fit_verts), 0 to leave it out. Those fits take percentiles and centroids
+# of vertices, so a part that remeshes a piece denser (round 11's sleeve frill and cuff,
+# 2-4x) can keep its weight in them as it was, and leave out an inner layer that only skews
+# them (the cuff's under tier).
+RIG_FIT_PROP = 'levi_rig_fit'
 HAIR_COLLIDERS = (
     ('shoulder', _ARM_STEMS, '腕D', ('body', 'sleeves'), 0.10, True, False),
     ('upperarm', _ARM_STEMS, '腕D', ('body', 'sleeves'), None, True, True),
@@ -1853,6 +1958,18 @@ HAIR_CAPSULE_FADE_BY = {'hair_cheek': (0.5, 1.0)}
 HAIR_COLLIDE_REACH = 0.12   # m: trunk / skirt / head hulls farther than this from a probe at rest are not tested
 # (not normalised, on purpose: pushed alike with both neighbours a segment moves 1.3x its push,
 # which is spare clearance; normalised, an isolated push was resolved only by half)
+
+
+def _fit_verts(o, *arrays):
+    """World vertices of o that the rig's fits sample (RIG_FIT_PROP), and the same rows of
+    each further per-vertex array: an even, deterministic thinning to that share."""
+    co = _world_verts([o])
+    share = float(o.get(RIG_FIT_PROP, 1.0))
+    if share < 1.0:
+        i = np.arange(len(co))
+        m = np.floor((i + 1) * share) > np.floor(i * share)
+        co, arrays = co[m], tuple(a[m] for a in arrays)
+    return (co,) + tuple(arrays) if arrays else co
 
 
 def _dominant_stems(obj, arm):
@@ -1973,7 +2090,7 @@ def _hair_colliders(arm, parts, bones, want=(), blender=True):
     capsules = []     # the same parts as MMD rigid bodies (export_pmx: hair-only colliders)
     for part in ('body', 'sleeves', 'bodice', 'accessories', 'head'):
         for o in parts.get(part, []):
-            samples.setdefault(part, []).append((_world_verts([o]), _dominant_stems(o, arm)))
+            samples.setdefault(part, []).append(_fit_verts(o, _dominant_stems(o, arm)))
     out = {}
 
     def add(name, pts, parent, info=None, bm=None):
@@ -2012,7 +2129,13 @@ def _hair_colliders(arm, parts, bones, want=(), blender=True):
             cap = None
             if in_blender and blender and cname in HAIR_COLLIDE_CAPSULES and pname in names:
                 bn = arm.data.bones[pname]
-                cap = _Capsule.fit(pname, pts, np.array(bn.head_local), np.array(bn.tail_local))
+                fit = pts
+                if cname == 'hand' and len(pts):
+                    # round 11: 风堇's subdivided hand has ~5x the forearm's vertices per area, so
+                    # the raw percentiles followed the fingers' spread (r 2.4 -> 2.9 cm, pushing the
+                    # side locks into the head in dance_heart); fit the surface, like the hulls
+                    fit = np.unique(np.round(pts / HAIR_COLLIDE_GRID).astype(np.int64), axis=0) * HAIR_COLLIDE_GRID
+                cap = _Capsule.fit(pname, fit, np.array(bn.head_local), np.array(bn.tail_local))
                 if cap:
                     out[cname + sfx] = (None, cap, None)
                     print(f'rig hair capsule {cname + sfx}: r {cap.r * 100:.1f} cm, '
@@ -2525,7 +2648,16 @@ def _secondary_bones(parts, core):
                 _chain_bones(f'後髪束{k}', f'後髪束{k}', f'HairLock{k}', joints, hair_parent(), 0.03, 'Hair',
                              meta={'lock': key}), byname, *pitch)
     if len(rest):
-        chains = _sector_chains(rest, (0.0, L['head_center_y']), L['eye_z'], HAIR_SECTORS, 4, 0.10)
+        # (rooted at the curtain's own top when it starts below eye level: round 11's
+        # under-layer starts below the head bone's fade band, and chains rooted at eye
+        # level found no points there, leaving it on the nearest lock bones' envelopes)
+        root_z = min(L['eye_z'], float(rest[:, 2].max()))
+        chains = _sector_chains(rest, (0.0, L['head_center_y']), root_z, HAIR_SECTORS, 4, 0.10)
+        if root_z < L['eye_z']:
+            # the root joint (a band centroid) just over the curtain's top edge: a vertex
+            # above its chain's root would hang from 頭 alone, a seam in a head turn
+            chains = [(a, [Vector((j[0].x, j[0].y, max(j[0].z, root_z + 0.005)))] + list(j[1:]))
+                      for a, j in chains]
         for k, (ang, joints) in enumerate(chains):
             bones += _hair_pitch_gravity(
                 _chain_bones(f'後髪{k}', f'後髪{k}', f'HairBack{k}', joints, hair_parent(), 0.035, 'Hair',
@@ -2572,7 +2704,7 @@ def _secondary_bones(parts, core):
         if SKIRT_DRAPE and chains:
             th = byname['足.L']
             drape = _skirt_drape(chains, pts, cy, np.array(th.head),
-                                 np.array(th.tail) + np.array((0.0, -DRAPE_KNEE_FWD, 0.0)), verts('body'),
+                                 np.array(th.tail) + np.array((DRAPE_KNEE_OUT, -DRAPE_KNEE_FWD, 0.0)), verts('body'),
                                  inner=verts('skirt', 'petticoat'))
         for k, (ang, joints) in enumerate(chains):
             hem_r = max(0.03, math.hypot(joints[-1].x, joints[-1].y - cy) * math.pi / SKIRT_SECTORS)
@@ -2611,7 +2743,7 @@ def _secondary_bones(parts, core):
                 parent = seg.name
 
     # sleeve drapes: sleeve vertices well away from the arm bones hang from the forearm
-    pts = verts('sleeves')
+    pts = np.concatenate([_fit_verts(o) for o in parts.get('sleeves', [])] or [np.zeros((0, 3))])
     if len(pts):
         for tag, s, jp_side in SIDES:
             side = pts[pts[:, 0] * s > 0.05]
@@ -2827,6 +2959,70 @@ BODICE_ARM_CAP = 0.12      # most of a bodice vertex the arm (腕D) may carry
 # shell under them does) instead of riding one attachment point rigidly: rigid on the
 # neckline's weights, the leaf cluster sank up to 7 mm into the chest in arms_up
 BODICE_RIDE = ('bodice_leaves',)
+# round 11: the bodice's closed bow knot straddles 上半身/下半身, and the bow loops, the last
+# lacing cords and the ribbon tails all start inside it. With per-vertex weights (the knot
+# was exempt from rigid islands by WAIST_STRADDLE) their cut ends came 2-9 mm out of it in
+# squat, torso turns, twist_bend and lie_back_elbows. Now the knot rides one set of weights,
+# the mean of the part's base weights at sample points the part gives (the knot and the loop
+# stations: the bow rides as one rigid ornament), and every strand vertex inside it, or
+# within KNOT_HOLD of its surface, takes the same weights; further out a strand blends back
+# to its own weights over KNOT_BLEND (as a SKIN_ORNAMENTS root does). The part writes each vertex's distance outside the knot (m, negative inside; 0 everywhere on an
+# object that rides the knot whole, the bow) in the point attribute named by obj[KNOT_PARAM],
+# and the knot's centre and half extents, and optionally that object's blend length (m,
+# default KNOT_BLEND), in obj[KNOT_PROP].
+KNOT_PARAM = 'levi_knot_param'
+KNOT_PROP = 'levi_knot'
+KNOT_SAMPLES = 'levi_knot_samples'   # points (flat, m) whose mean weights the knot rides; else its box
+KNOT_HOLD = 0.0015
+KNOT_BLEND = 0.012
+# round 11: the ribbon tails lying on the skirt carry the skirt's field below its chains'
+# root, up to six bones there (two chains x two segments, 上半身, 下半身); the fourth kept
+# bone switched between 下半身 and the weaker chain's lower segment within one 3 mm station
+# step, and the motion refit amplified the difference (x2.5 in high_kick on R_wave). The
+# prune decides on a guide smoothed this much wider (m) along the tails, so it switches
+# over centimetres.
+BODICE_WIDE_GUIDE = ('bodice_ribbon_tails', 0.09)
+
+
+def _knot_weights(w, co, obj, part, bones):
+    """(weights, pinned vertices, knot weights): `w` with the knot's rigid weights inside
+    the bow knot, blended out along the strands that leave it (see KNOT_PARAM), or None for
+    an object without the knot data. The pinned vertices (inside the knot or within
+    KNOT_HOLD of it) get the knot's own pruned weights again after the prune (_knot_pin):
+    its guide, smoothed along a strand, would otherwise fold their weights a little
+    differently from the knot's (0.3-0.4 mm out of it in forward_bend / lie_back)."""
+    out = _point_param(obj, co, KNOT_PARAM)
+    box = obj.get(KNOT_PROP)
+    if out is None or box is None or len(box) not in (6, 7):
+        return None
+    c, a = np.array(box[:3], dtype=float), np.array(box[3:6], dtype=float)
+    blend = float(box[6]) if len(box) == 7 else KNOT_BLEND
+    smp = obj.get(KNOT_SAMPLES)
+    if smp is not None and len(smp) >= 3 and len(smp) % 3 == 0:
+        pts = np.array(smp, dtype=float).reshape(-1, 3)
+    else:
+        pts = np.vstack([c, c + np.diag(a), c - np.diag(a)])
+    wk = _base_weights(part, pts, bones) * _side_mask(pts, np.zeros(len(pts), dtype=int), bones, True)
+    wk = wk.sum(0)
+    wk = wk / max(float(wk.sum()), 1e-12)
+    t = (1.0 - _smoothstep(KNOT_HOLD, KNOT_HOLD + blend, out))[:, None]
+    return w * (1.0 - t) + wk[None, :] * t, out <= KNOT_HOLD, wk
+
+
+def _knot_pin(idx, ww, knot, bones):
+    """The pruned (idx, ww) with the knot's own pruned weights on its pinned vertices."""
+    if knot is None or not knot[1].any():
+        return idx, ww
+    ik, wk = _prune(knot[2][None, :], bones)
+    idx, ww = idx.copy(), ww.copy()
+    kk = min(idx.shape[1], ik.shape[1])
+    idx[knot[1]] = 0
+    ww[knot[1]] = 0.0
+    idx[knot[1], :kk] = ik[0, :kk]
+    ww[knot[1], :kk] = wk[0, :kk]
+    return idx, ww
+
+
 SKIN_K = 8                 # nearest skin vertices averaged (inverse distance) ...
 SKIN_SOFT = 0.005          # ... softened by this many m, so the sample varies smoothly
 _SKIN = None               # (points (N, 3), {bone: column}, weights (N, B)) of the skinned body (build_rig)
@@ -2896,6 +3092,19 @@ SMOOTH_RADIUS = {     # metres of weight smoothing along the surface, per part
     'body': 0.009, 'head': 0.01, 'shoes': 0.012, 'accessories': 0.012, 'bodice': 0.035,
     'hair_front': 0.025, 'hair_back': 0.03, 'sleeves': 0.065, 'skirt': 0.03, 'petticoat': 0.06,
 }
+# Round 11: the reference edges (m) a part's smoothing radii were tuned on, one per level of the
+# multilevel smoothing (_smooth_ml: the fine mesh, then each coarsening), used in place of each
+# level's median edge. The body's radii (SMOOTH_RADIUS, CROTCH_SMOOTH, ARMPIT_SMOOTH,
+# PRUNE_SMOOTH) were tuned on the round-10 body (r11/base), whose levels these are (measured
+# with smooth_levels). 风堇's subdivided hands (~2 mm edges, over half the body's vertices)
+# brought the medians to 4.3 / 6.2 / 8.6 mm, which re-tuned the whole skin (arms_up's armpit
+# x1.78 -> x2.39) and, through the coarse level the crotch pass runs on, broke the hips' left /
+# right symmetry (up to 0.14). The hands are also left out of the body's smoothing graph
+# (_smooth_zones: they take her weights, _hand_hint, and are smoothed on their own), so away
+# from the forearms the body's weights are r11/base's.
+SMOOTH_REF = {'body': (0.009354644735714363, 0.011139147256875703, 0.015647158775001092,
+                       0.02070159577335434, 0.028074554799480053, 0.036939761281950985,
+                       0.047217178786414626, 0.0606149933215295)}
 # (petticoat, round 7: 0.04 -> 0.06. Its gathered inner tiers sit ~16 cm from the axis,
 # where neighbouring skirt chains are only ~6.5 cm apart, and a draped chain turning more
 # than its neighbour stretched them x2.2-3.2; 0.08 made the layers part in cross_legged.)
@@ -2960,12 +3169,13 @@ def _side_mask(co, labels, bones, per_vertex):
     return m
 
 
-def _smooth(w, co, edges, radius):
+def _smooth(w, co, edges, radius, ref=None):
     """Laplacian smoothing of the weight rows along the mesh edges, about `radius` metres.
 
     Each edge pulls with (median edge / its length)^2 (at most 1), so every iteration
     spreads about one median edge length in metres whatever the edge: long edges down
-    a thin ribbon don't carry weights much farther than `radius`."""
+    a thin ribbon don't carry weights much farther than `radius`. `ref`: the reference
+    edge in place of the mesh's median, or one per level (SMOOTH_REF)."""
     if radius <= 0 or not len(edges):
         return w
     # only the bones this mesh uses: the rest stay zero under any averaging
@@ -2973,7 +3183,7 @@ def _smooth(w, co, edges, radius):
     if not len(act):
         return w
     out = w.copy()
-    out[:, act] = _smooth_ml(w[:, act], co, edges, radius, 0)
+    out[:, act] = _smooth_ml(w[:, act], co, edges, radius, 0, ref)
     return out
 
 
@@ -3022,15 +3232,47 @@ def _match(co, edges, ln):
 SMOOTH_DIRECT = 64   # iterations above which smoothing runs on a coarsened mesh first
 
 
-def _smooth_ml(w, co, edges, radius, depth):
+def _level_ref(ref_edge, depth, median):
+    """The reference edge of smoothing level `depth` (0 the mesh itself): ref_edge's (a number
+    for the fine level only, or a sequence with one per level), else the level's median edge."""
+    if ref_edge is None:
+        return median
+    seq = ref_edge if isinstance(ref_edge, (tuple, list)) else (ref_edge,)
+    return float(seq[depth]) if depth < len(seq) and seq[depth] else median
+
+
+def smooth_levels(co, edges, depth=8):
+    """The median edge of each level of _smooth_ml's coarsening of a mesh (co, edges), as long as
+    it can pair vertices: what SMOOTH_REF records for a part (e.g. the body's, from r11/base)."""
+    out = []
+    for _ in range(depth):
+        ln, ref = _edge_ref(co, edges)
+        out.append(ref)
+        lab, nc = _match(co, edges, ln)
+        if nc > 0.85 * len(co) or len(co) < 64:
+            break
+        cnt = np.bincount(lab, minlength=nc).astype(float)[:, None]
+        cco = np.zeros((nc, 3))
+        np.add.at(cco, lab, co)
+        ce = np.stack([lab[edges[:, 0]], lab[edges[:, 1]]], 1)
+        ce = ce[ce[:, 0] != ce[:, 1]]
+        if not len(ce):
+            break
+        co, edges = cco / cnt, np.unique(np.sort(ce, 1), axis=0)
+    return out
+
+
+def _smooth_ml(w, co, edges, radius, depth, ref_edge=None):
     """Smoothing about `radius` metres whatever the mesh density. Within SMOOTH_DIRECT
     iterations of the plain diffusion (_diffuse) it runs directly; otherwise neighbouring
     vertices are paired (_match), the cluster averages are smoothed on the coarse graph
     (recursively), the coarse change is added back to every vertex of its cluster, and a
     short diffusion on the fine mesh (about one coarse edge) evens out the cluster steps.
     Diffusion radii add in squares, so the two passes together give `radius`. Cost stays
-    about linear in the vertex count."""
+    about linear in the vertex count. ref_edge: the reference edge in place of the median, of
+    the fine level only (a number) or one per level (SMOOTH_REF; _level_ref)."""
     ln, ref = _edge_ref(co, edges)
+    ref = _level_ref(ref_edge, depth, ref)
     if ref <= 0.0:
         return w
     # fractional (round 9): a whole number of steps made a small radius jump with the mesh's
@@ -3054,10 +3296,12 @@ def _smooth_ml(w, co, edges, radius, depth):
     ce = ce[ce[:, 0] != ce[:, 1]]
     ce = np.unique(np.sort(ce, 1), axis=0) if len(ce) else ce
     _, cref = _edge_ref(cco, ce) if len(ce) else (None, 0.0)
+    if len(ce):
+        cref = _level_ref(ref_edge, depth + 1, cref)
     post = min(radius * 0.7, 1.5 * max(cref, ref))      # fine-level pass: about one coarse edge
     rc = math.sqrt(max(radius ** 2 - post ** 2, 0.0))
     if len(ce):
-        cw = _smooth_ml(cw, cco, ce, rc, depth + 1) - cw
+        cw = _smooth_ml(cw, cco, ce, rc, depth + 1, ref_edge) - cw
     else:
         cw = np.zeros_like(cw)
     w = w + cw[lab]
@@ -3608,9 +3852,19 @@ def _hair_head_fade(w, co, bones):
 # round 7: wider and smoother (round 6: 4.5 cm over a 7 cm half width, 22 cm deep): the
 # pelvis / thigh change spreads over the buttocks and the groin, x2.0-2.1 -> 1.7-1.8 in
 # high_kick, the lunges and kneeling (with the hip helpers)
-CROTCH_SMOOTH = 0.06           # weight smoothing radius (m) at the crotch
+# Round 11: 风堇's pelvis and legs are one surface through the crotch (round 10's leg tubes
+# overlapped a torso block, whose bottom took both thighs half and half while each tube was
+# all its own thigh: the change of hands happened between pieces, out of sight). Now the
+# gusset between the inner thighs carries the thighs' change of hands, and a stride shears it:
+# 0.12 m spreads it over the gusset and the inner thighs (0.09: run x2.22 -> 2.30, 0.16: x2.31,
+# cross_legged x3.79), and CROTCH_TAIL cuts what reaches past the top of the other inner thigh.
+# The zone (4th value: its top, m above the hip joints) covers the buttocks up to the hip
+# joints' height: below its old top (the hip joints, fading over 8 cm) the pelvis / thigh
+# change at the back of the buttocks stayed steep, x2.09 / 2.24 in sit_chair /
+# lie_back_elbows (now x1.79 / 1.79).
+CROTCH_SMOOTH = 0.12           # weight smoothing radius (m) at the crotch
 CROTCH_PARTS = ('body', '_proxy')   # skin only: garments there follow the skirt chains
-CROTCH_ZONE = (0.12, 0.25, 0.06)   # half width, depth below the hip joints, vertical fade
+CROTCH_ZONE = (0.12, 0.30, 0.12, 0.06)   # half width, depth below the hip joints, vertical fade, top
 
 
 def _crotch_mask(co, bones):
@@ -3619,10 +3873,387 @@ def _crotch_mask(co, bones):
     if '足.L' not in col or '足.R' not in col:
         return None
     hip_z = bones[col['足.L']].head.z
-    hw, depth, fade = CROTCH_ZONE
+    hw, depth, fade = CROTCH_ZONE[:3]
+    top = hip_z + (CROTCH_ZONE[3] if len(CROTCH_ZONE) > 3 else 0.0)
     return (1.0 - _smoothstep(hw * 0.6, hw, np.abs(co[:, 0]))) * \
         _smoothstep(hip_z - depth, hip_z - depth + fade, co[:, 2]) * \
-        (1.0 - _smoothstep(hip_z - fade, hip_z, co[:, 2]))
+        (1.0 - _smoothstep(top - fade, top, co[:, 2]))
+
+
+# Round 11 (review): the smoothing spread each thigh's weight 12-17 cm down the other's inner
+# side (the standing thigh dragged 2.6-3 cm toward a kick). _crotch_tail moves each sided
+# bone's share on the wrong side of the midline to the pelvis (下半身; the hat remap then hands
+# it to the hip helper) between these geodesic distances from the body's midline (m; on the
+# inner thigh: from the chain under the crotch), after the smoothing. Review 3: it went to the
+# own side's bone, which steepened that thigh's own share down the inner thigh: x2.12-2.26 in
+# the strides; to the pelvis x2.03-2.17 at the same drag, and the crotch fit (CROTCH_FIT) takes
+# them under x1.84. With 13 gusset rows the drag below z 0.66 (~5 cm under the crotch) is
+# under 5 mm (4.7 mm) at 0.09 (0.08: 1.5 mm, deep_lunge x1.80; 0.095-0.10: 7-7.5 mm, x1.70.
+# Holding a pelvis share at the gusset, as 风堇's own weights do, or splitting left / right
+# explicitly by the geodesic distance, sheared it more: x2.2-3.3.)
+CROTCH_TAIL = (0.035, 0.09)
+
+
+def _geodesic_from(co, edges, src, keep, reach):
+    """Distance along the edges from the `src` vertices, over the `keep` vertices only (inf
+    beyond `reach` m or out of reach)."""
+    import heapq
+    n = len(co)
+    ok = keep[edges[:, 0]] & keep[edges[:, 1]]
+    e = edges[ok]
+    ln = np.linalg.norm(co[e[:, 0]] - co[e[:, 1]], axis=1)
+    nbr = [[] for _ in range(n)]
+    for (a, b), l in zip(e.tolist(), ln.tolist()):
+        nbr[a].append((b, l))
+        nbr[b].append((a, l))
+    d = np.full(n, np.inf)
+    heap = []
+    for i in np.nonzero(src & keep)[0].tolist():
+        d[i] = 0.0
+        heap.append((0.0, i))
+    heapq.heapify(heap)
+    while heap:
+        di, i = heapq.heappop(heap)
+        if di > d[i] or di > reach:
+            continue
+        for j, l in nbr[i]:
+            dj = di + l
+            if dj < d[j]:
+                d[j] = dj
+                heapq.heappush(heap, (dj, j))
+    return d
+
+
+def _crotch_tail(w, co, edges, bones):
+    """Each .L / .R pair's share on the other side of the midline, in the crotch zone, moved
+    back to its own side between CROTCH_TAIL's geodesic distances from the midline."""
+    col = {b.name: i for i, b in enumerate(bones)}
+    m = _crotch_mask(co, bones)
+    if m is None or not m.max() > 0 or not len(edges):
+        return w
+    t0, t1 = CROTCH_TAIL
+    zone = m > 0
+    mid = np.abs(co[:, 0]) < 1e-5
+    d = _geodesic_from(co, edges, mid, zone | mid, t1 + 0.02)
+    v = np.nonzero(zone)[0]
+    cut = _smoothstep(t0, t1, np.where(np.isfinite(d[v]), d[v], 1.0)) * m[v]
+    left = co[v, 0] >= 0.0
+    r = np.arange(len(v))
+    W = w[v].copy()
+    pel = col.get('下半身')
+    for j, b in enumerate(bones):
+        jr = col.get(b.name[:-2] + '.R') if b.name.endswith('.L') else None
+        if jr is None:
+            continue
+        own, oth = np.where(left, j, jr), np.where(left, jr, j)
+        moved = W[r, oth] * cut
+        if pel is not None:
+            W[r, pel] += moved
+        else:
+            W[r, own] += moved
+        W[r, oth] -= moved
+    out = w.copy()
+    out[v] = W
+    return out
+
+
+# Round 11 (review 3): the crotch's weights, after the prune, are refined against generic hip
+# poses (_crotch_fit). The smoothed, tail-cut, hat-remapped weights leave the change of hands
+# across the gusset and down the inner thighs uneven (the gusset grid's corners, the tail band),
+# and a stride stretched those edges x2.1-2.3 (high_kick, deep_lunge, run; cross_legged x3.1)
+# where round 10's separate leg tubes hid the change of hands inside the pelvis block (x1.7-1.9;
+# x2.44). With the fit: x1.71-1.83, cross_legged x2.33; ~45 s of the rig build. The fit
+# moves weight only among each vertex's kept bones of CROTCH_FIT_BONES (the pelvis, the thighs
+# and their hip helpers), never raises a thigh's share on the other side of the midline (the
+# opposite-thigh drag stays as _crotch_tail left it) and keeps the rest of the skin's weights,
+# minimising over CROTCH_FIT_POSES (each thigh alone and in pairs, mirrored; none of them is a
+# test pose) the edges' stretch past CROTCH_FIT_STRETCH and compression under
+# CROTCH_FIT_COMPRESS, faces folding over (signed area under CROTCH_FIT_FOLD of its rest), the
+# weights' roughness along the edges (CROTCH_FIT_SMOOTH) and their change (CROTCH_FIT_KEEP).
+CROTCH_FIT = True
+CROTCH_FIT_BONES = ('下半身', '足.L', '足.R', '足補助.L', '足補助.R')
+# (mirror, ((side, thigh direction, twist), ...)): each thigh turned from hanging (-Z) to the
+# direction (in the pelvis' rest frame, the left thigh's; +X out, -Y forward) by the shortest
+# swing, after a twist (deg) about its own axis (+ turns the left knee outward); mirror adds the
+# same pose with the sides swapped (x and the twist mirrored on .R)
+CROTCH_FIT_POSES = (
+    (True, (('L', (0.0, -0.866, -0.5), 0.0),)),                 # flexed 60
+    (True, (('L', (0.0, -0.985, 0.174), 0.0),)),                # flexed 100
+    (True, (('L', (0.0, -0.766, 0.643), 0.0),)),                # flexed 130 (a high kick)
+    (True, (('L', (0.0, 0.5, -0.866), 0.0),)),                  # extended 30
+    (True, (('L', (0.707, 0.0, -0.707), 0.0),)),                # abducted 45
+    (True, (('L', (0.0, 0.0, -1.0), 45.0),)),                   # turned out 45
+    (True, (('L', (0.0, 0.0, -1.0), -45.0),)),                  # turned in 45
+    (True, (('L', (0.643, -0.766, 0.0), 0.0),)),                # flexed 90, out 40
+    (True, (('L', (-0.342, -0.94, 0.0), 0.0),)),                # flexed 90, across 20
+    (True, (('L', (0.0, -0.985, 0.174), 0.0), ('R', (0.0, 0.643, -0.766), 0.0))),   # lunge
+    (True, (('L', (0.0, -0.866, -0.5), 0.0), ('R', (0.0, 0.5, -0.866), 0.0))),      # stride
+    (False, (('L', (0.0, -1.0, 0.0), 0.0), ('R', (0.0, -1.0, 0.0), 0.0))),          # seated
+    (False, (('L', (0.0, -0.866, -0.5), 0.0), ('R', (0.0, -0.866, -0.5), 0.0))),
+    (False, (('L', (0.64, -0.77, 0.0), 110.0), ('R', (-0.64, -0.77, 0.0), -110.0))),  # cross-legged
+    (False, (('L', (0.64, -0.77, 0.0), 55.0), ('R', (-0.64, -0.77, 0.0), -55.0))),
+)
+CROTCH_FIT_ITERS = 900
+CROTCH_FIT_STRETCH = 1.4
+CROTCH_FIT_COMPRESS = 0.6
+CROTCH_FIT_FOLD = 0.15
+CROTCH_FIT_W = (1.0, 1.0, 20.0)     # weights of the stretch, compression and fold terms
+CROTCH_FIT_SMOOTH = 0.02
+CROTCH_FIT_KEEP = 0.05
+_CROTCH = {}          # deform bone name -> (K, 3, 4) skinning matrices in CROTCH_FIT_POSES (build_rig)
+
+
+def _crotch_samples(arm):
+    """{deform bone: (K, 3, 4)} skinning matrices in CROTCH_FIT_POSES, evaluated on the real
+    armature (the hip helpers follow their thighs), IK muted, the pose reset afterwards."""
+    from mathutils import Matrix
+    pbs = arm.pose.bones
+    if '足.L' not in pbs or '足.R' not in pbs:
+        return {}
+    muted = [c for pb in pbs for c in pb.constraints if c.type == 'IK' and not c.mute]
+    for c in muted:
+        c.mute = True
+    deform = [pb for pb in pbs if pb.bone.use_deform]
+    out = {pb.name: [] for pb in deform}
+    poses = []
+    for mirror, spec in CROTCH_FIT_POSES:
+        poses.append(spec)
+        if mirror:
+            poses.append(tuple(('R' if sd == 'L' else 'L', (-d[0], d[1], d[2]), -tw) for sd, d, tw in spec))
+    for spec in poses:
+        for pb in pbs:
+            pb.matrix_basis.identity()
+        for sd, d, tw in spec:
+            pb = pbs[f'足.{sd}']
+            d = np.array(d, dtype=float) / np.linalg.norm(d)
+            v0 = np.array((0.0, 0.0, -1.0))
+            ax = np.cross(v0, d)
+            sn, cs = float(np.linalg.norm(ax)), float(v0 @ d)
+            K = np.zeros((3, 3))
+            if sn > 1e-9:
+                ax = ax / sn
+                K = np.array([[0.0, -ax[2], ax[1]], [ax[2], 0.0, -ax[0]], [-ax[1], ax[0], 0.0]])
+            th = math.atan2(sn, cs)
+            swing = np.eye(3) + math.sin(th) * K + (1.0 - math.cos(th)) * K @ K
+            t = math.radians(tw)
+            twist = np.array([[math.cos(t), -math.sin(t), 0.0], [math.sin(t), math.cos(t), 0.0], [0.0, 0.0, 1.0]])
+            rest = np.array(pb.bone.matrix_local.to_3x3())
+            local = rest.T @ (swing @ twist) @ rest
+            pb.rotation_mode = 'QUATERNION'
+            pb.rotation_quaternion = Matrix(local.tolist()).to_quaternion()
+        bpy.context.view_layer.update()
+        for pb in deform:
+            out[pb.name].append(np.array(pb.matrix @ pb.bone.matrix_local.inverted())[:3])
+    for pb in pbs:
+        pb.matrix_basis.identity()
+    for c in muted:
+        c.mute = False
+    bpy.context.view_layer.update()
+    return {k: np.array(v) for k, v in out.items()}
+
+
+def _mesh_tris(obj):
+    """(T, 3) fan triangles of the object's polygons."""
+    me = obj.data
+    n = len(me.polygons)
+    if not n:
+        return np.zeros((0, 3), dtype=np.int64)
+    tot = np.empty(n, dtype=np.int64)
+    me.polygons.foreach_get('loop_total', tot)
+    st = np.empty(n, dtype=np.int64)
+    me.polygons.foreach_get('loop_start', st)
+    lv = np.empty(len(me.loops), dtype=np.int64)
+    me.loops.foreach_get('vertex_index', lv)
+    out = []
+    for k in range(1, int(tot.max()) - 1):
+        sel = tot > k + 1
+        out.append(np.stack([lv[st[sel]], lv[st[sel] + k], lv[st[sel] + k + 1]], 1))
+    return np.concatenate(out) if out else np.zeros((0, 3), dtype=np.int64)
+
+
+def _mirror_index(co):
+    """Each vertex's mirror image across x = 0 (positions to 0.01 mm), -1 where there is none;
+    a midline vertex is its own."""
+    key = np.round(co * 1e5).astype(np.int64)
+    at = {tuple(k): i for i, k in enumerate(key.tolist())}
+    return np.array([at.get((-k[0], k[1], k[2]), -1) for k in key.tolist()], dtype=np.int64)
+
+
+def _bone_mirror(bones):
+    """Column permutation swapping each .L bone with its .R twin."""
+    col = {b.name: i for i, b in enumerate(bones)}
+    return np.array([col.get(b.name[:-2] + ('.R' if b.name.endswith('.L') else '.L'), j)
+                     if b.name.endswith(('.L', '.R')) else j for j, b in enumerate(bones)], dtype=np.int64)
+
+
+def _mirror_average(w, co, bones):
+    """Rows of w (V, B) averaged with their mirror image's (.L / .R swapped): the skin is built
+    mirror-symmetric, and its weights are made so (round 11 review 3: the multilevel smoothing's
+    coarse graph pairs vertices unevenly, 0.046 at the gluteal cleft; rig_check.check_symmetry
+    on r11/body-hands allows 0.02)."""
+    mi = _mirror_index(co)
+    ok = mi >= 0
+    out = w.copy()
+    out[ok] = 0.5 * (w[ok] + w[mi[ok]][:, _bone_mirror(bones)])
+    return out
+
+
+def _capped_simplex(y, cap, total):
+    """Rows of y projected onto {0 <= x <= cap, sum x = total} (bisection on the shift)."""
+    lo = (y - cap).min(1) - 1.0
+    hi = y.max(1)
+    for _ in range(48):
+        th = 0.5 * (lo + hi)
+        big = np.clip(y - th[:, None], 0.0, cap).sum(1) > total
+        lo = np.where(big, th, lo)
+        hi = np.where(big, hi, th)
+    return np.clip(y - (0.5 * (lo + hi))[:, None], 0.0, cap)
+
+
+def _crotch_fit(idx, ww, co, edges, tris, bones):
+    """The kept weights (idx, ww) of the crotch zone re-weighted among CROTCH_FIT_BONES so the
+    skin stretches, compresses and folds less in CROTCH_FIT_POSES (_CROTCH); see CROTCH_FIT."""
+    col = {b.name: i for i, b in enumerate(bones)}
+    m = _crotch_mask(co, bones)
+    adj_cols = [col[n] for n in CROTCH_FIT_BONES if n in col]
+    if m is None or not _CROTCH or len(adj_cols) < 3 or any(bones[j].name not in _CROTCH for j in adj_cols):
+        return ww
+    free = m > 0.0
+    em = (free[edges[:, 0]] | free[edges[:, 1]])
+    E = edges[em]
+    l0 = np.linalg.norm(co[E[:, 0]] - co[E[:, 1]], axis=1)
+    E, l0 = E[l0 > 1e-6], l0[l0 > 1e-6]
+    T = tris[free[tris].any(1)] if len(tris) else np.zeros((0, 3), dtype=np.int64)
+    vs = np.unique(np.concatenate([E.ravel(), T.ravel()]))
+    if not len(vs):
+        return ww
+    loc = np.full(len(co), -1)
+    loc[vs] = np.arange(len(vs))
+    ea, eb = loc[E[:, 0]], loc[E[:, 1]]
+    I, W0 = idx[vs], ww[vs].astype(float)
+    n, k = I.shape
+    fr = free[vs]
+    # every bone's skinning matrices in the fit poses; positions of each kept slot
+    S = np.zeros((len(bones),) + next(iter(_CROTCH.values())).shape)
+    for j, b in enumerate(bones):
+        if b.name in _CROTCH:
+            S[j] = _CROTCH[b.name]
+    K = S.shape[1]
+    ph = np.c_[co[vs], np.ones(n)]
+    P = np.einsum('nskab,nb->knsa', S[I], ph)                # (K, n, k, 3)
+    adj = fr[:, None] & np.isin(I, adj_cols) & (W0 > 0.0)
+    side = np.array([1 if b.name.endswith('.L') else (-1 if b.name.endswith('.R') else 0) for b in bones])
+    xs = co[vs, 0]
+    other = ((xs[:, None] > 0.008) & (side[I] < 0)) | ((xs[:, None] < -0.008) & (side[I] > 0))
+    cap = np.where(adj, np.where(other, W0, 1.0), 0.0)
+    total = np.where(adj, W0, 0.0).sum(1)
+    # dense columns of the adjustable bones (smoothness term)
+    cidx = np.full(len(bones), -1)
+    cidx[adj_cols] = np.arange(len(adj_cols))
+    ci = cidx[I]                                             # (n, k), -1: not adjustable
+    # faces: rest normal and area, the bone the face turns with
+    if len(T):
+        ta, tb, tc = loc[T[:, 0]], loc[T[:, 1]], loc[T[:, 2]]
+        nr0 = np.cross(co[T[:, 1]] - co[T[:, 0]], co[T[:, 2]] - co[T[:, 0]])
+        a0 = np.linalg.norm(nr0, axis=1)
+        okf = a0 > 1e-10
+        ta, tb, tc, nr0, a0 = ta[okf], tb[okf], tc[okf], nr0[okf], a0[okf]
+        nr0 = nr0 / a0[:, None]
+        dom = np.zeros((len(ta), len(bones)))
+        for t in (ta, tb, tc):
+            np.add.at(dom, (np.repeat(np.arange(len(ta)), k), I[t].ravel()), W0[t].ravel())
+        R = S[dom.argmax(1)][:, :, :, :3]                    # (F, K, 3, 3)
+        nref = np.einsum('fkab,fb->kfa', R, nr0)
+    ks, kc, kf = CROTCH_FIT_W
+
+    def evaluate(Wv):
+        X = np.einsum('ns,knsa->kna', Wv, P)
+        g = np.zeros_like(X)
+        e = X[:, ea] - X[:, eb]
+        ln = np.linalg.norm(e, axis=2)
+        r = ln / l0
+        ex = np.maximum(r - CROTCH_FIT_STRETCH, 0.0)
+        cx = np.maximum(CROTCH_FIT_COMPRESS - r, 0.0)
+        f = ks * (ex ** 4).sum() + kc * (cx ** 4).sum()
+        ge = ((4.0 * ks * ex ** 3 - 4.0 * kc * cx ** 3) / np.maximum(ln, 1e-12) / l0)[..., None] * e
+        np.add.at(g, (slice(None), ea), ge)
+        np.add.at(g, (slice(None), eb), -ge)
+        if len(T):
+            u, v = X[:, tb] - X[:, ta], X[:, tc] - X[:, ta]
+            sa = np.einsum('kfa,kfa->kf', np.cross(u, v), nref) / a0
+            fx = np.maximum(CROTCH_FIT_FOLD - sa, 0.0)
+            f += kf * (fx ** 2).sum()
+            c = (-2.0 * kf * fx / a0)[..., None]
+            gu, gv = c * np.cross(v, nref), c * np.cross(nref, u)
+            np.add.at(g, (slice(None), tb), gu)
+            np.add.at(g, (slice(None), tc), gv)
+            np.add.at(g, (slice(None), ta), -gu - gv)
+        gW = np.einsum('kna,knsa->ns', g, P)
+        D = np.zeros((n, len(adj_cols)))
+        rows = np.repeat(np.arange(n), k)
+        okc = ci.ravel() >= 0
+        np.add.at(D, (rows[okc], ci.ravel()[okc]), Wv.ravel()[okc])
+        dd = D[ea] - D[eb]
+        f += CROTCH_FIT_SMOOTH * (dd ** 2).sum()
+        gD = np.zeros_like(D)
+        np.add.at(gD, ea, 2.0 * CROTCH_FIT_SMOOTH * dd)
+        np.add.at(gD, eb, -2.0 * CROTCH_FIT_SMOOTH * dd)
+        gW += np.where(ci >= 0, gD[np.arange(n)[:, None], np.maximum(ci, 0)], 0.0)
+        f += CROTCH_FIT_KEEP * ((Wv - W0) ** 2).sum()
+        gW += 2.0 * CROTCH_FIT_KEEP * (Wv - W0)
+        return f, np.where(adj, gW, 0.0)
+
+    rows = np.nonzero(adj.any(1))[0]
+    # mirror pairs: each region vertex's mirror and the slot of each kept bone's twin there
+    mv = _mirror_index(co)[vs]
+    mj = np.where(mv >= 0, loc[np.maximum(mv, 0)], -1)
+    bm = _bone_mirror(bones)
+    slot = np.full((n, k), -1)
+    for s_ in range(k):
+        for t_ in range(k):
+            hit = (mj >= 0) & (I[np.maximum(mj, 0), t_] == bm[I[:, s_]])
+            slot[:, s_] = np.where(hit & (slot[:, s_] < 0), t_, slot[:, s_])
+    pair = (mj >= 0) & ((slot >= 0) | (W0 <= 0.0)).all(1)
+    pr = np.nonzero(pair)[0]
+
+    def project(Y):
+        Y = Y.copy()
+        Y[rows] = np.where(adj[rows], _capped_simplex(Y[rows], cap[rows], total[rows]), Y[rows])
+        # the poses and limits are mirror-symmetric, so is the fit (to the last bit)
+        Z = Y[mj[pr][:, None], np.maximum(slot[pr], 0)]
+        Y[pr] = np.where(slot[pr] >= 0, 0.5 * (Y[pr] + Z), Y[pr])
+        return Y
+
+    # spectral projected gradient (Barzilai-Borwein steps, non-monotone Armijo search)
+    Wv = project(W0)
+    f, g = evaluate(Wv)
+    f0 = f
+    best = (f, Wv)
+    alpha, hist = 1e-4, [f]
+    for _ in range(CROTCH_FIT_ITERS):
+        d = project(Wv - alpha * g) - Wv
+        gd = float((g * d).sum())
+        if gd > -1e-14:
+            break
+        lam, fmax = 1.0, max(hist)
+        while True:
+            Y = Wv + lam * d
+            f2, g2 = evaluate(Y)
+            if f2 <= fmax + 1e-4 * lam * gd or lam < 1e-6:
+                break
+            lam *= 0.5
+        s_, y_ = Y - Wv, g2 - g
+        sy = float((s_ * y_).sum())
+        alpha = min(max(float((s_ * s_).sum()) / sy, 1e-8), 1e2) if sy > 1e-18 else 1e2
+        Wv, f, g = Y, f2, g2
+        hist = (hist + [f])[-8:]
+        if f < best[0]:
+            best = (f, Wv)
+    f, Wv = best
+    out = ww.copy()
+    out[vs] = Wv
+    print(f'rig crotch fit: {len(rows)} vertices, {K} poses, objective {f0:.4g} -> {f:.4g}')
+    return out
 
 
 ARMPIT_SMOOTH = 0.05          # weight smoothing radius (m) in the armpit
@@ -4500,10 +5131,103 @@ def _skin_ornament_weights(w, co, labels, part, bones, roots):
     return np.where(s > 1e-12, out / np.maximum(s, 1e-12), w)
 
 
+# Round 11: the body's hands carry 风堇's own weights (levi/parts/_body_hand.py) as hints:
+# float point attributes, named by obj[HAND_HINT_PROP] = {attribute: her bone name without
+# side}, summing to a in 0..1 (1 on her hand and forearm stub, falling to 0 across the bridge
+# to the procedural arm). _hand_hint blends them in last (after the smoothing and the finger
+# rule), so her finger webs, knuckles and wrist deform as she was weighted. Her staged twist
+# 手捩k (付与 k/4 of 手捩, children of ひじ) maps onto our 手捩 / ひじ split by that share.
+HAND_HINT_PROP = 'levi_hand_weights'
+HINT_TWIST = {'手捩1': 0.25, '手捩2': 0.5, '手捩3': 0.75, '手捩': 1.0}
+HINT_FALLBACK = {'手捩': 'ひじ'}     # a missing bone's share goes here (fingers: 手首)
+# m: her weights are smoothed this far over the hand (on its own ~2 mm edges): her joint blends
+# were drawn on a cage ~4x coarser, and the subdivided crease edges at a curled finger's root
+# stretched x1.88 and folded to x0.08 in the fist pose (3 mm: x1.48 / x0.11; 5 mm: x1.53 /
+# x0.12, the knuckles still defined)
+HINT_SMOOTH = 0.005
+
+
+def _hints(obj, n):
+    """[(her bone name, (n,) weights)] of the hand hint attributes of `obj` (HAND_HINT_PROP)."""
+    out = []
+    for attr_name, bone in dict(obj.get(HAND_HINT_PROP) or {}).items():
+        attr = obj.data.attributes.get(attr_name)
+        if attr is None or attr.domain != 'POINT' or len(attr.data) != n:
+            continue
+        v = np.empty(n)
+        attr.data.foreach_get('value', v)
+        if v.any():
+            out.append((bone, v))
+    return out
+
+
+def _hint_zone(obj, n):
+    """(n,) bool: the vertices carrying hand weight hints (HAND_HINT_PROP: 风堇's hands, their
+    stubs and bridges), else None."""
+    z = np.zeros(n, dtype=bool)
+    for _, v in _hints(obj, n):
+        z |= v > 0.0
+    return z if z.any() else None
+
+
+def _smooth_zones(w, co, edges, radius, ref, zone):
+    """_smooth with the `zone` vertices (_hint_zone) split off: the rest of the mesh is smoothed
+    on its own graph against `ref` (SMOOTH_REF), the zone on its own graph against its own
+    medians, so nothing outside the zone sees its density (the multilevel smoothing's pairing
+    and medians are global) and the zone keeps its own smoothing in metres."""
+    if zone is None:
+        return _smooth(w, co, edges, radius, ref)
+    out = w.copy()
+    for m, r in ((~zone, ref), (zone, None)):
+        idx = np.nonzero(m)[0]
+        if not len(idx):
+            continue
+        new = -np.ones(len(co), dtype=np.int64)
+        new[idx] = np.arange(len(idx))
+        e = edges[m[edges[:, 0]] & m[edges[:, 1]]]
+        out[idx] = _smooth(w[idx], co[idx], new[e], radius, r)
+    return out
+
+
+def _hand_hint(obj, w, co, bones, edges=None):
+    """w <- (1 - a) w + hint on the vertices carrying hand weight hints (HAND_HINT_PROP),
+    the hints smoothed HINT_SMOOTH along the surface (`edges`)."""
+    hs = _hints(obj, len(co))
+    if not hs:
+        return w
+    col = {b.name: j for j, b in enumerate(bones)}
+    H = np.zeros_like(w)
+    left = co[:, 0] >= 0.0
+    for bone, v in hs:
+        k = HINT_TWIST.get(bone)
+        targets = [('手捩', k), ('ひじ', 1.0 - k)] if k is not None else [(bone, 1.0)]
+        for tag, m in (('L', left), ('R', ~left)):
+            for name, share in targets:
+                j = col.get(f'{name}.{tag}')
+                if j is None:
+                    j = col.get(f"{HINT_FALLBACK.get(name, '手首')}.{tag}")
+                if j is not None and share > 0.0:
+                    H[m, j] += v[m] * share
+    a = H.sum(1)
+    if not a.any():
+        return w
+    if edges is not None and len(edges) and HINT_SMOOTH > 0:
+        inside = (a[edges[:, 0]] > 0.0) & (a[edges[:, 1]] > 0.0)
+        ref = _edge_ref(co, edges[inside])[1] if inside.any() else 0.0
+        if ref > 0.0:
+            H = _smooth(H, co, edges, HINT_SMOOTH, ref)
+            a = H.sum(1)
+    a = np.clip(a, 0.0, 1.0)
+    out = w * (1.0 - a)[:, None] + H
+    s = out.sum(1, keepdims=True)
+    return np.where(s > 1e-12, out / np.maximum(s, 1e-12), w)
+
+
 def _island_rules(w, co, labels, bones, part):
     """Per loose part: a finger part belongs to its own finger chain only (neighbouring
     finger envelopes overlap at ~1 cm), and small ornaments (bows, leaves, beads) take
-    their island's average weights so they move as one piece."""
+    their island's average weights so they move as one piece. Labels may split a loose
+    part into finger regions (_part_labels): the finger rule then holds per region."""
     chains = {}
     col = {b.name: j for j, b in enumerate(bones)}
     for j, b in enumerate(bones):
@@ -4549,6 +5273,28 @@ CHOKER_BINS = 72         # stations round the choker loop at which the skin is s
 CHOKER_SMOOTH = 12.0     # deg: smoothing of the sampled weights round the loop
 HALTER_REACH = (0.02, 0.06)   # m off the skin: the halter takes the skin's weights within this
 HALTER_SMOOTH = 0.008    # m: surface smoothing of the halter's sampled weights
+# Round 11: the halter's straps end tucked under the bodice's top rim, and its X strands end
+# on the straps. With the skin's weights the tucked ends took the clavicle (肩), which the
+# bodice over them does not have (its four largest bones after a 3.5 cm smoothing), so a
+# raised arm drew them out from under the rim (19-23 of 37 tucked vertices uncovered in
+# hands_behind_head, dance_heart, idol_dance@48); and the X strands, smoothed along their own
+# cord, came up to 4.4 mm off the strap they end on. The part marks both with point
+# attributes (named by obj['levi_cord_ride'] / obj['levi_cord_join']): the tucked ends take
+# the bodice's own weights (HALTER_RIDE_PART is skinned first, SKIN_LATE), and each strand's
+# end takes the weights of the strap beside it.
+HALTER_RIDE_PART = 'bodice'
+HALTER_RIDE_K = 8        # nearest bodice vertices averaged (inverse distance, softened by SKIN_SOFT)
+HALTER_JOIN_K = 24       # nearest strap vertices (three rings) a joined strand vertex takes its weights from ...
+HALTER_JOIN_SOFT = 0.01   # ... inverse distance, softened by this (m): every vertex of a strand ring sees
+                          # the same set (with 2 rings softened by 3 mm the ring's weights differed by ~1 %, and
+                          # a raised arm's stage bones, ~8 cm away, flattened the ring to x0.05 in idol_dance@80)
+SKIN_LATE = ('accessories',)   # parts skinned after the other garments (the halter reads the bodice)
+# One set of weights per cord section: the shoulder stage bones' turn moves a chest point
+# ~12 cm, so vertices of one 2.8 mm section ~1.5 % apart in them flattened an X strand's
+# section at its junction to x0.05 in idol_dance@80. The strand's join is looked up, and the
+# prune's motion refit run, at each vertex's position smoothed along the surface by this (m),
+# about its section's centre.
+HALTER_REFIT_AT = 0.004
 
 
 def _choker_skin(co, bones):
@@ -4596,12 +5342,96 @@ def _choker_skin(co, bones):
     return out / out.sum(1, keepdims=True)
 
 
-def _neck_cord_weights(kind, w, co, bones, edges=None):
+def _part_skin(part, skip=()):
+    """(points (N, 3), bone names, weights (N, B)) of the skinned meshes of `part` (its
+    collection; object-name prefixes `skip` left out), or None if none is skinned yet."""
+    col = bpy.data.collections.get(part)
+    if col is None:
+        return None
+    pts, rows, names = [], [], {}
+    for o in sorted(col.all_objects, key=lambda o: o.name):
+        mine = set(o.get('levi_rig_groups', []))
+        if o.type != 'MESH' or not mine or o.name.startswith(tuple(skip)) or not len(o.data.vertices):
+            continue
+        gn = {g.index: g.name for g in o.vertex_groups if g.name in mine}
+        for v in o.data.vertices:
+            rows.append([(names.setdefault(gn[g.group], len(names)), g.weight) for g in v.groups if g.group in gn])
+        pts.append(_world_verts([o]))
+    if not pts:
+        return None
+    W = np.zeros((sum(len(p) for p in pts), len(names)))
+    for i, r in enumerate(rows):
+        for c, wv in r:
+            W[i, c] = wv
+    return np.concatenate(pts), sorted(names, key=names.get), W
+
+
+def _halter_ride(obj, sk, co, bones):
+    """`sk` blended toward the bodice's own weights by the part's ride share (1 on the strap
+    ends tucked under the rim): inverse-distance over the HALTER_RIDE_K nearest bodice
+    vertices (its ornaments that keep their own skin sample, BODICE_RIDE, left out)."""
+    r = _point_param(obj, co, 'levi_cord_ride')
+    if r is None or not (r > 0).any():
+        return sk
+    host = _part_skin(HALTER_RIDE_PART, skip=BODICE_RIDE)
+    if host is None:
+        print(f'rig: WARNING {obj.name}: no skinned {HALTER_RIDE_PART}; the tucked cord ends keep the skin weights')
+        return sk
+    hco, names, hw = host
+    col = {b.name: i for i, b in enumerate(bones)}
+    m = np.zeros((len(names), len(bones)))
+    for k, n in enumerate(names):
+        if n in col:
+            m[k, col[n]] = 1.0
+    tree = _kd(hco)
+    rows = np.nonzero(r > 0)[0]
+    out = sk.copy()
+    for v in rows:
+        found = tree.find_n(co[v], HALTER_RIDE_K)
+        wt = np.array([1.0 / (d + SKIN_SOFT) for _, _, d in found])
+        bw = (wt @ hw[[j for _, j, _ in found]]) @ m
+        tot = bw.sum()
+        if tot < 0.5:      # the bodice there is on bones the halter may not take
+            continue
+        out[v] = sk[v] * (1.0 - r[v]) + bw / tot * r[v]
+    return out
+
+
+def _halter_joins(obj, sk, co, edges):
+    """Each X-strand vertex blended toward the weights of the strap beside it by the part's
+    join share (1 at the strand's end, on the strap's centre line): the inverse-distance
+    blend of the HALTER_JOIN_K nearest vertices of the other cords (join share 0), so the
+    strand's end moves with the strap it ends on, and the stretch that lies along the strap
+    with the strap's own bend. (Riding the strap's weights at the end point alone, the
+    strand's last centimetre turned rigidly with it and crossed the bending strap: a knot.)"""
+    j = _point_param(obj, co, 'levi_cord_join')
+    if j is None or not (j > 0).any() or edges is None:
+        return sk
+    lab = _islands(len(co), edges)
+    # queried at each vertex's position smoothed along the surface (about its section's
+    # centre), so the vertices of one strand section find the same strap vertices
+    cq = _smooth(co, co, edges, HALTER_REFIT_AT)
+    out = sk.copy()
+    for isl in np.unique(lab[j > 0]):
+        host = np.nonzero((j <= 0) & (lab != isl))[0]
+        if not len(host):
+            continue
+        tree = _kd(co[host])
+        for v in np.nonzero((lab == isl) & (j > 0))[0]:
+            found = tree.find_n(cq[v], HALTER_JOIN_K)
+            wt = np.array([1.0 / (d + HALTER_JOIN_SOFT) for _, _, d in found])
+            wp = wt @ sk[host[[k for _, k, _ in found]]] / wt.sum()
+            out[v] = sk[v] * (1.0 - j[v]) + wp * j[v]
+    return out
+
+
+def _neck_cord_weights(kind, w, co, bones, edges=None, obj=None):
     """The choker rides the neck skin (_choker_skin; without a skinned body: 首, with a
     little 上半身2 at its lower edge). The halter cords run from the choker over the shoulder
     slope to the bodice and take the weights of the skin under them (HALTER_REACH), so
     they stay on the neck and the shoulder slope as they move (without a skinned body: 首
-    at the choker end, the smoothed envelope weights below)."""
+    at the choker end, the smoothed envelope weights below); with `obj`, its tucked ends
+    ride the bodice and its X strands' ends the straps (_halter_ride, _halter_joins)."""
     col = {b.name: i for i, b in enumerate(bones)}
     neck, chest, head = col.get('首'), col.get('上半身2'), col.get('頭')
     if neck is None or chest is None or head is None:
@@ -4621,10 +5451,20 @@ def _neck_cord_weights(kind, w, co, bones, edges=None):
                 k = np.minimum(1.0, BODICE_ARM_CAP / np.maximum(a, 1e-9))
                 sk[:, chest] += a * (1.0 - k)
                 sk[:, arm] *= k[:, None]
+            # the tucked strap ends take the bodice's weights before the smoothing (one set
+            # across the section, and a transition spread along the cord: sampled per vertex
+            # after it, the thinned end rings stretched x3 in idol_dance@78)
+            if obj is not None:
+                sk = _halter_ride(obj, sk, co, bones)
             # one set of weights across the cord's section (a 1.4 mm tube): smoothed wider
             # than its girth, so the section cannot shear
             if edges is not None:
                 sk = _smooth(sk, co, edges, HALTER_SMOOTH)
+            sk = sk / np.maximum(sk.sum(1, keepdims=True), 1e-12)
+            # the X strands' ends take the strap's after it (smoothed along the strand, the end
+            # drifted ~1 mm off the strap again and showed its end cap)
+            if obj is not None:
+                sk = _halter_joins(obj, sk, co, edges)
             return sk / np.maximum(sk.sum(1, keepdims=True), 1e-12)
     out = np.zeros_like(w)
     if kind == 'choker':
@@ -4743,18 +5583,22 @@ def _weights(obj, part, co, bones):
     if obj.name.startswith(PLAIN_OBJECTS):
         return _plain_weights(w, co, part, bones)
     radius = SLEEVE_SMOOTH if part == 'sleeves' and SLEEVE_BUILD else SMOOTH_RADIUS.get(part, DEFAULT_SMOOTH)
+    ref = SMOOTH_REF.get(part)
+    zone = _hint_zone(obj, len(co))     # 风堇's hands: smoothed apart from the rest (_smooth_zones)
     shared = _layer_shared(part, bones).get(obj.name) if part in LAYER_PARTS else None
-    w = _smooth(w, co, edges, radius) if shared is None or len(shared) != len(co) else shared
+    w = _smooth_zones(w, co, edges, radius, ref, zone) if shared is None or len(shared) != len(co) else shared
     m = _crotch_mask(co, bones) if part in CROTCH_PARTS and CROTCH_SMOOTH > 0 else None
     if m is not None and m.max() > 0:
         # the crotch is pulled between both thighs in a stride: spread its L/R weight
         # change over a wider band than the rest of the skin
-        w = w * (1.0 - m[:, None]) + _smooth(w, co, edges, CROTCH_SMOOTH) * m[:, None]
+        w = w * (1.0 - m[:, None]) + _smooth_zones(w, co, edges, CROTCH_SMOOTH, ref, zone) * m[:, None]
     m = _armpit_mask(co, bones) if part in CROTCH_PARTS and ARMPIT_SMOOTH > 0 else None
     if m is not None and m.max() > 0:
         # a raised arm pulls the armpit skin between the ribs and the arm: spread the
         # torso / arm weight change over a wider band there too
-        w = w * (1.0 - m[:, None]) + _smooth(w, co, edges, ARMPIT_SMOOTH) * m[:, None]
+        w = w * (1.0 - m[:, None]) + _smooth_zones(w, co, edges, ARMPIT_SMOOTH, ref, zone) * m[:, None]
+    if part in CROTCH_PARTS and CROTCH_TAIL:
+        w = _crotch_tail(w, co, edges, bones)
     if part in CROTCH_PARTS and HIP_AUX:
         _hat_remap(w, bones)
     if part == 'hair_back':
@@ -4764,22 +5608,41 @@ def _weights(obj, part, co, bones):
     if part in CROTCH_PARTS and ARM_CAP:
         w = _arm_cap(w, co, bones)
     if cord:
-        w = _neck_cord_weights(cord, w, co, bones, edges)
+        w = _neck_cord_weights(cord, w, co, bones, edges, obj)
     elif part == 'bodice' and SKIN_FOLLOW and _SKIN is not None and obj.name.startswith(BODICE_RIDE):
         pass    # the shell's own per-point weights (skin sample, arm cap): no rigid island
     elif _skin_ornament(obj, part):
         roots = np.array([tuple(obj.matrix_world @ Vector(p)) for p in obj.get('levi_attach_points', [])]).reshape(-1, 3)
         w = _skin_ornament_weights(w, co, labels, part, bones, roots)
     else:
-        w = _island_rules(w, co, labels, bones, part)
+        w = _island_rules(w, co, _part_labels(obj, co, labels), bones, part)
+    w = _hand_hint(obj, w, co, bones, edges)
+    knot = _knot_weights(w, co, obj, part, bones) if part == 'bodice' else None
+    if knot is not None:
+        w = knot[0]
     if part in RIGID_FOOT and obj.name.startswith(RIGID_FOOT[part]):
         _rigid_foot(w, bones)
     # which bones a vertex keeps is decided on a wider-smoothed copy of its weights, so
     # the set changes gradually along the surface instead of wherever two weak bones swap
-    guide = _smooth(w, co, edges, PRUNE_SMOOTH) if PRUNE_SMOOTH > 0 and radius > 0 else None
+    if part in CROTCH_PARTS:
+        w = _mirror_average(w, co, bones)
+    guide = _smooth_zones(w, co, edges, PRUNE_SMOOTH, ref, zone) if PRUNE_SMOOTH > 0 and radius > 0 else None
+    if guide is not None and part == 'bodice' and obj.name.startswith(BODICE_WIDE_GUIDE[0]):
+        guide = _smooth_zones(w, co, edges, BODICE_WIDE_GUIDE[1], ref, zone)
     if guide is not None and part in SHELL_PARTS:
         guide = _shell_share(guide, co, bones)
-    return _prune(w, bones, guide, co)
+    if guide is not None and part in CROTCH_PARTS:
+        guide = _mirror_average(guide, co, bones)
+    if guide is not None and cord == 'halter':
+        guide = _halter_joins(obj, guide, co, edges)   # a strand's end keeps the strap's bones
+    if cord == 'halter' and len(edges):
+        # the prune's motion refit at each cord section's centre (HALTER_REFIT_AT), so a section
+        # keeps one set of weights
+        return _prune(w, bones, guide, _smooth(co, co, edges, HALTER_REFIT_AT))
+    idx, ww = _prune(w, bones, guide, co)
+    if part in CROTCH_PARTS and CROTCH_FIT and _CROTCH:
+        ww = _crotch_fit(idx, ww, co, edges, _mesh_tris(obj), bones)
+    return _knot_pin(idx, ww, knot, bones)
 
 
 def _skin(obj, part, bones, arm):
@@ -5833,7 +6696,8 @@ def build_rig():
     _HEAD_OBJS = list(parts.get('head', []))
     H = fit_head(parts.get('head', []))
     F = fit_fingers(parts.get('body', []), J)
-    print(f"rig fingers    {'mesh' if F else 'spec'}  ({len(F)} chains fitted to the body's fingers)")
+    src = f", {FINGER_SRC['src']}" if F and FINGER_SRC.get('src') else ''
+    print(f"rig fingers    {'mesh' if F else 'spec'}  ({len(F)} chains fitted to the body's fingers{src})")
     core = _core_bones(J, H, F)
     by = {b.name: b for b in core}
     hd, ey = by['頭'].head, by['目.L'].head
@@ -5841,8 +6705,9 @@ def build_rig():
     print(f"rig head  目.L           {H.get('eye_src', 'mesh') if 'eye' in H else 'spec'}  ({ey.x:+.3f}, {ey.y:+.3f}, {ey.z:+.3f})")
     bones = core + _secondary_bones(parts, core)
     arm = _create_armature(bones)
-    global _ATTACH_HOST, _PARENTS, _MOTION, _MOTION_CHAIN
+    global _ATTACH_HOST, _PARENTS, _MOTION, _CROTCH, _MOTION_CHAIN
     _MOTION = _motion_samples(arm) if PRUNE_MOTION else {}
+    _CROTCH = _crotch_samples(arm) if CROTCH_FIT else {}
     _MOTION_CHAIN = {}
     if _MOTION and MOTION_CHAIN_POSES:
         extra = _motion_chain_samples(arm)
@@ -5865,7 +6730,8 @@ def build_rig():
     _LAYER_SRC.clear()
     _LAYER_SRC.update({p: parts[p] for p in LAYER_PARTS if p in parts})
     _LAYER.clear()
-    order = sorted(parts, key=lambda n: n not in ('body', '_proxy'))   # the skin first: garments sample it
+    # the skin first (garments sample it); SKIN_LATE parts after the garments they read
+    order = sorted(parts, key=lambda n: (n not in ('body', '_proxy'), n in SKIN_LATE))
     for part in order:
         for o in parts[part]:
             if o.parent is None:
