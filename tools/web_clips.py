@@ -1493,7 +1493,7 @@ clip('idol_poses', 300, [
     look=True, face=fx('ウィンク', 18, 56, 1.0) + fx('笑い', 6, 296, 0.8) + fx('ω', 60, 130, 0.6) + fx('照れ', 96, 170, 0.6)
     + fx('ウィンク', 176, 210, 1.0) + fx('ワ', 214, 246, 0.7) + fx('う', 250, 262, 0.6, r=4) + fx('ウィンク', 260, 286, 1.0))
 
-# long_dance: 25 s at 120 bpm (15 frames a beat): a sway intro, step-touch claps, skirt side steps and a
+# long_dance: 28 s at 120 bpm (15 frames a beat): a sway intro, step-touch claps, skirt side steps and a
 # twirl, cat-paw hops, a point and a heart, arms waving overhead with a spin, and an ending pose
 B = 15
 _ld = [S(0)]
@@ -1550,7 +1550,7 @@ _ld += [K(f, turn=720, **_side(V_EYE, 'R'), **_side(HIPS, 'L'), sr=-5, hr=10, ti
         K(f + 80, turn=720, **REST_ARMS)]
 LONG_N = f + 104
 _ld.append(K(LONG_N, reset=True, turn=720))
-clip('long_dance', LONG_N, _ld, 'both', 'A 25 s dance at 120 bpm: a sway intro, step-touch claps, skirt side steps, '
+clip('long_dance', LONG_N, _ld, 'both', 'A 28 s dance at 120 bpm: a sway intro, step-touch claps, skirt side steps, '
      'a twirl, cat-paw hops, a point and a heart, arms waving overhead, a spin, and a curtsy.',
      face=fx('にこり', 4, 80, 0.7) + fx('ω', 6, 76, 0.6) + fx('笑い', 74, LONG_N - 4, 0.9) + fx('ワ', 76, 250, 0.6)
      + fx('照れ', 250, 380, 0.5) + fx('ω', 380, 500, 0.7) + fx('ウィンク', 500, 560, 1.0) + fx('ワ', 560, 700, 0.6)
