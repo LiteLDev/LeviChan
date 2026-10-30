@@ -1,7 +1,7 @@
 body: weight asymmetry max 0.0012 over 5897 mirror pairs (0 above 0.01)
 pose             stretch  worst object             pen cm verts  object                     knee
 test                1.83  petticoat_tier1            0.25     0  shoes_ribbons              59.8 ok
-arms_up             1.81  body                       0.60     4  sleeve_balloon              0.0 ok
+arms_up             1.80  body                       0.60     4  sleeve_balloon              0.0 ok
 arms_forward        1.80  sleeve_balloon             0.37     0  sleeve_balloon              0.0 ok
 wrist_twist_pos     1.33  sleeve_balloon             0.00     0                              0.0 ok
 wrist_twist_neg     1.33  sleeve_balloon             0.00     0                              0.0 ok
@@ -12,9 +12,9 @@ head_right          1.46  hair_back_side             0.21     0  hair_cap       
 torso_left          1.33  skirt                      0.10     0  petticoat_core              0.0 ok
 torso_right         1.38  skirt                      0.09     0  petticoat_core              0.0 ok
 swing               1.51  petticoat_tier1            0.00     0  skirt                       0.0 ok
-fist                1.50  body                       0.00     0                              0.0 ok
-raise_bend          1.46  body                       0.59     4  sleeve_balloon              0.0 ok
+fist                1.55  body                       0.00     0                              0.0 ok
+raise_bend          1.45  body                       0.59     4  sleeve_balloon              0.0 ok
 reach_forward       1.60  sleeve_balloon             0.06     0  bodice_shell                0.0 ok
 forward_bend        1.41  petticoat_tier1            0.23     0  petticoat_core             23.2 ok
-side_bend           1.48  body                       1.77    20  skirt                       0.0 ok
+side_bend           1.48  body                       1.76    20  skirt                       0.0 ok
 RIG CHECK OK
