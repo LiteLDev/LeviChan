@@ -2483,7 +2483,16 @@ def _secondary_bones(parts, core):
                 _chain_bones(f'後髪束{k}', f'後髪束{k}', f'HairLock{k}', joints, hair_parent(), 0.03, 'Hair',
                              meta={'lock': key}), byname, *pitch)
     if len(rest):
-        chains = _sector_chains(rest, (0.0, L['head_center_y']), L['eye_z'], HAIR_SECTORS, 4, 0.10)
+        # (rooted at the curtain's own top when it starts below eye level: round 11's
+        # under-layer starts below the head bone's fade band, and chains rooted at eye
+        # level found no points there, leaving it on the nearest lock bones' envelopes)
+        root_z = min(L['eye_z'], float(rest[:, 2].max()))
+        chains = _sector_chains(rest, (0.0, L['head_center_y']), root_z, HAIR_SECTORS, 4, 0.10)
+        if root_z < L['eye_z']:
+            # the root joint (a band centroid) just over the curtain's top edge: a vertex
+            # above its chain's root would hang from 頭 alone, a seam in a head turn
+            chains = [(a, [Vector((j[0].x, j[0].y, max(j[0].z, root_z + 0.005)))] + list(j[1:]))
+                      for a, j in chains]
         for k, (ang, joints) in enumerate(chains):
             bones += _hair_pitch_gravity(
                 _chain_bones(f'後髪{k}', f'後髪{k}', f'HairBack{k}', joints, hair_parent(), 0.035, 'Hair',

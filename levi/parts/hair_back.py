@@ -525,7 +525,7 @@ BASE = [(0, -2.6), (110, -2.6), (122, -2.2), (134, -1.8), (165, -2.0), (210, -0.
 # row and column is validated (_validate_grid, the strands' limits). It spans well over
 # rig.HAIR_LOCK_SPAN round the head (_check_islands), so the rig hangs it from the
 # back-hair sector chains, never a lock chain.
-UNDER_TOP = (192.0, 182.0)     # top edge row: in the middle, at the side edges
+UNDER_TOP = (206.0, 200.0)     # top edge row: in the middle, at the side edges
 UNDER_BOT = (350.0, 318.0)     # bottom edge row: in the middle, at the side edges
 UNDER_STEP = 5.0               # px between rows
 UNDER_COLS = 57
