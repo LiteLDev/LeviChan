@@ -23,7 +23,9 @@ only use IK poses (keyframes cannot carry the IK mute).
 A clip frame is addressed as '<clip>@<frame>' wherever a pose name is accepted
 (rig_pose.apply_pose, render.py --pose).
 """
+import importlib
 import math
+import os
 
 import bpy
 from mathutils import Matrix, Quaternion, Vector
@@ -755,3 +757,10 @@ def apply_clip_frame(arm, name, frame):
 def clear_clip(arm):
     if arm.animation_data and arm.animation_data.action:
         arm.animation_data.action = None
+
+
+# Extra clip modules in tools/ (comma-separated, e.g. LEVI_EXTRA_CLIPS=web_clips) add their clips to
+# CLIPS when imported, so every tool that takes a clip name (render.py --pose, rig_check.py --motion,
+# motion_review.py, motion_vmd.py --extra-clips) can use them. Unset: CLIPS is the six test clips.
+for _mod in filter(None, os.environ.get('LEVI_EXTRA_CLIPS', '').split(',')):
+    importlib.import_module(_mod.strip())

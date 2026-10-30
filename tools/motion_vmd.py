@@ -2,6 +2,7 @@
 
     blender -b out/levi.blend -P tools/motion_vmd.py -- [--pmx out/pmx/Levi.pmx]
                                 [--clips walk,idol_dance,turn] [--out out/motion_vmd]
+                                [--extra-clips web_clips]
 
 Needs mmd_tools (no --factory-startup) and a PMX exported from the same build
 (`export_pmx.py -- --out out/pmx/Levi.pmx`). For each clip of tools/motion_poses.py:
@@ -186,7 +187,11 @@ def main():
     ap.add_argument('--pmx', default='out/pmx/Levi.pmx')
     ap.add_argument('--clips', default=DEFAULT_CLIPS)
     ap.add_argument('--out', default='out/motion_vmd')
+    ap.add_argument('--extra-clips', default='', help='modules in tools/ that add clips to motion_poses.CLIPS '
+                    '(e.g. web_clips; the same as LEVI_EXTRA_CLIPS)')
     args = ap.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
+    for mod in filter(None, args.extra_clips.split(',')):
+        importlib.import_module(mod.strip())
     pkg = _mmd_pkg()
     if pkg is None:
         print('FAIL mmd_tools not available')
