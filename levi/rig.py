@@ -4531,7 +4531,71 @@ def _hand_hint(obj, w, co, bones, edges=None):
     a = np.clip(a, 0.0, 1.0)
     out = w * (1.0 - a)[:, None] + H
     s = out.sum(1, keepdims=True)
-    return np.where(s > 1e-12, out / np.maximum(s, 1e-12), w)
+    out = np.where(s > 1e-12, out / np.maximum(s, 1e-12), w)
+    return _palm_crease(obj, out, co, bones, edges, a > 0.0)
+
+
+# Integration fix (fist). On the palm side of each knuckle, the split between the hand (手首)
+# and the finger's root bone (親指０, X１) is relaxed by PALM_RELAX umbrella steps (0.5 each,
+# over the hand's ~2 mm edges). This applies where that bone pair holds at least half of the
+# weight (fading in up to 90%, so the vertices where it stops do not jump). It fades to nothing across PALM_SIDE (m) about the plane through the wrist pivot
+# normal to the palm (the rig's palm normal: the hand direction x the index - little knuckle
+# line), so the knuckles on the back keep her defined blend. In the fist, the palm-side crease
+# at the finger roots folded into the finger: 9 faces per hand turned > 120 deg, and the edges
+# compressed to x0.14. Per hand, after the prune:
+#   steps  flipped  compress  stretch
+#   0      9        x0.14     x1.50
+#   5      2        x0.15     x1.53
+#   10     1        x0.17     x1.54
+#   20     0        x0.17     x1.54
+#   35     0        x0.20     x1.54
+# Sharpening the split instead (smoothstep 0.2-0.8 of the share) flipped 54 faces.
+PALM_RELAX = 35
+PALM_SIDE = 0.006
+PALM_ROOTS = ('親指０', '人指１', '中指１', '薬指１', '小指１')
+
+
+def _palm_crease(obj, w, co, bones, edges, zone):
+    """PALM_RELAX on the hand weights `w` of the hint `zone` (_hand_hint)."""
+    F = _stored_fingers([obj])
+    J = obj.get('levi_joints') or {}
+    if not PALM_RELAX or not F or 'wrist' not in J or edges is None or not len(edges):
+        return w
+    col = {b.name: j for j, b in enumerate(bones)}
+    wr0 = np.array(tuple(J['wrist']), np.float64)
+    d = np.array(F['中指'][0]) - wr0
+    d /= np.linalg.norm(d)
+    kn = np.array(F['人指'][0]) - np.array(F['小指'][0])
+    kn -= d * (kn @ d)
+    palm = np.cross(d, kn)
+    palm /= np.linalg.norm(palm)
+    w = w.copy()
+    for tag, sx in (('L', 1.0), ('R', -1.0)):
+        h = col.get(f'手首.{tag}')
+        if h is None:
+            continue
+        half = zone & (co[:, 0] * sx > 0.0)
+        side = ((co * np.array([sx, 1.0, 1.0])) - wr0) @ palm
+        gate = np.clip(side / PALM_SIDE, -1.0, 1.0) * 0.5 + 0.5
+        for root in PALM_ROOTS:
+            j = col.get(f'{root}.{tag}')
+            if j is None:
+                continue
+            tot = w[:, h] + w[:, j]
+            on = half & (tot > 0.5)
+            if not on.any():
+                continue
+            share = np.where(on, w[:, j] / np.maximum(tot, 1e-12), 0.0)
+            rate = 0.5 * gate * _smoothstep(0.5, 0.9, tot)    # none where the pair's hold ends
+            e = edges[on[edges[:, 0]] & on[edges[:, 1]]]
+            cnt = np.bincount(e.ravel(), minlength=len(co)).astype(np.float64)
+            for _ in range(PALM_RELAX):
+                acc = np.bincount(e[:, 0], share[e[:, 1]], len(co)) + np.bincount(e[:, 1], share[e[:, 0]], len(co))
+                avg = np.where(cnt > 0, acc / np.maximum(cnt, 1.0), share)
+                share = np.where(on, share + rate * (avg - share), share)
+            w[on, j] = tot[on] * share[on]
+            w[on, h] = tot[on] * (1.0 - share[on])
+    return w
 
 
 def _island_rules(w, co, labels, bones, part):
