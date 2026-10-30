@@ -9,9 +9,11 @@ body's neck (open only at the two eye openings and the neck's end):
   (levi/parts/_head_graft.py): in the hair-covered zone (forehead above the
   brows, temples, the sides behind the cheek) her surface is pulled onto
   Levi's round-10 skull, which every hair part is fitted to; over the eyes,
-  nose, mouth and chin it keeps her shape, the nose toned toward Levi's sheet
-  (smaller, lifted). Then her triangles are joined into her quads and
-  subdivided once (every morph key alike).
+  nose, mouth and chin it keeps her shape, the nose a little softer. Her lips
+  are flattened onto the lower face first and the mouth slid down along it
+  (_head_graft.LipRest: Levi's one receding profile line, no pout). Then her
+  triangles are joined into her quads and subdivided once (every morph key
+  alike).
 * Levi's skull: the round-10 ring rows (crown down to LOWER_TOP, under the
   eyes; RING_ROWS / ring() stay the pure surface functions hair_front reads),
   less the faces her mask covers, zipped to her border by a strip of
@@ -19,31 +21,41 @@ body's neck (open only at the two eye openings and the neck's end):
 * The neck: a loft from the head's lower edge (her under-jaw border, the
   skull's lowest ring behind the ears) into a tube NECK_TUCK inside the body's
   neck, so the visible neck is the body's and a turned head shows no step.
-Shading normals come from a smoothed copy without the nose (a membrane spans
-it) blended with some of the real normal: Levi's two-tone face with a dot of a
-nose. No outline hull at the eye openings and in the mouth, a thin one on the
-nose. Levi's modelled ears stay (head_ear_L / _R).
+The seams between the three are faired in position. Shading normals come from a
+smoothed copy without the nose or the closed lips (membranes span them)
+blended with some of the real normal: Levi's two-tone face with a dot of a
+nose. No outline hull at the eye openings and round the mouth (wider at its
+closed corners), a thin one on the nose. Levi's modelled ears stay.
+
+Levi's temperament on her face (round 11 face pass, ref/setting.png; the shared
+constants in _head_levi.py): her rest takes a little of her own なごみ (heavy,
+flat upper lids), 困る (the brows' inner ends up) and a small level mouth; the
+lid-meeting keys start from her own lids on the side they close.
 
 Eyes (from hers, recoloured to Levi's design in the atlas, all opaque):
-* head_eye_white_L / _R: her concave white cup, plain white with Levi's soft
-  blue-grey lid shadow under the upper lid; rides 頭, takes the lid morphs.
-* head_eye_L / _R: her concave iris dish, Levi's green iris (darker upper band,
-  rounded darker pupil, navy rim); turns with 目.L / 目.R about
+* head_eye_white_L / _R: her concave white cup, Levi's skin-toned sclera, shaded
+  under the upper lid; rides 頭, takes the lid morphs.
+* head_eye_L / _R: her concave iris dish squashed round in its own plane (its
+  bottom on the lower lid), Levi's green iris (a crisp darker band with the
+  pupil in it, a thin navy rim); turns with 目.L / 目.R about
   obj['levi_eye_pivot'], her 目 bone (head-contract option A: the whole
   turn, not her 目先's 30 %).
-* head_eye_hilite_L / _R: one vertical oval highlight toward the key light,
-  in front of the iris, on 目 with it.
-* head_eye_lash_L / _R: her upper lash (with the outer flick), lower lid line
-  and brows as navy / mauve strips; her extra lash tuft is left out.
+* head_eye_hilite_L / _R: a vertical oval highlight a little toward the nose,
+  under the lid margin, with a thin dark ring; on 目 with the iris.
+* head_eye_lash_L / _R: her upper lash thinned to Levi's even line with one
+  flat outer blade and a thin wall line (_head_lash.LashMap, the same map on
+  every key; her prong, inner hook and lash tuft go), a soft lower lid line
+  and her brows (flattened, lowered, kept on the forehead) as navy / mauve
+  strips. The lid crease and lower-lash ticks are painted on the skin.
 Mouth: her cavity and rolled lips are part of head_face (palette 'mouth');
 head_mouth_teeth (her two strips, 'cuff') and head_mouth_tongue ride 頭 and
 move by morph only.
 
 Morphs: every name in ALL_MORPHS, from hers where she has it (renamed),
 composed from hers otherwise (MORPH_SRC), plus her other expressions
-(EXTRA_MORPHS; export_pmx.MORPH_INFO panels). Keys are W(p + d). Levi's
-neutral mouth (small and straight) is a little of her own morphs built into
-the rest shape (NEUTRAL). Overlays wait inside the head until their key:
+(EXTRA_MORPHS; export_pmx.MORPH_INFO panels). Keys are W(p + bake + d), the
+bake Levi's rest (_head_levi.NEUTRAL, NEUTRAL_LID). Overlays wait inside the
+head until their key:
 照れ (a copy of the cheek skin with the flushed texture), 涙, 汗, はぅ.
 
 Local landmark corrections (spec.L is a +-3 px first pass):
@@ -1316,7 +1328,11 @@ IRIS_SQUASH = (0.87, 0.0002)          # the iris dish's height kept (round, not 
 BROW_SNAP = True                      # her brows, lowered, keep her own offset off the forehead
 BROW_FLAT = 0.6                       # share of her brows' arch taken out
 HILITE_OFF = 0.003                    # ハイライト消: m behind the iris
-BROW_DROP = 0.0055                    # m: her brow strips come down toward the eye (Levi's sheet)
+BROW_DROP = 0.008                     # m: her brow strips come down toward the eye: their middle 0.35 IPD
+#                                       over the iris (the design's height) and, with the inner ends
+#                                       raised, about as much of them under the bangs as round 11's graft
+#                                       showed (5.5 mm hid the inner thirds: 3 / 13 vertices vs 8 / 13;
+#                                       pairwise Codex 8 / 5.5 mm split 2-2, sol for 8, astra for 5.5)
 TEETH_HIDE_M = (0.0016, 0.0012)       # 歯無し上: up, back [m]
 TONGUE_OUT_M = (0.0075, 0.0032, 0.012)   # ぺろっ: the tip comes forward, up [m] (out over the lower
 #                                          lip, through the parted lips); over this length from the tip

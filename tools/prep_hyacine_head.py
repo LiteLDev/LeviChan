@@ -41,11 +41,18 @@ The atlas: her 颜.png (1024², RGB) with
   * the face sheet painted flat skin (Levi's palette): her forehead gradient,
     coral lids, blush, nose and jaw marks and lip tint go (the toon ramp shades;
     Levi's own marks are painted below, as functions of the 3D position on her
-    face placed on Levi's head);
+    face placed on Levi's head: a faint blush, a nose dot, the lid crease over
+    the outer side and short lower-lash ticks at the outer corner, the last two
+    placed on the lid as Levi's lid bake moves it, levi/parts/_head_levi.py;
+    head.npz stores that LID_K and the part checks it);
   * the iris tile repainted in Levi's design (ref/setting.png): green with a
-    darker upper band, a rounded darker pupil, a navy rim;
-  * the lash, liner and brow strips flat navy / mauve;
-  * the white cup's tile white with Levi's soft blue-grey lid shadow on top;
+    crisp darker band over the top, the pupil merged into it, a lighter pool
+    at the bottom, a thin navy rim;
+  * the lash strips navy (the nasal end feathering to mauve, the wall line's
+    foot softer), the lower lid line soft (navy only in the outer third), the
+    brows darker mauve; her crease strips skin;
+  * the white cup's tile Levi's skin-toned sclera, shaded under the lid; the
+    only white is the highlight (and a 'ring' swatch for its dark ring);
   * alpha = the toon shading mask (1 skin, 0 unshaded decals), never transparency.
 Everything outside the UV islands keeps her pixels (unused).
 """
