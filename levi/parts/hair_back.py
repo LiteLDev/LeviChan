@@ -10,14 +10,18 @@ lock. strand() validates every lock at build time and raises (HairKernelError)
 naming the lock, ring and point, so a build never carries a kink.
 
 Layout (back view, the character's left = image left):
-  - an UNDER-LAYER ('hair_back_shell'): one thin closed sheet (3 mm, rounded 1.6 mm rims)
-    under the locks, from below the head bone's fade band (rig.HAIR_HEAD_FADE: it rides
-    the chains only) down to a smooth arc tucked under the lock ends; its side edges lie
-    under the outermost primaries (UNDER_TUCK_IN), so no body shows between the locks and
-    no edge of it shows from the side. A C2 grid (even rows and columns <= 10 mm apart,
-    its clearances one smoothed lift field) validated row by row and column by column
-    with the strands' limits (_validate_grid). It spans > 70 deg round the head (checked
-    >= UNDER_SPAN_MIN), so the rig hangs it from the back-hair sector chains;
+  - an UNDER-LAYER ('hair_back_shell'): one closed volume under the locks, from inside
+    hair_front's cap under the occiput down to a smooth arc tucked under the lock ends.
+    Its outer face is where the locks rest; its inner face is a LINING that comes in to
+    2 cm off her nape and upper back (the cap, her torso via body.build_torso, the
+    shape master's lean), thickest on the centre line and thinning to rounded rims under
+    the outermost primaries (UNDER_TUCK_IN), with soft pleats along the flow, so the
+    mass is solid from its back to her back (round 11 first left a 3 mm board 8-15 cm off
+    her back: a plank from the side, a dark plate behind the neck from the front). A C2
+    grid (rows and columns <= 10 mm apart, its clearances and its depth smoothed fields)
+    validated row by row and column by column with the strands' limits (_validate_grid).
+    It spans > 70 deg round the head (checked >= UNDER_SPAN_MIN), so the rig hangs it from
+    the back-hair sector chains, both faces weighted at the outer face (WEIGHT_CO_ATTR);
   - PRIMARY locks (PRIMS): six broad crescent locks across the back in two lobes, each
     its own loose part (its own 後髪束 chain), overlapping (PRIM_COVER) in two rows: the
     under row on the under-layer and the cap, the over row on the under row. A, D and F
@@ -70,11 +74,14 @@ turn back up stay green; the outer locks keep their own ranges.
 Shading: custom normals blend one continuous volume normal (volume_normal) with
 each lock's own normal: mostly the volume high up, so the crown and back shade
 as a few large shapes, more of the own normal on the free lower lengths and
-curls (they read as forms). Outlines are on/off per vertex by how far a lock
-stands over its neighbours (outline_weights).
+curls (they read as forms); faces looking into the mass (the lining, the locks'
+undersides) keep their own normal (INWARD). Outlines are on/off per vertex by how far
+a lock stands over its neighbours (outline_weights).
 
 The scalp cap, bangs and face-framing side locks belong to hair_front (this part
-reads its CAP_PROFILE / CAP_EXP measurement data only).
+reads its CAP_PROFILE / CAP_EXP measurement data only). The lining reads her torso
+surface from body.build_torso, built into a private bmesh (the body's pure surface
+function; no body object is read).
 """
 import math
 
@@ -84,6 +91,7 @@ from mathutils import Vector
 
 from .. import common, spec
 from . import _hair_kernel as hk
+from . import body as _body                    # pure surface function only (build_torso, see _torso_tree)
 from . import skirt as _skirt                  # pure surface functions only (see docstring)
 from .hair_front import CAP_EXP, CAP_PROFILE   # measurement data only (see docstring)
 
@@ -440,6 +448,16 @@ def _out_normal(p):
     return np.array(volume_normal(Vector(p)))
 
 
+# Faces that look INTO the mass (own normal against the volume's: the under-layer's inner
+# face, the locks' undersides) keep their own normal, ramped in as own . vol goes from
+# INWARD[0] to INWARD[1]. (Round 11 gave them the outward volume normal like the rest:
+# seen from the front, between the neck and the arms, the inside of the hair then shaded
+# as one flat unlit tone - a dark 'plate' standing behind her.) The lock rims (own normal
+# across the volume, own . vol ~ 0) keep the volume's: from behind, rims with their own
+# normal print thin shade slivers along every lock edge.
+INWARD = (-0.3, -0.7)
+
+
 def set_volume_normals(me, shading, vol):
     """shading: own-normal share per vertex; vol: volume normal per vertex."""
     normals = []
@@ -448,8 +466,10 @@ def set_volume_normals(me, shading, vol):
         # On the hanging mass a lock's side edges (own normal across the volume) take
         # the volume's normal: they shade with their neighbours instead of as thin
         # strips. Curls and free ends (keep above VOL_KEEP) keep their own form shading.
-        edge = max(0.0, own.dot(nv)) ** 2
+        d = own.dot(nv)
+        edge = max(0.0, d) ** 2
         keep *= edge + (1.0 - edge) * smooth01((keep - VOL_KEEP) / (CURL_KEEP - VOL_KEEP))
+        keep += (1.0 - keep) * smooth01((INWARD[0] - d) / (INWARD[0] - INWARD[1]))
         n = nv * (1 - keep) + own * keep
         normals.append(n.normalized() if n.length > 1e-9 else Vector(v.normal))
     me.normals_split_custom_set_from_vertices(normals)
@@ -495,24 +515,28 @@ def _cap_proxy():
 # from the envelope per row: just over the scalp cap high up (the envelope sits ENV_OFF
 # over it there), the under-layer's outer face lower down.
 BASE = [(0, -2.6), (110, -2.6), (122, -2.2), (134, -1.8), (165, -2.0), (210, -0.5), (340, 0.0), (386, -1.5)]
-# Under-layer: one smooth closed sheet under the locks (hair_back_shell). Rows run evenly
+# Under-layer: one smooth closed volume under the locks (hair_back_shell). Rows run evenly
 # (UNDER_STEP px, within the strands' 10 mm ring limit) from its top edge to its bottom
-# edge, columns evenly across its back-view width: each side edge lies UNDER_TUCK_IN of the
-# outermost primary's width inside that lock's outer rim (_under_edges: the locks' authored
-# paths), so the outer locks hide it from the back and the side. Its top edge lies below
-# the head bone's fade band (rig.HAIR_HEAD_FADE), where the locks cover the nape, so its
-# vertices ride the hair chains only and a turned head cannot shear it; its bottom edge
-# is a smooth arc (lowest in the middle) tucked a little toward her back under the lock
-# ends. It follows the hair envelope (BASE under it), UNDER_T px thick, thinning to a
-# rounded UNDER_RIM px rim over the outer UNDER_EDGE share at every edge. Clearances (the
-# skirt's smooth envelope, the cap) are one smoothed lift field, never per point; every
-# row and column is validated (_validate_grid, the strands' limits). It spans well over
-# rig.HAIR_LOCK_SPAN round the head (_check_islands), so the rig hangs it from the
+# edge, columns across its back-view width (closer together at the rims): each side edge
+# lies UNDER_TUCK_IN of the outermost primary's width inside that lock's outer rim
+# (_under_edges: the locks' authored paths), so the outer locks hide it from the back and
+# the side. Its top edge starts inside hair_front's cap under the occiput (highest in the
+# middle), so the lining continues the cap down onto her nape; there it shares the head
+# bone's fade band (rig.HAIR_HEAD_FADE, a pure function of height) with the locks over it.
+# Its bottom edge is a smooth arc (lowest in the middle) tucked a little toward her back
+# under the lock ends. Its outer face follows the hair envelope (BASE under it), UNDER_T
+# px under it the sheet proper, thinning to a rounded UNDER_RIM px rim over the outer
+# UNDER_EDGE share at every edge; the lining (LINING_*) deepens its inner face. Clearances
+# (the skirt's smooth envelope, the cap) are one smoothed lift field, never per point;
+# every row and column is validated (_validate_grid, the strands' limits). It spans well
+# over rig.HAIR_LOCK_SPAN round the head (_check_islands), so the rig hangs it from the
 # back-hair sector chains, never a lock chain.
-UNDER_TOP = (206.0, 200.0)     # top edge row: in the middle, at the side edges
+UNDER_TOP = (140.0, 190.0)     # top edge row: in the middle, at the side edges
 UNDER_BOT = (350.0, 318.0)     # bottom edge row: in the middle, at the side edges
-UNDER_STEP = 5.0               # px between rows
-UNDER_COLS = 57
+UNDER_STEP = 3.5               # px between rows
+UNDER_COLS = 71
+UNDER_COL_EDGE = 0.25          # column spacing at the side rims: 1 - 2 x this of the mean (the lining's
+                               # inner face leaves the rim steeply)
 UNDER_T = 2.0                  # px thick in the middle ...
 UNDER_RIM = 1.0                # ... at the rims (1.6 mm, rounded)
 UNDER_EDGE = 0.2               # share of the half width (and of the height) that thins to the rim
@@ -522,6 +546,45 @@ UNDER_TUCK_IN = 0.3            # share of the outer primary's width the side edg
 UNDER_DEPTH_SMOOTH = (1.0, 2.5)  # grid samples (rows, columns): Gaussian on the sheet's depth
 UNDER_LIFT_SIGMA = 2.0         # grid samples: Gaussian of the clearance lift field
 UNDER_LIMITS = dict(turn=8.0, gap=0.010)
+# Lining (the under-layer's inner face). Round 11 first left the under-layer a 3 mm board
+# on the outer envelope, 8-15 cm off her back, with nothing between it and her: a flat
+# plank in the side view (the background showing between her shoulders and the hair), a
+# trapezoid with the locks hidden, and from the front a wall shoulder to shoulder behind
+# the neck. Now its outer face stays where the locks rest (BASE) and its inner face comes
+# in toward her, so the mass is solid from its back to just off her nape and upper back,
+# as the sheet's side view draws it (the hair touching the back of the neck and the
+# shoulders) and as the shape master's back hair lies (its inner face 3-5 cm off the
+# neck at the nape, leaning out below the shoulder blades). Going in from the outer face
+# (along the volume normal) it stops at the first of:
+#   - hair_front's scalp cap (CAP_PROFILE) + LINING_CAP_IN px: under the occiput the
+#     lining continues the cap down onto the nape, its top tucked into the cap and under
+#     the locks (no top face or rim shows);
+#   - her torso and neck (body.build_torso, built into a private bmesh: the body's pure
+#     surface function, never its object) less LINING_CLEAR px;
+#   - LINING_IN: the inner face's side column on the centre line per row (it leans out
+#     to the outer face below the shoulder blades, LINING_ROWS);
+#   - LINING_MAX px.
+# Toward the side edges and the top edge the depth eases out as tanh(d / L), d the
+# distance from the edge (LINING_EASE px; no curvature at the rim itself): a crescent in every horizontal section, its rims
+# under the outermost primaries, and the top closing onto the outer face where the cap does
+# not hold it. The depth field is smoothed from below (_floor_field) and both faces are
+# validated.
+LINING_CAP_IN = 6.0            # px into the cap's CAP_PROFILE envelope (hidden inside the real cap)
+LINING_CLEAR = 13.0            # px (2 cm) off her neck and back
+LINING_IN = [(170, 0.0), (230, 6.0), (250, 22.0), (270, 40.0), (290, 58.0), (310, 74.0), (330, 86.0)]
+LINING_ROWS = (265.0, 345.0)   # rows over which the lining eases back to the thin sheet
+LINING_MAX = 60.0              # px
+LINING_EASE = (32.0, 25.0)     # px: the depth's ease-out length from the side edges, from the top edge
+LINING_REACH = 0.16            # m searched along -normal for her body
+# The lining's inner face (seen from the front between her neck and arms, and from the side
+# between her back and the locks) carries soft pleats along the hair's flow, like 风堇's hood
+# whose strands are pleats of one sheet: grooves LINING_PLEAT[0] px deep, LINING_PLEAT[1]
+# apart across the lining (its columns run down the flow and fan out with it), where the
+# lining is at least LINING_PLEAT[2] px deep; a slow sideways drift down the rows
+# (LINING_PLEAT_DRIFT: share of a pleat, rows) so they do not read as ruled lines.
+LINING_PLEAT = (1.5, 0.064, 14.0)
+LINING_PLEAT_DRIFT = (0.25, 120.0)
+LINING_SIGMA = (5.0, 6.0)      # grid samples (rows, columns): smoothing of the depth
 
 
 def cap_sx(bx, row):
@@ -563,6 +626,76 @@ def _lift_field(need, sigma):
     return _blur2(np.maximum(sm, need), 0.5 * sigma)
 
 
+def _floor_field(a, sigma, iters=4):
+    """A smooth field under a (2-D), sigma (rows, columns) in samples: blurred and held
+    under the raw field `iters` times, then blurred once more at half the sigma (so it
+    stays smooth: it may rise over `a` by a fraction of a pixel at a corner of a)."""
+    sr, sc = sigma
+
+    def blur(f, k=1.0):
+        out = np.apply_along_axis(lambda v: hk._blur(v, k * sr), 0, f)
+        return np.apply_along_axis(lambda v: hk._blur(v, k * sc), 1, out)
+    a = np.asarray(a, float)
+    s = a.copy()
+    for _ in range(iters):
+        s = np.minimum(blur(s), a)
+    return blur(s, 0.5)
+
+
+_TORSO = {}
+
+
+def _torso_tree():
+    """BVH of her torso and neck: body.build_torso (the body's pure surface function)
+    built into a private bmesh, never the body object (cached per build)."""
+    if 'tree' not in _TORSO:
+        from mathutils.bvhtree import BVHTree
+        bm = bmesh.new()
+        _body.build_torso(bm)
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        _TORSO['tree'] = BVHTree.FromBMesh(bm)
+        _TORSO['bm'] = bm
+    return _TORSO['tree']
+
+
+def _lining_depth(E, Nv, rows):
+    """Depth (px along -Nv from the outer face E) of the lining's inner face per grid node
+    (see LINING_*): the first of the cap, her body and the centre-line inner face, eased
+    out over the bottom rows, smoothed from below, eased out toward the side and top
+    edges."""
+    tree = _torso_tree()
+    pb, psx, prow = to_px(E)
+    ny = np.maximum(Nv[..., 1], 0.3)
+    D = np.full(rows.shape, LINING_MAX)
+    D = np.minimum(D, (psx - (CX + np.array([[stable(LINING_IN, r)[0] for r in rr] for rr in prow]))) / ny)
+    for j in range(rows.shape[0]):
+        for k in range(rows.shape[1]):
+            cs = cap_sx(pb[j, k], prow[j, k])
+            if cs is not None:
+                D[j, k] = min(D[j, k], (psx[j, k] - cs) / ny[j, k] + LINING_CAP_IN)
+            hit = tree.ray_cast(Vector(E[j, k]), Vector(-Nv[j, k]), LINING_REACH)
+            if hit[0] is not None:
+                D[j, k] = min(D[j, k], hit[3] * PX - LINING_CLEAR)
+    D = np.maximum(D, 0.0)
+    D = D * (1.0 - hk.smooth01((rows - LINING_ROWS[0]) / (LINING_ROWS[1] - LINING_ROWS[0])))
+    D = np.maximum(_floor_field(D, LINING_SIGMA), 0.0)
+    # eased out toward the side edges and the top edge
+    side = np.minimum(np.abs(pb - pb[:, :1]), np.abs(pb - pb[:, -1:]))
+    D = D * np.tanh(side / LINING_EASE[0]) * np.tanh((prow - prow[:1, :]) / LINING_EASE[1])
+    # pleats along the flow: phase by the column's place across (its arc length on the
+    # outer face from the middle column), drifting slowly down the rows
+    amp, lam, d0 = LINING_PLEAT
+    if amp > 0.0:
+        C = E.shape[1]
+        seg = np.linalg.norm(np.diff(E, axis=1), axis=-1)
+        s_across = np.concatenate([np.zeros((E.shape[0], 1)), np.cumsum(seg, 1)], 1)
+        s_across = s_across - s_across[:, C // 2:C // 2 + 1]
+        phase = s_across / lam + LINING_PLEAT_DRIFT[0] * np.sin(2.0 * np.pi * rows / LINING_PLEAT_DRIFT[1])
+        groove = 0.5 * (1.0 + np.cos(2.0 * np.pi * phase))     # a groove down the middle (the spine)
+        D = D - amp * groove * hk.smooth01(D / d0)
+    return D
+
+
 def _under_edges(rows):
     """Half widths (back-view px, character's left / right) of the under-layer at rows:
     UNDER_TUCK_IN of the outermost primary's width inside its outer rim (the primaries'
@@ -584,7 +717,8 @@ def _under_edges(rows):
 
 def _under_layer():
     """(outer (R, C, 3), inner (R, C, 3)) world grids of the under-layer (validated)."""
-    a = np.linspace(-1.0, 1.0, UNDER_COLS)
+    u = np.linspace(-1.0, 1.0, UNDER_COLS)
+    a = u * (1.0 + UNDER_COL_EDGE) - UNDER_COL_EDGE * u ** 3   # columns closer together at the rims
     edge_a = a * a                  # 0 in the middle -> 1 at the side edges (a parabola: bounded curvature)
     top = UNDER_TOP[0] + (UNDER_TOP[1] - UNDER_TOP[0]) * edge_a
     bot = UNDER_BOT[0] + (UNDER_BOT[1] - UNDER_BOT[0]) * edge_a
@@ -630,6 +764,8 @@ def _under_layer():
         lift = _lift_field(need, UNDER_LIFT_SIGMA)
         E = E + np.stack([np.zeros_like(lift), lift / PX, np.zeros_like(lift)], -1)
     outer = E
+    # the lining: the inner face comes in toward her (see LINING_*)
+    thick = thick + _lining_depth(E, Nv, rows)
     inner = E - Nv * (thick / PX)[..., None]
     _validate_grid(outer, 'hair_back_shell (outer face)')
     _validate_grid(inner, 'hair_back_shell (inner face)')
@@ -1513,6 +1649,27 @@ def _rim_dirs(bm, em, top=True):
         _rim_dirs(bm, t, top=False)
 
 
+# The under-layer's two faces are several cm apart over her nape (the lining). The rig
+# weights the back hair by angle round the head and height between its sector chains
+# (rig._skirt_weights), so an inner-face vertex near her neck would sit at a larger angle
+# than the outer-face vertex behind it and ride other chains: the lining would shear
+# through its thickness. So each vertex carries the point the rig weights it at
+# (WEIGHT_CO_ATTR, named by obj['levi_weight_co']): its outer-face twin (rig._weights).
+WEIGHT_CO_ATTR = 'hb_weight_co'
+
+
+def _weight_coords(obj, outer):
+    """Store on the under-layer each vertex's outer-face twin (see WEIGHT_CO_ATTR); the
+    vertices are the outer grid then the inner grid (_emit_grid_shell)."""
+    me = obj.data
+    P = outer.reshape(-1, 3)
+    P = np.concatenate([P, P])
+    assert len(P) == len(me.vertices), 'hair_back_shell: unexpected vertex count'
+    attr = me.attributes.new(WEIGHT_CO_ATTR, 'FLOAT_VECTOR', 'POINT')
+    attr.data.foreach_set('vector', P.astype(np.float32).ravel())
+    obj['levi_weight_co'] = WEIGHT_CO_ATTR
+
+
 # ---------------------------------------------------------------- build
 # Three objects. The locks of the mass ('hair_back': the six primaries, the side locks and
 # the flicks) do not cast sun shadows: at the low key light every lock edge printed a
@@ -1673,6 +1830,7 @@ def build(col):
         common.shade_smooth(obj, angle_deg=70.0)
         obj['levi_cast_shadow'] = cast
         objs.append((obj, part))
+    _weight_coords(objs[0][0], outer)
     vols = [[volume_normal(v.co) for v in o.data.vertices] for o, _p in objs]
     rims, thick = [], []
     for o, _p in objs:

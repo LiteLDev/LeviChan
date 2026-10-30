@@ -3651,6 +3651,19 @@ def _point_param(obj, co, prop):
     return v
 
 
+def _point_vec(obj, co, prop):
+    """The vector point attribute named by obj[prop] in world space, one row per vertex,
+    else None."""
+    name = obj.get(prop)
+    attr = obj.data.attributes.get(name) if name else None
+    if attr is None or attr.domain != 'POINT' or attr.data_type != 'FLOAT_VECTOR' or len(attr.data) != len(co):
+        return None
+    v = np.empty(len(co) * 3)
+    attr.data.foreach_get('vector', v)
+    M = np.array(obj.matrix_world)
+    return v.reshape(-1, 3) @ M[:3, :3].T + M[:3, 3]
+
+
 def _sleeve_weights(co, bones, sparam=None, edges=None):
     """(V, B) sleeve weights with at most 4 bones per vertex by construction. Along the
     arm (arc length a of the nearest point on shoulder -> elbow -> wrist) a hat blend of
@@ -4532,7 +4545,11 @@ def _weights(obj, part, co, bones):
     _SLEEVE_S = _sleeve_param(obj, co) if part == 'sleeves' else None
     _SLEEVE_EDGES, _SLEEVE_N = (edges, len(co)) if part == 'sleeves' else (None, 0)
     _SOCKET_S = _point_param(obj, co, 'levi_socket_param') if part == 'body' else None
-    w = _base_weights(part, co, bones)
+    # back hair: a vertex may name the point it is weighted at (hair_back's lining: both
+    # faces of the under-layer ride the chains of its outer face)
+    wco = _point_vec(obj, co, 'levi_weight_co') if part == 'hair_back' else None
+    wco = co if wco is None else wco
+    w = _base_weights(part, wco, bones)
     _SLEEVE_S, _SLEEVE_EDGES, _SLEEVE_N = None, None, 0
     _SOCKET_S = None
     cord = _neck_cord(obj, part)
@@ -4560,7 +4577,7 @@ def _weights(obj, part, co, bones):
     if part in CROTCH_PARTS and HIP_AUX:
         _hat_remap(w, bones)
     if part == 'hair_back':
-        w = _hair_head_fade(w, co, bones)
+        w = _hair_head_fade(w, wco, bones)
     if part in SHELL_PARTS:
         w = _shell_share(w, co, bones)
     if part in CROTCH_PARTS and ARM_CAP:
