@@ -4541,15 +4541,17 @@ def _lock_weights(w, co, labels, bones):
 def _weights(obj, part, co, bones):
     """(V, k) bone indices and weights for the vertices of `obj` (world positions `co`)."""
     global _SLEEVE_S, _SLEEVE_EDGES, _SLEEVE_N, _SOCKET_S
+    if part == 'hair_back':
+        # back hair: a vertex may name the point it is weighted at (hair_back's lining:
+        # both faces of the under-layer are weighted, smoothed and pruned at its outer
+        # face, so the two faces carry the same weights and move together)
+        wco = _point_vec(obj, co, 'levi_weight_co')
+        co = co if wco is None else wco
     edges = _topology(obj, co)
     _SLEEVE_S = _sleeve_param(obj, co) if part == 'sleeves' else None
     _SLEEVE_EDGES, _SLEEVE_N = (edges, len(co)) if part == 'sleeves' else (None, 0)
     _SOCKET_S = _point_param(obj, co, 'levi_socket_param') if part == 'body' else None
-    # back hair: a vertex may name the point it is weighted at (hair_back's lining: both
-    # faces of the under-layer ride the chains of its outer face)
-    wco = _point_vec(obj, co, 'levi_weight_co') if part == 'hair_back' else None
-    wco = co if wco is None else wco
-    w = _base_weights(part, wco, bones)
+    w = _base_weights(part, co, bones)
     _SLEEVE_S, _SLEEVE_EDGES, _SLEEVE_N = None, None, 0
     _SOCKET_S = None
     cord = _neck_cord(obj, part)
@@ -4577,7 +4579,7 @@ def _weights(obj, part, co, bones):
     if part in CROTCH_PARTS and HIP_AUX:
         _hat_remap(w, bones)
     if part == 'hair_back':
-        w = _hair_head_fade(w, wco, bones)
+        w = _hair_head_fade(w, co, bones)
     if part in SHELL_PARTS:
         w = _shell_share(w, co, bones)
     if part in CROTCH_PARTS and ARM_CAP:
