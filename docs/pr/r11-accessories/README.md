@@ -40,6 +40,94 @@ Faces 7,576 / 8,000 (round 10: 3,264). Thin pieces set `levi_cast_shadow = False
    - An inverted hull round a dome among the petals cannot draw a clean ring: its visible part lies below the dome's widest ring, among the petals' raised edges.
    - Two variants were tried and dropped: a 1 mm ring showed a petal sliver, and a 0.5 mm line on a drum stood off the fill as a hairline.
 
+## Integration round (r11/integrate): halter stretch on the merged torso
+The integration motion report (r11/integrate 1b06af3) put the halter at x2.32 in idol_dance@78 (major; round 10 x1.64), with 20 more poses above round 10 + 0.05 and compression down to x0.45 (idol_dance@22).
+
+**Diagnosis**
+- The merged torso skin hands the upper chest from the clavicle (肩) to the shoulder stages (肩補助2 / 肩補助3) over ~3 cm, right under the X strands' lower ends.
+  - In these poses 肩 moves a chest point at most 8 mm against 上半身2. The stages move it 3-12 cm.
+  - Five bones meet there: 上半身2, 肩, 首, 肩補助2 and 肩補助3.
+- The plain prune gave up the young 肩補助3 ramp and refitted 肩 in its place.
+  - The strap then took 肩補助3 back within ~1 cm at the junction: 0 to 0.09 over 3 rings, with 肩 dropping from 0.14 to 0.05.
+  - That made a visible jog and stub at both junctions in raised-arm poses: x2.07 on the strap and x2.32 on the strand's end ring.
+- The vertices of one ring were ~1 % apart in the stages, which squashed the strand's end rings (x0.59 in hands_behind_head).
+- On the neck, the head turn stretched the strap root x1.40.
+- The skin under the cord, measured along the cord on the body triangles under each ring, round 10 / merged:
+  - idol_dance@78: x1.92 / x2.08.
+  - reach_up_back: x1.62 / x1.60.
+  - hands_on_hips: x1.48 / x1.45.
+  - The body edges within 4 mm of the cord: 1.63 / 1.74 (idol), 1.39 / 1.47 (reach) and 1.08 / 1.26 (hands_on_hips).
+  - With 8 mm smoothing the cord followed the skin's local stretch. Round 10's 1 cm rings averaged it.
+
+**Fix** (accessories section of `rig.py`, plus one new attribute in the part)
+- **Skin sample.** The skin is sampled at each ring's centre on the nearest skin triangle (`_halter_skin`). The inverse-distance sample led the stage ramp by ~2 rings.
+- **Smoothing.** The weights are smoothed along the cord over 20 mm (`HALTER_SMOOTH`, was 8).
+- **Rim.** Within 25 mm of the tucked ends the straps blend back to the skin's own weights (`HALTER_RIM_FOLLOW`).
+  - Without it, the smoothing's end lagged the skin, and in dance_heart the strap sank 2.3 mm into the chest just above the bodice rim, cut off before it.
+- **Tucked ends.** They take the bodice's weights after the smoothing, looked up at the ring centres and blended over 10 mm (`HALTER_RIDE_SMOOTH`).
+  - Applied before, they were carried 2 cm up the visible strap. Over 5 mm the hand-over compressed x0.85 at the rim in spin and high_kick.
+- **Prune.** It keeps the stages before the clavicle where five bones meet (`HALTER_KEEP`: guide x2 for 肩補助2/3, x0.2 for 肩), with no motion refit (`_halter_prune`).
+  - The generic refit put the folded clavicle into the stages, which sank the strands' ends ~0.4 mm deeper with the arms down.
+- **Rings.** The part numbers its rings (`cord_ring`, `obj['levi_cord_ring']`), and every vertex of a ring takes the ring's weights.
+
+**Variants tried and dropped** (partial rigs, same poses)
+- 8 / 12 / 16 mm smoothing: idol x2.10 / x1.99 / x1.89.
+- 25 mm smoothing, or a 45-60 mm lower strand join: the strand sank 2-3 mm with the arms down and back.
+- A 15 mm lower join: x2.15.
+- 1D Gaussian smoothing along the rings, with reflected tucked ends: the neck went back to x1.33, and idol to x1.86 at σ 10 mm.
+- A taut-string (box-constrained) stage profile: kinks.
+- Clipping the smoothed weights to the skin's: x3.5.
+- Folding 肩 explicitly by the stage share: the same as without the guide demotion (x1.96).
+- A longer ride (7 px): compression x0.83-0.87 at the rim.
+
+**Full merge** (scratch worktree: r11/integrate 78bca50 + this branch). Motion report, extended + clips + core:
+
+| Halter | Round 10 | Integrate 1b06af3 | Fixed |
+|---|---|---|---|
+| idol_dance (worst frame) | 1.637 | **2.316** | 1.647 |
+| reach_up_back | 1.379 | 1.728 | 1.299 |
+| arms_up | 1.304 | 1.614 | 1.258 |
+| hands_on_hips | 1.100 | 1.593 | 1.223 |
+| dance_sway | 1.287 | 1.587 | 1.203 |
+| hands_behind_head | 1.366 | 1.478 | 1.206 |
+| high_kick | 1.203 | 1.497 | 1.220 |
+| spin | 1.191 | 1.475 | 1.213 |
+| head_left | 1.294 | 1.395 | 1.168 |
+| look_over_shoulder | 1.324 | 1.380 | 1.237 |
+| Compress, worst | 0.674 | **0.453** | 0.658 |
+| Flipped faces | 0 | 4 | 0 |
+| Accessory issues | 15 (8 major) | 17 (9 major) | 15 (8 major) |
+
+- **Stretch.** Every pose and clip frame is at most round 10 + 0.05, except hands_on_hips: 1.223 against 1.150.
+  - In hands_on_hips the body's own edges under the cord stretch 1.26 (round 10: 1.08), and the halter stays below that.
+- **Compression** is at most round 10 - 0.05 everywhere: idol 0.658 vs 0.674, look_over_shoulder 0.702 vs 0.740.
+- **Junction.** The strand's end stays on the strap: drift 0.07 mm (before: 0.92).
+- **Pen.** Halter pen is 0.2 cm, as before.
+
+**Trade-off.**
+- **Raised arms.** In idol_dance@78, reach_up_back, arms_up and dance_heart the junctions and the rim entry are clean (`integ_raised.jpg`, `integ_armsdown_rim.jpg`).
+- **Arms down and back.** In hands_on_hips and hug_self the strand's lower end now dips into the bust's top: newly inside the skin up to 1.7 mm on 5-6 % of the visible cord vertices (before 0.6-0.8 mm, round 10 1.2-1.3 mm on 2-3 %).
+  - At 4x zoom it shows as a broken outline along ~1.5 cm of the strand (`integ_armsdown_rim.jpg`, top row). In hug_self the sleeve covers it.
+  - This is the price of spreading the skin's stage ramp along the cord. Any smoothing that cut the stretch to target put the ramp's start under skin that stays still with the arms back.
+- **Rest.** No change at rest: the 4x rest crops differ in at most 3 anti-aliased pixels (`integ_rest.jpg`).
+
+**acc_flower_R pen_frac** (round 10 0.073, now 0.087, dance_heart and idol_dance@48).
+- The right forearm passes through the head flower in both rounds (`integ_flower_heart.jpg`, sleeves hidden), and the balloon sleeve hides the whole flower in both.
+- The fraction rose because the flower has 2.5x the vertices (1,584 vs 632) and a fuller centre. The depth is 12.8 mm (round 10: 11.0).
+- The halter fix does not touch it.
+
+**Gates** (this branch: r11/integrate 1b06af3 + the fix)
+- **check:** CHECK OK, determinism included. Accessories 7,592 / 8,000; total 153,186 / 200,000; no seat warning with the merged hair.
+- **rig_check, 17 core poses:** RIG CHECK OK. Worst stretch: squat 1.82 (body) and arms_up 1.81 (body). Worst pen: side_bend 1.76 cm (skirt). The accessories are never the worst object.
+- **Not run:** export_pmx, pmx_reimport and motion_vmd, because mmd_tools is not installed.
+
+**Images (integration round)**
+- `integ_raised.jpg`: 4x junction crops, cel + clay, integrate vs fixed. idol_dance@78 (left and right), reach_up_back and arms_up.
+- `integ_neck.jpg`: 4x strap root at the choker in idol_dance@78, arms_up and head_left.
+- `integ_rest.jpg`: rest, before / after.
+- `integ_armsdown_rim.jpg`: hands_on_hips (the trade-off) and the right strap entering the bodice rim in dance_heart.
+- `integ_flower_heart.jpg`: the flower in dance_heart, round 10 vs round 11, with sleeves and without.
+
 ## Gates (this branch, other parts as on r11/base)
 - **check:** CHECK OK. Accessories 7,576 / 8,000 faces; total 112,280. The build-twice determinism check passed. The seat check warns on r11/base's hair_front, as expected.
 - **rig_check, 17 core poses:** RIG CHECK OK, with every row the same as round 10 (worst stretch fist 1.86, squat 1.85; worst pen side_bend 1.76 cm).
@@ -65,6 +153,11 @@ Faces 7,576 / 8,000 (round 10: 3,264). Thin pieces set `levi_cast_shadow = False
   - `build_rig` sorts the `SKIN_LATE` parts last.
   - The halter reads the bodice's final vertex groups (every bodice mesh except the `bodice_leaves` ornaments).
 - **`tools/check.py`:** the `SEATED` warning.
+- **Integration round, `rig.py` accessories section:**
+  - New: `HALTER_RIM_FOLLOW`, `HALTER_RIDE_SMOOTH`, `HALTER_KEEP`, `_halter_sections`, `_ring_mean`, `_halter_skin`, `_halter_rim_follow` and `_halter_prune`.
+  - Changed: `HALTER_SMOOTH` (0.008 to 0.020), `_halter_joins` (optional section centres) and the halter branch of `_neck_cord_weights`.
+- **Integration round, the one shared-code line in `_weights`:** the halter's two-line guide-join + prune hook became `return _halter_prune(obj, w, guide, co, edges, bones)`.
+- **Integration round, the part:** the new `cord_ring` point attribute (`obj['levi_cord_ring']`). `_write_point` takes `clamp=False` for it.
 
 ## Images
 - `fix_halter.jpg`: idol_dance@78, hands_behind_head, dance_heart and jump_tuck, first build vs fixed. The columns are the junction (cel), the rim (clay) and the side view (clay).

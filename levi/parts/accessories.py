@@ -224,6 +224,10 @@ STRING_TUCK_GAP = 0.0008
 #   visible cord sank up to 3.5 mm into the chest; a partial share left the end poking out.)
 # * join: share of the weights of the strap beside it on an X strand, 1 at the strand's
 #   end (on the strap's centre line), 0 JOIN_SPAN along the strand.
+# * ring: the ring's number (obj['levi_cord_ring']): every vertex of a ring takes the ring's
+#   weights (round 11 integration: with the merged torso's shoulder stages under the
+#   strands' ends, vertices of one ring ~1 % apart in them squashed it to x0.59 in
+#   hands_behind_head).
 RIDE_FROM = 2.0
 RIDE_FULL = 4.0
 JOIN_SPAN = 0.03
@@ -254,13 +258,13 @@ def _catmull(points, per_seg):
     return out
 
 
-def _write_point(obj, name, values):
-    """Float point attribute `name` (values clamped to 0..1, one per vertex)."""
+def _write_point(obj, name, values, clamp=True):
+    """Float point attribute `name` (values clamped to 0..1 unless not `clamp`, one per vertex)."""
     me = obj.data
     if len(values) != len(me.vertices):
         raise ValueError(f'{obj.name}: {len(values)} values for {len(me.vertices)} vertices ({name})')
     attr = me.attributes.get(name) or me.attributes.new(name, 'FLOAT', 'POINT')
-    attr.data.foreach_set('value', [max(0.0, min(1.0, v)) for v in values])
+    attr.data.foreach_set('value', [max(0.0, min(1.0, v)) if clamp else v for v in values])
 
 
 def _write_grad(obj, values):
@@ -883,7 +887,7 @@ def _strings(col, skin, loop, cage):
     (_choker_loop), whose beads the straps leave."""
     bm = bmesh.new()
     straps = {}
-    ride, join = [], []      # per vertex in build order (STRING_SIDES per ring)
+    ride, join, ring = [], [], []      # per vertex in build order (STRING_SIDES per ring)
     for sx in (1, -1):
         # the strap starts inside a choker bead (STRAP_BEAD) on the side-back
         f = STRAP_BEAD / CHOKER_BEADS
@@ -897,6 +901,7 @@ def _strings(col, skin, loop, cage):
         for p in straps[sx]:
             ride += [_body.smoothstep(RIDE_FROM, RIDE_FULL, _row(p) - _rim_row(p.x))] * STRING_SIDES
             join += [0.0] * STRING_SIDES
+            ring += [float(len(ring) // STRING_SIDES)] * STRING_SIDES
     for sx in (1, -1):
         # an X strand runs from this side's strap to the other's; the character-left
         # strand passes over the other one where they cross
@@ -912,14 +917,17 @@ def _strings(col, skin, loop, cage):
             ride += [0.0] * STRING_SIDES
             join += [max(_body.smoothstep(JOIN_SPAN, 0.0, si),
                          _body.smoothstep(JOIN_SPAN, 0.0, s[-1] - si))] * STRING_SIDES
+            ring += [float(len(ring) // STRING_SIDES)] * STRING_SIDES
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     obj = new_object(col, 'acc_halter', bm, [toon_material('green')])
     shade_smooth(obj, 80)
     obj['levi_cast_shadow'] = False
     _write_point(obj, 'cord_ride', ride)
     _write_point(obj, 'cord_join', join)
+    _write_point(obj, 'cord_ring', ring, clamp=False)
     obj['levi_cord_ride'] = 'cord_ride'
     obj['levi_cord_join'] = 'cord_join'
+    obj['levi_cord_ring'] = 'cord_ring'
     add_outline(obj, width=STRING_LINE)
 
 
