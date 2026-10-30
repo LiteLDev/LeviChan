@@ -165,8 +165,13 @@ CROSS_GROUPS = {
     'garment': ('bodice', 'sleeves', 'accessories'),
     'skirt': ('skirt',),
     'petticoat': ('petticoat',),
+    # the petticoat's nested frill tiers, by object name (round 11): crossings inside the part
+    'tier0': ('petticoat_tier0',),
+    'tier1': ('petticoat_tier1',),
+    'tier2': ('petticoat_tier2',),
 }
-CROSS_PAIRS = (('hair', 'garment'), ('hair', 'skirt'), ('skirt', 'petticoat'))
+CROSS_PAIRS = (('hair', 'garment'), ('hair', 'skirt'), ('skirt', 'petticoat'),
+               ('tier0', 'tier1'), ('tier1', 'tier2'), ('tier0', 'tier2'))
 
 
 def _stem(name):
@@ -385,7 +390,7 @@ class Model:
             vs, ts, off = [], [], 0
             for o in self.objs:
                 inf = self.info[o.name]
-                if inf['part'] in cols and inf['ok'] and len(inf['tris']):
+                if (inf['part'] in cols or o.name in cols) and inf['ok'] and len(inf['tris']):
                     vs.append(coords[o.name])
                     ts.append(inf['tris'] + off)
                     off += len(coords[o.name])
