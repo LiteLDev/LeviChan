@@ -3401,6 +3401,9 @@ def _prune(w, bones=None, guide=None, co=None, motion=None):
     n, B = w.shape
     w = w / np.maximum(w.sum(1, keepdims=True), 1e-12)
     g = w if guide is None else guide / np.maximum(guide.sum(1, keepdims=True), 1e-12)
+    if CHAIN_BODY_KEEP != 1.0 and bones is not None and _chain_cloth(bones):
+        # skirt family: the body bones rank as CHAIN_BODY_KEEP x their weight (see there)
+        g = g * np.array([CHAIN_BODY_KEEP if b.name in MOTION_CHAIN_BODY else 1.0 for b in bones])[None]
     if B > k:
         t = -np.partition(-g, k, axis=1)[:, k]
     else:
@@ -3467,6 +3470,16 @@ MOTION_CHAIN_POSES = (
     (('足.L', _FWD, 60), ('足.R', _BACK, 25)), (('足.R', _FWD, 60), ('足.L', _BACK, 25)),
 )
 _MOTION_CHAIN = {}    # as _MOTION, plus the chain samples (build_rig)
+# Which bones a skirt-family vertex keeps (_prune): the body bones (上半身 / 下半身) rank as
+# CHAIN_BODY_KEEP x their weight. Round 11: at the skirt's waist above the chain roots a
+# vertex carries six bones (its chain's root, 下半身, 上半身 ~0.045, the next segment and two
+# neighbouring chain roots at 0.03-0.08); 上半身 tied with the weak chain bones, so the prune
+# folded it on one vertex and kept it on the next (0.005 / 0.035 on vertices 2.3 mm apart),
+# and every torso turn sheared those edges (x1.53 torso_left, x1.64 twist_bend, x1.56
+# look_over_shoulder; round 10 x1.33-1.38). A neighbouring chain root moves like the vertex's
+# own except in a drape; 上半身 alone turns the waist in a twist. Kept, it stays at its
+# smooth 0.045 (x1.17 / 1.23 / 1.18). 3 also changed the cross_legged hem (x2.07 -> x2.21).
+CHAIN_BODY_KEEP = 2.0
 MOTION_D = 0.01       # m: motion error that weighs as much as moving a kept weight by its own size
 MOTION_TOP = 8        # strongest unpruned bones whose motion the refit matches
 
