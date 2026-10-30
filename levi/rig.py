@@ -2020,15 +2020,18 @@ HAIR_CAPSULE_FADE = (0.1, 0.45)
 # the face); this way the push stays under ~0.15 of the radius and below the cap.
 HAIR_CAPSULE_FADE_BY = {'hair_cheek': (0.5, 1.0)}
 HAIR_COLLIDE_REACH = 0.12   # m: trunk / skirt / head hulls farther than this from a probe at rest are not tested
-# Round 11: an arm swung behind her (idol_dance@77, the run and walk strides) passed through the
-# back locks and the lining riding them, the bag of the sleeve showing in patches between the
-# locks (idol_dance@77: 5.3 m of crossing curve with the sleeve). The back-hair locks below
-# HAIR_COLLIDE_BACK_TOP now meet the upper arm and forearm as capsules of their own, as fat as
-# the sleeve's bag (HAIR_COLLIDE_BACK_Q-th percentile of the skin and sleeve's distance from the
-# bone, not the side locks' HAIR_CAPSULE_Q), so the locks lie over the bag. The capsule's fade
-# (HAIR_CAPSULE_FADE) keeps an arm sweeping right through from flinging them across, and the
-# push and turn caps hold. Above that height an arm reaches the back hair only overhead or
-# behind the head, where the hair is the head's (HAIR_HEAD_FADE) and cannot give way.
+# (not normalised, on purpose: pushed alike with both neighbours a segment moves 1.3x its push,
+# which is spare clearance; normalised, an isolated push was resolved only by half)
+# Round 11: an arm swung back (the walk and run strides, idol_dance@72) passed through the back
+# locks beside it, the sleeve's bag cutting into them from the side (walk: 1.4 m of crossing
+# curve with the sleeve, run_r 0.6 m). The back-hair locks below HAIR_COLLIDE_BACK_TOP now
+# meet the upper arm and forearm as capsules of their own, as fat as the sleeve's bag
+# (HAIR_COLLIDE_BACK_Q-th percentile of the skin and sleeve's distance from the bone, not the
+# side locks' HAIR_CAPSULE_Q), so the locks lie over the bag (walk 0.48 m, run_r 0.17 m).
+# The capsule's fade (HAIR_CAPSULE_FADE) keeps an arm sweeping right through from flinging
+# them across, and the push and turn caps hold. Above that height an arm reaches the back
+# hair only overhead or behind the head, where the hair is the head's (HAIR_HEAD_FADE) and
+# cannot give way.
 HAIR_COLLIDE_BACK_ARMS = ('upperarm', 'forearm')
 HAIR_COLLIDE_BACK_Q = 85.0
 HAIR_COLLIDE_BACK_TOP = L['shoulder_z'] - 0.08
@@ -2051,8 +2054,6 @@ HAIR_COLLIDE_BACK_PREFIX = 'back_'     # collider name prefix of those capsules
 HAIR_COLLIDE_BACK_SIDE = (-0.35, 0.05)
 HAIR_COLLIDE_BACK_ROOM = (0.12, 0.16)
 HAIR_COLLIDE_BACK_TRUNK = '上半身'
-# (not normalised, on purpose: pushed alike with both neighbours a segment moves 1.3x its push,
-# which is spare clearance; normalised, an isolated push was resolved only by half)
 
 
 def _fit_verts(o, *arrays):
