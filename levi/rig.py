@@ -1053,7 +1053,12 @@ DRAPE_SMOOTH = 8            # [1 2 1] passes over the pitch samples (~11 deg; ro
 # above it (30 stretched x2.1 at the middle joint; round 8 tried 36 at the hem joint, which
 # stretched the petticoat between the front chains to x2.9 in run_r)
 DRAPE_BEND = (24.0,)
-DRAPE_UP = 10.0             # deg a segment may lift above the one over it
+# deg a segment may lift above the one over it. Round 11 (integration review 3): 7 (rounds
+# 7-10: 10). The ring cap lifts a neighbour's hem segment toward a raised chain's and left its
+# middle segment up to 10 deg lower: a fold at the lower joint, which the petticoat tiers
+# straddle (seated, the inner tier's hem x1.94 between chains 9 and 10 in sit_chair); within
+# 7 deg the middle segment comes along (x1.76 with DRAPE_STRAIN 0.26 and TIER_FIELD)
+DRAPE_UP = 7.0
 # Round 8 (_drape_gather): the cloth beside a lifted panel is pulled along. Round 7 lifted
 # every neighbour by the panel's turn less 13 / 11 / 9 deg per chain step (a cone round the
 # ring), which swung the whole skirt and petticoat into a bowl over a raised thigh. Now
@@ -1066,13 +1071,27 @@ DRAPE_GATHER = True
 # is shaped (a cone that only lifts, applied last; round 7's was 13 / 11 / 9)
 DRAPE_RING_CAP = (18.0, 16.0, 14.0)
 DRAPE_RING_CAP_MIN = 0.35               # least share of the cap a narrow step keeps
+# Round 11 (integration review 3): ((deg from, deg to), share): below `from` deg of thigh
+# pitch the cap is this share of DRAPE_RING_CAP, the full cap again by `to` (smoothstep).
+# At walking pitches the cone was what set the front's shape: the chain over the forward
+# thigh lifted its hem 35-38 deg and each neighbour toward the other side hung the full 11-12
+# deg step lower, so the petticoat's front hem stretched x1.81 in walk (x1.58 curtsy, x1.64
+# walk clip) and the skirt's x1.55. With the narrower steps the lift spreads one chain
+# further round the front (walk x1.61, curtsy x1.40, skirt x1.49 / 1.30, with the other
+# round-11 settings); above 75 deg (seated, kicks, the tuck
+# jump) the cap is as before, where a narrower cone lifted the whole ring into a bowl
+# (round 8's pairwise review)
+DRAPE_RING_CAP_PITCH = ((45.0, 75.0), 0.55)
 DRAPE_YAW_GRID = (-30.0, -15.0, 0.0, 15.0, 30.0)   # deg: yaws at which the clearance is tabulated
 DRAPE_YAW_MAX = 30.0        # deg a chain may turn round the body ...
 DRAPE_YAW_BACK = (60.0, 120.0)   # ... fading in from straight back over these skirt angles (deg)
 DRAPE_YAW_STEP = 2.0        # deg: the gather's yaw candidates ...
 DRAPE_LIFT_STEP = 3.0       # ... and root lift candidates
 DRAPE_LIFT_SHAPE = (1.0, 0.85, 0.7)   # share of a pulled chain's root lift its joints take
-DRAPE_STRAIN = 0.3          # ring strain free of cost (see DRAPE_TAUT)
+# ring strain free of cost (see DRAPE_TAUT). Round 11 (integration review 3): 0.26 (rounds
+# 8-10: 0.3): measured against the innermost cloth, which is now the petticoat's inner
+# tier hem, 0.3 let the gather leave the side chains of a seated pose far apart
+DRAPE_STRAIN = 0.26
 # The ring is measured against the innermost cloth. DRAPE_TAUT: the joints' distance to
 # the next chain's over the innermost layer's spacing there, less 1 (a sector whose
 # inner layer lies much closer than its joints starts taut, so the gather keeps its
@@ -1645,6 +1664,9 @@ def _skirt_drape(chains, pts, cy, hip, knee, body, inner=None):
             cum = np.concatenate([[0.0], np.cumsum(edge[:, j])])
             fwd = np.abs(cum[None, :K] - cum[:K, None])
             cone[:, :, j, 0] = np.minimum(fwd, cum[K] - fwd)
+        if DRAPE_RING_CAP_PITCH:
+            (p0, p1), f = DRAPE_RING_CAP_PITCH
+            cone = cone * (f + (1.0 - f) * _smoothstep(p0, p1, np.degrees(np.abs(phis))))[None, None, None, :]
         sg = np.sign(phis)
         for tag in sides:
             F = np.stack([out[k][tag] for k in range(K)])                        # (K, n, P)
@@ -4822,6 +4844,72 @@ PLAIN_OBJECTS = ('petticoat_core',)
 # put the change of field into the visible frill (x2.0 and a strain jitter major at the
 # front hem in the run clip over 2.5 cm, x3.3 over 1 cm).
 PLAIN_SEAM = (0.006, 0.012)
+# Round 11 (integration review 3): skirt-family layers whose weights are one analytic field of
+# (angle round the body, height) instead of surface-smoothed per object: (name prefix,
+# B-spline width in chain steps, ramp (chain units below the last segment's middle)). Round
+# the ring a vertex blends the three nearest chains by a quadratic B-spline of its angle
+# (C1, a partition of unity: (1/8, 3/4, 1/8) at a chain, halves midway) where it rides the
+# last segment alone, handing over within the ramp to the plain linear blend of the two
+# nearest chains above it (where it also blends two segments), so it keeps at most four bones
+# by construction: no smoothing, prune or refit, the same weights at the same (angle,
+# height) on every tier (the nested tiers move together, the core's seam takes them too,
+# PLAIN_SEAM). Smoothed along their own bells and lobes, then shared, pruned and refitted,
+# the tiers' weights had the same mean profile round the ring but steps of +-20% in their
+# local slope from lobe to lobe; the worst stretch sat wherever a step met the largest
+# difference between two chains (the front hem in walk x1.81, a seated side hem x1.94), and
+# the inner tiers crossed each other (cross_legged 89 face pairs, run_r 14, run 11; now 0).
+# None: the tiers are smoothed along their own surfaces and shared (LAYER_PARTS).
+TIER_FIELD = ('petticoat_tier', 1.0, (0.0, 0.25))
+
+
+def _bspline2(x):
+    """Quadratic B-spline (support |x| < 1.5, sum 1 over integer shifts)."""
+    x = np.abs(x)
+    return np.where(x < 0.5, 0.75 - x * x, np.where(x < 1.5, 0.5 * (1.5 - x) ** 2, 0.0))
+
+
+def _tier_field(co, bones):
+    """(V, B) weights of a TIER_FIELD layer at world points co (see there)."""
+    _, width, ramp = TIER_FIELD
+    chains = {}
+    for i, b in enumerate(bones):
+        if b.group == 'Skirt' and 'chain' in b.meta:
+            chains.setdefault(b.meta['chain'], []).append((b.meta['seg'], i, b))
+    keys = sorted(chains, key=lambda k: chains[k][0][2].meta['angle'])
+    A = np.array([chains[k][0][2].meta['angle'] for k in keys])
+    cy = chains[keys[0]][0][2].meta['cy']
+    K, n = len(keys), len(chains[keys[0]])
+    step = 360.0 / K
+    d = (np.degrees(np.arctan2(co[:, 0], co[:, 1] - cy))[:, None] - A[None] + 180.0) % 360.0 - 180.0
+    hat = np.maximum(0.0, 1.0 - np.abs(d) / step)
+    hat /= np.maximum(hat.sum(1, keepdims=True), 1e-12)
+    bs = _bspline2(d / (step * width))
+    bs /= np.maximum(bs.sum(1, keepdims=True), 1e-12)
+    # one height coordinate per vertex (along the hat-blended chains' joints), so every chain
+    # takes the same split between its segments
+    U = np.zeros((len(co), K))
+    for c, k in enumerate(keys):
+        segs = sorted(chains[k], key=lambda s: s[0])
+        zj = np.array([s[2].head.z for s in segs] + [segs[-1][2].tail.z])
+        U[:, c] = np.interp(-co[:, 2], np.maximum.accumulate(-zj), np.arange(n + 1.0))
+    u = (U * hat).sum(1)
+    m = _smoothstep(n - 0.5 + ramp[0], n - 0.5 + ramp[1], u)
+    ang = (1.0 - m)[:, None] * hat + m[:, None] * bs
+    uc = np.clip(u, 0.5, n - 0.5)
+    W = np.zeros((len(co), len(bones)))
+    for c, k in enumerate(keys):
+        for i, j, _ in chains[k]:
+            W[:, j] += ang[:, c] * np.maximum(0.0, 1.0 - np.abs(uc - (i + 0.5)))
+    return W
+
+
+def _tier_field_weights(co, bones):
+    """(idx, ww) of a TIER_FIELD layer: its field's (at most MAX_INFLUENCE) bones."""
+    W = _tier_field(co, bones)
+    k = min(MAX_INFLUENCE, W.shape[1])
+    idx = np.argsort(-W, axis=1, kind='stable')[:, :k]
+    ww = np.take_along_axis(W, idx, axis=1)
+    return idx, ww / np.maximum(ww.sum(1, keepdims=True), 1e-12)
 
 
 def _plain_weights(w, co=None, part=None, bones=None):
@@ -4867,6 +4955,9 @@ def _layer_shared(part, bones):
     if key in _LAYER:
         return _LAYER[key]
     objs = [o for o in _LAYER_SRC.get(part, []) if len(o.data.vertices) and o.name.startswith(LAYER_PARTS[part])]
+    if TIER_FIELD and all(o.name.startswith(TIER_FIELD[0]) for o in objs):
+        _LAYER[key] = {o.name: _tier_field(_world_verts([o]), bones) for o in objs}
+        return _LAYER[key]
     co, w, edges = {}, {}, {}
     for o in objs:
         c = _world_verts([o])
@@ -5593,6 +5684,8 @@ def _weights(obj, part, co, bones):
     ok = masked.sum(1) > 1e-9
     w = np.where(ok[:, None], masked, w)
     w = w / w.sum(1, keepdims=True)
+    if TIER_FIELD and obj.name.startswith(TIER_FIELD[0]):
+        return _tier_field_weights(co, bones)
     if obj.name.startswith(PLAIN_OBJECTS):
         return _plain_weights(w, co, part, bones)
     radius = SLEEVE_SMOOTH if part == 'sleeves' and SLEEVE_BUILD else SMOOTH_RADIUS.get(part, DEFAULT_SMOOTH)
