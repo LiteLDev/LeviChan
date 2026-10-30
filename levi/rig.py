@@ -2484,7 +2484,7 @@ def _secondary_bones(parts, core):
                   f'{"outer" if ang >= HAIR_OUTER_ANGLE else "back"} pitch gravity')
             bones += _hair_pitch_gravity(
                 _chain_bones(f'後髪束{k}', f'後髪束{k}', f'HairLock{k}', joints, hair_parent(), 0.03, 'Hair',
-                             meta={'lock': key, 'lock_obj': oname}), byname, *pitch)
+                             meta={'lock': key, 'lock_obj': oname, 'lock_angle': ang}), byname, *pitch)
     if len(rest):
         # (rooted at the curtain's own top when it starts below eye level: round 11's
         # under-layer starts below the head bone's fade band, and chains rooted at eye
@@ -4551,18 +4551,23 @@ def _lock_weights(w, co, labels, bones):
 # relative motion, 2500+ crossing triangle pairs). Each vertex (at its weighting point)
 # takes the lock chains of the objects it names by a soft minimum of its distance to their
 # centre lines (LOCK_FOLLOW_SOFT m), and along each chain the hat weights a lock of it
-# carries (_lock_weights); the head fade then applies by height as on every lock. As the
+# carries (_lock_weights); the head fade then applies by height as on every lock. Only
+# locks less than obj['levi_follow_angle'] deg round from straight back count (hair_back:
+# the primaries over the lining, not the side locks and flicks beside it, which the raised
+# arms push: reach_up_back pulled the lining's rims through the primaries). As the
 # lining's vertices are dominated by lock segments, the locks' collision probes also keep
 # the lining's inner face off her trunk (_hair_collision).
 LOCK_FOLLOW_SOFT = 0.012
 
 
-def _follow_lock_weights(co, bones, obj_names, w):
-    """(V, B) weights of points that follow the lock chains of the objects obj_names (see
-    LOCK_FOLLOW_SOFT); w unchanged when there are none."""
+def _follow_lock_weights(co, bones, obj_names, w, max_angle=180.0):
+    """(V, B) weights of points that follow the lock chains of the objects obj_names, less
+    than max_angle deg round from straight back (see LOCK_FOLLOW_SOFT); w unchanged when
+    there are none."""
     by_key = {}
     for j, b in enumerate(bones):
-        if 'lock' in b.meta and b.meta.get('lock_obj') in obj_names:
+        if ('lock' in b.meta and b.meta.get('lock_obj') in obj_names
+                and b.meta.get('lock_angle', 0.0) < max_angle):
             by_key.setdefault(tuple(b.meta['lock']), []).append(j)
     if not by_key:
         return w
@@ -4618,7 +4623,8 @@ def _weights(obj, part, co, bones):
     if part == 'hair_back':
         _lock_weights(w, co, labels, bones)
         if obj.get('levi_follow_locks'):
-            w = _follow_lock_weights(co, bones, str(obj['levi_follow_locks']).split(','), w)
+            w = _follow_lock_weights(co, bones, str(obj['levi_follow_locks']).split(','), w,
+                                     float(obj.get('levi_follow_angle', 180.0)))
     if part == 'hair_front':
         _side_chain_weights(w, co, obj, bones)
     masked = w * _side_mask(co, labels, bones, part not in SIDED_PARTS_EXEMPT)

@@ -1843,8 +1843,9 @@ def _rim_dirs(bm, em, top=True):
 
 # The under-layer's two faces are several cm apart over her nape (the lining), and the
 # locks rest on its outer face. The rig hangs it from the lock chains of the locks over it
-# (obj['levi_follow_locks'] names their object; rig._follow_lock_weights), so lining and
-# locks move together: with sector chains of its own (round 11 R1-R5) the hair collision
+# (obj['levi_follow_locks'] names their object, obj['levi_follow_angle'] how far round
+# from straight back; rig._follow_lock_weights), so lining and locks move together:
+# with sector chains of its own (round 11 R1-R5) the hair collision
 # and the pitch gravity moved the two apart, 25-45 mm in a 70 deg head turn and
 # look_over_shoulder, and the lining came up through the locks over it (2500+ crossing
 # triangle pairs, a straight outline line across the hair). Each vertex carries the point
@@ -1853,6 +1854,8 @@ def _rim_dirs(bm, em, top=True):
 # faces carry the same weights and the lining cannot shear through its thickness.
 WEIGHT_CO_ATTR = 'hb_weight_co'
 FOLLOW_LOCKS = 'hair_back'
+FOLLOW_ANGLE = 40.0         # deg round from straight back: the primaries (6-32 deg), not the side
+                            # locks and flicks beside the lining (45-47 deg), which the arms push
 
 
 def _weight_coords(obj, outer):
@@ -1865,6 +1868,7 @@ def _weight_coords(obj, outer):
     attr.data.foreach_set('vector', P.astype(np.float32).ravel())
     obj['levi_weight_co'] = WEIGHT_CO_ATTR
     obj['levi_follow_locks'] = FOLLOW_LOCKS
+    obj['levi_follow_angle'] = FOLLOW_ANGLE
 
 
 # ---------------------------------------------------------------- build
