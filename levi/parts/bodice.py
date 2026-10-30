@@ -298,7 +298,7 @@ KNOT_NT = 24              # samples round the knot's axis
 # rigid on their own, the knot was not: the two parted, x0.31 in twist_bend at a short
 # hand-over); each strand that leaves the knot hands over to its own weights over a length
 # that suits it: the last lacing cords over most of their span to the eyelets
-# (LACE_KNOT_BLEND; a free cord between two fixed ends), the tails down to the skirt
+# (LACE_KNOT_BLEND; a free cord between two fixed ends), the tails down through the skirt
 # chains' root (TAIL_KNOT_BLEND). A torso twist turns 上半身 and 下半身 ~1 rad apart 15 cm
 # in front of the spine, so a 0.05 weight difference moves ~7 mm: short hand-overs crush.
 KNOT_ATTR = 'knot_out'
@@ -306,10 +306,10 @@ LINE_VG = 'bodice_line'
 LINE_FADE = 0.0015
 KNOT_FAR = 0.006          # m: strands that come no nearer the knot than this keep 1.0 (far)
 LACE_KNOT_BLEND = 0.04
-# Round 11 (integration review 2): 3 cm for the tails (1.8 cm, against the smoothed own weights of
-# rig._tail_weights, stretched the thin strands x1.72 just below the knot in lie_back_elbows;
-# 3 cm: x1.52). It ends just above the skirt chains' root.
-TAIL_KNOT_BLEND = 0.03
+# Round 11 (integration review 2): 5 cm for the tails, through the skirt chains' root, where
+# rig._tail_weights hands them on to the chains (at 3 cm and 4 cm the thin strands stretched
+# x1.77 and x1.68 just below the knot in lie_back_elbows; 5 cm: x1.60).
+TAIL_KNOT_BLEND = 0.05
 
 # Ribbon tails (front view, px). Two strands per side meet at the tip.
 # name: (control points, ribbon width px, twist gain)

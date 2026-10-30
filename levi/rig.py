@@ -3048,30 +3048,29 @@ KNOT_BLEND = 0.012
 # core's mechanism, PLAIN_OBJECTS). The field:
 # - round the body, the two nearest skirt chains, linear in the angle (as _skirt_weights);
 #   the angle is smoothed along the strands (TAIL_SMOOTH[0]): a strand zigzagging across a
-#   chain's line takes its straightened course's blend (cross_legged at the tips x1.59 ->
-#   x1.34 from 4 to 6 cm);
-# - down each chain its segments by height (hat functions), but the first segment carries
-#   alone down to u1 = TAIL_ROOT[0] chain units below the root, and the hat to the second is
-#   centred on their joint (u1 .. 2 - u1): a hat that starts at a pivot stretches twice as
-#   much as one centred on it;
-# - the body hands over to the chains below their root, the pivot the drape turns them
-#   about, by an asinh profile of the distance s below it: asinh(s / d) / asinh(s1 / d), d =
-#   TAIL_ROOT[1], s1 at u1, s softened over TAIL_ROOT[2] at the root (C1 there). A point s
-#   below the pivot and d in front of it moves (R - 1)(s, d) relative to the body, so the
-#   hand-over stretches with share' * sqrt(s^2 + d^2), which this profile keeps level; a
-#   smoothstep peaks at the same x2.1 in high_kick over 5 or 10 cm (the plain blend,
-#   ROOT_BLEND). A sharper start at the root (no onset) compressed the strand just below
-#   it to x0.23 in jump_tuck, a larger d raised the peak (d 3 cm: x1.93);
+#   chain's line takes its straightened course's blend (cross_legged at the tips x1.59 at
+#   4 cm, x1.34 at 6 cm);
+# - the body hands over to the chains across their root, the pivot the drape turns them
+#   about: a smoothstep from TAIL_ROOT[0] above it to TAIL_ROOT[1] below, like any skin
+#   across a joint. Handed over from the root down only (the skirt's own ROOT_BLEND, or an
+#   asinh profile that keeps share' * distance from the pivot level), the strip just below
+#   the root folded over when the chains turn up ~110 deg (jump_tuck 120 faces turned
+#   > 120 deg, sit_stand 59, high_kick 35), where the blend of the turned chain and the
+#   body shortens the strand and the share's slope swings it back;
+# - down each chain its segments by height (hat functions), the first segment alone until
+#   the body has handed over (TAIL_ROOT[1]), the hat to the second centred on their joint;
 # - the body bones' split (上半身 / 下半身 / 上半身2: the bodice's skin sample handing over to
 #   the skirt's waist by SKIRT_BAND) is smoothed along the strands (TAIL_SMOOTH[1]) and
-#   blended into the bow knot (_knot_weights, over the part's 3 cm) before it hands over.
-# Measured on the full model (tails alone, the old weights -> these): high_kick x1.64 ->
-# 1.66, jump_tuck 1.82 -> 1.71, sit_chair 1.67 -> 1.55, kneel_one 1.68 -> 1.48, deep_lunge
-# 1.68 -> 1.40, cross_legged 2.09 -> 1.45, lie_back_elbows 1.70 -> 1.58, run 1.60 -> 1.34
-# (strain jitter 0.22 -> 0.12); the least compression 0.44 -> 0.38 (jump_tuck).
+#   blended into the bow knot (_knot_weights, over the part's 5 cm); where the chains come
+#   in, its other bones (上半身2) fold into 上半身 (TAIL_FOLD).
+# Measured on the full model (tails alone, the old weights -> these): kneel_one x1.68 ->
+# 1.54, deep_lunge 1.68 -> 1.44, cross_legged 2.09 -> 1.48, lie_back_elbows 1.70 -> 1.60,
+# sit_chair 1.67 -> 1.58, jump_tuck 1.82 -> 1.79, high_kick 1.64 -> 1.69, run 1.60 -> 1.28
+# (strain jitter 0.22 -> 0.14); the least compression 0.44 -> 0.40 (jump_tuck), no fold.
 TAIL_FIELD = 'bodice_ribbon_tails'      # name prefix of the objects weighted by _tail_weights
-TAIL_ROOT = (0.85, 0.01, 0.015)    # chain units the body hands over to the chains over; asinh scale, onset (m)
+TAIL_ROOT = (0.03, 0.06)    # m above / below the chains' root the body hands over to them across
 TAIL_SMOOTH = (0.06, 0.035)  # m along the strands: the angle round the body; the body bones' split
+TAIL_FOLD = 0.05            # chain share over which the body's other bones fold into 上半身
 
 
 def _knot_weights(w, co, obj, part, bones):
@@ -3156,7 +3155,7 @@ def _tail_weights(w, co, obj, part, bones, edges):
     dp, dn = d_fwd[rows, prv], d_bwd[rows, nxt]
     gap = dp + dn
     w_prv = np.where(gap > 1e-9, dn / np.maximum(gap, 1e-9), 1.0)
-    u1, d, e = TAIL_ROOT
+    above, below = TAIL_ROOT
     W = np.zeros_like(w)
     rest = np.zeros(len(co))
     for c, k in enumerate(keys):
@@ -3165,21 +3164,27 @@ def _tail_weights(w, co, obj, part, bones, edges):
         n = len(segs)
         zj = np.array([s[2].head.z for s in segs] + [segs[-1][2].tail.z])
         u = np.interp(-co[:, 2], np.maximum.accumulate(-zj), np.arange(n + 1.0))
-        seg0 = zj[0] - zj[1]
-        s = np.maximum(u, 0.0) * seg0
-        s = np.sqrt(s * s + e * e) - e          # C1 onset at the root
-        s1 = math.sqrt((u1 * seg0) ** 2 + e * e) - e
-        share = np.clip(np.arcsinh(s / d) / np.arcsinh(s1 / d), 0.0, 1.0)
-        # the first segment alone down to u1, the hat to the second centred on their joint
+        # the body hands over to the chain across its root (the pivot), from `above` over it
+        # to `below` under it
+        share = _smoothstep(-above, below, zj[0] - co[:, 2])
+        # the first segment alone down to the hand-over's end (u1), the hat to the second
+        # centred on their joint
+        u1 = min(max(below / (zj[0] - zj[1]), 0.5), 0.95)
         um = np.interp(u, [u1, 2.0 - u1, 1.5, n + 1.0], [0.5, 1.5, 1.5, n + 1.0])
         uc = np.clip(um, 0.5, n - 0.5)
         for i, j, _ in segs:
             W[:, j] += ac * share * np.maximum(0.0, 1.0 - np.abs(uc - (i + 0.5)))
         rest += ac * (1.0 - share)
+    # where the chains come in the body keeps only 上半身 / 下半身: the knot's other bones
+    # (上半身2) fold into 上半身 as the chain share rises from 0 to TAIL_FOLD (so at most
+    # four bones by construction: two body bones and two chains' first segments)
+    other = ~is_chain
+    other[hip] = False
+    f = _smoothstep(0.0, TAIL_FOLD, 1.0 - rest)[:, None]
+    bw[:, col['上半身'] if '上半身' in col else hip[0]] += (bw[:, other] * f).sum(1)
+    bw[:, other] *= 1.0 - f
     W += bw * rest[:, None]
-    # at most four bones by construction, but for the few where the knot's 上半身2 meets the
-    # chains: folded continuously, no refit
-    idx, ww = _prune(W, bones)
+    idx, ww = _prune(W, bones)      # nothing to fold (no refit)
     return _knot_pin(idx, ww, knot, bones)
 
 
