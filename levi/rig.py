@@ -4549,6 +4549,13 @@ SLEEVE_GATHER_STRAIGHT = (0.55, 0.85)   # shoulder -> wrist / arm length: the sl
 SLEEVE_GATHER_BENT = (0.3, 0.6, 0.7)
 SLEEVE_RIDE_SMOOTH = 0.008   # m: the tails' sampled weights are averaged within this radius
 SLEEVE_RIDE_IN = 0.75   # share of the bag's inward pull that the pieces lying on it follow
+# Round 11: the cuff ruffle's press keys (levi.parts.sleeves._press_keys, named per side in
+# obj['levi_sleeve_press']) follow the bag's own crowd measures on 袖重力 (SLEEVE_NEAR: this
+# wrist at the torso; SLEEVE_CROWD: the arms folded together): value SLEEVE_PRESS x the larger
+# (_sleeve_press, Blender only). So a hand brought to the chest squashes the cuff's front
+# flutes against it instead of passing them in (hand_to_shoulder: 1.1 cm, 171 vertices). The
+# PMX keeps the keys as plain vertex morphs, like the gather keys.
+SLEEVE_PRESS = 1.0
 
 
 def _arm_arc(co, S, E, Wp):
@@ -4807,6 +4814,30 @@ def _sleeve_gather(arm, objs, bones):
                     t.id, t.bone_target = arm, bn
                     t.transform_space = 'WORLD_SPACE'
                 drv.expression = expr
+
+
+def _sleeve_press(arm, objs):
+    """SLEEVE_PRESS: a driver on each press key the sleeve objects name (obj['levi_sleeve_press']),
+    from levi_crowd / levi_near on that side's 袖重力 (_crowd_props)."""
+    if not SLEEVE_PRESS:
+        return
+    for o in objs:
+        keys = o.get('levi_sleeve_press')
+        if not keys or o.data.shape_keys is None:
+            continue
+        for tag in 'LR':
+            name = keys.get(tag)
+            kb = o.data.shape_keys.key_blocks.get(name) if name else None
+            ref = arm.pose.bones.get(f'袖重力.{tag}')
+            if kb is None or ref is None or 'levi_crowd' not in ref or 'levi_near' not in ref:
+                continue
+            kb.value = 0.0
+            kb.driver_remove('value')
+            drv = kb.driver_add('value').driver
+            drv.type = 'SCRIPTED'
+            _prop_var(drv, 'c', arm, f'pose.bones["{ref.name}"]["levi_crowd"]')
+            _prop_var(drv, 'n', arm, f'pose.bones["{ref.name}"]["levi_near"]')
+            drv.expression = f'min(1.0, {SLEEVE_PRESS!r} * max(c, n))'
 
 
 # Thick cloth shells (the skirt's outer face, inner face and rounded hem): vertices at the
@@ -6963,5 +6994,6 @@ def build_rig():
     bpy.context.view_layer.update()
     _sleeve_ride_weights(parts.get('sleeves', []))
     _sleeve_gather(arm, parts.get('sleeves', []), bones)
+    _sleeve_press(arm, parts.get('sleeves', []))
     _hair_collision(arm, bones, parts)
     return arm

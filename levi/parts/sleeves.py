@@ -768,6 +768,16 @@ RUFFLE_PROFILE = (
 RUFFLE_N = 144                # 16 per flute: the secondary ripple is sampled ~8 points a wave
 RUFFLE_TAPER = 0.18
 RUFFLE_INNER_FLAT = 0.9
+# Round 11 integration (motion report): the taller rim's inner side, rolled over toward the
+# armpit, stood 6 mm off the chest at rest; with the upper arm drawn forward and in (seiza:
+# hands on the thighs) it went 0.86 cm into the chest on 122 vertices (round 10's lower rim:
+# 22). There the frill is lower: its rings come down the frill axis by up to RUFFLE_INNER_DROP[0]
+# px, rising with the frame's turn toward the rim (s) and over a ((1 - cos th) / 2) ** power
+# wide sector round the inner side, so the rim slopes down toward the body (31 -> 23 px above
+# the tie there). (Taking the inner radius in instead, 10%, cleared seiza too but moved the
+# rim inside 5 cm of the arm bones: the drape root fit (rig._secondary_bones) went 8 mm down
+# the forearm and the shoulder hair capsule 5.0 -> 4.8 cm; the drop leaves both as they were.)
+RUFFLE_INNER_DROP = (8.0, 3.0)
 # The outer side (seen edge-on from the front) keeps shallower flutes too: with the radius
 # alone taken in, its full-depth flutes stood up in the front view as three stacked,
 # blade-like fins with sliver bands. Their depth, rise and curl are cut by up to
@@ -822,20 +832,24 @@ def _ruffle_rings(k=RUFFLE_LOBES, q=None, taper=True, depth=1.0):
         c = TIE + f * px(h) + RUFFLE_SHIFT * s
         g = None if q is None else _girth(q, 1.0 if i >= top else _smooth(*RUFFLE_TARGET_H, h),
                                           min(1.0, (TIE_R + 0.5) / min(ra, rb)))
-        if taper:
-            tp = 1.0 - RUFFLE_TAPER * s * (1.0 + np.cos(np.array(ths))) / 2.0
-            g = tp if g is None else g * tp
         cth = np.cos(np.array(ths))
+        if taper:
+            tp = 1.0 - RUFFLE_TAPER * s * (1.0 + cth) / 2.0
+            g = tp if g is None else g * tp
         aw = ((1.0 - RUFFLE_INNER_FLAT * _smooth(0.0, 0.5, s) * ((1.0 - cth) / 2.0) ** 2)
               * (1.0 - RUFFLE_OUTER_FLAT * s * ((1.0 + cth) / 2.0) ** RUFFLE_OUTER_POW))
         # the rolled hem keeps the rim's curl and ripple, so the fold stays even round each flute
         hh = RUFFLE_PROFILE[top][0] if i >= top else h
         share = amp / amp_rim
-        rings.append(_frill_ring(c, _perp_xz(f), px(ra), px(rb), n, k, depth * amp, f, px(depth * lift), 0.3,
-                                 RUFFLE_IRR, RUFFLE_PINCH,
-                                 curl=depth * RUFFLE_CURL * _smooth(RUFFLE_CURL_FROM, RUFFLE_PROFILE[top][0], hh),
-                                 girth=g, ripple=(k2, depth * a2 * share, px(depth * l2 * share), 1.9),
-                                 rnd=RUFFLE_ROUND * share, ths=ths, var=RUFFLE_VAR, amp_w=aw))
+        ring = _frill_ring(c, _perp_xz(f), px(ra), px(rb), n, k, depth * amp, f, px(depth * lift), 0.3,
+                           RUFFLE_IRR, RUFFLE_PINCH,
+                           curl=depth * RUFFLE_CURL * _smooth(RUFFLE_CURL_FROM, RUFFLE_PROFILE[top][0], hh),
+                           girth=g, ripple=(k2, depth * a2 * share, px(depth * l2 * share), 1.9),
+                           rnd=RUFFLE_ROUND * share, ths=ths, var=RUFFLE_VAR, amp_w=aw)
+        if taper:      # the inner side lower (RUFFLE_INNER_DROP)
+            drop = RUFFLE_INNER_DROP[0] * s * ((1.0 - cth) / 2.0) ** RUFFLE_INNER_DROP[1]
+            ring = [p - f * px(float(dd)) for p, dd in zip(ring, drop)]
+        rings.append(ring)
         centres.append(c)
     return rings, centres
 
@@ -1118,11 +1132,12 @@ def _cuff_bm(tier, k=1.0):
     return _loft_out(_cuff_rings(tier, k))
 
 
-def _cuff_clearance():
+def _cuff_clearance(press=0.0):
     """(smallest gap (m) between the under tier's outer face and the upper tier
     over the upper rim's last CUFF_TIER_GAP[1] px and past it, the same further
     in, triangle pairs where the tiers intersect). A gap is the distance to the
-    nearest point of the upper tier (the intersections are counted apart)."""
+    nearest point of the upper tier (the intersections are counted apart).
+    press: both tiers pressed this much (see _press)."""
     def tree(rings):
         verts, quads = _rings_poly(rings)
         bm = bmesh.new()
@@ -1134,8 +1149,8 @@ def _cuff_clearance():
         bm.free()
         return bvh
 
-    bvh = tree(_cuff_rings('upper'))
-    under = _cuff_rings('under')
+    bvh = tree(_pressed_rings('upper', press))
+    under = _pressed_rings('under', press)
     prof = CUFF_TIERS['under']
     top = max(range(len(prof)), key=lambda i: prof[i][0])
     rim = _cuff_rim()
@@ -1154,10 +1169,10 @@ def _cuff_clearance():
     return gap_rim, gap, cross
 
 
-def _cuff_self_overlap(tier):
+def _cuff_self_overlap(tier, press=0.0):
     """Triangle pairs of one tier (one side) that intersect without sharing a vertex: its
-    outer and inner faces passing through each other (target 0)."""
-    verts, quads = _rings_poly(_cuff_rings(tier))
+    outer and inner faces passing through each other (target 0); press: see _press."""
+    verts, quads = _rings_poly(_pressed_rings(tier, press))
     tris = [t for a, b, c, e in quads for t in ((a, b, c), (a, c, e))]
     bvh = BVHTree.FromPolygons(verts, tris, all_triangles=True)
     return sum(1 for i, j in bvh.overlap(bvh) if i < j and not set(tris[i]) & set(tris[j]))
@@ -1170,6 +1185,99 @@ def _rings_poly(rings):
     quads = [(a * n + j, a * n + (j + 1) % n, (a + 1) * n + (j + 1) % n, (a + 1) * n + j)
              for a in range(len(rings) - 1) for j in range(n)]
     return verts, quads
+
+
+# ---------------------------------------------------------------- pressed cuff
+# Round 11 integration (motion report): the HD bells hold their full girth from d ~12 px on
+# (round 10's cuff kept the gather's ~23 px out to d ~16 and flared after), so where a hand
+# comes to the chest (hand_to_shoulder, hug_self, dance_point) the flutes on the forearm's
+# front, the side that meets the torso when the elbow folds the forearm across the body,
+# went up to 1.1 cm into it over about twice round 10's area (hand_to_shoulder: 95 + 76
+# vertices of the two tiers, round 10's cuff 27). Both tiers carry one shape key per side
+# (CUFF_PRESS_KEYS, the left half or the mirrored right half) that presses the flare toward
+# the cuff's centre line; rig.SLEEVE_PRESS drives it by the bag's own crowd measures
+# (rig.SLEEVE_NEAR: the wrist at the torso; rig.SLEEVE_CROWD: the arms folded together),
+# so the cuff squashes against the body like the bag does (rig.SLEEVE_BODY) instead of
+# passing into it. The press is a radial map about one straight line (the cuff frame's
+# mid direction): at each place along it and each angle round it, radii past CUFF_PRESS r0
+# shrink toward r0 by one factor, a strictly increasing map, so the nested tiers can't cross
+# or pass through themselves pressed either (checked in build). It takes in share x the
+# sector weight of the flare past r0 (24 px: the under tier's hidden part, ~0.7 px inside its
+# own outer face over a 19 px long strip, stays put; pressed, its flat quads crossed), fading
+# in over the first d px (the root, sewn into the bag's hem, stays put):
+# - sector: the front half only, max(0, -sin th) ** power (th from the outer side toward the
+#   back: 1 on the front, 0 from the outer and inner sides round the back). Pressed all round
+#   too (a floor of 0.35), or with a tail of 1/8 on the inner side, the cuff went further into
+#   the other forearm where the arms cross through each other (arms_crossed 0.022 -> 0.029 /
+#   0.023, hands_behind_back 0.044 -> 0.047);
+# - none on the hand side past d0..d1 (CUFF_PRESS_HAND, round CUFF_HAND_AT), where the back of
+#   the hand rises to ~5 mm under the tiers; elsewhere the wrist and hand stay >= 10 px inside.
+CUFF_PRESS_KEYS = {'L': '左袖口寄せ', 'R': '右袖口寄せ'}
+CUFF_PRESS = (0.7, 24.0, (2.0, 12.0))        # (share, r0 px, d ramp px)
+CUFF_PRESS_SECTOR = 1.5                      # front power
+CUFF_PRESS_HAND = (14.0, 24.0, 3.0)          # (d0, d1 px, sector power)
+CUFF_PRESS_GAP = 0.8                         # px kept between the tiers fully pressed (checked in build)
+
+
+def _smooth_np(e0, e1, x):
+    t = np.clip((np.asarray(x, dtype=float) - e0) / (e1 - e0), 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
+
+def _press(P, k=1.0):
+    """Left-side points P (V, 3) of the cuff tiers pressed by k (0..1) of CUFF_PRESS (see above)."""
+    if k <= 0.0 or not len(P):
+        return np.array(P, dtype=float)
+    c0, _, _, mid = _cuff_frame()
+    e = _perp_xz(mid)
+    b = Y - mid * Y.dot(mid)
+    b = (b - e * b.dot(e)).normalized()
+    C, M, E, B = (np.array(tuple(v)) for v in (c0, mid, e, b))
+    q = np.asarray(P, dtype=float) - C
+    d = q @ M
+    rad = q - d[:, None] * M
+    r = np.linalg.norm(rad, axis=1)
+    th = np.arctan2(rad @ B, rad @ E)
+    dp = d / px(1.0)
+    share, r0, (d0, d1) = CUFF_PRESS
+    h0, h1, ph = CUFF_PRESS_HAND
+    w = np.maximum(-np.sin(th), 0.0) ** CUFF_PRESS_SECTOR
+    w = w * (1.0 - ((1.0 + np.cos(th - CUFF_HAND_AT)) / 2.0) ** ph * _smooth_np(h0, h1, dp))
+    kk = k * share * w * _smooth_np(d0, d1, dp)
+    rr = np.where(r > px(r0), px(r0) + (r - px(r0)) * (1.0 - kk), r)
+    return C + d[:, None] * M + rad * (rr / np.maximum(r, 1e-12))[:, None]
+
+
+def _pressed_rings(tier, k=0.0):
+    """_cuff_rings(tier) pressed by k (see _press)."""
+    rings = _cuff_rings(tier)
+    if k <= 0.0:
+        return rings
+    n = len(rings[0])
+    P = _press(np.array([tuple(p) for r in rings for p in r]), k)
+    return [[Vector(p) for p in P[i * n:(i + 1) * n]] for i in range(len(rings))]
+
+
+def _press_keys(obj):
+    """The cuff tier's press keys (CUFF_PRESS_KEYS, value 0): the left half pressed, or the
+    right half pressed as its mirror image; obj['levi_sleeve_press'] names them for the rig."""
+    me = obj.data
+    co = np.empty(len(me.vertices) * 3)
+    me.vertices.foreach_get('co', co)
+    mw = np.array(obj.matrix_world)
+    co = co.reshape(-1, 3) @ mw[:3, :3].T + mw[:3, 3]
+    inv = np.linalg.inv(mw)
+    if me.shape_keys is None:
+        obj.shape_key_add(name='Basis', from_mix=False)
+    for tag, sd in (('L', 1.0), ('R', -1.0)):
+        m = co[:, 0] * sd > 0.0
+        new = co.copy()
+        flip = np.array([sd, 1.0, 1.0])
+        new[m] = _press(co[m] * flip) * flip
+        kb = obj.shape_key_add(name=CUFF_PRESS_KEYS[tag], from_mix=False)
+        kb.data.foreach_set('co', (new @ inv[:3, :3].T + inv[:3, 3]).ravel())
+        kb.value = 0.0          # Blender 5: a new key starts at 1
+    obj['levi_sleeve_press'] = dict(CUFF_PRESS_KEYS)
 
 
 # ---------------------------------------------------------------- bow + ribbons
@@ -1626,6 +1734,13 @@ def build(col):
     assert gap_rim >= px(CUFF_TIER_GAP[0]) and gap >= px(CUFF_TIER_GAP[2]) and not cross, \
         ('sleeves: the cuff\'s under tier comes too close to the upper one', gap_rim, gap, cross)
     assert not any(selfx.values()), ('sleeves: a cuff tier passes through itself', selfx)
+    # ... and fully pressed (the press keys, _press)
+    pgap_rim, pgap, pcross = _cuff_clearance(1.0)
+    pself = {t: _cuff_self_overlap(t, 1.0) for t in CUFF_TIERS}
+    print(f'SLEEVES cuff pressed: smallest gap {pgap_rim / px(1.0):.2f} px by the upper rim, {pgap / px(1.0):.2f} px '
+          f'above; {pcross} intersecting triangle pairs; self-intersecting pairs {pself}')
+    assert min(pgap_rim, pgap) >= px(CUFF_PRESS_GAP) and not pcross and not any(pself.values()), \
+        ('sleeves: the pressed cuff tiers come too close', pgap_rim, pgap, pcross, pself)
 
     # the lip and the facing (the last 2 rings, after the top ring and the RING_COUNT
     # rings ending at the hem) keep their own normals; the hem ring itself shades with
@@ -1645,6 +1760,10 @@ def build(col):
     # The ribbon is thin strips (render.NO_CAST_OBJECTS lists it too).
     for o in objs[2:]:
         o['levi_cast_shadow'] = False
+    # the cuff tiers squash against the body (or the other arm) instead of passing into it:
+    # one press key per side, driven by the rig (rig.SLEEVE_PRESS)
+    for o in objs[2:4]:
+        _press_keys(o)
     # for the rig (round 8): the ribbon's long loose strips are the bow's tails, lying on
     # the bag; they take its skin weights (rig._sleeve_ride_weights)
     objs[4]['levi_sleeve_tails'] = True
