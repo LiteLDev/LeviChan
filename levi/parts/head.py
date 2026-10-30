@@ -42,8 +42,8 @@ Eyes (from hers, recoloured to Levi's design in the atlas, all opaque):
 * head_eye_white_L / _R: her concave white cup, Levi's skin-toned sclera, shaded
   under the upper lid; rides 頭, takes the lid morphs.
 * head_eye_L / _R: her concave iris dish, its rings resampled 3x (a round rim
-  in close-ups), squashed round in its own plane (its bottom on the lower lid)
-  and brought 1.2 mm nearer the lids; Levi's green iris (a crisp darker crescent
+  in close-ups), squashed round in its own plane (its bottom on the lower lid);
+  Levi's green iris (a crisp darker crescent
   under the lid with the pupil in it, a thin navy rim); turns with 目.L / 目.R about
   obj['levi_eye_pivot'], her 目 bone (head-contract option A: the whole
   turn, not her 目先's 30 %).
@@ -1971,9 +1971,6 @@ def _part_keys(W, name, pos_al, used, extra=None, post=None):
     return keys
 
 
-IRIS_FORWARD = 0.0012                 # m the iris dish (and its highlight) comes forward, nearer the lids:
-#                                       the lid edge stood 5.8 mm in front of it, so from above the lid hid
-#                                       the iris top at once (el 30: iris h/w 0.644 -> 0.653)
 IRIS_RING_MULT = 3                    # the iris dish's rings resampled to this many times her 20 segments
 #                                       (the crisp rim showed the outer ring's straight edges in close-ups)
 
@@ -2225,9 +2222,6 @@ def build_eyes(col, W, mat, verts, holes, face_polys=None, face_all_keys=None):
         a_sq = (z_lid - behind - sq * zq.min()) / (1.0 - sq)
         Pw = Pw + ez * ((sq - 1.0) * (zq - a_sq))[:, None]
         centre, n, ex, ez, rx, rz = _dish_frame(Pw)
-        if IRIS_FORWARD:
-            Pw = Pw + n * IRIS_FORWARD
-            centre, n, ex, ez, rx, rz = _dish_frame(Pw)
         q = Pw - centre
         inplane = q - n * (q @ n)[:, None]
         r = np.linalg.norm(inplane / np.array([1.0, 1.0, 1.0]), axis=1) / max(rx, rz)
