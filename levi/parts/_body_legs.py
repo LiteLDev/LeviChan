@@ -20,7 +20,8 @@ the crotch block and the ankle step are gone; torso, pelvis, legs and feet are o
      correction; round 10's pelvis), while her shorter-scale form survives, scaled with the
      section: kneecap, knee hollow, ankle bones, Achilles tendon, glutes, groin crease. Round
      10's own anatomy offsets (kneecap dome, calf, malleoli) are left out of the leg target:
-     hers replace them. The pelvis is scaled about the midline, the legs about their own
+     hers replace them; round 9's knee width at the condyles (body.KNEE_WIDE, a proportion,
+     KNEE_WIDE_GAIN) stays in it. The pelvis is scaled about the midline, the legs about their own
      axes; the two blend between LEG_BLEND's heights;
    * her waist loop is levelled and turned onto the torso ring's vertices (TOP_FADE), and the
      pelvis eases onto round 10's torso surface between TOP_BLEND_ROWS, where the petticoat's
@@ -122,6 +123,15 @@ N_ANG = 72
 LP_ORDER = 2                # Fourier terms round the ring kept as "proportions"
 LP_SIGMA = {'pelvis': 0.02, 'leg': 0.025}   # m: Gaussian along the body axis
 TABLE_STEP = 0.002          # m between table rows
+# Round 9's wider knee (body.KNEE_WIDE: a broad swell at the condyles, sides only, ~4.5 mm across)
+# is part of the leg target, scaled by this gain for the target's low-pass along the leg
+# (LP_SIGMA, ~0.7 of the swell's peak survives it). Integration review 2: without it the knee
+# was 4.4 mm narrower than round 10's at the pivot (7.36 cm across, round 10 7.80), round 9's
+# reviewed knee width was lost, and the knee band's diameter (2 x its median radius about the
+# pivot) read 7.5 cm against round 10's 8.0, so the seiza bend span read 0.71 diameters
+# although it was shorter in metres (5.3 cm, round 10 5.5). Now 7.80 cm across (round 10 7.80),
+# band diameter 7.85 cm, seiza span 0.68 (5.3 cm).
+KNEE_WIDE_GAIN = 1.4
 # Under the petticoat's waistband and the skirt's (rows above ~430) the garments leave ~3-5 mm
 # (body-contract E3; 17 skin points already poke through the petticoat top in round 10), so
 # the pelvis eases onto round 10's surface toward the loop (TOP_BLEND_ROWS) and her detail
@@ -135,10 +145,16 @@ CLOTH_ROWS = (428.0, 456.0)
 # ---- leg loft
 # rows of the leg rings below GUSSET_END_ROW: ~1.4 cm on the hidden thigh, ~1 cm through
 # the knee band the rig bends (rig.JOINT_ALONG, rows ~650-735), ~1.4 cm down the shin,
-# ~1.1 cm over the ankle band
+# ~1.1 cm over the ankle band. Integration review 2: the rings below the knee pivot
+# (body.KNEE_ROW 690) sit half a row lower, so the pivot falls between two rings. The faces
+# that fold over in the knee's crease at a deep bend come and go with where the rings fall
+# (shifting the knee's rings by 1-1.5 mm swung seiza 4-32 flipped triangles, squat 6-44); the
+# layout is the one with the fewest over the knee-bending poses (seiza, squat, jump_tuck,
+# kneel_one, sit_chair, cross_legged, run_l, test: 54, the rings on whole rows 61, round 10
+# 148), seiza 14 -> 6.
 LEG_RING_ROWS = (570, 579, 588, 597, 606, 615, 624, 632, 640, 647, 654, 660, 666, 672, 678,
-                 684, 690, 696, 702, 708, 714, 720, 727, 734, 742, 751, 760, 769, 778, 787,
-                 796, 805, 814, 822, 830, 837, 844, 851)
+                 684, 690.5, 696.5, 702.5, 708.5, 714.5, 720.5, 727, 734, 742, 751, 760, 769, 778,
+                 787, 796, 805, 814, 822, 830, 837, 844, 851)
 # The foot: centre line (panel px: x out, y back, row) from the last leg ring's axis through
 # the heel bend and down the instep to the toe, inside body.FOOT's sections
 FOOT_PATH = ((32.6, -3.0, 857.0), (32.3, -5.0, 866.0), (31.4, -9.5, 876.0),
@@ -413,17 +429,23 @@ def _r10():
     return _CACHE['r10']
 
 
-def _r10_leg_radius(rows, ang, anatomy=False):
+def _r10_leg_radius(rows, ang, anatomy=False, knee_wide=KNEE_WIDE_GAIN):
     """Round 10's left leg section (body._leg_section_r10 + its shape-master correction, and
-    with `anatomy` its kneecap / calf / malleoli offsets) as (centres (R, 2) m, radii (R, A)
-    m about them at world angles `ang`)."""
+    with `anatomy` its kneecap / calf / malleoli offsets; without it round 9's knee width,
+    body.KNEE_WIDE, times `knee_wide`) as (centres (R, 2) m, radii (R, A) m about them at
+    world angles `ang`)."""
     from . import body
     a = np.linspace(0, 2 * math.pi, 361)[:-1]
+    ca = np.cos(a)
     C, Rr = [], []
     for row in rows:
         cx, cy, hw, hd = body._leg_section_r10(row)
         f = body._leg_offset_r10(row, anatomy)
         off = np.array([f(math.cos(t), math.sin(t)) for t in a])
+        if not anatomy and knee_wide:
+            kr, ks, k_in, k_out = body.KNEE_WIDE
+            kw = knee_wide * math.exp(-0.5 * ((row - kr) / ks) ** 2)
+            off[:, 0] += np.where(ca < 0, -k_in, k_out) * kw * ca * ca
         qx = hw * np.cos(a) + off[:, 0]
         qy = hd * np.sin(a) + off[:, 1]        # + front (-y world)
         th = np.arctan2(-qy, qx)
