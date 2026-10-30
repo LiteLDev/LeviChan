@@ -9,10 +9,12 @@ that fails the build on any strand past the limits. Overlapping clumps nest (an
 upper clump rests on the ones below it) instead of cutting through each other.
 The scalp cap is a grid around the crown whorl, so the crown's grooves run along
 its columns as smooth pleats; its crown is a round dome (CROWN_DOME: the round-10
-table made it a pointed tent), and the ahoge is two short kernel blades rising from
-the front slope of the crown and curling softly up at their tips (AHOGE_LOCKS), one
-lock of the hair raised the way 风堇's model raises its forehead crescent out of the
-hood, not a bump or a tube stood on the scalp. Roots are pressed into the cap
+table made it a pointed tent), and the ahoge is two locks of the crown hair that
+spring up out of the scalp, turn forward over a rounded point and lie down again
+(AHOGE_LOCKS: the front one down the forehead, the back one onto the front one's
+root), solid from every side, one lock of the hair raised the way 风堇's model
+raises its forehead crescent out of the hood, not a needle, a hook or a tube stood
+on the scalp. Roots are pressed into the cap
 along the smooth radial direction (settle), and after that every strand's root
 ring must start inside the cap and its surface turn at most SURFACE_TURN per
 ring outside it (check_surface), so no root stands proud of the scalp or creases
@@ -1105,12 +1107,15 @@ def _inside_flags(st, cap_bvh):
 def buried(st, cap_bvh, flags=None):
     """(vertices, vertices inside the cap past the root's emergence) of a strand: the
     burial beyond the designed root (round 10: 14-73 % of each hair_front object's
-    vertices lay inside the cap or another lock)."""
+    vertices lay inside the cap or another lock). A strand whose end was sunk back into
+    the scalp on purpose (meta 'sink_from', an arc) counts that end as designed too."""
     em = st.meta.get('emerge', 0.0)
+    sink = st.meta.get('sink_from', np.inf)
     tot = bad = 0
     for tb, f in (flags or _inside_flags(st, cap_bvh)):
         tot += f.size
-        bad += int(f[np.asarray(tb.arc) > em].sum())
+        arc = np.asarray(tb.arc)
+        bad += int(f[(arc > em) & (arc < sink)].sum())
     return tot, bad
 
 
@@ -1530,27 +1535,39 @@ def bangs(cap_bvh):
 
 
 # ---------------------------------------------------------------- ahoge
-# Round 11 (crown): the sheet's ahoge is two small thin tufts at the top front of the
-# crown: two points in the side view (cols ~257 / 269, the front one higher, a V notch
-# between), one small point on the round dome in the front and back views; the front
-# tuft's front flank continues the forehead's ~45-50 deg slope and its back drops
-# into the notch, and in the front view its two edges converge to the tip like the
-# top of the central strand.
-# Each tuft is a kernel blade (hk.strand: a C2 centreline within the kernel's
-# curvature limits, validated; a crescent section, broad face up; a tapered blade
-# tip), the way 风堇's forehead crescent is one lock of her hood raised out of it,
-# not a bump on it. Both rise from the front slope of the crown toward the crown,
-# lying on the scalp at first (their roots settle into the cap, so they leave it with
-# no slit) and lifting their ends, each tip curling softly forward toward upright
-# over its last 40 % (AHOGE_CURL_MIN); a narrow tip closes in the kernel's blade apex.
-# The front tuft's crest is the sheet's front outline; the back tuft starts under it
-# and rises out behind its tip to the second, lower point, so the notch is the front
-# tip's end over the back tuft's crest. The crescent's wrap is fitted per section
-# (_fit_wrap) so the rims rest on the surface under them (the cap, or the back tuft
-# under the front one): no air shows under a lying blade from the side, only under
-# the lifted tips, as under any lock end. Rings every AHOGE_RING_ARC (the kernel's
-# ~0.35 w spacing gives a short, wide blade only 3-4 rings). hair_crown is its own
-# object, rigged to 頭 like the cap.
+# Round 11 (crown): the sheet's ahoge is two small tufts at the top front of the crown:
+# two points in the side view (cols ~256 / 268, the front one higher, a V notch between
+# them ~2 px over the crown), one small point on the round dome in the front and back
+# views; the front tuft's front flank continues the forehead's ~45 deg slope. The sheet
+# draws both as broad, filled humps (the front one's lines run on down the forehead,
+# the back one's down the back of the crown), not as needles or hooks.
+# Each tuft is one lock of hair, the way 风堇's forehead crescent is one broad lock of
+# her hood raised out of it: it grows out of the crown behind its point, springs up,
+# turns forward over its crest (the forward curl) and lies down again on the hair in
+# front -- a wave of the crown hair, solid from every side, its point a rounded crest.
+# The front lock lies down the forehead slope (the sheet's front flank, its edges
+# converging up toward the point as the sheet's front view draws them) and its end
+# slips back under the scalp there; the back lock lies down onto the front lock's root
+# and ends in a round end on it, so the notch is the back lock's end on the front
+# lock's rise. Construction:
+#  - the spine is a kernel strand (hk.strand: a C2 centreline within the kernel's
+#    curvature limits, rotation-minimising frames, validated), the rings are laid out
+#    here (_tuft_rings): the kernel's blade (a linear close to a point, thickness ~ w^1.4)
+#    made thin needle horns;
+#  - the crest: the kernel's curvature limits keep a spine's crest round (R >= 12 mm),
+#    so the point is in the lock's top height (`top`, peaking at the point) over a
+#    gently arched spine; rings follow the top line's own turn (AHOGE_RING_TURN);
+#  - the underside reaches down to the surface under it (the cap, or the lock under
+#    it): its depth and the crescent's wrap are fitted per section (_fit_under, at most
+#    AHOGE_RHO / curvature under a crest), so the middle and the rims rest on that
+#    surface: no air under a lock in the side view, no hollow crescent seen end-on;
+#  - the root is a flat bell (section exponent p 2) pressed into the scalp (settle), so
+#    its rims meet the scalp tangentially and it rises out of it without a rim contour;
+#    a sunk end does the same backwards (_sink_end, smootherstep, its outline growing
+#    with its height over the scalp, so the forehead outline runs on without a knee); a
+#    free end closes in a round end (AHOGE_END_SCALE, a half disc in plan: radius half
+#    its width).
+# hair_crown is its own object, rigged to 頭 like the cap.
 # Tried and dropped (16x / 8x close-ups in cel, clay, geo and wire):
 #  - closed tubes stood on the cap (rounds 10-11): buried edge-on they read as a slit
 #    (D9); arching 1.5-3 cm toward the front camera they were seen end-on as a
@@ -1560,46 +1577,97 @@ def bangs(cap_bvh):
 #    a height-field bump, not a lock: two beads / arch marks from above, its rim a
 #    blister contour in clay, its spokes turning 26 deg per ring at a 1.6 mm notch
 #    radius, and raised along each point's own normal its front flank stood at
-#    63-73 deg (a forward-facing fin), the reverse of the sheet. Two pinches: dimples
-#    and slits from above, a crater-like rim.
-#  - these blades as deep arches (wrap to 1.15) with the rims on the cap: from the side
-#    and behind, thin sails over a hollow; with the underside pressed onto the cap
-#    (solid tufts, flanks flared out to give the front view the sheet's 45 deg sides):
-#    planar walls, gabled "house" ends and doubled, stepped outlines in clay and cel;
-#    flanks continuing the rim tangent flew out as flaps. The sheet's front tuft is
-#    drawn wider (~15 px at the base) than a lock tip the kernel closes in >= 1.2 x its
-#    width can be.
+#    63-73 deg (a forward-facing fin), the reverse of the sheet.
+#  - kernel blades rooted on the forehead slope, their tips lifted and curling up
+#    (round 11 crown, second pass): thin needle horns (2.6 mm across 3 mm under the
+#    front point), free hooks over a shelf in the side view, the crescent's hollow
+#    underside seen end-on from behind, a forked outline at the needle tip. With round,
+#    filled ends (this pass's first tries) the lifted ends read as fingers / a thimble;
+#    as arches with the point in the spine's crest, as round slug-like domes (the crest
+#    radius the kernel allows) and as pills / beads from above while the locks were
+#    widest at the crest.
 AHOGE_LOCKS = (
-    # built in this order (the front tuft rests on the back one). ctrl: (side col, row,
-    # None) on the midline, or (side col, None, px) that far over the highest surface
-    # under it along the radial direction; width and thickness (m) at the widest ring,
-    # kernel tip taper (u_t, a, b): linear, so the blade keeps its rings to near the
-    # apex (a slower close leaves a 15 mm fan), swell, ring vertex count
-    dict(name='ahoge_back',
-         ctrl=((246.0, None, -2.6), (251.5, None, 0.2), (257.5, 18.4, None), (262.5, 17.4, None),
-               (265.6, 16.1, None), (267.4, 14.2, None)),
-         width=0.0140, thick=0.0052, tip=(0.45, 1.0, 1.0), swell=(0.7, 0.3), n=14),
+    # built in this order (the back lock lies down onto the front one's root). ctrl:
+    # (side col, row, None) on the midline, or (side col, None, px) that far over the
+    # highest surface under it along the radial direction, root first (the spine is the
+    # rim line). Profiles are (side col, value) knots (monotone cubic, held past the
+    # ends): width (m); top: the top's height over the rim line (m); under: (least,
+    # most) depth of the underside (x the top height), fitted between them to rest on
+    # the surface under it; p: the section exponent (hk.section: 2 a flat bell that meets
+    # the scalp tangentially, 1 a ridged crescent). end: m of arc closed by the round
+    # end (its length along the spine is AHOGE_END_ROUND x half the width there);
+    # sink: m of arc over which the end sinks back into the scalp (_sink_end), or none
+    # (it rests on the lock under it); n: ring vertices (n = 2 mod 4 puts one on the
+    # middle of the top, so a ridge has no flat top seen end-on)
     dict(name='ahoge_front',
-         ctrl=((237.0, None, -2.6), (242.5, None, -0.3), (248.0, 24.1, None), (252.3, 18.8, None),
-               (254.9, 15.3, None), (255.9, 12.5, None)),
-         width=0.0230, thick=0.0075, tip=(0.36, 1.0, 1.0), swell=(0.65, 0.3), n=16),
+         ctrl=((267.0, None, -2.2), (263.5, None, 1.0), (259.0, None, 3.9), (255.5, None, 4.8),
+               (251.0, None, 3.0), (246.0, None, 0.9), (241.5, None, 0.0), (237.5, None, -0.3)),
+         width=((267.0, 0.0060), (264.0, 0.0085), (260.0, 0.0105), (256.5, 0.0115), (252.0, 0.0140),
+                (248.0, 0.0155), (244.0, 0.0125), (240.5, 0.0080), (238.5, 0.0055)),
+         top=((266.0, 0.0006), (263.0, 0.0018), (260.5, 0.0032), (258.0, 0.0048), (256.3, 0.0057),
+              (254.5, 0.0052), (252.0, 0.0040), (249.0, 0.0027), (245.0, 0.0015), (241.0, 0.0007),
+              (238.0, 0.0005)),
+         under=((266.0, 0.2, 1.0), (262.0, 0.2, 2.0), (246.0, 0.2, 2.0), (241.0, 0.6, 1.2)),
+         p=((266.0, 2.0), (262.0, 1.3), (256.0, 1.3), (251.0, 1.4), (246.0, 1.7), (240.0, 2.0)),
+         sink=0.028, n=18),
+    dict(name='ahoge_back',
+         ctrl=((281.0, None, -2.4), (277.5, None, -0.2), (273.5, None, 1.4), (269.5, None, 1.6),
+               (266.0, None, 1.0), (263.0, None, 0.4)),
+         width=((280.0, 0.0045), (276.0, 0.0080), (271.0, 0.0100), (268.0, 0.0094), (266.0, 0.0072),
+                (264.8, 0.0052), (263.5, 0.0046)),
+         top=((280.0, 0.0006), (276.5, 0.0015), (273.5, 0.0025), (271.0, 0.0033), (269.5, 0.0036),
+              (268.0, 0.0033), (266.5, 0.0023), (265.0, 0.0014), (263.5, 0.0010)),
+         under=((280.0, 0.2, 1.0), (276.0, 0.2, 2.0), (266.0, 0.2, 2.0), (264.0, 0.6, 1.2)),
+         p=((280.0, 2.0), (276.0, 1.3), (269.5, 1.3), (266.0, 1.3), (264.0, 2.0)),
+         n=14),
 )
-AHOGE_WRAP = (0.12, 0.35)   # the wrap fitted per section stays in this range
-AHOGE_SINK = 0.0004         # m the rims sink into the surface under them
-AHOGE_WRAP_SMOOTH = 0.003   # m, Gaussian sigma of the fitted wrap along the arc
+AHOGE_WRAP = (0.0, 0.7)     # the crescent's wrap fitted per section stays in this range
+AHOGE_SINK = 0.00015        # m the rims sink into the surface under them ...
+AHOGE_SINK_MID = -0.0002    # ... and the middle of the underside (just over it)
+AHOGE_FIT_SMOOTH = 0.003    # m, Gaussian sigma of the fitted depth / wrap along the arc
+AHOGE_RHO = 0.42            # the fitted underside's reach x the spine's curvature over a crest
+AHOGE_STANDIN = 1.6         # the kernel's stand-in blade (its spine's curvature limits) is this x
+                            # the top height thick: the fitted underside keeps to AHOGE_RHO itself
 AHOGE_EMERGE = 0.014        # m of arc over which settle() lets a root surface
 AHOGE_SQUASH = 0.35
-AHOGE_RING_ARC = 0.0028     # m between rings
-AHOGE_KEEP = (0.0, 0.6, 0.15, 0.45)     # own-normal share: the cap's at the root, the blade's past it
-# Build-time checks (HairKernelError past them; the kernel validates each blade itself)
-AHOGE_TIP_COLS = (257.0, 269.0)     # side-view columns of the sheet's two points ...
-AHOGE_TIP_TOL = 4.0                 # ... the tips lie within this many px of them
-AHOGE_MAX_HEIGHT = 10.0     # px: a tip stands at most this far over the cap below it
-AHOGE_NOTCH = 1.0           # px: the notch between the tips lies at least this far under the lower tip
-AHOGE_FLANK = (40.0, 60.0)  # deg: the front tip's front flank in the side view (the forehead's slope)
-AHOGE_CURL_MIN = 8.0        # deg: each blade turns at least this much toward upright over its last 40 %
+AHOGE_DEPTH = 1.0           # px the root starts under the scalp ...
+AHOGE_SINK_DEPTH = 0.6      # ... and a sunk end ends under it
+AHOGE_LINE_RISE = 0.0025    # m over the scalp at which a sunk end's outline reaches full width
+AHOGE_RING_ARC = 0.0026     # m between rings ...
+AHOGE_RING_TURN = 5.0       # ... or this turn (deg) ...
+AHOGE_RING_WRATIO = 0.88    # ... or this width ratio ...
+AHOGE_RING_DTOP = 0.0004    # ... or this change of the top height (m)
+AHOGE_END_SCALE = (0.97, 0.91, 0.83, 0.74, 0.64, 0.53, 0.36, 0.18)   # section scale of the round end's rings
+AHOGE_END_ROUND = 1.0       # the round end's length / half its width (1: a half disc in plan)
+AHOGE_KEEP = (0.0, 0.6, 0.15, 0.45)     # own-normal share: the cap's at the root, the lock's past it
+# Build-time checks (HairKernelError past them; the kernel validates each lock itself)
+AHOGE_TIP_COLS = (256.0, 268.0)     # side-view columns of the sheet's two points ...
+AHOGE_TIP_TOL = 4.0                 # ... the points lie within this many px of them (each
+                                    # looked for from 6 px in front of / behind its column to the middle)
+AHOGE_MAX_HEIGHT = 10.0     # px: a point stands at most this far over the cap below it
+AHOGE_RISE = 2.0            # px: the back point stands at least this far over the notch
+AHOGE_FLANK = (35.0, 60.0)  # deg: the front point's front flank in the side view (the forehead's slope)
+AHOGE_OUTLINE_COLS = (230.0, 250.0)     # side cols of the forehead outline up the front lock ...
+AHOGE_OUTLINE_TURN = 8.0    # ... which turns at most this much (deg) per px (no knee)
+AHOGE_TIP_ROUND = 0.4       # the round end's plan radius at least this x the width there
+AHOGE_CURL_MIN = 20.0       # deg: each lock turns at least this much forward over its crest
 AHOGE_MAX_BURIED = 0.2      # share of the vertices inside the cap past the roots
 AHOGE_LOG = {}
+
+
+def _pchip(knots, u):
+    """Monotone cubic through (x, value) knots (any order of x), evaluated at u (array),
+    clamped at the ends."""
+    knots = sorted(knots)
+    xs = np.array([k[0] for k in knots], float)
+    ys = np.array([k[1] for k in knots], float)
+    ms = np.array(_pchip_slopes(list(xs), list(ys)), float)
+    u = np.clip(np.asarray(u, float), xs[0], xs[-1])
+    i = np.clip(np.searchsorted(xs, u, side='right') - 1, 0, len(xs) - 2)
+    h = xs[i + 1] - xs[i]
+    t = (u - xs[i]) / h
+    return ((2 * t ** 3 - 3 * t ** 2 + 1) * ys[i] + (t ** 3 - 2 * t ** 2 + t) * h * ms[i]
+            + (-2 * t ** 3 + 3 * t ** 2) * ys[i + 1] + (t ** 3 - t ** 2) * h * ms[i + 1])
 
 
 def _cap_below(cap_bvh, p):
@@ -1628,42 +1696,16 @@ def _down_hit(bvhs, q):
     return best
 
 
-def _fit_wrap(st, bvhs):
-    """Wrap per arc fraction so each rim rests AHOGE_SINK into the nearest surface under
-    it along -N (the deeper rim decides), clamped to AHOGE_WRAP and smoothed (never
-    shallower than needed by more than 0.05): (u, wrap) arrays."""
-    c = st.curve
-    s, L = c['s'], float(c['s'][-1])
-    k_in, t_rim = st.meta['k_in'], st.meta['t_rim']
-    us = np.linspace(0.0, 1.0, 121)
-    need = np.empty_like(us)
-    for i, u in enumerate(us):
-        sa = u * L
-        Pp = np.array([np.interp(sa, s, c['P'][:, k]) for k in range(3)])
-        N = np.array([np.interp(sa, s, c['N'][:, k]) for k in range(3)])
-        B = np.array([np.interp(sa, s, c['B'][:, k]) for k in range(3)])
-        N /= np.linalg.norm(N)
-        B /= np.linalg.norm(B)
-        w = float(np.interp(sa, s, c['w']))
-        d = None
-        for sgn in (-1.0, 1.0):
-            q = Vv(Pp + sgn * 0.5 * w * B)
-            near = None
-            for b in bvhs:
-                hit = b.ray_cast(q + Vv(N) * 0.002, Vv(-N), 0.05)
-                if hit[0] is not None:
-                    near = hit[3] - 0.002 if near is None else min(near, hit[3] - 0.002)
-            if near is not None:
-                d = near if d is None else max(d, near)
-        if d is None:
-            need[i] = AHOGE_WRAP[1]
-        else:
-            need[i] = (d + AHOGE_SINK - 0.5 * k_in * t_rim) / max(0.5 * w, 1e-4)
-    need = np.clip(need, *AHOGE_WRAP)
-    sig = AHOGE_WRAP_SMOOTH / L * (len(us) - 1)
-    sm = np.maximum(hk._blur(need, sig), need - 0.05)
-    sm = hk._blur(sm, 0.5 * sig)
-    return us, np.clip(sm, *AHOGE_WRAP)
+def _depth_under(bvhs, p, nrm):
+    """Distance (m) from p along -nrm to the nearest of the surfaces (negative when p lies
+    up to 2 mm under one), or None."""
+    best = None
+    for b in bvhs:
+        hit = b.ray_cast(Vv(p + nrm * 0.002), Vv(-nrm), 0.05)
+        if hit[0] is not None:
+            d = hit[3] - 0.002
+            best = d if best is None else min(best, d)
+    return best
 
 
 def _ahoge_points(spec_, lower_bvhs):
@@ -1679,36 +1721,258 @@ def _ahoge_points(spec_, lower_bvhs):
     return pts
 
 
-def _ahoge_strand(spec_, lower_bvhs, wrap):
-    """One tuft blade; rings every AHOGE_RING_ARC (the kernel's ring spacing is a module
-    setting: it is set for this call only)."""
+def _cols(c, a):
+    """Side-view column of a dense kernel curve's points at arcs a (the lock's profiles
+    are keyed by it)."""
+    return np.interp(a, c['s'], c['P'][:, 1]) * spec.PX_PER_M + MID
+
+
+def _prof(spec_, key, q, i=1):
+    """A lock profile (spec_[key] knots: (side col, value...)) at side cols q."""
+    return _pchip([(k[0], k[i]) for k in spec_[key]], q)
+
+
+def _frame_at(c, s):
+    """(P, T, N, B) of a dense kernel curve at arc s: P by cubic Hermite between the
+    samples (their tangents), so rings closer than the samples still lie on a smooth
+    curve; T and N interpolated and re-orthonormalised."""
+    S = c['s']
+    i = int(np.clip(np.searchsorted(S, s, side='right') - 1, 0, len(S) - 2))
+    h = S[i + 1] - S[i]
+    t = float(np.clip((s - S[i]) / h, 0.0, 1.0))
+    T0, T1 = c['T'][i] / np.linalg.norm(c['T'][i]), c['T'][i + 1] / np.linalg.norm(c['T'][i + 1])
+    Pp = ((2 * t ** 3 - 3 * t ** 2 + 1) * c['P'][i] + (t ** 3 - 2 * t ** 2 + t) * h * T0
+          + (-2 * t ** 3 + 3 * t ** 2) * c['P'][i + 1] + (t ** 3 - t ** 2) * h * T1)
+    T = (1 - t) * T0 + t * T1
+    T = T / np.linalg.norm(T)
+    N = (1 - t) * c['N'][i] + t * c['N'][i + 1]
+    N = N - np.dot(N, T) * T
+    N = N / np.linalg.norm(N)
+    return Pp, T, N, np.cross(T, N)
+
+
+def _stations(c, s_c, end, wfun, hfun, top_line=None):
+    """Ring arcs: every AHOGE_RING_ARC, AHOGE_RING_TURN or AHOGE_RING_WRATIO (wfun: width
+    over arc) up to the round end at s_c, then the end's rings (AHOGE_END_SCALE: an
+    ellipse of semi-axis `end` along the spine). Returns (arcs, scale per ring)."""
+    s = c['s']
+    T = c['T'] / np.linalg.norm(c['T'], axis=1)[:, None]
+    turn = np.concatenate([[0.0], np.cumsum(np.degrees(np.arccos(np.clip(np.sum(T[1:] * T[:-1], 1), -1, 1))))])
+    fine = np.linspace(0.0, s_c, 600)
+    lw = np.log(wfun(fine))
+    hh = hfun(fine)
+    if top_line is not None:
+        # the top line's own turn (its height profile bends it more than the spine)
+        tl = top_line(fine)
+        d = np.diff(tl, axis=0)
+        d /= np.maximum(np.linalg.norm(d, axis=1), 1e-12)[:, None]
+        tt = np.concatenate([[0.0], np.cumsum(np.degrees(np.arccos(np.clip(np.sum(d[1:] * d[:-1], 1), -1, 1)))), [0.0]])
+        tt[-1] = tt[-2]
+        fs = fine
+    out = [0.0]
+    while True:
+        a = out[-1]
+        t_next = float(np.interp(np.interp(a, s, turn) + AHOGE_RING_TURN, turn, s)) if turn[-1] > 0 else s[-1]
+        if top_line is not None:
+            t_next = min(t_next, float(np.interp(np.interp(a, fs, tt) + AHOGE_RING_TURN, tt, fs)))
+        drop = (fine > a) & (np.abs(lw - np.interp(a, fine, lw)) >= -math.log(AHOGE_RING_WRATIO))
+        w_next = float(fine[np.argmax(drop)]) if drop.any() else s[-1]
+        dh = (fine > a) & (np.abs(hh - np.interp(a, fine, hh)) >= AHOGE_RING_DTOP)
+        h_next = float(fine[np.argmax(dh)]) if dh.any() else s[-1]
+        nxt = min(a + AHOGE_RING_ARC, t_next, w_next, h_next, s_c)
+        if nxt >= s_c - 0.00025:
+            break
+        out.append(nxt)
+    out.append(s_c)
+    scale = [1.0] * len(out)
+    for k in AHOGE_END_SCALE:
+        out.append(s_c + end * math.sqrt(1.0 - k * k))
+        scale.append(k)
+    return np.array(out), np.array(scale)
+
+
+def _fit_under(spec_, c, s_c, bvhs):
+    """Per body fraction u: the underside depth D (m under the rim line) and the wrap
+    that bring the middle (AHOGE_SINK_MID) and the rims (AHOGE_SINK) of each section onto
+    / into the surface under them, clamped (`under` x the top height, AHOGE_WRAP) and
+    smoothed along the arc (never shallower than needed by more than 0.3 mm).
+    Returns (u, D, wrap)."""
+    us = np.linspace(0.0, s_c, 97)
+    q = _cols(c, us)
+    H = _prof(spec_, 'top', q)
+    W = _prof(spec_, 'width', q)
+    lo = _prof(spec_, 'under', q, 1) * H
+    hi = _prof(spec_, 'under', q, 2) * H
+    # over a crest (the spine bending toward -N) the underside reaches at most
+    # AHOGE_RHO / curvature down (the kernel's rho limit: its inner side never folds)
+    T = c['T'] / np.linalg.norm(c['T'], axis=1)[:, None]
+    dT = np.gradient(T, c['s'], axis=0)
+    k_n = np.interp(us, c['s'], -np.sum(dT * c['N'], 1))
+    reach = np.where(k_n > 1e-6, AHOGE_RHO / np.maximum(k_n, 1e-6), np.inf)
+    hi = np.maximum(np.minimum(hi, reach), lo)
+    dneed = np.empty_like(us)
+    wneed = np.empty_like(us)
+    for i, u in enumerate(us):
+        Pp, T, N, B = _frame_at(c, u)
+        d = _depth_under(bvhs, Pp, N)
+        dneed[i] = hi[i] if d is None else d + AHOGE_SINK_MID
+        k_in = float(np.clip(dneed[i], lo[i], hi[i]) / H[i])
+        dr = None
+        for sgn in (-1.0, 1.0):
+            r = _depth_under(bvhs, Pp + sgn * 0.5 * W[i] * B, N)
+            if r is not None:
+                dr = r if dr is None else max(dr, r)
+        wneed[i] = 0.0 if dr is None else (min(dr + AHOGE_SINK, reach[i]) - 0.5 * k_in * hk.T_RIM) / (0.5 * W[i])
+    dneed = np.clip(dneed, lo, hi)
+    wneed = np.clip(wneed, *AHOGE_WRAP)
+    sig = AHOGE_FIT_SMOOTH / s_c * (len(us) - 1)
+    D = hk._blur(np.maximum(hk._blur(dneed, sig), dneed - 0.0003), 0.5 * sig)
+    wr = hk._blur(np.maximum(hk._blur(wneed, sig), wneed - 0.05), 0.5 * sig)
+    return us, np.clip(D, lo, hi), np.clip(wr, *AHOGE_WRAP)
+
+
+def _tuft_rings(st, spec_, bvhs):
+    """Lay out the lock's rings on the kernel spine (see the note above): fitted
+    crescent / filled sections, a bell root and end, and a round end."""
+    c = st.curve
+    L = float(c['s'][-1])
+    end = 0.5 * AHOGE_END_ROUND * float(_prof(spec_, 'width', _cols(c, L)))
+    for _ in range(3):
+        end = 0.5 * AHOGE_END_ROUND * float(_prof(spec_, 'width', _cols(c, L - end)))
+    s_c = L - end
+    us, D_fit, wr_fit = _fit_under(spec_, c, s_c, bvhs)
+    def top_line(a):
+        Pp = np.stack([np.interp(a, c['s'], c['P'][:, i]) for i in range(3)], 1)
+        N = np.stack([np.interp(a, c['s'], c['N'][:, i]) for i in range(3)], 1)
+        return Pp + N * _prof(spec_, 'top', _cols(c, a))[:, None]
+    arcs, scale = _stations(c, s_c, end, lambda a: _prof(spec_, 'width', _cols(c, a)),
+                            lambda a: _prof(spec_, 'top', _cols(c, a)), top_line)
+    n = st.n
+    sp, top = hk.ring_params(n)
+    rings, cen, Ts, Ns, Bs, wid, thk = [], [], [], [], [], [], []
+    for a, k in zip(arcs, scale):
+        q = float(_cols(c, min(a, s_c)))
+        w = float(_prof(spec_, 'width', q))
+        H = float(_prof(spec_, 'top', q))
+        D = float(np.interp(min(a, s_c), us, D_fit))
+        wrap = float(np.interp(min(a, s_c), us, wr_fit))
+        p = float(_prof(spec_, 'p', q))
+        x, y = hk.section(n, k * w, k * (H + D), wrap, D / H, k * hk.T_RIM, p, s=sp, top=top)
+        Pp, T, N, B = _frame_at(c, a)
+        rings.append(Pp + x[:, None] * B + y[:, None] * N)
+        cen.append(Pp)
+        Ts.append(T)
+        Ns.append(N)
+        Bs.append(B)
+        wid.append(k * w)
+        thk.append(k * (H + D))
+    st.rings = np.array(rings)
+    st.centres = np.array(cen)
+    st.T, st.N, st.B = np.array(Ts), np.array(Ns), np.array(Bs)
+    st.arc = arcs.copy()
+    st.width, st.thick = np.array(wid), np.array(thk)
+    st.v = arcs / L
+    st.apex = _frame_at(c, L)[0]
+    st.length = L
+    q = _cols(c, us)
+    st.meta.update(fit=(us, D_fit, wr_fit), end=end, w_end=float(_prof(spec_, 'width', q[-1])),
+                   wrap_max=float(np.max(wr_fit)), under_max=float(np.max(D_fit / _prof(spec_, 'top', q))))
+    hk._paint(st, None, {KEEP_ATTR: keep_attr(AHOGE_KEEP), LINE_ATTR: 1.0}, L)
+    return st
+
+
+def _ahoge_strand(spec_, lower_bvhs):
+    """One lock: the kernel spine (validated with a stand-in blade), then its own rings
+    (_tuft_rings), validated again."""
     pts = _ahoge_points(spec_, lower_bvhs)
-    saved = hk.RING_ARC, hk.RING_ARC_W
-    hk.RING_ARC, hk.RING_ARC_W = AHOGE_RING_ARC, 1.0
-    try:
-        return hk.strand(pts, name=spec_['name'], width=spec_['width'], thick=spec_['thick'],
-                         facing=lambda p: A(head_normal(Vv(p))), swell=spec_['swell'], tip=spec_['tip'],
-                         wrap=wrap, n=spec_['n'], attrs={KEEP_ATTR: keep_attr(AHOGE_KEEP), LINE_ATTR: 1.0})
-    finally:
-        hk.RING_ARC, hk.RING_ARC_W = saved
+    H_max = max(t for _, t in spec_['top'])
+    qs = [k[0] for k in spec_['ctrl']]
+    st = hk.strand(pts, name=spec_['name'],
+                   width=lambda u: _prof(spec_, 'width', np.interp(u, np.linspace(0, 1, len(qs)), qs)),
+                   thick=AHOGE_STANDIN * H_max, facing=lambda p: A(head_normal(Vv(p))),
+                   swell=None, tip=None, n=spec_['n'])
+    _tuft_rings(st, spec_, lower_bvhs)
+    hk.validate(st)
+    return st
+
+
+def _sink_end(st, bvh, length, depth=AHOGE_SINK_DEPTH, squash=AHOGE_SQUASH):
+    """settle() at the other end: over the last `length` m of arc (and the apex) every
+    vertex's height over the cap (and the spine's) is eased down to squash * h - depth
+    (smootherstep), so the lock's end slips back under the scalp with no rim or step (the
+    forehead outline turns smoothly into it); its outline fades out
+    there as at a root. meta 'sink_from' marks the designed burial (buried())."""
+    R = st.rings
+    L = float(st.length)
+    lw = st.attrs[LINE_ATTR]
+
+    def press(q, s):
+        h, nrm = _cap_height(bvh, q)
+        if h is None:
+            return q, 1.0
+        h2 = min(h, s * h + (1 - s) * (squash * h - depth * PX))
+        return q + nrm * (h2 - h), h2
+    for j in range(len(R)):
+        a = float(st.arc[j])
+        if L - a >= length:
+            continue
+        x = float(np.clip((L - a) / length, 0.0, 1.0))
+        s = x * x * x * (10.0 - 15.0 * x + 6.0 * x * x)      # smootherstep: no curvature step at either end
+        for k in range(R.shape[1]):
+            q, h2 = press(Vv(R[j, k]), s)
+            R[j, k] = A(q)
+            # the outline grows with the vertex's height over the scalp, so the forehead
+            # outline runs on from the cap's into the lock's without a step
+            lw[j, k] = min(lw[j, k], float(hk.smooth01(h2 / AHOGE_LINE_RISE)))
+        st.centres[j] = A(press(Vv(st.centres[j]), s)[0])
+    st.apex = A(press(Vv(st.apex), 0.0)[0])
+    st.attrs_apex[LINE_ATTR] = 0.0
+    st.meta['sink_from'] = L - length
+    hk.validate(st)
+    return st
 
 
 def ahoge(cap_bvh):
-    """The two tufts (see above) as kernel strands, the front one resting on the back
-    one. AHOGE_LOG gets the checks: tip landmarks and heights, the forward curl, the
-    notch, the front flank, the buried share."""
+    """The two locks (see above), the back one lying down onto the front one. AHOGE_LOG
+    gets the checks: the points, the notch and the back point's rise, the front flank,
+    the forehead outline, the round ends, the forward curl, the buried share."""
     out = []
     for sp in AHOGE_LOCKS:
         lowers = [cap_bvh] + ([_bvh_of(out)] if out else [])
-        st = _ahoge_strand(sp, lowers, 0.3)
-        for _ in range(2):
-            us, wr = _fit_wrap(st, lowers)
-            st = _ahoge_strand(sp, lowers, lambda u, us=us, wr=wr: np.interp(u, us, wr))
-        settle(st, cap_bvh, AHOGE_EMERGE, depth=1.0, squash=AHOGE_SQUASH)
-        st.meta['wrap_fit'] = (us, wr)
+        st = _ahoge_strand(sp, lowers)
+        settle(st, cap_bvh, AHOGE_EMERGE, depth=AHOGE_DEPTH, squash=AHOGE_SQUASH)
+        if sp.get('sink'):
+            _sink_end(st, cap_bvh, sp['sink'])
         out.append(st)
     _ahoge_checks(out, cap_bvh)
     return out
+
+
+def _side_profile(bvhs, cols):
+    """Side-view top outline (sheet rows) over side cols: the highest surface straight
+    below each column within 6 mm of the midline."""
+    prof = []
+    for c in cols:
+        best = None
+        for x in np.linspace(-0.006, 0.006, 7):
+            for b in bvhs:
+                h = b.ray_cast(Vector((x, (c - MID) * PX, 1.7)), Vector((0.0, 0.0, -1.0)), 0.5)[0]
+                if h is not None and (best is None or h.z > best):
+                    best = h.z
+        prof.append(spec.SHEET_GROUND_Y - best * spec.PX_PER_M if best is not None else np.nan)
+    return np.array(prof)
+
+
+def _outline_turn(cols, prof):
+    """Largest turn (deg per px) of a side outline (sheet rows over cols, 0.25 px apart),
+    its direction taken over 1 px chords."""
+    ok = np.isfinite(prof)
+    cols, prof = cols[ok], prof[ok]
+    k = int(round(1.0 / (cols[1] - cols[0])))
+    ang = np.degrees(np.arctan2(-(prof[k:] - prof[:-k]), cols[k:] - cols[:-k]))
+    mid = 0.5 * (cols[k:] + cols[:-k])
+    d = np.abs(ang[k:] - ang[:-k])
+    return float(np.max(d)), float(mid[k:][int(np.argmax(d))])
 
 
 def _ahoge_checks(sts, cap_bvh):
@@ -1716,47 +1980,54 @@ def _ahoge_checks(sts, cap_bvh):
     errs = []
     union = [cap_bvh, _bvh_of(sts)]
     for st in sts:
-        tip = Vv(st.apex)
-        under, _ = _cap_below(cap_bvh, tip)
         c = st.curve
-        e = np.degrees(np.arctan2(c['T'][:, 2], c['T'][:, 1]))       # elevation from straight back (deg)
-        i6 = int(np.searchsorted(c['s'], 0.6 * c['s'][-1]))
-        d = dict(name=st.name, height=(tip.z - under.z) * spec.PX_PER_M, col=tip.y * spec.PX_PER_M + MID,
-                 row=spec.SHEET_GROUND_Y - tip.z * spec.PX_PER_M, curl=float(e[-1] - e[i6]), tilt=float(e[-1]),
-                 wrap=float(np.max(st.meta['wrap_fit'][1])))
+        T = c['T'] / np.linalg.norm(c['T'], axis=1)[:, None]
+        e = np.degrees(np.arctan2(T[:, 2], -T[:, 1]))       # elevation going forward (deg)
+        m = st.meta
+        r_plan = (0.5 * m['w_end']) ** 2 / m['end']
+        top = st.rings.reshape(-1, 3)[np.argmax(st.rings.reshape(-1, 3)[:, 2])]
+        under, _ = _cap_below(cap_bvh, Vv(top))
+        d = dict(name=st.name, col=top[1] * spec.PX_PER_M + MID, row=spec.SHEET_GROUND_Y - top[2] * spec.PX_PER_M,
+                 height=(top[2] - under.z) * spec.PX_PER_M, curl=float(np.max(e) - e[-1]), rise=float(np.max(e)),
+                 wrap=m['wrap_max'], under=m['under_max'], w_end=m['w_end'], r_plan=r_plan)
         log['tufts'].append(d)
-        target = min(AHOGE_TIP_COLS, key=lambda c: abs(c - d['col']))
         if d['height'] > AHOGE_MAX_HEIGHT:
-            errs.append(f"{d['name']} tip {d['height']:.1f} px over the cap (> {AHOGE_MAX_HEIGHT})")
-        if abs(d['col'] - target) > AHOGE_TIP_TOL:
-            errs.append(f"{d['name']} tip at side col {d['col']:.1f} (sheet {target:.0f} +- {AHOGE_TIP_TOL:.0f})")
+            errs.append(f"{d['name']} stands {d['height']:.1f} px over the cap (> {AHOGE_MAX_HEIGHT})")
         if d['curl'] < AHOGE_CURL_MIN:
-            errs.append(f"{d['name']} curls only {d['curl']:.1f} deg toward upright (< {AHOGE_CURL_MIN})")
-    tb, tf = log['tufts'][0], log['tufts'][1]
-    if tf['row'] > tb['row']:
-        errs.append('the back tip stands higher than the front one (two points in the front view)')
-    # side-view profile round the tips: the highest surface straight below each column
-    cols = np.arange(tf['col'] - 14.0, tb['col'] + 12.0, 0.25)
-    prof = []
-    for c in cols:
-        best = None
-        for x in np.linspace(-0.006, 0.006, 7):
-            h = _down_hit(union, Vector((x, (c - MID) * PX, 1.6)))
-            if h is not None and (best is None or h.z > best):
-                best = h.z
-        prof.append(spec.SHEET_GROUND_Y - best * spec.PX_PER_M if best is not None else np.nan)
-    prof = np.array(prof)
-    between = (cols > tf['col']) & (cols < tb['col'])
-    notch = float(np.nanmax(prof[between])) if between.any() else tb['row']
-    notch_px = notch - max(tf['row'], tb['row'])
-    # front flank: the profile in front of the front tip, from 1 to 6 px under it
-    front = (cols <= tf['col']) & (prof <= tf['row'] + 6.0) & (prof >= tf['row'] + 1.0)
+            errs.append(f"{d['name']} turns only {d['curl']:.1f} deg forward over its crest (< {AHOGE_CURL_MIN})")
+        if r_plan < AHOGE_TIP_ROUND * m['w_end']:
+            errs.append(f"{d['name']} end radius {1000 * r_plan:.1f} mm in plan (< {AHOGE_TIP_ROUND} x "
+                        f"{1000 * m['w_end']:.1f} mm)")
+    # side-view profile: the two points, the notch between them
+    cols = np.arange(AHOGE_OUTLINE_COLS[0], AHOGE_TIP_COLS[1] + 12.0, 0.25)
+    prof = _side_profile(union, cols)
+    peaks = []
+    mid = 0.5 * (AHOGE_TIP_COLS[0] + AHOGE_TIP_COLS[1])
+    for name, c0 in (('front', AHOGE_TIP_COLS[0]), ('back', AHOGE_TIP_COLS[1])):
+        win = (cols >= min(c0 - 6.0, mid)) & (cols <= max(c0 + 6.0, mid)) & (np.abs(cols - mid) >= 0.5)
+        i = int(np.flatnonzero(win)[np.nanargmin(prof[win])])
+        peaks.append((float(cols[i]), float(prof[i])))
+        if abs(cols[i] - c0) > AHOGE_TIP_TOL:
+            errs.append(f'the {name} point at side col {cols[i]:.1f} (sheet {c0:.0f} +- {AHOGE_TIP_TOL:.0f})')
+    (cf, rf), (cb, rb) = peaks
+    between = (cols > cf) & (cols < cb)
+    notch = float(np.nanmax(prof[between])) if between.any() else rb
+    rise = notch - rb
+    if rf > rb:
+        errs.append('the back point stands higher than the front one (two points in the front view)')
+    if rise < AHOGE_RISE:
+        errs.append(f'the back point stands {rise:.1f} px over the notch (< {AHOGE_RISE})')
+    # front flank: the profile in front of the front point, from 1 to 6 px under it
+    front = (cols <= cf) & (prof <= rf + 6.0) & (prof >= rf + 1.0)
     flank = math.degrees(math.atan(abs(np.polyfit(cols[front], prof[front], 1)[0]))) if front.sum() >= 2 else 90.0
-    log.update(notch=notch_px, flank=flank, profile=(cols, prof))
-    if notch_px < AHOGE_NOTCH:
-        errs.append(f'the notch between the tips is {notch_px:.1f} px deep (< {AHOGE_NOTCH})')
     if not AHOGE_FLANK[0] <= flank <= AHOGE_FLANK[1]:
-        errs.append(f'the front tip\'s front flank stands at {flank:.0f} deg (outside {AHOGE_FLANK})')
+        errs.append(f'the front point\'s front flank stands at {flank:.0f} deg (outside {AHOGE_FLANK})')
+    fo = cols <= AHOGE_OUTLINE_COLS[1]
+    oturn, oat = _outline_turn(cols[fo], prof[fo])
+    if oturn > AHOGE_OUTLINE_TURN:
+        errs.append(f'the forehead outline turns {oturn:.1f} deg per px at side col {oat:.1f} '
+                    f'(> {AHOGE_OUTLINE_TURN})')
+    log.update(peaks=peaks, notch=notch, rise=rise, flank=flank, outline_turn=(oturn, oat), profile=(cols, prof))
     tot = bad = 0
     for st in sts:
         t, b = buried(st, cap_bvh)
@@ -2021,10 +2292,14 @@ def build(col):
           f"(ratio {rnd['aspect']:.2f}, min {CAP_APEX_ASPECT_MIN})")
     d = AHOGE_LOG
     for t in d['tufts']:
-        print(f"HAIR_FRONT {t['name']}: tip at side col {t['col']:.1f}, row {t['row']:.1f}, {t['height']:.1f} px over "
-              f"the cap; curls {t['curl']:.0f} deg toward upright over its last 40 % (tip {t['tilt']:.0f} deg over "
-              f"the horizontal, leaning back); crescent wrap <= {t['wrap']:.2f}")
-    print(f"HAIR_FRONT ahoge: notch {d['notch']:.1f} px under the lower tip; front flank {d['flank']:.0f} deg; "
+        print(f"HAIR_FRONT {t['name']}: top at side col {t['col']:.1f}, row {t['row']:.1f}, {t['height']:.1f} px over "
+              f"the cap; rises at {t['rise']:.0f} deg and turns {t['curl']:.0f} deg forward over its crest; round end "
+              f"{1000 * t['w_end']:.1f} mm wide, plan radius {1000 * t['r_plan']:.1f} mm; wrap <= {t['wrap']:.2f}, "
+              f"underside <= {t['under']:.2f} x the top")
+    (cf, rf), (cb, rb) = d['peaks']
+    print(f"HAIR_FRONT ahoge: points at side col {cf:.1f} / {cb:.1f}, rows {rf:.1f} / {rb:.1f}; notch row "
+          f"{d['notch']:.1f}, the back point {d['rise']:.1f} px over it; front flank {d['flank']:.0f} deg; forehead "
+          f"outline turns <= {d['outline_turn'][0]:.1f} deg / px (col {d['outline_turn'][1]:.1f}); "
           f"{100 * d['buried']:.0f} % inside the cap past the roots")
     for line in LOG:
         print('HAIR_FRONT', line)
