@@ -21,7 +21,8 @@ Layout (back view, the character's left = image left):
     grid (rows and columns <= 10 mm apart, its clearances and its depth smoothed fields)
     validated row by row and column by column with the strands' limits (_validate_grid).
     It spans > 70 deg round the head (checked >= UNDER_SPAN_MIN), so the rig hangs it from
-    the back-hair sector chains, both faces weighted at the outer face (WEIGHT_CO_ATTR);
+    the back-hair sector chains, both faces weighted at the outer face and below the head
+    bone's fade band (WEIGHT_CO_ATTR);
   - PRIMARY locks (PRIMS): six broad crescent locks across the back in two lobes, each
     its own loose part (its own 後髪束 chain), overlapping (PRIM_COVER) in two rows: the
     under row on the under-layer and the cap, the over row on the under row. A, D and F
@@ -521,8 +522,8 @@ BASE = [(0, -2.6), (110, -2.6), (122, -2.2), (134, -1.8), (165, -2.0), (210, -0.
 # lies UNDER_TUCK_IN of the outermost primary's width inside that lock's outer rim
 # (_under_edges: the locks' authored paths), so the outer locks hide it from the back and
 # the side. Its top edge starts inside hair_front's cap under the occiput (highest in the
-# middle), so the lining continues the cap down onto her nape; there it shares the head
-# bone's fade band (rig.HAIR_HEAD_FADE, a pure function of height) with the locks over it.
+# middle), so the lining continues the cap down onto her nape; the rig still weights it
+# below the head bone's fade band (WEIGHT_TOP_Z), so it rides the sector chains only.
 # Its bottom edge is a smooth arc (lowest in the middle) tucked a little toward her back
 # under the lock ends. Its outer face follows the hair envelope (BASE under it), UNDER_T
 # px under it the sheet proper, thinning to a rounded UNDER_RIM px rim over the outer
@@ -1654,15 +1655,26 @@ def _rim_dirs(bm, em, top=True):
 # (rig._skirt_weights), so an inner-face vertex near her neck would sit at a larger angle
 # than the outer-face vertex behind it and ride other chains: the lining would shear
 # through its thickness. So each vertex carries the point the rig weights it at
-# (WEIGHT_CO_ATTR, named by obj['levi_weight_co']): its outer-face twin (rig._weights).
+# (WEIGHT_CO_ATTR, named by obj['levi_weight_co']; rig._weights weights, smooths and
+# prunes the whole object there): its outer-face twin, with the height eased under
+# WEIGHT_TOP_Z (a soft minimum, WEIGHT_TOP_SOFT m). That is the bottom of the head
+# bone's fade band (rig.HAIR_HEAD_FADE[0], choker_z - 5 cm): the lining's top, tucked into
+# the cap, rides the sector chains only. (With the head's fade share on top of two chains'
+# two segments each, the 4-bone prune dropped 頭 from some vertices and kept it on their
+# neighbours: x2.1 in head_left / head_right at the nape.)
 WEIGHT_CO_ATTR = 'hb_weight_co'
+WEIGHT_TOP_Z = spec.L['choker_z'] - 0.05
+WEIGHT_TOP_SOFT = 0.008
 
 
 def _weight_coords(obj, outer):
-    """Store on the under-layer each vertex's outer-face twin (see WEIGHT_CO_ATTR); the
+    """Store on the under-layer each vertex's weighting point (see WEIGHT_CO_ATTR); the
     vertices are the outer grid then the inner grid (_emit_grid_shell)."""
     me = obj.data
-    P = outer.reshape(-1, 3)
+    P = outer.reshape(-1, 3).copy()
+    z_top = WEIGHT_TOP_Z - 0.002
+    x = (z_top - P[:, 2]) / WEIGHT_TOP_SOFT
+    P[:, 2] = z_top - WEIGHT_TOP_SOFT * np.where(x > 30.0, x, np.log1p(np.exp(np.minimum(x, 30.0))))
     P = np.concatenate([P, P])
     assert len(P) == len(me.vertices), 'hair_back_shell: unexpected vertex count'
     attr = me.attributes.new(WEIGHT_CO_ATTR, 'FLOAT_VECTOR', 'POINT')
