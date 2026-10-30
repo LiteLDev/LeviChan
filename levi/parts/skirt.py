@@ -79,6 +79,16 @@ to the hem and, at the fold troughs, a short turned-out edge.
   shapes the waistband; the topology, rings, shell and attributes are
   unchanged.
 
+- Round 11 (godet troughs): on top of the sampled cloth, every trough the
+  cloth already has (TROUGH_*, _trough_weight()) sinks from mid-skirt and
+  turns back out over the last ~6 cm above the hem, so the lower skirt hangs
+  in deeper U-channels whose mouths open at the edge (the sheet's godets),
+  while the crests, the hem rows and the outlines stay. The exports
+  (profiles, front_surface_y, section, hem_terms, fold_table) describe the
+  reshaped cloth. Above TGT_FLARE_ROW the master may turn in by at most
+  TGT_TUCK_UP: a dent in the fill under the right hand had folded the
+  shell's inner face through its outer face. No faces added.
+
 All reference measurements are in panel pixels (rows / columns of
 ref/<view>.png; panel centre column = 320).
 """
@@ -372,6 +382,29 @@ TGT_FOLD_HP = 18.0       # deg: high-pass for the crest picking
 TGT_FOLD_SEP = 9.0       # deg: least crest spacing
 TGT_FOLD_PROM = 3.0      # px: least crest prominence
 RELIEF_SOFT_PX = 10.0    # the target folds' detail removed for the shading normals (profiles(relief=0))
+# Round 11: deeper godet troughs that turn out at the hem (the sheet's godets
+# are deep U-channels whose troughs open out at the edge; the master's are
+# deep too, but the TGT_TUCK / TGT_FLARE clamps left shallow waves). Applied
+# on top of the sampled cloth, in _dense(), only where the cloth already has a
+# trough: the trough weight (_trough_weight()) is how far the hem band (rings
+# from TROUGH_BAND_T down) lies inside its own TROUGH_LP-deg low-pass round
+# the skirt, eased in from TROUGH_DEPTH[0] to TROUGH_DEPTH[1] px, so the
+# crests (and the outlines they carry) do not move and no lobe grows. Each
+# trough sinks by TROUGH_DEEP px from mid-skirt (smoothstep over
+# TROUGH_DEEP_T of the length) and turns back out by TROUGH_FLARE px over the
+# last TROUGH_FLARE_H px above the hem (a square: level start, steepest at
+# the edge), so its profile is an S and the hem line hardly moves.
+# Pairwise Codex vs round 10 (12 rest views, both orders): 12-0 with both
+# models; 28 / 32 px over 40 px lost (scooped pockets, detached shade ovals).
+TROUGH_DEEP = 22.0
+TROUGH_DEEP_T = (0.45, 0.9)
+TROUGH_FLARE = 26.0
+TROUGH_FLARE_H = 36.0
+TROUGH_FLARE_POW = 2.0
+TROUGH_BAND_T = 0.8
+TROUGH_LP = 12.0
+TROUGH_DEPTH = (4.0, 14.0)
+TROUGH_SMOOTH = 2.0
 
 _TGT = {}
 
@@ -803,11 +836,33 @@ def _dense(folds, relief=1.0):
         soft = _smooth_loop(off_t, RELIEF_SOFT_PX / px)
         off_t = soft + relief * (off_t - soft)
     off = off + target_weight(rr) * (off_t - off)
-    val = {'phi': phi, 'row': row, 'off': _smooth_loop(off, SMOOTH_PX / px)}
+    # round 11: the cloth's troughs sink from mid-skirt and turn back out at
+    # the hem (TROUGH_*); the relief-free cloth the shading normals are blended
+    # toward takes the same terms (weights of the built cloth), so the shading
+    # follows the deeper folds
+    w = _trough_weight(off) if relief == 1.0 else _dense(folds, 1.0)['trough']
+    h = (1.0 - t) * (row[:, None] - TOP_ROW)                       # px above the hem
+    g = np.clip(1.0 - h / TROUGH_FLARE_H, 0.0, 1.0) ** TROUGH_FLARE_POW
+    deep = _smoothstep((t - TROUGH_DEEP_T[0]) / (TROUGH_DEEP_T[1] - TROUGH_DEEP_T[0]))
+    off = off + w[:, None] * (TROUGH_FLARE * g - TROUGH_DEEP * deep)
+    val = {'phi': phi, 'row': row, 'off': _smooth_loop(off, SMOOTH_PX / px), 'trough': w}
     if len(_DENSE_CACHE) >= DENSE_CACHE_MAX:     # bounded: the fit tries many tables
         _DENSE_CACHE.pop(next(iter(_DENSE_CACHE)))
     _DENSE_CACHE[key] = val
     return val
+
+
+def _trough_weight(off):
+    """0..1 trough weight per fine azimuth sample of the built cloth (off:
+    (NF, N_RINGS) radial offsets, px): how
+    far the hem band (rings from TROUGH_BAND_T down) lies inside its own
+    low-pass round the skirt (TROUGH_LP deg), eased from TROUGH_DEPTH[0] to
+    TROUGH_DEPTH[1] px and smoothed by TROUGH_SMOOTH deg."""
+    deg = np.radians(1.0) * NF / (2 * np.pi)                       # samples per degree
+    band = off[:, np.array(T_STEPS) >= TROUGH_BAND_T].mean(axis=1)
+    depth = _smooth_loop(band, TROUGH_LP * deg) - band
+    w = _smoothstep((depth - TROUGH_DEPTH[0]) / (TROUGH_DEPTH[1] - TROUGH_DEPTH[0]))
+    return np.clip(_smooth_loop(w, TROUGH_SMOOTH * deg), 0.0, 1.0)
 
 
 def relief_growth(t):
