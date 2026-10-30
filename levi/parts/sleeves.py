@@ -906,10 +906,24 @@ CUFF_AMP_D = 17.0             # full depth by here (first round-11 pass: 24, gro
 CUFF_AMP_POW = 0.8
 CUFF_LIFT = 0.3               # first round-11 pass 1.6: the knife tips (see above)
 CUFF_ROLL = 1.8               # px, the flutes' edges roll (see _frill_ring): round loops side-on
-CUFF_CURL = 0.02
+# HD verify round 3: no outward turn of the crests at the upper rim (0.02 did, a kick that
+# sharpened the flute's end where the rim ease below pulls it in)
+CUFF_CURL = 0.0
 CUFF_CURL_FROM = 0.3
 CUFF_TWIST = 0.14
 CUFF_TWIST_D = 31.0
+# HD verify round 3 (the owner's q34_front_left / q34_front_right at 4x: a small pointed thorn at
+# the cuff's edge on both hands). Diagnosis (per-tier id colours, each tier hidden in turn): an
+# upper-tier flute at the silhouette, seen from below-front. Its crest ran at full depth (~5 px
+# out) to the rim and met it in a corner, and the roll that makes the lobes read as loops from the
+# front (CUFF_ROLL) folds that loop into a cusp at an oblique view (atan(roll * lobes / radius),
+# ~30 deg off side-on): a thin fin ending in a point, its stub left beside the under tier's curl.
+# Each tier's flutes therefore lose this share of their depth (and rise and rounding) over the
+# last px before its rim (share, px): the crests turn in under a belly above the rim, so a flute
+# seen side-on or obliquely ends in a round nose and its rim loop is rounder (depth closer to the
+# roll). The upper tier's belly has two more rings (CUFF_TIERS), or the inward turn bent the crest
+# line at one ring (the stub moved up to d 18.5 px).
+CUFF_RIM_EASE = {'upper': (0.7, 10.0), 'under': (0.6, 6.0)}
 # shading: CUFF_SHADE of the flutes' own normal, the rest from the ruffle with
 # its flutes CUFF_SOFT as deep (see FOLD_SHADE): the flutes' bellies shade round
 # (a fluteless cone's normals, 0.2 / 0.0, showed them as flat cut-outs in clay)
@@ -931,12 +945,15 @@ CUFF_TIERS = {
         (5.0, 23.9, 22.6),
         (10.0, 27.4, 26.8),       # opening out of the gather ...
         (14.5, 30.4, 30.2),
+        (16.6, 31.45, 31.3),      # (Catmull-Rom of its neighbours: a smooth belly, CUFF_RIM_EASE)
         (18.5, 32.2, 32.2),       # ... and hanging
+        (20.0, 32.7, 32.75),
         (21.2, 32.9, 33.0),
-        (22.3, 32.7, 32.8),       # the rolled rim: a round bead ...
-        (22.6, 32.0, 32.1),
-        (22.2, 31.3, 31.4),
-        (20.6, 31.0, 31.1),       # ... and the inner face back up, inside the outer
+        (22.2, 32.8, 32.9),       # the rolled rim: a round bead ~2 px across (verify round 3: was
+        (22.9, 32.2, 32.3),       # 1.4 px past the last outer station; a flute's end seen edge-on
+        (23.0, 31.4, 31.5),       # showed it as a thin point)
+        (22.5, 30.8, 30.9),
+        (21.0, 30.8, 30.9),       # ... and the inner face back up, inside the outer
         (15.0, 28.7, 28.5),
         (8.0, 24.6, 23.6),
         (1.0, 21.1, 19.1),
@@ -985,11 +1002,14 @@ CUFF_TIERS['under'] = _offset_tier(
 # upper tier's (roll_shift) and by d alone, not by that share, so where the tiers overlap
 # both roll alike and keep their gap.
 CUFF_UNDER_AMP = (0.12, 23.0, 28.8, 0.8)
-# ... and in its hanging part (from d0 to d1) its edge rolls this much more (a lobe seen
-# edge-on ends in a curl, not in a point: the palm side and from above, verify round 11),
-# with no outward turn of the crests (CUFF_CURL, which sharpened them): (curl share, roll
-# gain, d0, d1).
-CUFF_UNDER_FREE = (0.0, 2.0, 26.0, 31.0)
+# ... and in its hanging part (from d0 to d1) its edge rolls this much more, with no outward
+# turn of the crests (CUFF_CURL, which sharpened them): (curl share, roll gain, d0, d1).
+# Verify round 2 doubled the roll there (a lobe seen edge-on from the palm side ended in a curl,
+# not a point); verify round 3 found it curled some lobe ends past a loop into hooks (a J of the
+# rim, hooked points from the palm side). With the rim ease (CUFF_RIM_EASE) the plain roll keeps
+# the curls: the under tier's sharpest silhouette corners over 300 views, > 120 deg 127 -> 23,
+# > 150 deg 13 -> 1 (docs/pr/r11-sleeves/README.md).
+CUFF_UNDER_FREE = (0.0, 1.0, 26.0, 31.0)
 CUFF_UNDER_SHIFT = (10.0, 19.0)
 # The hand rises toward the cuff's outer side (the knuckles, under the drooping centre
 # line): there the under tier opens out by CUFF_UNDER_HAND px (each term over a sector
@@ -1033,7 +1053,7 @@ def _cuff_rim():
     return max(p[0] for p in CUFF_TIERS['upper'])
 
 
-def _cuff_ring(tier, d, ra, rb, k, ths, dmax):
+def _cuff_ring(tier, d, ra, rb, k, ths, dmax, de=None):
     """One ring of a tier at d (px) along the centre line (see _cuff_rings), and the
     hand-side sector weight of its vertices ((1 + cos) / 2 round CUFF_HAND_AT, with the turn)."""
     c0, axis, droop, mid = _cuff_frame()
@@ -1058,7 +1078,8 @@ def _cuff_ring(tier, d, ra, rb, k, ths, dmax):
     girth = 1.0 + out / min(ra, rb)
     c = c0 + mid * px(d)
     a0 = min(1.0, d / CUFF_AMP_D) ** CUFF_AMP_POW
-    a = a0 * m
+    ease, span = CUFF_RIM_EASE[tier]
+    a = a0 * m * (1.0 - ease * _smooth(dmax - span, dmax, d if de is None else de))
     curl = CUFF_CURL * _smooth((1.0 - CUFF_CURL_FROM) * dmax, dmax, d) * m
     roll = CUFF_ROLL * a0
     if tier == 'under':
@@ -1086,7 +1107,7 @@ def _cuff_rings(tier, k=1.0):
         ring, near = _cuff_ring(tier, d, ra, rb, k, ths, dmax)
         h0, cut, pw = CUFF_UNDER_SHORT
         if tier == 'under' and d > h0:
-            short, _ = _cuff_ring(tier, h0 + (d - h0) * (1.0 - cut), ra, rb, k, ths, dmax)
+            short, _ = _cuff_ring(tier, h0 + (d - h0) * (1.0 - cut), ra, rb, k, ths, dmax, de=d)
             w = near ** pw
             ring = [p.lerp(q, float(x)) for p, q, x in zip(ring, short, w)]
         rings.append(ring)
