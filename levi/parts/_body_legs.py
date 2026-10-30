@@ -103,7 +103,9 @@ PELVIS_STEP = 7.0     # px between the pelvis rings
 CLEFT_SOFT = (3, 2.5)     # [1 2 1] passes over the pelvis rings' radii, columns (sigma) round the back
 CHAIN_M = 7           # ~1.1 cm along the gusset
 N_LEG = 29 + CHAIN_M  # the 31 ring vertices between F and B, the chain, less the two corners
-GUSSET_ROWS = 10
+# (round 11 review 3: 13 rows, ~0.8 cm, from 10: the arch across the midline chain was the crotch's
+# sharpest edge, 38.5 deg, now 33; the crotch's max dihedral 36.7 deg, at the groin's front corner)
+GUSSET_ROWS = 13
 GUSSET_END_ROW = 561.0
 GUSSET_RELAX = (60, 0.5)   # steps, rate
 # then the crotch is rounded (Legs._round_crotch): umbrella steps, rate, the zone's radii (m,

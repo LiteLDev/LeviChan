@@ -1050,6 +1050,17 @@ def skirt_follow(angle, s):
     return total * own / max(own + other, 1e-9)
 
 
+# Round 11: the drape's thigh is round 10's (r11/base). 风堇's pelvis is fuller round the hip
+# joints (the profile's 90th percentile +8 / +11 / +7 mm at t = 0 / 0.1 / 0.2, then 1-4 mm
+# thinner down the thigh) and her knee joint sits 5 mm further in; measured on the new body they
+# re-tuned the drape tables and the run clip's skirt pop (frame 16) rose from 68.5 to 89 mm (80
+# with round 10's profile alone, 86 with its knee alone). With both it is 65.6 mm, the
+# petticoat's stretch as round 10's (x2.30) and the cloth's clearance unchanged. The profile is
+# round 10's measurement (radius at t = 0, 0.1 .. 1 along hip -> knee); None measures the body.
+DRAPE_THIGH_PROFILE = (0.0722, 0.0628, 0.0603, 0.0582, 0.0554, 0.0546, 0.0537, 0.0525, 0.0489, 0.0484, 0.0576)
+DRAPE_KNEE_OUT = 0.0049     # m: the drape's knee this far out of the knee joint (round 10's knee)
+
+
 def _thigh_profile(body, hip, knee, s):
     """(t, radius) samples of one thigh (side s) along hip -> knee from the body mesh:
     the 90th percentile distance of the body's vertices from the axis, per slab."""
@@ -1067,6 +1078,8 @@ def _thigh_profile(body, hip, knee, s):
             sel = lat[(np.abs(t - tk) < 0.05) & (lat < 0.12)]
             if len(sel) >= 8:
                 rs[i] = float(np.percentile(sel, 90))
+    if DRAPE_THIGH_PROFILE is not None:
+        rs = np.array(DRAPE_THIGH_PROFILE, dtype=float)
     return ts, rs
 
 
@@ -2532,7 +2545,7 @@ def _secondary_bones(parts, core):
         if SKIRT_DRAPE and chains:
             th = byname['足.L']
             drape = _skirt_drape(chains, pts, cy, np.array(th.head),
-                                 np.array(th.tail) + np.array((0.0, -DRAPE_KNEE_FWD, 0.0)), verts('body'))
+                                 np.array(th.tail) + np.array((DRAPE_KNEE_OUT, -DRAPE_KNEE_FWD, 0.0)), verts('body'))
         for k, (ang, joints) in enumerate(chains):
             hem_r = max(0.03, math.hypot(joints[-1].x, joints[-1].y - cy) * math.pi / SKIRT_SECTORS)
             # the chain hangs from two follow bones that add a share of each thigh's
@@ -3614,13 +3627,16 @@ def _crotch_mask(co, bones):
 
 # Round 11 (review): the smoothing spread each thigh's weight 12-17 cm down the other's inner
 # side (the standing thigh dragged 2.6-3 cm toward a kick). _crotch_tail moves each sided
-# bone's share on the wrong side of the midline back to its own side between these geodesic
-# distances from the body's midline (m; on the inner thigh: from the chain under the crotch),
-# after the smoothing: the drag below z 0.66 (~5 cm under the crotch) is under 5 mm (high_kick
-# 4.2 mm, run 4.5 mm). (0.04 / 0.09: 8-9 mm there, strides x2.06-2.17; 0.03 / 0.075: 2 mm,
-# x2.22-2.30. Holding a pelvis share at the gusset, as 风堇's own weights do, or splitting left
-# / right explicitly by the geodesic distance, sheared it more: x2.2-2.6.)
-CROTCH_TAIL = (0.035, 0.08)
+# bone's share on the wrong side of the midline to the pelvis (下半身; the hat remap then hands
+# it to the hip helper) between these geodesic distances from the body's midline (m; on the
+# inner thigh: from the chain under the crotch), after the smoothing. Review 3: it went to the
+# own side's bone, which steepened that thigh's own share down the inner thigh: x2.12-2.26 in
+# the strides; to the pelvis x2.03-2.17 at the same drag, and the crotch fit (CROTCH_FIT) takes
+# them under x1.84. With 13 gusset rows the drag below z 0.66 (~5 cm under the crotch) is
+# under 5 mm (4.7 mm) at 0.09 (0.08: 1.5 mm, deep_lunge x1.80; 0.095-0.10: 7-7.5 mm, x1.70.
+# Holding a pelvis share at the gusset, as 风堇's own weights do, or splitting left / right
+# explicitly by the geodesic distance, sheared it more: x2.2-3.3.)
+CROTCH_TAIL = (0.035, 0.09)
 
 
 def _geodesic_from(co, edges, src, keep, reach):
@@ -3669,16 +3685,278 @@ def _crotch_tail(w, co, edges, bones):
     left = co[v, 0] >= 0.0
     r = np.arange(len(v))
     W = w[v].copy()
+    pel = col.get('下半身')
     for j, b in enumerate(bones):
         jr = col.get(b.name[:-2] + '.R') if b.name.endswith('.L') else None
         if jr is None:
             continue
         own, oth = np.where(left, j, jr), np.where(left, jr, j)
         moved = W[r, oth] * cut
-        W[r, own] += moved
+        if pel is not None:
+            W[r, pel] += moved
+        else:
+            W[r, own] += moved
         W[r, oth] -= moved
     out = w.copy()
     out[v] = W
+    return out
+
+
+# Round 11 (review 3): the crotch's weights, after the prune, are refined against generic hip
+# poses (_crotch_fit). The smoothed, tail-cut, hat-remapped weights leave the change of hands
+# across the gusset and down the inner thighs uneven (the gusset grid's corners, the tail band),
+# and a stride stretched those edges x2.1-2.3 (high_kick, deep_lunge, run; cross_legged x3.1)
+# where round 10's separate leg tubes hid the change of hands inside the pelvis block (x1.7-1.9;
+# x2.44). With the fit: x1.71-1.83, cross_legged x2.33; ~45 s of the rig build. The fit
+# moves weight only among each vertex's kept bones of CROTCH_FIT_BONES (the pelvis, the thighs
+# and their hip helpers), never raises a thigh's share on the other side of the midline (the
+# opposite-thigh drag stays as _crotch_tail left it) and keeps the rest of the skin's weights,
+# minimising over CROTCH_FIT_POSES (each thigh alone and in pairs, mirrored; none of them is a
+# test pose) the edges' stretch past CROTCH_FIT_STRETCH and compression under
+# CROTCH_FIT_COMPRESS, faces folding over (signed area under CROTCH_FIT_FOLD of its rest), the
+# weights' roughness along the edges (CROTCH_FIT_SMOOTH) and their change (CROTCH_FIT_KEEP).
+CROTCH_FIT = True
+CROTCH_FIT_BONES = ('下半身', '足.L', '足.R', '足補助.L', '足補助.R')
+# (mirror, ((side, thigh direction, twist), ...)): each thigh turned from hanging (-Z) to the
+# direction (in the pelvis' rest frame, the left thigh's; +X out, -Y forward) by the shortest
+# swing, after a twist (deg) about its own axis (+ turns the left knee outward); mirror adds the
+# same pose with the sides swapped (x and the twist mirrored on .R)
+CROTCH_FIT_POSES = (
+    (True, (('L', (0.0, -0.866, -0.5), 0.0),)),                 # flexed 60
+    (True, (('L', (0.0, -0.985, 0.174), 0.0),)),                # flexed 100
+    (True, (('L', (0.0, -0.766, 0.643), 0.0),)),                # flexed 130 (a high kick)
+    (True, (('L', (0.0, 0.5, -0.866), 0.0),)),                  # extended 30
+    (True, (('L', (0.707, 0.0, -0.707), 0.0),)),                # abducted 45
+    (True, (('L', (0.0, 0.0, -1.0), 45.0),)),                   # turned out 45
+    (True, (('L', (0.0, 0.0, -1.0), -45.0),)),                  # turned in 45
+    (True, (('L', (0.643, -0.766, 0.0), 0.0),)),                # flexed 90, out 40
+    (True, (('L', (-0.342, -0.94, 0.0), 0.0),)),                # flexed 90, across 20
+    (True, (('L', (0.0, -0.985, 0.174), 0.0), ('R', (0.0, 0.643, -0.766), 0.0))),   # lunge
+    (True, (('L', (0.0, -0.866, -0.5), 0.0), ('R', (0.0, 0.5, -0.866), 0.0))),      # stride
+    (False, (('L', (0.0, -1.0, 0.0), 0.0), ('R', (0.0, -1.0, 0.0), 0.0))),          # seated
+    (False, (('L', (0.0, -0.866, -0.5), 0.0), ('R', (0.0, -0.866, -0.5), 0.0))),
+    (False, (('L', (0.64, -0.77, 0.0), 110.0), ('R', (-0.64, -0.77, 0.0), -110.0))),  # cross-legged
+    (False, (('L', (0.64, -0.77, 0.0), 55.0), ('R', (-0.64, -0.77, 0.0), -55.0))),
+)
+CROTCH_FIT_ITERS = 900
+CROTCH_FIT_STRETCH = 1.4
+CROTCH_FIT_COMPRESS = 0.6
+CROTCH_FIT_FOLD = 0.15
+CROTCH_FIT_W = (1.0, 1.0, 20.0)     # weights of the stretch, compression and fold terms
+CROTCH_FIT_SMOOTH = 0.02
+CROTCH_FIT_KEEP = 0.05
+_CROTCH = {}          # deform bone name -> (K, 3, 4) skinning matrices in CROTCH_FIT_POSES (build_rig)
+
+
+def _crotch_samples(arm):
+    """{deform bone: (K, 3, 4)} skinning matrices in CROTCH_FIT_POSES, evaluated on the real
+    armature (the hip helpers follow their thighs), IK muted, the pose reset afterwards."""
+    from mathutils import Matrix
+    pbs = arm.pose.bones
+    if '足.L' not in pbs or '足.R' not in pbs:
+        return {}
+    muted = [c for pb in pbs for c in pb.constraints if c.type == 'IK' and not c.mute]
+    for c in muted:
+        c.mute = True
+    deform = [pb for pb in pbs if pb.bone.use_deform]
+    out = {pb.name: [] for pb in deform}
+    poses = []
+    for mirror, spec in CROTCH_FIT_POSES:
+        poses.append(spec)
+        if mirror:
+            poses.append(tuple(('R' if sd == 'L' else 'L', (-d[0], d[1], d[2]), -tw) for sd, d, tw in spec))
+    for spec in poses:
+        for pb in pbs:
+            pb.matrix_basis.identity()
+        for sd, d, tw in spec:
+            pb = pbs[f'足.{sd}']
+            d = np.array(d, dtype=float) / np.linalg.norm(d)
+            v0 = np.array((0.0, 0.0, -1.0))
+            ax = np.cross(v0, d)
+            sn, cs = float(np.linalg.norm(ax)), float(v0 @ d)
+            K = np.zeros((3, 3))
+            if sn > 1e-9:
+                ax = ax / sn
+                K = np.array([[0.0, -ax[2], ax[1]], [ax[2], 0.0, -ax[0]], [-ax[1], ax[0], 0.0]])
+            th = math.atan2(sn, cs)
+            swing = np.eye(3) + math.sin(th) * K + (1.0 - math.cos(th)) * K @ K
+            t = math.radians(tw)
+            twist = np.array([[math.cos(t), -math.sin(t), 0.0], [math.sin(t), math.cos(t), 0.0], [0.0, 0.0, 1.0]])
+            rest = np.array(pb.bone.matrix_local.to_3x3())
+            local = rest.T @ (swing @ twist) @ rest
+            pb.rotation_mode = 'QUATERNION'
+            pb.rotation_quaternion = Matrix(local.tolist()).to_quaternion()
+        bpy.context.view_layer.update()
+        for pb in deform:
+            out[pb.name].append(np.array(pb.matrix @ pb.bone.matrix_local.inverted())[:3])
+    for pb in pbs:
+        pb.matrix_basis.identity()
+    for c in muted:
+        c.mute = False
+    bpy.context.view_layer.update()
+    return {k: np.array(v) for k, v in out.items()}
+
+
+def _mesh_tris(obj):
+    """(T, 3) fan triangles of the object's polygons."""
+    me = obj.data
+    n = len(me.polygons)
+    if not n:
+        return np.zeros((0, 3), dtype=np.int64)
+    tot = np.empty(n, dtype=np.int64)
+    me.polygons.foreach_get('loop_total', tot)
+    st = np.empty(n, dtype=np.int64)
+    me.polygons.foreach_get('loop_start', st)
+    lv = np.empty(len(me.loops), dtype=np.int64)
+    me.loops.foreach_get('vertex_index', lv)
+    out = []
+    for k in range(1, int(tot.max()) - 1):
+        sel = tot > k + 1
+        out.append(np.stack([lv[st[sel]], lv[st[sel] + k], lv[st[sel] + k + 1]], 1))
+    return np.concatenate(out) if out else np.zeros((0, 3), dtype=np.int64)
+
+
+def _capped_simplex(y, cap, total):
+    """Rows of y projected onto {0 <= x <= cap, sum x = total} (bisection on the shift)."""
+    lo = (y - cap).min(1) - 1.0
+    hi = y.max(1)
+    for _ in range(48):
+        th = 0.5 * (lo + hi)
+        big = np.clip(y - th[:, None], 0.0, cap).sum(1) > total
+        lo = np.where(big, th, lo)
+        hi = np.where(big, hi, th)
+    return np.clip(y - (0.5 * (lo + hi))[:, None], 0.0, cap)
+
+
+def _crotch_fit(idx, ww, co, edges, tris, bones):
+    """The kept weights (idx, ww) of the crotch zone re-weighted among CROTCH_FIT_BONES so the
+    skin stretches, compresses and folds less in CROTCH_FIT_POSES (_CROTCH); see CROTCH_FIT."""
+    col = {b.name: i for i, b in enumerate(bones)}
+    m = _crotch_mask(co, bones)
+    adj_cols = [col[n] for n in CROTCH_FIT_BONES if n in col]
+    if m is None or not _CROTCH or len(adj_cols) < 3 or any(bones[j].name not in _CROTCH for j in adj_cols):
+        return ww
+    free = m > 0.0
+    em = (free[edges[:, 0]] | free[edges[:, 1]])
+    E = edges[em]
+    l0 = np.linalg.norm(co[E[:, 0]] - co[E[:, 1]], axis=1)
+    E, l0 = E[l0 > 1e-6], l0[l0 > 1e-6]
+    T = tris[free[tris].any(1)] if len(tris) else np.zeros((0, 3), dtype=np.int64)
+    vs = np.unique(np.concatenate([E.ravel(), T.ravel()]))
+    if not len(vs):
+        return ww
+    loc = np.full(len(co), -1)
+    loc[vs] = np.arange(len(vs))
+    ea, eb = loc[E[:, 0]], loc[E[:, 1]]
+    I, W0 = idx[vs], ww[vs].astype(float)
+    n, k = I.shape
+    fr = free[vs]
+    # every bone's skinning matrices in the fit poses; positions of each kept slot
+    S = np.zeros((len(bones),) + next(iter(_CROTCH.values())).shape)
+    for j, b in enumerate(bones):
+        if b.name in _CROTCH:
+            S[j] = _CROTCH[b.name]
+    K = S.shape[1]
+    ph = np.c_[co[vs], np.ones(n)]
+    P = np.einsum('nskab,nb->knsa', S[I], ph)                # (K, n, k, 3)
+    adj = fr[:, None] & np.isin(I, adj_cols) & (W0 > 0.0)
+    side = np.array([1 if b.name.endswith('.L') else (-1 if b.name.endswith('.R') else 0) for b in bones])
+    xs = co[vs, 0]
+    other = ((xs[:, None] > 0.008) & (side[I] < 0)) | ((xs[:, None] < -0.008) & (side[I] > 0))
+    cap = np.where(adj, np.where(other, W0, 1.0), 0.0)
+    total = np.where(adj, W0, 0.0).sum(1)
+    # dense columns of the adjustable bones (smoothness term)
+    cidx = np.full(len(bones), -1)
+    cidx[adj_cols] = np.arange(len(adj_cols))
+    ci = cidx[I]                                             # (n, k), -1: not adjustable
+    # faces: rest normal and area, the bone the face turns with
+    if len(T):
+        ta, tb, tc = loc[T[:, 0]], loc[T[:, 1]], loc[T[:, 2]]
+        nr0 = np.cross(co[T[:, 1]] - co[T[:, 0]], co[T[:, 2]] - co[T[:, 0]])
+        a0 = np.linalg.norm(nr0, axis=1)
+        okf = a0 > 1e-10
+        ta, tb, tc, nr0, a0 = ta[okf], tb[okf], tc[okf], nr0[okf], a0[okf]
+        nr0 = nr0 / a0[:, None]
+        dom = np.zeros((len(ta), len(bones)))
+        for t in (ta, tb, tc):
+            np.add.at(dom, (np.repeat(np.arange(len(ta)), k), I[t].ravel()), W0[t].ravel())
+        R = S[dom.argmax(1)][:, :, :, :3]                    # (F, K, 3, 3)
+        nref = np.einsum('fkab,fb->kfa', R, nr0)
+    ks, kc, kf = CROTCH_FIT_W
+
+    def evaluate(Wv):
+        X = np.einsum('ns,knsa->kna', Wv, P)
+        g = np.zeros_like(X)
+        e = X[:, ea] - X[:, eb]
+        ln = np.linalg.norm(e, axis=2)
+        r = ln / l0
+        ex = np.maximum(r - CROTCH_FIT_STRETCH, 0.0)
+        cx = np.maximum(CROTCH_FIT_COMPRESS - r, 0.0)
+        f = ks * (ex ** 4).sum() + kc * (cx ** 4).sum()
+        ge = ((4.0 * ks * ex ** 3 - 4.0 * kc * cx ** 3) / np.maximum(ln, 1e-12) / l0)[..., None] * e
+        np.add.at(g, (slice(None), ea), ge)
+        np.add.at(g, (slice(None), eb), -ge)
+        if len(T):
+            u, v = X[:, tb] - X[:, ta], X[:, tc] - X[:, ta]
+            sa = np.einsum('kfa,kfa->kf', np.cross(u, v), nref) / a0
+            fx = np.maximum(CROTCH_FIT_FOLD - sa, 0.0)
+            f += kf * (fx ** 2).sum()
+            c = (-2.0 * kf * fx / a0)[..., None]
+            gu, gv = c * np.cross(v, nref), c * np.cross(nref, u)
+            np.add.at(g, (slice(None), tb), gu)
+            np.add.at(g, (slice(None), tc), gv)
+            np.add.at(g, (slice(None), ta), -gu - gv)
+        gW = np.einsum('kna,knsa->ns', g, P)
+        D = np.zeros((n, len(adj_cols)))
+        rows = np.repeat(np.arange(n), k)
+        okc = ci.ravel() >= 0
+        np.add.at(D, (rows[okc], ci.ravel()[okc]), Wv.ravel()[okc])
+        dd = D[ea] - D[eb]
+        f += CROTCH_FIT_SMOOTH * (dd ** 2).sum()
+        gD = np.zeros_like(D)
+        np.add.at(gD, ea, 2.0 * CROTCH_FIT_SMOOTH * dd)
+        np.add.at(gD, eb, -2.0 * CROTCH_FIT_SMOOTH * dd)
+        gW += np.where(ci >= 0, gD[np.arange(n)[:, None], np.maximum(ci, 0)], 0.0)
+        f += CROTCH_FIT_KEEP * ((Wv - W0) ** 2).sum()
+        gW += 2.0 * CROTCH_FIT_KEEP * (Wv - W0)
+        return f, np.where(adj, gW, 0.0)
+
+    rows = np.nonzero(adj.any(1))[0]
+
+    def project(Y):
+        Y = Y.copy()
+        Y[rows] = np.where(adj[rows], _capped_simplex(Y[rows], cap[rows], total[rows]), Y[rows])
+        return Y
+
+    # spectral projected gradient (Barzilai-Borwein steps, non-monotone Armijo search)
+    Wv = W0.copy()
+    f, g = evaluate(Wv)
+    f0 = f
+    best = (f, Wv)
+    alpha, hist = 1e-4, [f]
+    for _ in range(CROTCH_FIT_ITERS):
+        d = project(Wv - alpha * g) - Wv
+        gd = float((g * d).sum())
+        if gd > -1e-14:
+            break
+        lam, fmax = 1.0, max(hist)
+        while True:
+            Y = Wv + lam * d
+            f2, g2 = evaluate(Y)
+            if f2 <= fmax + 1e-4 * lam * gd or lam < 1e-6:
+                break
+            lam *= 0.5
+        s_, y_ = Y - Wv, g2 - g
+        sy = float((s_ * y_).sum())
+        alpha = min(max(float((s_ * s_).sum()) / sy, 1e-8), 1e2) if sy > 1e-18 else 1e2
+        Wv, f, g = Y, f2, g2
+        hist = (hist + [f])[-8:]
+        if f < best[0]:
+            best = (f, Wv)
+    f, Wv = best
+    out = ww.copy()
+    out[vs] = Wv
+    print(f'rig crotch fit: {len(rows)} vertices, {K} poses, objective {f0:.4g} -> {f:.4g}')
     return out
 
 
@@ -4707,7 +4985,10 @@ def _weights(obj, part, co, bones):
     guide = _smooth(w, co, edges, PRUNE_SMOOTH, ref) if PRUNE_SMOOTH > 0 and radius > 0 else None
     if guide is not None and part in SHELL_PARTS:
         guide = _shell_share(guide, co, bones)
-    return _prune(w, bones, guide, co)
+    idx, ww = _prune(w, bones, guide, co)
+    if part in CROTCH_PARTS and CROTCH_FIT and _CROTCH:
+        ww = _crotch_fit(idx, ww, co, edges, _mesh_tris(obj), bones)
+    return idx, ww
 
 
 def _skin(obj, part, bones, arm):
@@ -5730,8 +6011,9 @@ def build_rig():
     print(f"rig head  目.L           {H.get('eye_src', 'mesh') if 'eye' in H else 'spec'}  ({ey.x:+.3f}, {ey.y:+.3f}, {ey.z:+.3f})")
     bones = core + _secondary_bones(parts, core)
     arm = _create_armature(bones)
-    global _ATTACH_HOST, _PARENTS, _MOTION
+    global _ATTACH_HOST, _PARENTS, _MOTION, _CROTCH
     _MOTION = _motion_samples(arm) if PRUNE_MOTION else {}
+    _CROTCH = _crotch_samples(arm) if CROTCH_FIT else {}
     _PARENTS = {b.name: b.parent for b in bones}
     host = []
     for objs in parts.values():
