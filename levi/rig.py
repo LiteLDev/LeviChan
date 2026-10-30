@@ -4549,44 +4549,53 @@ def _lock_weights(w, co, labels, bones):
 # probes, the pitch gravity differs between sector and lock chains), so in a head turn or a
 # bend the lining came up through the locks (look_over_shoulder, head_left 70 deg: 25-45 mm
 # relative motion, 2500+ crossing triangle pairs). Each vertex (at its weighting point)
-# takes the lock chains of the objects it names by a soft minimum of its distance to their
-# centre lines (LOCK_FOLLOW_SOFT m), and along each chain the hat weights a lock of it
-# carries (_lock_weights); the head fade then applies by height as on every lock. Only
-# locks less than obj['levi_follow_angle'] deg round from straight back count (hair_back:
-# the primaries over the lining, not the side locks and flicks beside it, which the raised
-# arms push: reach_up_back pulled the lining's rims through the primaries). As the
-# lining's vertices are dominated by lock segments, the locks' collision probes also keep
-# the lining's inner face off her trunk (_hair_collision).
-LOCK_FOLLOW_SOFT = 0.012
+# takes the chains of the locks of the objects it names by a soft minimum of its distance
+# to their surfaces (LOCK_FOLLOW_SOFT m: the lock it lies under, not the over-row lock
+# whose centre line may be nearer; following that one, reach_up_back pulled the lining
+# through the lock it touches), and along each chain the hat weights a lock of it carries
+# (_lock_weights); the head fade then applies by height as on every lock. Only locks less
+# than obj['levi_follow_angle'] deg round from straight back count (hair_back: the
+# primaries over the lining, not the side locks and flicks beside it, which the raised
+# arms push). As the lining's vertices are dominated by lock segments, the locks' collision
+# probes also keep the lining's inner face off her trunk (_hair_collision).
+LOCK_FOLLOW_SOFT = 0.006
 
 
 def _follow_lock_weights(co, bones, obj_names, w, max_angle=180.0):
     """(V, B) weights of points that follow the lock chains of the objects obj_names, less
     than max_angle deg round from straight back (see LOCK_FOLLOW_SOFT); w unchanged when
     there are none."""
+    from mathutils.kdtree import KDTree
     by_key = {}
     for j, b in enumerate(bones):
         if ('lock' in b.meta and b.meta.get('lock_obj') in obj_names
                 and b.meta.get('lock_angle', 0.0) < max_angle):
             by_key.setdefault(tuple(b.meta['lock']), []).append(j)
-    if not by_key:
+    surf = {}
+    for name in obj_names:
+        o = bpy.data.objects.get(name)
+        if o is None or o.type != 'MESH':
+            continue
+        lco = _world_verts([o])
+        lab = _islands(len(lco), _topology(o, lco))
+        for k in np.unique(lab):
+            p = lco[lab == k]
+            if _lock_key(p) in by_key:
+                surf[_lock_key(p)] = p
+    if not surf:
         return w
     head = [j for j, b in enumerate(bones) if b.name == '頭']
     chains, dist = [], []
-    for cols in by_key.values():
-        cols = sorted(cols, key=lambda j: bones[j].meta.get('seg', 0))
+    for key, p in surf.items():
+        cols = sorted(by_key[key], key=lambda j: bones[j].meta.get('seg', 0))
         A = np.array([bones[j].head for j in cols])
         B = np.array([bones[j].tail for j in cols])
-        best, u = np.full(len(co), np.inf), np.zeros(len(co))
-        for i in range(len(A)):
-            ab = B[i] - A[i]
-            t = np.clip(((co - A[i]) @ ab) / max(float(ab @ ab), 1e-12), 0.0, 1.0)
-            d = np.linalg.norm(co - (A[i] + t[:, None] * ab), axis=1)
-            closer = d < best
-            best = np.where(closer, d, best)
-            u = np.where(closer, i + t, u)
-        chains.append((cols, u))
-        dist.append(best)
+        chains.append((cols, _polyline_u(co, A, B)))
+        kd = KDTree(len(p))
+        for i, q in enumerate(p):
+            kd.insert(Vector(q), i)
+        kd.balance()
+        dist.append(np.array([kd.find(Vector(q))[2] for q in co]))
     dist = np.array(dist)
     g = np.exp(-(dist - dist.min(0)) / LOCK_FOLLOW_SOFT)
     g /= g.sum(0)
