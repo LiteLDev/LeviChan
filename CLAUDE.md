@@ -54,7 +54,7 @@ Priorities (the owner's): (1) the model looks natural in 3D, (2) skeletal animat
          [--views review|q34_front_left,q34_back_right,high,turn_<AZ>] [--clay] [--turntable N] [--pose NAME,...|all]
 python tools/review.py [--focus <part>] [--build] [--turntable 8]   # renders + contact sheets + Codex review (see Review)
 "$B" -b --factory-startup -P tools/compare.py -- --render out/render --out out/cmp [--box x0,y0,x1,y1] [--part-region dress,petticoat]
-"$B" -b -P tools/check.py -- [--parts body,skirt]      # exit code 1 on failure
+"$B" -b -P tools/check.py -- [--parts body,skirt] [--no-subprocess]   # exit code 1 on failure
 "$B" -b -P build.py -- --rig ...                         # + MMD armature, skinned (levi/rig.py)
 "$B" -b -P tools/rig_check.py                            # rig tests, exit code 1 on failure
 "$B" -b -P tools/rig_check.py -- --quick --no-core --extended --report-core --motion   # motion report, not gated
@@ -265,6 +265,8 @@ python tools/review.py [--blend out/levi.blend] [--rig out/levi_rig.blend] [--bu
 - Materials always come from `toon_material`. Every visible mesh gets `add_outline` unless it sets `obj["no_outline"] = True` (e.g. eye decals).
 - Stay within `spec.BUDGET[part]`, which counts evaluated faces excluding the outline hull.
 - Builds must be deterministic and repeatable. No randomness without a fixed seed.
+  - The same vertex, face and loop order in every process, not just the same shape: weights and the PMX order follow the indices. Never make geometry while iterating a set of bmesh elements (they hash by address) or of strings (hashed per process); `bmesh.ops.extrude_face_region` orders the faces it makes by address too (`bodice.thicken` is the ordered replacement). `tools/check.py` compares every mesh's positions, face / loop order, materials and vertex-group weights between its two builds and against a build in a second Blender process (round 11: shoes_shell, bodice_diamond and bodice_leaves failed it).
+  - Rig weights are repeatable on one machine; across cluster nodes (other CPUs, other BLAS threads) they may differ by up to ~1e-3.
 - Don't edit `spec.py`, `common.py`, `toon.py`, `shape.py`, `assets/shape/` or another part from a part PR (a part PR may change its own section of `rig.py`). If a landmark is off, put a local correction in your part and explain it in the PR.
 - Never commit `.blend` files or `out/`. PR screenshots go under `docs/pr/<part>/`.
   - Keep PR images small: JPEG (quality ~85) or downscaled PNG, at most ~1.5 MB per PR in total. Contact sheets can be downscaled to ~1200 px wide; `tools/review.py --docs` does this for you.

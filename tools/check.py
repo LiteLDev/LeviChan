@@ -5,13 +5,22 @@
 Checks, per part: build() runs and produces mesh objects, face count within
 spec.BUDGET, no NaN/inf coordinates, no zero-area faces, every material is a
 toon/outline material, every visible mesh has an outline. Whole model: total
-faces <= spec.TOTAL_BUDGET. Builds twice to prove builds are repeatable.
+faces <= spec.TOTAL_BUDGET. Builds twice to prove builds are repeatable, and once more in a
+second Blender process (--no-subprocess skips it): every mesh's vertex positions, face and
+loop order, materials and vertex-group weights must match exactly. A set of bmesh elements
+(hashed by address) or of strings (hashed per process) iterated while building geometry
+changes the vertex order from one process to the next, and with it every index-based
+result: weights, the PMX vertex order.
 Warnings only (no failure): ornaments seated on another part cutting into it (SEATED).
 """
 import argparse
+import hashlib
+import json
 import math
 import os
+import subprocess
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -72,6 +81,36 @@ def _evaluated_bmesh(o, keep=None):
     return bm
 
 
+def digests(cols):
+    """{object: sha1} over each mesh's vertex positions (0.1 um), loop vertices, face sizes,
+    materials and vertex-group weights."""
+    import numpy as np
+    out = {}
+    for col in cols.values():
+        for o in col.all_objects:
+            if o.type != 'MESH':
+                continue
+            me = o.data
+            h = hashlib.sha1()
+            co = np.empty(len(me.vertices) * 3)
+            me.vertices.foreach_get('co', co)
+            h.update(np.round(co * 1e7).astype(np.int64).tobytes())
+            for seq, prop in ((me.loops, 'vertex_index'), (me.polygons, 'loop_total'),
+                              (me.polygons, 'material_index')):
+                a = np.empty(len(seq), np.int32)
+                seq.foreach_get(prop, a)
+                h.update(a.tobytes())
+            h.update(repr([g.name for g in o.vertex_groups]).encode())
+            h.update(repr([(v.index, g.group, round(g.weight, 6))
+                           for v in me.vertices for g in v.groups]).encode())
+            out[o.name] = h.hexdigest()
+    return out
+
+
+def differing(a, b):
+    return sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))
+
+
 def seat_warnings(names):
     """SEATED ornaments whose keyed faces cross the part under them (face pairs)."""
     import bpy
@@ -101,20 +140,50 @@ def seat_warnings(names):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--parts', default='')
+    ap.add_argument('--no-subprocess', action='store_true', help='skip the second-process build')
+    ap.add_argument('--digest-out', default='', help=argparse.SUPPRESS)  # the second process
     args = ap.parse_args(sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else [])
     names = [p for p in args.parts.split(',') if p] or builder.available_parts()
+    if args.digest_out:
+        with open(args.digest_out, 'w') as f:
+            json.dump(digests(builder.build_all(names)), f)
+        sys.exit(0)
+
+    # the second process builds alongside this one
+    child = None
+    if not args.no_subprocess:
+        import bpy
+        tmp = tempfile.mkdtemp(prefix='levi_check_')
+        dig, log = os.path.join(tmp, 'digests.json'), os.path.join(tmp, 'child.log')
+        cmd = [bpy.app.binary_path, '-b', '-P', os.path.abspath(__file__), '--',
+               '--digest-out', dig] + (['--parts', args.parts] if args.parts else [])
+        child = subprocess.Popen(cmd, stdout=open(log, 'w'), stderr=subprocess.STDOUT)
 
     errors = []
     unknown = [n for n in names if n not in spec.BUDGET]
     for n in unknown:
         print(f'note: part {n} has no budget entry in spec.BUDGET')
 
-    counts = {}
+    counts, digs = {}, {}
     for attempt in (1, 2):
         cols = builder.build_all(names)
         counts[attempt] = {n: check_part(n, c, errors if attempt == 1 else []) for n, c in cols.items()}
+        digs[attempt] = digests(cols)
     if counts[1] != counts[2]:
         errors.append(f'build not repeatable: {counts[1]} vs {counts[2]}')
+    diff = differing(digs[1], digs[2])
+    if diff:
+        errors.append(f'build not repeatable (mesh order / positions / weights): {", ".join(diff)}')
+    if child is not None:
+        if child.wait() != 0 or not os.path.exists(dig):
+            errors.append(f'second-process build failed (exit {child.returncode}, log {log})')
+        else:
+            diff = differing(digs[2], json.load(open(dig)))
+            if diff:
+                errors.append('build differs in a second Blender process (mesh order / '
+                              f'positions / weights): {", ".join(diff)}')
+            else:
+                print(f'REPEAT {len(digs[2])} meshes identical in a second process')
 
     for w in seat_warnings(list(cols)):
         print('WARN', w)
