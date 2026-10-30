@@ -941,44 +941,81 @@ CUFF_TIERS = {
         (8.0, 24.6, 23.6),
         (1.0, 21.1, 19.1),
     ),
-    'under': (
-        (2.0, 19.9, 17.9),        # sewn just inside the upper tier's root
-        (11.0, 21.2, 20.4),
-        (18.0, 22.0, 22.0),       # nearly round, inside the upper tier's valleys ...
-        (21.5, 23.3, 23.4),
-        (24.0, 25.0, 25.2),
-        (26.2, 29.3, 29.6),       # ... opening out below its rim ...
-        (28.8, 33.2, 33.5),
-        (30.5, 34.8, 35.2),       # ... and hanging, ~2 px wider than the upper rim
-        (31.5, 34.7, 35.1),       # rolled rim
-        (31.8, 34.0, 34.4),
-        (31.4, 33.3, 33.7),
-        (29.4, 32.4, 32.8),       # the inner face back up
-        (25.8, 27.0, 27.3),
-        (19.5, 21.5, 21.6),
-        (10.0, 20.0, 19.0),
-        (2.6, 19.3, 17.3),
-    ),
+    'under': None,                # _offset_tier, below
 }
+
+
+def _offset_tier(outer, rim, inner):
+    """A tier's profile: its outer face (d, ra, rb), the stations round its rolled rim, and
+    the inner face back up at the outer face's own stations (inner: (d, px inside it)).
+    At one d both faces get the same flutes, turn, rise and hand flare (_cuff_rings), so
+    ring by ring the inner face is the outer one taken in radially: the two cannot cross
+    (inner rings at their own d's ran a chord across the bell's inward curve: the round-11
+    HD fix's under tier passed through itself, ~880 triangle pairs a side). Stations may be
+    skipped only where the outer face curves outward (there the chord runs inside it)."""
+    ds = [p[0] for p in outer]
+    ra = [p[1] for p in outer]
+    rb = [p[2] for p in outer]
+    return tuple(outer) + tuple(rim) + tuple(
+        (d, float(np.interp(d, ds, ra)) - t, float(np.interp(d, ds, rb)) - t) for d, t in inner)
+
+
+# The under tier: nearly round under the upper tier, then (HD verify, round 11) out of it
+# in a short rounded shoulder right below the upper rim and hanging along the centre line
+# to its own rim, ~1 px wider than the upper one and 2.7 px longer than before. It used to
+# keep opening to its rim (a skirt flaring ~50-70 deg off the centre line, plus 7 px more on
+# the hand side): seen edge-on its flutes ended in points, a fang hanging under the wrist
+# from above and tapered tongues from the palm side.
+CUFF_TIERS['under'] = _offset_tier(
+    ((2.0, 19.9, 17.9),           # sewn just inside the upper tier's root
+     (21.5, 23.0, 23.1),          # nearly round, inside the upper tier's valleys ...
+     (24.0, 24.8, 25.0),          # ... opening out below its rim in a short shoulder ...
+     (26.4, 28.8, 29.1),
+     (28.8, 32.3, 32.6),
+     (31.2, 33.5, 33.8),          # ... and hanging
+     (33.2, 33.9, 34.2)),
+    ((34.2, 33.8, 34.1),          # the rolled rim: a round bead
+     (34.5, 33.2, 33.5),
+     (34.2, 32.6, 32.9)),
+    ((33.2, 1.3), (28.8, 1.3), (26.4, 1.1), (24.0, 0.5), (21.5, 0.7), (2.0, 0.8)))
 # The under tier where the upper one covers it: its flutes this share deep (round enough
-# to keep CUFF_TIER_GAP inside the upper tier's valleys) up to the first d, full depth
-# past the second; meanwhile they turn half a flute round over CUFF_UNDER_SHIFT (d). Its
-# edge rolls in step with the upper tier's (roll_shift) and by d alone, not by that share,
-# so where the tiers overlap both roll alike and keep their gap.
-CUFF_UNDER_AMP = (0.12, 23.0, 28.0)
+# to keep CUFF_TIER_GAP inside the upper tier's valleys) up to the first d, the last share
+# deep past the second (a little shallower than the upper tier's: broader lobes); meanwhile
+# they turn half a flute round over CUFF_UNDER_SHIFT (d). Its edge rolls in step with the
+# upper tier's (roll_shift) and by d alone, not by that share, so where the tiers overlap
+# both roll alike and keep their gap.
+CUFF_UNDER_AMP = (0.12, 23.0, 28.8, 0.8)
+# ... and in its hanging part (from d0 to d1) its edge rolls this much more (a lobe seen
+# edge-on ends in a curl, not in a point: the palm side and from above, verify round 11),
+# with no outward turn of the crests (CUFF_CURL, which sharpened them): (curl share, roll
+# gain, d0, d1).
+CUFF_UNDER_FREE = (0.0, 2.0, 26.0, 31.0)
 CUFF_UNDER_SHIFT = (10.0, 19.0)
 # The hand rises toward the cuff's outer side (the knuckles, under the drooping centre
-# line): there the under tier's free part flares out by up to CUFF_UNDER_HAND px, over a
-# sector ((1 + cos th) / 2) ** power wide, growing in from d0 to d1, so it stands ~5 mm
-# clear of the hand at rest (round 11's first under tier lay 0.7 mm off it: a wrist flex or
-# a hand on the body pushed it in).
-CUFF_UNDER_HAND = (7.0, 22.5, 28.5, 3.0)   # (px out, d0, d1, power)
+# line): there the under tier opens out by CUFF_UNDER_HAND px (each term over a sector
+# ((1 + cos th) / 2) ** power wide, growing in from d0 to d1: a little under the upper tier,
+# as far as CUFF_TIER_GAP lets it, the rest in its shoulder, none in its hanging part) and
+# its hanging part is shorter (CUFF_UNDER_SHORT), so it stands ~4.6 mm clear of the hand at
+# rest (round 11's first under tier lay 0.7 mm off it: a wrist flex or a hand on the body
+# pushed it in). The HD fix flared its free part 7 px over a narrow sector (power 3) instead:
+# seen from above, the flute there stood out as a cone ending in a point (verify, round 11).
+CUFF_UNDER_HAND = ((1.6, 15.0, 23.0, 2.5), (3.2, 23.0, 29.0, 1.5))   # (px out, d0, d1, power) each
 # ... and both tiers by CUFF_HAND (the same sector, from d0 to d1), so the under tier keeps
 # its gap to the upper one there with that room (the bells' rims run along the centre line).
 # The sector is centred CUFF_HAND_AT (rad) round from the outer side toward the back, where
 # the hand's back comes closest.
-CUFF_HAND = (3.2, 8.0, 18.0)
+CUFF_HAND = (3.2, 8.0, 18.0, 3.0)   # (px out, d0, d1, power)
+# The back of the hand rises toward the under tier's hanging part there: past d = first (px)
+# that part is this share shorter at the hand (a hem curving up over it, by the sector
+# weight ** power), rather than flared out (a brim: from above, a flute pulled into a fang).
+CUFF_UNDER_SHORT = (28.0, 0.65, 2.0)
 CUFF_HAND_AT = 0.5
+# The under tier is this much narrower (px) over a sector centred `at` (rad, the front of
+# the inner side) from d0 to d1 and past it: the side toward which the hand flexes. Its
+# free part takes more of the hand (手首) than the upper rim above it, and a wrist flex
+# brought its shoulder into the upper rim there (wrist_twist_pos / _neg: 148 / 56 tier x
+# tier triangle pairs; 32 / 0 with this, the HD fix 84 / 32). (px in, at, power, d0, d1)
+CUFF_UNDER_FLEX = (1.2, 4.0, 2.0, 21.5, 24.0)
 CUFF_TIER_GAP = (1.8, 8.0, 0.5)   # px kept between the tiers over the upper rim's last px (second), elsewhere (third)
 CUFF_OUTLINE_MIN = 0.35       # outline width factor where the under tier lies under the upper one
 
@@ -996,9 +1033,49 @@ def _cuff_rim():
     return max(p[0] for p in CUFF_TIERS['upper'])
 
 
-def _cuff_rings(tier, k=1.0):
-    """Rings of one tier of the cuff; k scales its flutes (the soft shading surface)."""
+def _cuff_ring(tier, d, ra, rb, k, ths, dmax):
+    """One ring of a tier at d (px) along the centre line (see _cuff_rings), and the
+    hand-side sector weight of its vertices ((1 + cos) / 2 round CUFF_HAND_AT, with the turn)."""
     c0, axis, droop, mid = _cuff_frame()
+    t = d / CUFF_PATH
+    f = axis.lerp(droop, t).normalized()
+    m, rot = 1.0, 0.0
+    if tier == 'under':
+        lo, d0, d1, hi = CUFF_UNDER_AMP
+        m = lo + (hi - lo) * _smooth(d0, d1, d)
+        rot = (math.pi / CUFF_LOBES) * _smooth(*CUFF_UNDER_SHIFT, d)
+    shift = rot
+    rot += CUFF_TWIST * _smooth(0.0, CUFF_TWIST_D, d)
+    # the hand side's flare, by where each vertex lands round the ring (with the turn)
+    near = (1.0 + np.cos(np.array(ths) + rot - CUFF_HAND_AT)) / 2.0
+    out = near ** CUFF_HAND[3] * (CUFF_HAND[0] * _smooth(*CUFF_HAND[1:3], d))
+    if tier == 'under':
+        for o, d0, d1, pw in CUFF_UNDER_HAND:
+            out = out + near ** pw * (o * _smooth(d0, d1, d))
+        o, at, pw, d0, d1 = CUFF_UNDER_FLEX
+        flex = (1.0 + np.cos(np.array(ths) + rot - at)) / 2.0
+        out = out - flex ** pw * (o * _smooth(d0, d1, d))
+    girth = 1.0 + out / min(ra, rb)
+    c = c0 + mid * px(d)
+    a0 = min(1.0, d / CUFF_AMP_D) ** CUFF_AMP_POW
+    a = a0 * m
+    curl = CUFF_CURL * _smooth((1.0 - CUFF_CURL_FROM) * dmax, dmax, d) * m
+    roll = CUFF_ROLL * a0
+    if tier == 'under':
+        curl *= CUFF_UNDER_FREE[0]
+        roll *= 1.0 + (CUFF_UNDER_FREE[1] - 1.0) * _smooth(*CUFF_UNDER_FREE[2:], d)
+    ring = _frill_ring(c, _perp_xz(f), px(ra), px(rb), CUFF_N, CUFF_LOBES,
+                       k * CUFF_AMP * a, f, px(k * CUFF_LIFT * a),
+                       math.pi / CUFF_LOBES, CUFF_IRR, CUFF_PINCH,
+                       k * curl, girth=girth, rnd=k * CUFF_ROUND * a, ths=ths, rot=rot,
+                       roll=px(k * roll), roll_shift=shift)
+    return ring, near
+
+
+def _cuff_rings(tier, k=1.0):
+    """Rings of one tier of the cuff; k scales its flutes (the soft shading surface).
+    The under tier's hanging part is shorter on the hand side (CUFF_UNDER_SHORT): each vertex
+    there blends its ring with the ring at the shortened d."""
     prof = CUFF_TIERS[tier]
     dmax = max(p[0] for p in prof)
     # both tiers space their vertices alike, evenly along a full-depth flute ring (_even_params)
@@ -1006,30 +1083,13 @@ def _cuff_rings(tier, k=1.0):
                        CUFF_CURL, CUFF_ROUND)
     rings = []
     for d, ra, rb in prof:
-        t = d / CUFF_PATH
-        f = axis.lerp(droop, t).normalized()
-        m, rot = 1.0, 0.0
-        if tier == 'under':
-            lo, d0, d1 = CUFF_UNDER_AMP
-            m = lo + (1.0 - lo) * _smooth(d0, d1, d)
-            rot = (math.pi / CUFF_LOBES) * _smooth(*CUFF_UNDER_SHIFT, d)
-        shift = rot
-        rot += CUFF_TWIST * _smooth(0.0, CUFF_TWIST_D, d)
-        # the hand side's flare, by where each vertex lands round the ring (with the turn)
-        hand = ((1.0 + np.cos(np.array(ths) + rot - CUFF_HAND_AT)) / 2.0) ** CUFF_UNDER_HAND[3]
-        out = CUFF_HAND[0] * _smooth(*CUFF_HAND[1:], d)
-        if tier == 'under':
-            out += CUFF_UNDER_HAND[0] * _smooth(*CUFF_UNDER_HAND[1:3], d)
-        girth = 1.0 + hand * (out / min(ra, rb))
-        c = c0 + mid * px(d)
-        a0 = min(1.0, d / CUFF_AMP_D) ** CUFF_AMP_POW
-        a = a0 * m
-        curl = CUFF_CURL * _smooth((1.0 - CUFF_CURL_FROM) * dmax, dmax, d) * m
-        rings.append(_frill_ring(c, _perp_xz(f), px(ra), px(rb), CUFF_N, CUFF_LOBES,
-                                 k * CUFF_AMP * a, f, px(k * CUFF_LIFT * a),
-                                 math.pi / CUFF_LOBES, CUFF_IRR, CUFF_PINCH,
-                                 k * curl, girth=girth, rnd=k * CUFF_ROUND * a, ths=ths, rot=rot,
-                                 roll=px(k * CUFF_ROLL * a0), roll_shift=shift))
+        ring, near = _cuff_ring(tier, d, ra, rb, k, ths, dmax)
+        h0, cut, pw = CUFF_UNDER_SHORT
+        if tier == 'under' and d > h0:
+            short, _ = _cuff_ring(tier, h0 + (d - h0) * (1.0 - cut), ra, rb, k, ths, dmax)
+            w = near ** pw
+            ring = [p.lerp(q, float(x)) for p, q, x in zip(ring, short, w)]
+        rings.append(ring)
     return rings
 
 
@@ -1071,6 +1131,15 @@ def _cuff_clearance():
             gap = min(gap, g)
     cross = len(bvh.overlap(tree(under)))
     return gap_rim, gap, cross
+
+
+def _cuff_self_overlap(tier):
+    """Triangle pairs of one tier (one side) that intersect without sharing a vertex: its
+    outer and inner faces passing through each other (target 0)."""
+    verts, quads = _rings_poly(_cuff_rings(tier))
+    tris = [t for a, b, c, e in quads for t in ((a, b, c), (a, c, e))]
+    bvh = BVHTree.FromPolygons(verts, tris, all_triangles=True)
+    return sum(1 for i, j in bvh.overlap(bvh) if i < j and not set(tris[i]) & set(tris[j]))
 
 
 def _rings_poly(rings):
@@ -1528,10 +1597,12 @@ def build(col):
               + _tails(knot_b, bvh, front=False))
 
     gap_rim, gap, cross = _cuff_clearance()
+    selfx = {t: _cuff_self_overlap(t) for t in CUFF_TIERS}
     print(f'SLEEVES cuff tiers: smallest gap under -> upper {gap_rim / px(1.0):.2f} px by the upper rim, '
-          f'{gap / px(1.0):.2f} px above; {cross} intersecting triangle pairs')
+          f'{gap / px(1.0):.2f} px above; {cross} intersecting triangle pairs; self-intersecting pairs {selfx}')
     assert gap_rim >= px(CUFF_TIER_GAP[0]) and gap >= px(CUFF_TIER_GAP[2]) and not cross, \
         ('sleeves: the cuff\'s under tier comes too close to the upper one', gap_rim, gap, cross)
+    assert not any(selfx.values()), ('sleeves: a cuff tier passes through itself', selfx)
 
     # the lip and the facing (the last 2 rings, after the top ring and the RING_COUNT
     # rings ending at the hem) keep their own normals; the hem ring itself shades with
