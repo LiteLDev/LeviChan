@@ -4345,6 +4345,19 @@ CHOKER_BINS = 72         # stations round the choker loop at which the skin is s
 CHOKER_SMOOTH = 12.0     # deg: smoothing of the sampled weights round the loop
 HALTER_REACH = (0.02, 0.06)   # m off the skin: the halter takes the skin's weights within this
 HALTER_SMOOTH = 0.008    # m: surface smoothing of the halter's sampled weights
+# Round 11: the halter's straps end tucked under the bodice's top rim, and its X strands end
+# on the straps. With the skin's weights the tucked ends took the clavicle (肩), which the
+# bodice over them does not have (its four largest bones after a 3.5 cm smoothing), so a
+# raised arm drew them out from under the rim (19-23 of 37 tucked vertices uncovered in
+# hands_behind_head, dance_heart, idol_dance@48); and the X strands, smoothed along their own
+# cord, came up to 4.4 mm off the strap they end on. The part marks both with point
+# attributes (named by obj['levi_cord_ride'] / obj['levi_cord_join']): the tucked ends take
+# the bodice's own weights (HALTER_RIDE_PART is skinned first, SKIN_LATE), and each strand's
+# end takes the strap's weights at its pin (obj['levi_cord_pins'], on the strap's centre line).
+HALTER_RIDE_PART = 'bodice'
+HALTER_RIDE_K = 8        # nearest bodice vertices averaged (inverse distance, softened by SKIN_SOFT)
+HALTER_PIN_PICK = 0.0025  # m: strap vertices this close to a pin give the strap's weights there
+SKIN_LATE = ('accessories',)   # parts skinned after the other garments (the halter reads the bodice)
 
 
 def _choker_skin(co, bones):
@@ -4392,12 +4405,91 @@ def _choker_skin(co, bones):
     return out / out.sum(1, keepdims=True)
 
 
-def _neck_cord_weights(kind, w, co, bones, edges=None):
+def _part_skin(part, skip=()):
+    """(points (N, 3), bone names, weights (N, B)) of the skinned meshes of `part` (its
+    collection; object-name prefixes `skip` left out), or None if none is skinned yet."""
+    col = bpy.data.collections.get(part)
+    if col is None:
+        return None
+    pts, rows, names = [], [], {}
+    for o in sorted(col.all_objects, key=lambda o: o.name):
+        mine = set(o.get('levi_rig_groups', []))
+        if o.type != 'MESH' or not mine or o.name.startswith(tuple(skip)) or not len(o.data.vertices):
+            continue
+        gn = {g.index: g.name for g in o.vertex_groups if g.name in mine}
+        for v in o.data.vertices:
+            rows.append([(names.setdefault(gn[g.group], len(names)), g.weight) for g in v.groups if g.group in gn])
+        pts.append(_world_verts([o]))
+    if not pts:
+        return None
+    W = np.zeros((sum(len(p) for p in pts), len(names)))
+    for i, r in enumerate(rows):
+        for c, wv in r:
+            W[i, c] = wv
+    return np.concatenate(pts), sorted(names, key=names.get), W
+
+
+def _halter_ride(obj, sk, co, bones):
+    """`sk` blended toward the bodice's own weights by the part's ride share (1 on the strap
+    ends tucked under the rim): inverse-distance over the HALTER_RIDE_K nearest bodice
+    vertices (its ornaments that keep their own skin sample, BODICE_RIDE, left out)."""
+    r = _point_param(obj, co, 'levi_cord_ride')
+    if r is None or not (r > 0).any():
+        return sk
+    host = _part_skin(HALTER_RIDE_PART, skip=BODICE_RIDE)
+    if host is None:
+        print(f'rig: WARNING {obj.name}: no skinned {HALTER_RIDE_PART}; the tucked cord ends keep the skin weights')
+        return sk
+    hco, names, hw = host
+    col = {b.name: i for i, b in enumerate(bones)}
+    m = np.zeros((len(names), len(bones)))
+    for k, n in enumerate(names):
+        if n in col:
+            m[k, col[n]] = 1.0
+    tree = _kd(hco)
+    rows = np.nonzero(r > 0)[0]
+    out = sk.copy()
+    for v in rows:
+        found = tree.find_n(co[v], HALTER_RIDE_K)
+        wt = np.array([1.0 / (d + SKIN_SOFT) for _, _, d in found])
+        bw = (wt @ hw[[j for _, j, _ in found]]) @ m
+        tot = bw.sum()
+        if tot < 0.5:      # the bodice there is on bones the halter may not take
+            continue
+        out[v] = sk[v] * (1.0 - r[v]) + bw / tot * r[v]
+    return out
+
+
+def _halter_joins(obj, sk, co):
+    """Each X-strand vertex blended toward the strap's weights at its nearest pin by the
+    part's join share (1 at the pin): the strand's end moves with the strap it ends on."""
+    j = _point_param(obj, co, 'levi_cord_join')
+    pins = obj.get('levi_cord_pins')
+    if j is None or not pins or not (j > 0).any():
+        return sk
+    mw = np.array(obj.matrix_world)
+    P = np.array(pins, dtype=float).reshape(-1, 3) @ mw[:3, :3].T + mw[:3, 3]
+    d = np.linalg.norm(co[:, None, :] - P[None], axis=2)
+    near = d.argmin(1)
+    out = sk.copy()
+    for k in range(len(P)):
+        pick = (j <= 0) & (d[:, k] < HALTER_PIN_PICK)
+        if not pick.any():
+            print(f'rig: WARNING {obj.name}: no strap vertex within {HALTER_PIN_PICK * 1000:.1f} mm of pin {k}')
+            continue
+        wp = sk[pick].mean(0)
+        m = (j > 0) & (near == k)
+        out[m] = sk[m] * (1.0 - j[m, None]) + wp[None] * j[m, None]
+    return out
+
+
+def _neck_cord_weights(kind, w, co, bones, edges=None, obj=None):
     """The choker rides the neck skin (_choker_skin; without a skinned body: 首, with a
     little 上半身2 at its lower edge). The halter cords run from the choker over the shoulder
     slope to the bodice and take the weights of the skin under them (HALTER_REACH), so
     they stay on the neck and the shoulder slope as they move (without a skinned body: 首
-    at the choker end, the smoothed envelope weights below)."""
+    at the choker end, the smoothed envelope weights below); with `obj`, its tucked ends
+    ride the bodice and its X strands' ends the straps (_halter_ride, _halter_joins)."""
     col = {b.name: i for i, b in enumerate(bones)}
     neck, chest, head = col.get('首'), col.get('上半身2'), col.get('頭')
     if neck is None or chest is None or head is None:
@@ -4421,6 +4513,9 @@ def _neck_cord_weights(kind, w, co, bones, edges=None):
             # than its girth, so the section cannot shear
             if edges is not None:
                 sk = _smooth(sk, co, edges, HALTER_SMOOTH)
+            sk = sk / np.maximum(sk.sum(1, keepdims=True), 1e-12)
+            if obj is not None:
+                sk = _halter_joins(obj, _halter_ride(obj, sk, co, bones), co)
             return sk / np.maximum(sk.sum(1, keepdims=True), 1e-12)
     out = np.zeros_like(w)
     if kind == 'choker':
@@ -4557,7 +4652,7 @@ def _weights(obj, part, co, bones):
     if part in CROTCH_PARTS and ARM_CAP:
         w = _arm_cap(w, co, bones)
     if cord:
-        w = _neck_cord_weights(cord, w, co, bones, edges)
+        w = _neck_cord_weights(cord, w, co, bones, edges, obj)
     elif part == 'bodice' and SKIN_FOLLOW and _SKIN is not None and obj.name.startswith(BODICE_RIDE):
         pass    # the shell's own per-point weights (skin sample, arm cap): no rigid island
     elif _skin_ornament(obj, part):
@@ -4572,6 +4667,8 @@ def _weights(obj, part, co, bones):
     guide = _smooth(w, co, edges, PRUNE_SMOOTH) if PRUNE_SMOOTH > 0 and radius > 0 else None
     if guide is not None and part in SHELL_PARTS:
         guide = _shell_share(guide, co, bones)
+    if guide is not None and cord == 'halter':
+        guide = _halter_joins(obj, guide, co)    # a strand's end keeps the strap's bones at its pin
     return _prune(w, bones, guide, co)
 
 
@@ -5612,7 +5709,8 @@ def build_rig():
     _ATTACH_HOST = np.concatenate(host) if host else np.zeros((0, 3))
     global _SKIN
     _SKIN = None
-    order = sorted(parts, key=lambda n: n not in ('body', '_proxy'))   # the skin first: garments sample it
+    # the skin first (garments sample it); SKIN_LATE parts after the garments they read
+    order = sorted(parts, key=lambda n: (n not in ('body', '_proxy'), n in SKIN_LATE))
     for part in order:
         for o in parts[part]:
             if o.parent is None:

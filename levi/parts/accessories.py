@@ -23,12 +23,12 @@ from mathutils.interpolate import poly_3d_calc
 from .. import spec
 from ..common import GRAD_ATTR, add_outline, new_object, shade_smooth, toon_material
 # Data / pure functions only (CLAUDE.md "Part rules"): body.build_torso rebuilds
-# the torso surface from body's tables into a private bmesh, bodice's profile /
-# neckline functions give the rim the straps tuck under, and head's neck table
-# (neck_at, HEAD_DX, NECK_END) the top of the neck the choker also rests on.
+# the torso surface from body's tables into a private bmesh (the neck the choker
+# rests on, the chest the cords lie on), and bodice's profile / neckline functions
+# give the rim the straps tuck under. No head data: round 11's head tucks its neck
+# inside the body's, so the body's neck is the outer skin under the choker.
 from . import bodice as _bodice
 from . import body as _body
-from . import head as _head
 
 PX = 1.0 / spec.PX_PER_M
 
@@ -107,14 +107,21 @@ PETAL_S0 = 0.1        # petals start this far out (under the centre cushion)
 PETAL_NS = 13         # stations along a petal (incl. the base and tip points; round 10: 9)
 PETAL_NV = 7          # samples across the top surface (round 10: 5, a polygonal rim)
 # Flower centre: a cushion CENTRE_R (share of the flower radius) across, its widest
-# ring CENTRE_EQ above the petal plane (clear of the petals' raised edges, so the
-# outline hugs it) and CENTRE_HALF high either side; its top stands as proud as
-# round 10's dome (~3.3 mm).
-CENTRE_R = 0.3
-CENTRE_EQ = 0.0019
+# ring CENTRE_EQ above the petal plane and CENTRE_HALF high either side
+# (CENTRE_LATS), with no outline of its own (CENTRE_LINE of the flower's): the
+# sheet paints a small soft yellow dot (~0.23 of the radius) with no ring. An
+# inverted hull round a dome sitting among the petals cannot draw a clean ring: its
+# visible part lies below the dome's widest ring, among the petals' raised inner
+# edges, so a petal sliver showed between the fill and the line (round 11's first
+# build: a 1 mm ring with a sliver from 1 to 6 o'clock; a 0.5 mm line on a drum
+# below the equator stood off the fill as a hairline).
+CENTRE_R = 0.25
+CENTRE_EQ = 0.0016
 CENTRE_HALF = 0.0013
 CENTRE_SEG = 20
 CENTRE_LATS = (67.5, 45.0, 22.5, 0.0, -30.0, -60.0)   # ring latitudes, top to underside
+CENTRE_LINE = 0.0
+FLOWER_LINE = 0.0010   # the petals' outline: lighter than the default (no dark rim when it turns away)
 
 # Choker: tilted elliptical loop (front lower than back). The loop below is
 # only the initial guess (centre y -31, rows 166-178): every point is refitted
@@ -135,8 +142,6 @@ CORD_SIDES = 6
 CORD_PER_BEAD = 4     # cord rings per bead pitch
 CHOKER_LOOP_SAMPLES = 16   # fitted loop points per bead pitch (the beads are spaced by arc length)
 CHOKER_GAP = 0.0002   # skin -> bead inside (m)
-HEAD_NECK_MARGIN = 0.4    # px added to the head's neck table (its blurred mesh stands ~0.3 px proud of it)
-HEAD_NECK_FADE = 1.5      # px over which the head's neck stops counting below its open end
 CHOKER_FIT_STEP = 2 * math.pi / 80   # angle between the 5 neck samples averaged per point
 CHOKER_LINE = 0.0008  # outline width: a fine vine, not a serrated band
 
@@ -152,7 +157,7 @@ CHOKER_LINE = 0.0008  # outline width: a fine vine, not a serrated band
 STRAP_BEAD = 4
 STRAP = ((17.6, -27.5, 178.5), (20.5, -33, 183), (22.6, -42.5, 187), (24, -48, 191.5),
          (26.3, -48.3, 197), (31.3, -52.4, 210), (36.3, -57.1, 222), (41, -58.9, 233),
-         (45, -59.2, 243))
+         (45, -59.2, 243), (49, -59.5, 253))
 # X strand: branches off the left strap at the upper chest (between STRAP[3]
 # and STRAP[4]) and
 # runs straight (in the front view) to the right strap near the bodice top.
@@ -195,11 +200,27 @@ STRING_TAPER = 0.0025
 # rides on top of it, both along the surface normal, fading out over CROSS_SIGMA.
 CROSS_UNDER_GAP = 0.0002
 CROSS_SIGMA = 12.0      # px
-# Lower ends: the straps stop BODICE_TUCK px below the bodice neckline and settle
-# onto the skin over the last TUCK_FADE px above it, so they slide in under the rim.
+# Lower ends: the straps settle onto the skin over the TUCK_FADE px above the bodice
+# neckline (down to BODICE_TUCK px below it), so they slide in under the rim, and end
+# STRAP_UNDER px below it. The bodice's real rim runs ~2 px below bodice.neck_row_t
+# there, so round 11's first build (ending 3 px below) had only its last two rings
+# under the bodice (~2 mm of it); 8 px puts ~1 cm under it, where the bodice stands
+# 6-8 mm off the skin (the cord needs 3.6 mm).
 BODICE_TUCK = 3.0
+STRAP_UNDER = 8.0
 TUCK_FADE = 10.0
 STRING_TUCK_GAP = 0.0008
+# Skinning marks for the rig (rig._halter_ride / _halter_joins, point attributes named by
+# obj['levi_cord_ride'] / obj['levi_cord_join']). With the skin's weights the tucked strap
+# ends took some of the clavicle bone, which the bodice over them does not, and a raised arm drew
+# them out from under the rim; the X strands, smoothed along their own cord, came up to
+# 4.4 mm off the strap they end on. So:
+# * ride: share of the bodice's own weights, 1 from the rim down (the tucked end moves with
+#   the rim), fading out over RIDE_FADE px above it;
+# * join: share of the strap's weights at the strand's pin (obj['levi_cord_pins'], the end
+#   points on the strap's centre line), 1 at the pin, 0 JOIN_SPAN along the strand.
+RIDE_FADE = 10.0
+JOIN_SPAN = 0.015
 VEIN_R = 0.00055
 PETIOLE_R = 0.0009      # leaf stalk radius where it leaves the hair
 PETIOLE_IN = 2.5        # px the stalk starts inside the hair, behind the blade base
@@ -223,11 +244,17 @@ def _catmull(points, per_seg):
     return out
 
 
-def _write_grad(obj, values):
+def _write_point(obj, name, values):
+    """Float point attribute `name` (values clamped to 0..1, one per vertex)."""
     me = obj.data
-    attr = me.attributes.get(GRAD_ATTR) or me.attributes.new(GRAD_ATTR, 'FLOAT', 'POINT')
-    for i, v in enumerate(values):
-        attr.data[i].value = max(0.0, min(1.0, v))
+    if len(values) != len(me.vertices):
+        raise ValueError(f'{obj.name}: {len(values)} values for {len(me.vertices)} vertices ({name})')
+    attr = me.attributes.get(name) or me.attributes.new(name, 'FLOAT', 'POINT')
+    attr.data.foreach_set('value', [max(0.0, min(1.0, v)) for v in values])
+
+
+def _write_grad(obj, values):
+    _write_point(obj, GRAD_ATTR, values)
 
 
 def _leaf(bm, grads, base, tip, wdir, width, face, fold, bend, curl, twist, arch):
@@ -364,8 +391,7 @@ def _cushion(bm, center, normal, radius, half, depth, seg=CENTRE_SEG):
     """Closed flower centre: an oblate cushion (an ellipsoid, `radius` across,
     `half` high either side of its widest ring at `center`), whose underside runs
     on into a concealed stalk ending `depth` below `center`. Round 10's dome was
-    12-sided and widest at its foot, among the petals' raised edges, which showed
-    a sliver of petal between the dome and its outline."""
+    12-sided and widest at its foot, among the petals' raised edges."""
     a, b = _basis(normal)
     rings = []
     for lat in CENTRE_LATS:
@@ -465,17 +491,22 @@ def _build_side(col, sx):
     c = c0 + nrm * FLOWER_LIFT
     bm = bmesh.new()
     _flower(bm, c, nrm, FLOWER['radius'])
-    npet = len(bm.faces)
+    npet, nvp = len(bm.faces), len(bm.verts)
     dc = c + nrm * CENTRE_EQ
     _cushion(bm, dc, nrm, FLOWER['radius'] * PX * CENTRE_R, CENTRE_HALF,
              depth=(dc - c0).dot(nrm) + FLOWER_MOUNT)
     for i, f in enumerate(bm.faces):
         f.material_index = 0 if i < npet else 1
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    nv = len(bm.verts)
     flower = new_object(col, f'acc_flower_{tag}', bm,
                         [toon_material('flower'), toon_material('flower_center')])
     shade_smooth(flower, 50)
-    add_outline(flower, width=0.0010)   # a lighter line: no dark rim when it turns away
+    # the petals take the full line, the centre CENTRE_LINE of it (none: a soft dot)
+    vg = flower.vertex_groups.new(name='flower_line')
+    vg.add(list(range(nvp)), 1.0, 'REPLACE')
+    vg.add(list(range(nvp, nv)), 0.0, 'REPLACE')
+    add_outline(flower, width=FLOWER_LINE, vertex_group='flower_line', min_factor=CENTRE_LINE)
 
 
 def _choker_ring(theta):
@@ -548,34 +579,14 @@ def _bead_theta(k):
     return math.pi / 2 - 2 * math.pi * k / CHOKER_BEADS
 
 
-def _head_neck_radial(axis, d, row):
-    """(distance from `axis` along horizontal unit `d` to the head's neck at `row`
-    (head.neck_at: an ellipse, shifted HEAD_DX like the head), weight): the weight
-    fades out below the neck's open end (head.NECK_END) once a bead centred on
-    `row` no longer reaches up to it. The head's neck ends inside the
-    body's on the right but stands up to ~3 px proud of it on the left (HEAD_DX),
-    where round 10's choker, fitted to the body alone, sank 2-4 mm into it."""
-    # a bead whose top reaches above the neck's open end rests against it
-    top = _head.NECK_END + BEAD_R / PX
-    w = _body.smoothstep(top + HEAD_NECK_FADE, top, row)
-    if w <= 0.0:
-        return 0.0, 0.0
-    f, b, hw = _head.neck_at(row)
-    cx, cy = _head.HEAD_DX, ((f + b) / 2 - spec.PANEL_W / 2) * PX
-    a, bb = (hw + HEAD_NECK_MARGIN) * PX, ((b - f) / 2 + HEAD_NECK_MARGIN) * PX
-    ox, oy = (axis.x - cx) / a, (axis.y - cy) / bb
-    dx, dy = d.x / a, d.y / bb
-    qa, qb, qc = dx * dx + dy * dy, 2 * (ox * dx + oy * dy), ox * ox + oy * oy - 1.0
-    disc = qb * qb - 4 * qa * qc
-    if qa <= 0.0 or disc < 0.0:
-        return 0.0, 0.0
-    return max((-qb + math.sqrt(disc)) / (2 * qa), 0.0), w
-
-
 def _choker_point(skin, theta):
     """Choker centre-loop point at `theta`, refitted to the neck: along the
     loop's horizontal radius from the neck axis, (bead radius + gap) outside the
-    skin. Averaged over a few neighbouring angles so neck facets don't ripple it."""
+    body's neck. Averaged over a few neighbouring angles so neck facets don't
+    ripple it. (The first round-11 build also rested it on round 10's head neck
+    table, head.neck_at shifted HEAD_DX, which stood ~3 px proud of the body's
+    neck on the left; round 11's head tucks its neck inside the body's, and with
+    it the table left the left beads 2-5 mm off the skin.)"""
     ch = CHOKER
     x, y, row = _choker_ring(theta)
     p = P(x, y, row)
@@ -588,8 +599,7 @@ def _choker_point(skin, theta):
         d = Vector((xk * PX, yk * PX - axis.y, 0.0)).normalized()
         r = skin.radial(axis, d)
         if r is not None:
-            rh, w = _head_neck_radial(axis, d, row)
-            rs.append(r + w * max(0.0, rh - r))
+            rs.append(r)
     d = Vector((p.x - axis.x, p.y - axis.y, 0.0)).normalized()
     if not rs:
         print(f'WARNING accessories: choker theta {theta:.3f} missed the neck; unfitted point kept')
@@ -651,8 +661,8 @@ def _loop_at(loop, f):
 
 def _choker(col, loop):
     """Beads at equal steps of arc length round the fitted loop (its radius about
-    the neck axis runs from ~13 px at the front to ~16 px on the left, over the
-    head's neck: equal angles would space them unevenly)."""
+    the neck axis changes round the neck: equal angles would space them
+    unevenly)."""
     ch = CHOKER
     centre = P(*ch['center'])
     bm = bmesh.new()
@@ -686,17 +696,17 @@ def _row(p):
 
 def _tucked(path):
     """Cut a (fitted) path of world points running down where it is
-    BODICE_TUCK px below the neckline."""
+    STRAP_UNDER px below the neckline."""
     for i in range(1, len(path)):
         a, b = path[i - 1], path[i]
-        da = _row(a) - _rim_row(a.x) - BODICE_TUCK
-        db = _row(b) - _rim_row(b.x) - BODICE_TUCK
+        da = _row(a) - _rim_row(a.x) - STRAP_UNDER
+        db = _row(b) - _rim_row(b.x) - STRAP_UNDER
         if da < 0 <= db:
             lo, hi = 0.0, 1.0
             for _ in range(30):
                 m = (lo + hi) / 2
                 q = a.lerp(b, m)
-                if _row(q) - _rim_row(q.x) - BODICE_TUCK < 0:
+                if _row(q) - _rim_row(q.x) - STRAP_UNDER < 0:
                     lo = m
                 else:
                     hi = m
@@ -863,14 +873,18 @@ def _strings(col, skin, loop, cage):
     (_choker_loop), whose beads the straps leave."""
     bm = bmesh.new()
     straps = {}
+    ride, join, pins = [], [], []      # per vertex in build order (STRING_SIDES per ring)
     for sx in (1, -1):
         # the strap starts inside a choker bead (STRAP_BEAD) on the side-back
         f = STRAP_BEAD / CHOKER_BEADS
         start = _loop_at(loop, f if sx > 0 else 1.0 - f)[0]
         strap = _catmull([start] + [_mirror(P(*p), sx) for p in STRAP], STRING_PER_SEG)
-        # fitted first, then cut, so the end lands BODICE_TUCK px under the rim
+        # fitted first, then cut, so the end lands STRAP_UNDER px under the rim
         straps[sx] = _tucked(_fit_string(skin, strap, first=start, floor=cage))
         _tube(bm, straps[sx], _string_radii(straps[sx], False), STRING_SIDES)
+        for p in straps[sx]:
+            ride += [_body.smoothstep(-RIDE_FADE, 0.0, _row(p) - _rim_row(p.x))] * STRING_SIDES
+            join += [0.0] * STRING_SIDES
     for sx in (1, -1):
         # an X strand runs from this side's strap to the other's; the character-left
         # strand passes over the other one where they cross
@@ -881,10 +895,21 @@ def _strings(col, skin, loop, cage):
         path = _fit_string(skin, _catmull([a] + c[1:-1] + [b], STRING_PER_SEG), cs, first=a, last=b,
                            floor=cage)
         _tube(bm, path, _string_radii(path, True), STRING_SIDES)
+        pins += [a, b]
+        s = _arclen(path)
+        for si in s:
+            ride += [0.0] * STRING_SIDES
+            join += [max(_body.smoothstep(JOIN_SPAN, 0.0, si),
+                         _body.smoothstep(JOIN_SPAN, 0.0, s[-1] - si))] * STRING_SIDES
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     obj = new_object(col, 'acc_halter', bm, [toon_material('green')])
     shade_smooth(obj, 80)
     obj['levi_cast_shadow'] = False
+    _write_point(obj, 'cord_ride', ride)
+    _write_point(obj, 'cord_join', join)
+    obj['levi_cord_ride'] = 'cord_ride'
+    obj['levi_cord_join'] = 'cord_join'
+    obj['levi_cord_pins'] = [c for p in pins for c in p]
     add_outline(obj, width=STRING_LINE)
 
 
