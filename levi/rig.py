@@ -2019,31 +2019,36 @@ HAIR_CAPSULE_FADE = (0.1, 0.45)
 # push hit its cap and swung about it (a 57 mm pop in idol_dance as the arm went up past
 # the face); this way the push stays under ~0.15 of the radius and below the cap.
 HAIR_CAPSULE_FADE_BY = {'hair_cheek': (0.5, 1.0)}
-# Round 11: the shoulder cap's push on the long lock, the curl and the side curtain is soft.
-# With the hard push (the probe put on the capsule, at most the turn cap) the arm swinging past
-# them in idol_dance flicked them in a frame: a push held at its cap while the shoulder sank
-# 3 cm into the lock fell to nothing in one frame as it left (the long lock's tip, 49 mm at
-# @18), and the axis passing within 1 cm of a curl's unpushed point turned its full push round
-# in two frames (the curls, 45 mm at @6 / @52; round 10: 21 / 8 mm with the same capsules).
-#   - The push of depth x is k (1 - exp(-x / k)), k = HAIR_CAPSULE_SOFT_CAP of the probe's turn
-#     cap: x for a shallow contact (the rest pose and a lock resting on the shoulder are as
-#     before), saturating without a corner, so a deep push leaves gradually.
-#   - Curl and curtain: the push fades out as the unpushed point nears the axis over the wider
-#     HAIR_CAPSULE_SOFT_FADE (x the radius; HAIR_CAPSULE_FADE is 0.1-0.45), so it turns round
-#     only while it is small.
-#   - The long lock: the push keeps the side of the arm it lies on at rest. Its centre is not
-#     the axis point but HAIR_CAPSULE_PLANE (m) beyond it, away from the probe's rest offset in
-#     the arm bone's frame, so near the cap the push is almost along that offset and never
-#     turns round. (With the arm raised forward in jump_tuck the lock now lies on the frill
-#     side it came from: 2 x 119 -> 2 x 55 mm of crossing curve.)
-# Measured on r11/integrate's rig (idol_dance per-object pops, mm): lock 49 / 35 -> 16 / 13,
-# curls 45 / 45 -> 12 / 7. A softer onset (smoothstep of the depth) or the plane push on the
-# curls too left the curls in the sleeve's frill in a dozen poses (arms_forward, squat,
-# cross_legged: none -> 100-500 crossing pairs); the plane push alone kept the pops.
-HAIR_CAPSULE_SOFT = {'hair_lock': 'plane', 'hair_curl': 'fade', 'hair_curtain': 'fade'}
+# Round 11: the shoulder cap flicks the side locks. With the hard push (the probe put on the
+# capsule, at most the turn cap) the arm swinging past them in idol_dance moves them within a
+# frame: the long lock's mid probe held at its cap (11.7 mm) while the shoulder sank 3 cm into
+# it fell to nothing in one frame as the shoulder left (a 49 mm pop at its tip, @18), and the
+# axis passing within 1 cm of a curl's unpushed point turned its full push round in two frames
+# (the curls, 45 mm at @6 / @52; round 10: 21 / 8 mm with the same capsules, one frame slower).
+# HAIR_CAPSULE_SOFT makes the push of the given side-lock families soft on the capsules in
+# HAIR_CAPSULE_SOFT_CAPS, for the probes in HAIR_CAPSULE_SOFT_PROBES ('tail', 'mid'):
+#   - 'fade': a push of depth x is k (1 - exp(-x / k)), k = HAIR_CAPSULE_SOFT_CAP of the probe's
+#     turn cap (x for a shallow contact, saturating without a corner, so a deep push leaves
+#     gradually), fading out near the axis over HAIR_CAPSULE_SOFT_FADE (x the radius);
+#   - 'plane': the same soft push, its centre HAIR_CAPSULE_PLANE (m) beyond the axis point, away
+#     from the probe's rest offset in the arm bone's frame, so it keeps the side of the arm the
+#     hair lies on at rest and never turns round.
+# Only the long lock's mid probe takes it (lock pops 49 / 35 -> 28 / 33 mm). Every setting
+# that brought all four below round 10's let a lock or curl into the shoulder instead (measured
+# on r11/integrate's rig with motion_check, idol_dance hair pen_frac, major >= 0.03):
+#   - both probes of lock, curl and curtain, k 0.7, fade 0-0.8 r (lock as 'plane'): pops
+#     16 / 13 / 12 / 7, but the curls 6 -> 26 / 17 % in the shoulder (@53-56) and lock_R 0 -> 21 %
+#     (@20);
+#   - 'plane' on the lock alone, hard or soft: lock_R 15-21 % (@20; as the arm rose, its rest
+#     side turned toward her);
+#   - the curls soft, k 1.0 with the common fade: curl_L 6 -> 18 % (@6).
+# A curl's pop is the push that keeps it out of the shoulder as the shoulder rises through it:
+# without memory, a smoother push leaves it inside.
+HAIR_CAPSULE_SOFT = {'hair_lock': 'fade'}
 HAIR_CAPSULE_SOFT_CAPS = ('shoulder',)
-HAIR_CAPSULE_SOFT_CAP = 0.7
-HAIR_CAPSULE_SOFT_FADE = (0.0, 0.8)
+HAIR_CAPSULE_SOFT_PROBES = ('mid',)
+HAIR_CAPSULE_SOFT_CAP = 1.0
+HAIR_CAPSULE_SOFT_FADE = HAIR_CAPSULE_FADE
 HAIR_CAPSULE_PLANE = 0.3
 # ... and the last segment of a back-hair lock pushes at most HAIR_COLLIDE_TIP_PUSH of its turn
 # cap: the skirt's envelope, swung away under a lock end held at its cap, dropped it 4.5 cm
@@ -2552,10 +2557,10 @@ def _hair_collision(arm, bones, parts):
             out *= HAIR_COLLIDE_TIP_PUSH
         return out
 
-    def soft(b, cname):
-        """'plane', 'fade' or None: the soft push of capsule cname on segment b
-        (HAIR_CAPSULE_SOFT)."""
-        if not cname.startswith(HAIR_CAPSULE_SOFT_CAPS):
+    def soft(b, cname, at):
+        """'plane', 'fade' or None: the soft push of capsule cname on the probe at `at` (1 tail,
+        0.5 middle) of segment b (HAIR_CAPSULE_SOFT)."""
+        if not cname.startswith(HAIR_CAPSULE_SOFT_CAPS) or ('tail' if at >= 1.0 else 'mid') not in HAIR_CAPSULE_SOFT_PROBES:
             return None
         return HAIR_CAPSULE_SOFT.get(b.meta.get('family'))
 
@@ -2647,9 +2652,9 @@ def _hair_collision(arm, bones, parts):
     # distance kept from that centre (the rest gap less the hair's spare clearance, as before)
     plane = {}
     for b, _t, _m in plan:
-        for probe_tests, anchor in ((_t, f'{b.name}_hca'), (_m, f'{b.name}_hcma')):
+        for probe_tests, anchor, at in ((_t, f'{b.name}_hca', 1.0), (_m, f'{b.name}_hcma', 0.5)):
             for t in probe_tests:
-                if t[0] != 'capsule' or soft(b, t[1]) != 'plane':
+                if t[0] != 'capsule' or soft(b, t[1], at) != 'plane':
                     continue
                 cap, q = t[4], arm.data.bones[f'{anchor}_{t[1]}']
                 pa = arm.data.bones[cap.bone]
@@ -2781,7 +2786,7 @@ def _hair_collision(arm, bones, parts):
                         for tg, bn in zip(v.targets, (anchor, centre)):
                             tg.id, tg.bone_target, tg.transform_space = arm, bn, 'WORLD_SPACE'
                         drv.expression = f'smoothstep({fade[0] * r:.4f}, {fade[1] * r:.4f}, d)'
-                        how = soft(b, cname)
+                        how = soft(b, cname, at)
                         if how == 'plane' and (anchor, cname) not in plane:
                             how = 'fade'
                         if how:
