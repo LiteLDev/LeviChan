@@ -1165,7 +1165,7 @@ DRAPE_READOUT = None
 # prints how far the tables moved from the reference's; when a lane changes the cloth or the legs
 # far enough to want new choices, rewrite the reference and check the drape.
 DRAPE_REF = os.path.join('assets', 'drape', 'drape_ref.npz')
-DRAPE_TRACK_EPS = 0.015     # m/rad: the step's slope regularization (at most 0.033 rad per mm of depth)
+DRAPE_TRACK_EPS = 0.02      # m/rad: the step's slope regularization (at most 0.025 rad per mm of depth)
 DRAPE_TRACK_H = 2.0         # deg: half-step of the depth slope at a turn
 # _drape_cloth: ((deg inside the sector's edge where its penalty starts, m per deg past it),
 # m per unit of chain parameter outside a segment's band, (the chain parameter below which cloth is
@@ -1173,7 +1173,7 @@ DRAPE_TRACK_H = 2.0         # deg: half-step of the depth slope at a turn
 # this many m outside it: _skirt_drape's free mask)); points penalised past DRAPE_PEN_MAX never
 # count; depths below -DRAPE_DEP_FLOOR read as that
 DRAPE_CLOTH_SOFT = ((1.0, 0.0025), 0.1, (0.35, 0.1), (1.0, 0.002))
-DRAPE_PEN_MAX = 0.06
+DRAPE_PEN_MAX = 0.1         # (past the deepest a point can be, thigh radius + DRAPE_CLEAR, + DRAPE_DEP_FLOOR)
 DRAPE_DEP_FLOOR = 0.01
 DRAPE_PTS = 300             # cloth points per chain sector the clearance tests (without DRAPE_BIN)
 # Round 11: the clearance tests the innermost cloth point of each DRAPE_BIN cell (deg round
