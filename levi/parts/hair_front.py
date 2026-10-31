@@ -708,7 +708,11 @@ NAPE_ON = True
 NAPE_RAY_Z0 = 1.15              # m: the skull's underside is looked for going up from here
 NAPE_HUG = 0.004                # m the closure stays under the skull's underside behind the jaw
 NAPE_HAIRLINE = (1.262, 0.35)   # m at the midline, and its rise per m of |x|: the nape hairline
-NAPE_JAW = (-0.044, -0.024)     # m (y): the skull bound fades in behind the jaw over these
+NAPE_JAW = (-0.060, -0.016)     # m (y): the skull bound fades in behind the jaw over these
+                                # (round 11 R5: -0.044..-0.024 until R4; over 2 cm the closure rose from
+                                # the nape hairline to the ceiling inside the neck at ~60 deg and folded at
+                                # its foot, 118-133 deg edges at y -2.5 cm, and crossed the neck tube's
+                                # wall, 13 triangle pairs at z 1.274-1.283)
 NAPE_EAR_CLEAR = 0.004          # m under the ears' lowest point ...
 NAPE_EAR_PLAN = (0.010, 0.012, 0.012)   # m the ears' plan grows inward, forward, back (and
                                 # out to the side walls), fading over NAPE_EAR_FADE
@@ -721,9 +725,12 @@ NAPE_EAR_FADE = 0.012
 # lining's two faces (hidden), so it rises at half the slope from a wider foot (R3: 3.2 from 12 mm:
 # 84-91 deg creases at its foot), and check_nape_lining also checks that the closure stays
 # NAPE_LINING_UNDER under the lining's top out to NAPE_LINING_X (the top tucked into the cap).
-NAPE_LINING = ((0.00, 0.0613, 1.2955), (0.02, 0.0610, 1.2951), (0.04, 0.0576, 1.2934),
-               (0.06, 0.0498, 1.2906), (0.08, 0.0341, 1.2867), (0.10, 0.0045, 1.2818),
-               (0.12, 0.0554, 1.1432))   # |x|, y, z of hair_back's lining top (measured, round 11 R4)
+# Round 11 R5: hair_back's top edge is back at row 136 in the middle (UNDER_TOP 118 / 128 -> 136 /
+# 122: its raised middle made a lock chain's collision probe push it out in reach_up_back), the
+# sides still raised into the cap.
+NAPE_LINING = ((0.00, 0.0565, 1.2675), (0.02, 0.0559, 1.2687), (0.04, 0.0538, 1.2722),
+               (0.06, 0.0480, 1.2773), (0.08, 0.0330, 1.2849), (0.10, -0.0029, 1.2893),
+               (0.12, 0.0553, 1.1418))   # |x|, y, z of hair_back's lining top (measured, round 11 R5)
 NAPE_LINING_TOL = 0.003         # m: the build fails when hair_back's lining top has moved this far (check_nape_lining)
 NAPE_LINING_UNDER = 0.003       # m the closure stays under the lining's top ...
 NAPE_LINING_X = 0.085           # ... out to this |x| (further out the lining's top lies under the side locks)
@@ -731,8 +738,10 @@ NAPE_TUCK = 0.008               # m the closure passes under the lining's top ..
 NAPE_WALL = 1.6                 # ... and rises this steeply (dz / dy) in front of it, from a
 NAPE_WALL_ROUND = 0.020         # rounded foot this wide (m), NAPE_WALL_FWD in front of the lining's top
 NAPE_WALL_FWD = 0.005           # (the cap's back wall lies 2-5 mm in front of it at |x| 5-8 cm)
-NAPE_WALL_X = (0.045, 0.075)    # |x| (m): the wall fades out over these (further out the lining's top
-                                # lies under the side locks, 2-6 cm under the sheet cap's lowest point)
+NAPE_WALL_X = (0.060, 0.085)    # |x| (m): the wall fades out over these (further out the lining's top
+                                # lies under the side locks, 2-6 cm under the sheet cap's lowest point;
+                                # R5: 0.045-0.075 until R4, where the lining's raised middle let the
+                                # side ceiling hold the closure under it)
 NAPE_CEIL = dict(mid=1.295, back=1.310, side=1.272, x=(0.035, 0.062), x_back=(0.020, 0.080))
 NAPE_BIG = 0.08                 # m: a bound fades out by rising this much
 NAPE_SIDE = (0.102, 0.116)      # |x| (m): the lift fades out over these
@@ -1977,7 +1986,9 @@ def bangs(cap_bvh):
 #    radius the kernel allows) and as pills / beads from above while the locks were
 #    widest at the crest.
 AHOGE_LOCKS = (
-    # built in this order (the back lock lies down onto the front one's root). ctrl:
+    # built in this order (the back lock lies down onto the front one's root). Optional per lock: emerge (m) and
+    # depth (px) for settle() (AHOGE_EMERGE / AHOGE_DEPTH), line_cols (side cols over which
+    # its outline fades in, see ahoge()), line_end (m of arc over which it fades out). ctrl:
     # (side col, row, None) on the midline, or (side col, None, px) that far over the
     # highest surface under it along the radial direction, root first (the spine is the
     # rim line), optionally a 4th value: the front-view column offset (px, + = +X). Profiles are (side col, value) knots (monotone cubic, held past the
@@ -2000,17 +2011,27 @@ AHOGE_LOCKS = (
     dict(name='ahoge_front',
          ctrl=((276.5, None, -1.2, 0.35), (272.5, None, 0.4, 0.35), (268.0, None, 0.6, 0.35), (264.0, None, 1.2, 0.25),
                (260.0, None, 3.5, 0.1), (256.5, None, 4.0, 0.0),
-               (252.0, None, 2.6, 0.6), (247.0, None, 0.9, 2.0), (242.5, None, 0.0, 3.6),
-               (238.5, None, -0.3, 4.8)),
+               (252.0, None, 2.6, 0.35), (247.0, None, 0.9, 1.3), (242.5, None, 0.0, 2.6),
+               (238.5, None, -0.3, 3.8)),
          width=((276.5, 0.0045), (273.0, 0.0065), (269.0, 0.0080), (266.0, 0.0090), (264.0, 0.0098), (260.0, 0.0110),
-                (256.5, 0.0115), (252.0, 0.0132), (249.0, 0.0135), (246.0, 0.0110), (243.0, 0.0070), (240.5, 0.0045),
-                (238.5, 0.0032)),
+                (256.5, 0.0115), (252.0, 0.0120), (249.0, 0.0118), (246.0, 0.0104), (243.0, 0.0076), (240.5, 0.0050),
+                (238.5, 0.0034)),
          top=((276.0, 0.0004), (272.0, 0.0008), (268.0, 0.0012), (265.0, 0.0015), (263.5, 0.0019), (261.0, 0.0035),
               (259.0, 0.0054), (257.8, 0.0071), (256.8, 0.0079), (256.0, 0.0079), (255.0, 0.0072), (253.6, 0.0058),
               (251.6, 0.0041), (248.8, 0.0026), (245.0, 0.0015), (241.0, 0.0007), (238.0, 0.0005)),
          under=((276.0, 0.2, 1.0), (272.0, 0.2, 2.0), (246.0, 0.2, 2.0), (241.0, 0.6, 1.2)),
          p=((276.0, 2.0), (272.0, 1.6), (266.0, 1.4), (262.0, 1.3), (256.0, 1.3), (251.0, 1.4), (246.0, 1.7), (240.0, 2.0)),
-         sink=0.024, n=18),
+         sink=0.024, n=18, line_cols=(270.5, 267.0)),
+    # (R5, the review: from above, high and behind-high the R4 back lock, narrower than the
+    # front lock's root under it, left that root's outline beside it as a tab / jog, and a
+    # see-through sliver opened under its root from the side; the front view kept a step and a
+    # hook at the base of the front lock's flanks. The front lock keeps R4's root widths (it
+    # fills under the back lock), its outline fades out where the back lock covers it
+    # (line_cols: from col 270.5, back to full by 267, where its flanks come out beside the
+    # back lock, so the two outlines run on into each other from above), its width no longer
+    # bulges past the point's where it lies down on the forehead (13.5 -> 11.8 mm at col 252)
+    # and its end swings aside more evenly (front-view offsets 0.6 / 2.0 / 3.6 / 4.8 px ->
+    # 0.35 / 1.3 / 2.6 / 3.8 px over cols 252-238.5): no hook at its base from the front.)
     # (R2: on the midline to its point, its end 1.6 px aside; its root 1.6 px under the
     # front lock's root it lies on. R3: its root narrows from 4.4 mm (R2 6 mm: a square end
     # from above) and, now resting on the scalp behind col 276.5, it stands 0.5-0.9 px higher
@@ -2019,19 +2040,26 @@ AHOGE_LOCKS = (
     # wide (R3 10.2 mm at col 274, wider than the front lock under it), within the front lock's
     # outline from above, its root on the scalp narrowing to 2.4 mm and its end to 2.4 mm: a
     # narrower spindle on the front lock's back half; the side, front and q34 outlines are
-    # unchanged (its top line is).)
+    # unchanged (its top line is). R5 (the review: still a pill from above with a round root
+    # end, a seam where its end lies on the front lock): its root starts 2.5 px further back
+    # and deeper (col 284, 1.8 px under the scalp), 1.6 mm wide, and surfaces over 14 mm
+    # (emerge; AHOGE_EMERGE 8 mm) from 0.5 px under the scalp (depth), so it grows out of the
+    # scalp as a narrowing ridge; its end narrows to 2.6 mm and its outline fades out over its
+    # last 5 mm (line_end), so it runs on into the front lock with no seam line.)
     dict(name='ahoge_back',
-         ctrl=((281.5, None, -1.6, 0.4), (278.0, None, 0.2, 0.3), (274.5, None, 2.0, 0.1),
-               (270.5, None, 2.9, -0.2), (267.0, None, 1.4, -0.8), (264.5, None, 0.0, -1.6)),
-         width=((281.5, 0.0024), (279.5, 0.0042), (277.5, 0.0058), (275.0, 0.0068), (272.0, 0.0070), (269.5, 0.0064),
-                (267.5, 0.0052), (266.0, 0.0040), (264.8, 0.0030), (264.0, 0.0024)),
-         top=((281.0, 0.0006), (278.0, 0.0016), (274.5, 0.0028), (271.6, 0.0041), (270.2, 0.0048),
+         ctrl=((284.0, None, -1.8, 0.35), (280.5, None, -0.4, 0.35), (277.0, None, 0.9, 0.3), (274.5, None, 2.0, 0.2),
+               (270.5, None, 2.9, -0.1), (267.0, None, 1.4, -0.4), (264.0, None, 0.0, -0.8)),
+         width=((284.0, 0.0016), (282.0, 0.0026), (280.0, 0.0040), (277.5, 0.0056), (275.0, 0.0068), (272.0, 0.0074),
+                (269.5, 0.0070), (267.5, 0.0058), (265.5, 0.0040), (264.0, 0.0026)),
+         top=((284.0, 0.0002), (281.0, 0.0008), (278.0, 0.0016), (274.5, 0.0028), (271.6, 0.0041), (270.2, 0.0048),
               (269.0, 0.0043), (267.5, 0.0029), (266.0, 0.0018), (264.8, 0.0012), (264.0, 0.0009)),
-         under=((281.0, 0.2, 1.0), (277.0, 0.2, 2.0), (267.0, 0.2, 2.0), (265.0, 0.3, 1.2)),
-         p=((281.0, 2.0), (277.0, 1.3), (270.0, 1.3), (266.5, 1.3), (264.5, 1.6)),
-         n=14),
+         under=((284.0, 0.2, 1.0), (277.0, 0.2, 2.0), (267.0, 0.2, 2.0), (265.0, 0.3, 1.2)),
+         p=((284.0, 2.0), (277.0, 1.3), (270.0, 1.3), (266.5, 1.3), (264.5, 1.6)),
+         n=14, emerge=0.014, depth=0.5, line_end=0.005),
 )
-AHOGE_WRAP = (0.0, 0.7)     # the crescent's wrap fitted per section stays in this range
+AHOGE_WRAP = (0.0, 1.15)    # the crescent's wrap fitted per section stays in this range (R5: 0.7; the
+                            # back lock's rims over the front lock's root stopped short of the scalp
+                            # beside it: a 0.1-0.2 mm see-through sliver from the side at 16x)
 AHOGE_SINK = -0.00005       # m the rims sink into the surface under them (round 3: 0.15 mm in;
                             # now just over it, the honest buried share counts the underside) ...
 AHOGE_SINK_MID = 0.00003    # ... and the middle of the underside, on it (round 3: 0.2 mm over it,
@@ -2382,9 +2410,20 @@ def ahoge(cap_bvh):
         lowers = [cap_bvh] + ([_bvh_of(out)] if out else [])
         st = _ahoge_strand(sp, lowers)
         _conform(st, cap_bvh)
-        settle(st, cap_bvh, AHOGE_EMERGE, depth=AHOGE_DEPTH, squash=AHOGE_SQUASH)
+        settle(st, cap_bvh, sp.get('emerge', AHOGE_EMERGE), depth=sp.get('depth', AHOGE_DEPTH), squash=AHOGE_SQUASH)
         if sp.get('sink'):
             _sink_end(st, cap_bvh, sp['sink'])
+        if sp.get('line_cols'):
+            # its outline fades out where the lock on it covers it (side cols c0 -> c1: none
+            # behind c0, full from c1)
+            c0, c1 = sp['line_cols']
+            col = st.rings[..., 1] * spec.PX_PER_M + MID
+            st.attrs[LINE_ATTR] = st.attrs[LINE_ATTR] * hk.smooth01((c0 - col) / (c0 - c1))
+        if sp.get('line_end'):
+            # its end lies on the lock under it: the outline fades out over its last line_end m
+            fade = hk.smooth01((float(st.length) - np.asarray(st.arc)) / sp['line_end'])
+            st.attrs[LINE_ATTR] = st.attrs[LINE_ATTR] * fade[:, None]
+            st.attrs_apex[LINE_ATTR] = 0.0
         out.append(st)
     _ahoge_checks(out, cap_bvh)
     return out
@@ -2614,14 +2653,28 @@ def _curl_lock():
 # runs 2 px further forward at rows 108-145 (behind the ear). Measured against R3 at rest: side
 # view behind the neck 5918 / 5951 mm2 of background (with the new lining; R3's lock on it:
 # 5527), 16 / 63 triangle pairs through hair_back_side a side, twist 2.2 / 6.7 deg a ring.
+# Round 11 R5 (the review: R4's rounder curtain (aspect 2.4, 1.08x wide by row 125) was 4-5 mm
+# thicker where it lies between the shoulder curl and the long front lock in front and
+# hair_back_side behind (rows 108-150): the curl and the lock nested 5.6 / 4.1 mm out over it,
+# the cheek locks over them (cheek1 +2.5 mm, a 6.8 mm bump at rows 66-81 where it rests on cheek0),
+# through the hair flowers' lower petals (78 / 84 face pairs) and further into a forearm laid
+# over the head (dance_heart). Its width now grows only past u 0.45 (0.8x -> 1.15x by u 0.75,
+# under the curl's end), at aspect 3.4 (t 11 mm at the widest: still a lens, LOCK_KEEP
+# normals), so the locks in front lie as in R3 (curl, lock: no lift; cheeks 8.8 / 12.5 mm as
+# R3; flower pairs 0). Below row 145 it hangs 3-7 px further in toward the neck and 1-5 px
+# further back, its broad side turning from 1.2 to 0.6 forward over rows 110-215 (twist
+# 2.8 deg a ring): a raised arm beside the head (idol_dance@80) met its back half at rows
+# 150-181 (8.3 % of it inside the arm), and the side view keeps the hair behind the ear one
+# mass down to the shoulders (side window background 5969 -> 5626 mm2 in the raster count,
+# 104 mm2 newly open along its back edge).
 SIDE_CURTAIN = [
-    ([(57, 62, 304), (63, 108, 303), (65, 145, 306), (66, 176, 311), (67, 202, 313)], 0.033, None),
+    ([(57, 62, 304), (63, 108, 303), (62, 145, 306), (59, 176, 314), (56, 202, 318)], 0.033, None),
 ]
 CURTAIN_TIP = (0.62, 2.0, 0.7)     # its taper (hk.taper: from u, exponents; the side locks' ogive)
 CURTAIN_SWELL = (0.3, 0.25)
-CURTAIN_WIDEN = (0.25, 0.6, 0.8, 1.15)   # (u0, u1, k0, k1): its width x k0 -> k1 over u0..u1 (smoothstep)
-CURTAIN_ASPECT = 2.4
-CURTAIN_FORWARD = ((125.0, 1.2), (205.0, 0.75))  # its broad side's turn toward the front (lock_normal):
+CURTAIN_WIDEN = (0.45, 0.75, 0.8, 1.15)  # (u0, u1, k0, k1): its width x k0 -> k1 over u0..u1 (smoothstep)
+CURTAIN_ASPECT = 3.4               # (of its widest section; R4 2.4)
+CURTAIN_FORWARD = ((110.0, 1.2), (215.0, 0.6))   # its broad side's turn toward the front (lock_normal):
                                    # a number, or (row, forward) knots blended by smoothstep between them
 
 
