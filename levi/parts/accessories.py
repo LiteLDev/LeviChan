@@ -185,10 +185,26 @@ SLACK_FADE = 18.0         # px above the tuck over which the cord comes down to 
 # every facet edge (10-20 deg): the cords are fitted to the torso after
 # STRING_SKIN_SUBDIV smooth subdivisions, the settling moves are smoothed along
 # the cord (STRING_SETTLE_SMOOTH), and the cord surface is held at least
-# STRING_FLOOR off the real torso.
+# STRING_FLOOR off the real torso (at most its own gap: the tuck, the under strand at
+# the crossing). Round 11 integration: the subdivided surface dips up to 0.8 mm under
+# the real torso over the upper bust, so with no floor the cord rested 0.15-0.45 mm
+# off the skin there (STRING_GAP elsewhere), and with the arms down the shoulder
+# stages' ramp under it sank it ~1.8 mm into the chest (hands_on_hips, hug_self).
+# The floor is part of the settling (smoothed along the cord with the other moves).
 STRING_SKIN_SUBDIV = 1
 STRING_SETTLE_SMOOTH = 0.004
-STRING_FLOOR = 0.0
+STRING_FLOOR = 0.0009
+# Over the upper slope of the bust (STRING_LOW_BAND: px relative to the bodice
+# neckline, fading in over the first pair and out over the second) the cords stand
+# STRING_LOW_LIFT higher: there the merged torso's skin hands the chest from the
+# clavicle to the shoulder stages over ~3 cm, and the cords' weights (smoothed along
+# them, or the X strands' lower ends would stretch x2 with a raised arm: rig.HALTER_SMOOTH)
+# lead that ramp by up to rig.HALTER_LEAD_MAX, so with the arms down and back they move
+# into the chest up to ~1 mm further than the skin under them (integration round 2: 0.4
+# mm sank them 1.1 mm in hands_on_hips, none 1.2 mm; the rest gap there is now 1.0-1.9 mm,
+# the junctions already stood 1.6-2.2 mm off the skin).
+STRING_LOW_LIFT = 0.0006
+STRING_LOW_BAND = (-34.0, -24.0, -8.0, -3.0)
 # The X strands leave one strap and end on the other: they start and end on the
 # strap's centre line, thinned to STRING_TIP of the radius (their end caps stay
 # inside the strap) and back to full width over STRING_TAPER, about where they
@@ -217,8 +233,11 @@ STRING_TUCK_GAP = 0.0008
 # 4.4 mm off the strap they end on. So:
 # * ride: share of the bodice's own weights: none above RIDE_FROM px below the neckline
 #   (where the bodice's real rim is: the visible cord rides the skin), all from RIDE_FULL
-#   px down, so the tucked end moves with the bodice over it and cannot come out through
-#   it (round 11's first build on the skin: a cut stub on the bodice in idol_dance@78).
+#   px down (the strap's end), so the tucked end moves with the bodice over it and cannot
+#   come out through it (round 11's first build on the skin: a cut stub on the bodice in
+#   idol_dance@78). Integration round 2: over the whole tuck (round 11: 2 -> 4 px, then
+#   smoothed 10 mm along the cord, which carried the bodice's weights ~1 cm up the visible
+#   strap); the bodice there moves up to 9 mm away from the skin with the arms raised.
 #   The skin under the bodice moves out against it in a raised-arm pose, so the tucked end
 #   then dips into the skin there, hidden under the bodice. (Fading in above the rim, the
 #   visible cord sank up to 3.5 mm into the chest; a partial share left the end poking out.)
@@ -229,7 +248,7 @@ STRING_TUCK_GAP = 0.0008
 #   strands' ends, vertices of one ring ~1 % apart in them squashed it to x0.59 in
 #   hands_behind_head).
 RIDE_FROM = 2.0
-RIDE_FULL = 4.0
+RIDE_FULL = 8.0
 JOIN_SPAN = 0.03
 # Under the rim the strap thins to TUCK_TIP of its radius (by STRAP_UNDER): ~0.4 mm more
 # room under the bodice, which presses in a little in some poses (idol_dance@78: a speck of
@@ -737,6 +756,8 @@ def _string_offset(p, cross=0):
     base = STRING_R + STRING_GAP
     # settle onto the skin just above the neckline, to slide in under the rim
     depth = _row(p) - _rim_row(p.x)
+    a, b, c, d = STRING_LOW_BAND
+    base += STRING_LOW_LIFT * _body.smoothstep(a, b, depth) * (1.0 - _body.smoothstep(c, d, depth))
     base += (STRING_R + STRING_TUCK_GAP - base) * _body.smoothstep(-TUCK_FADE, BODICE_TUCK, depth)
     if cross:
         g = math.exp(-(p.x / (CROSS_SIGMA * PX)) ** 2)
@@ -816,16 +837,32 @@ def _smooth_values(v, s, sigma):
     return out
 
 
-def _settle(skin, pts, cross):
+def _floor_gap(p, cross=0):
+    """Least gap between the cord's surface and the real torso at `p` (STRING_FLOOR,
+    at most the cord's own gap above the smooth skin)."""
+    return max(min(STRING_FLOOR, _string_offset(p, cross) - STRING_R), 0.0)
+
+
+def _cage_height(floor, p):
+    """Signed distance from `p` to the nearest facet of the real torso `floor`."""
+    loc, n, _, d = floor.tree.find_nearest(p)
+    return d if (p - loc).dot(n) >= 0 else -d
+
+
+def _settle(skin, pts, cross, floor=None):
     """The path moved along the smooth skin normal into its height band: at least
     its offset above the skin, at most STRING_SLACK more (a taut cord over a
-    hollow; none where it lies exactly). The moves are smoothed along the cord
+    hollow; none where it lies exactly), and its surface at least _floor_gap off
+    the real torso `floor`. The moves are smoothed along the cord
     (STRING_SETTLE_SMOOTH), so the facets' creases don't come back as kinks."""
     proj = [skin.project(p) for p in pts]
     d = []
     for p, (_, _, h) in zip(pts, proj):
         off = _string_offset(p, cross)
-        d.append(min(max(h, off), off + STRING_SLACK * (1.0 - _string_exact(p, cross))) - h)
+        m = min(max(h, off), off + STRING_SLACK * (1.0 - _string_exact(p, cross))) - h
+        if floor is not None:
+            m = max(m, STRING_R + _floor_gap(p, cross) - _cage_height(floor, p))
+        d.append(m)
     d = _smooth_values(d, _arclen(pts), STRING_SETTLE_SMOOTH)
     return [p + n * di for p, (_, n, _), di in zip(pts, proj, d)]
 
@@ -848,15 +885,16 @@ def _fit_string(skin, path, cross=0, first=None, last=None, floor=None):
     pts = pin(pts)
     for _ in range(STRING_ROUNDS):
         pts = _smooth_path(pts, STRING_RELAX)
-        pts = _resample(pin(_settle(skin, pts, cross)), STRING_STEP)
+        pts = _resample(pin(_settle(skin, pts, cross, floor)), STRING_STEP)
     floor = floor or skin
     out = []
     for p in pts:
         # the true distance to the nearest facet (the smooth-normal height overstates
-        # it in a hollow)
+        # it in a hollow); what the smoothed settling left of the floor
         loc, n, _, d = floor.tree.find_nearest(p)
         d = d if (p - loc).dot(n) >= 0 else -d
-        out.append(p if d >= STRING_R + STRING_FLOOR else p + n * (STRING_R + STRING_FLOOR - d))
+        g = STRING_R + _floor_gap(p, cross)
+        out.append(p if d >= g else p + n * (g - d))
     return pin(out)
 
 

@@ -5530,9 +5530,24 @@ HALTER_REACH = (0.02, 0.06)   # m off the skin: the halter takes the skin's weig
 # * one set of weights per ring (the part's cord_ring attribute), pruned with the stages
 #   kept and the clavicle given up first where five bones meet (HALTER_KEEP), no motion
 #   refit (_halter_prune).
+# Integration round 2 (the arms down and back, 4x crops): the smoothing's lead of the stage
+# ramp sank the cord into the chest 1.5-1.8 mm on 2-3 % of it (hands_on_hips, hug_self,
+# hands_behind_back; the strap ~2 cm above the junction and the X strands' lower thirds):
+# a stage bone's turn moves those chest points 3-4.5 cm into the chest per unit weight
+# with the arms down, so 0.04 more of the stages than the skin under the cord is ~1.7 mm.
+# The cord now leads the skin's own stage weights by at most HALTER_LEAD_MAX (the excess
+# to 上半身2; the cords also stand a little higher there, accessories.STRING_LOW_LIFT),
+# follows the skin from HALTER_RIM_FOLLOW above its tucked end (25 mm let the smoothing's
+# lag sink the last rings above the rim 0.7-0.9 mm with the arm raised: dance_heart,
+# dance_sway), and the bodice hand-over runs from the rim to the strap's end
+# (accessories.RIDE_FROM / RIDE_FULL) with a shorter smoothing (HALTER_RIDE_SMOOTH): the
+# bodice there moves up to 9 mm away from the skin with the arms raised
+# (hands_behind_head), so a hand-over inside the tuck alone stretched it x1.7-2.3.
 HALTER_SMOOTH = 0.020    # m: smoothing of the halter's sampled weights along the cord
-HALTER_RIM_FOLLOW = 0.025    # m: within this of the tucked end a strap blends back to the skin's own weights
-HALTER_RIDE_SMOOTH = 0.010   # m: smoothing of the tucked ends' hand-over to the bodice
+HALTER_RIM_FOLLOW = 0.030    # m: within this of the tucked end a strap blends back to the skin's own weights
+HALTER_RIDE_SMOOTH = 0.008   # m: smoothing of the tucked ends' hand-over to the bodice
+HALTER_LEAD_MAX = 0.01   # most the stages' weights (HALTER_LEAD_BONES) may exceed the skin's own
+HALTER_LEAD_BONES = ('肩補助', '肩補助2', '肩補助3')
 # Round 11: the halter's straps end tucked under the bodice's top rim, and its X strands end
 # on the straps. With the skin's weights the tucked ends took the clavicle (肩), which the
 # bodice over them does not have (its four largest bones after a 3.5 cm smoothing), so a
@@ -5563,7 +5578,11 @@ HALTER_REFIT_AT = 0.004
 # refitted 肩 in its place, then took it back over ~1 cm at the junction (the strap jogged
 # there: x2.07 in idol_dance@78, compress x0.45 in idol_dance@22). 肩 moves a chest point
 # <= 8 mm against 上半身2 in those poses, the stages 3-12 cm.
-HALTER_KEEP = {'肩補助2': 2.0, '肩補助3': 2.0, '肩': 0.2}
+# Integration round 2: by the bodice rim the skin carries the shrug (肩補助, 0.03-0.04) where
+# the smoothing had brought in a trace of 首 from above, and the prune kept 首: with the
+# arm raised the last rings above the rim then lagged the skin (0.9 mm of the 1.6 mm sink
+# in dance_heart). The shrug ranks above 首 there.
+HALTER_KEEP = {'肩補助2': 2.0, '肩補助3': 2.0, '肩補助': 1.5, '首': 0.5, '肩': 0.2}
 
 
 def _choker_skin(co, bones):
@@ -5689,6 +5708,19 @@ def _ring_mean(ids, x):
     np.add.at(acc, inv, flat)
     acc /= np.bincount(inv)[:, None]
     return acc[inv].reshape(x.shape)
+
+
+def _halter_lead_cap(sk, raw, bones, chest):
+    """`sk` with the shoulder stages' weights (HALTER_LEAD_BONES) at most HALTER_LEAD_MAX
+    above the skin's own (`raw`), the excess given to 上半身2 (column `chest`)."""
+    cols = [i for i, b in enumerate(bones) if b.name.split('.')[0] in HALTER_LEAD_BONES]
+    if HALTER_LEAD_MAX is None or not cols:
+        return sk
+    out = sk.copy()
+    ex = np.maximum(sk[:, cols] - raw[:, cols] - HALTER_LEAD_MAX, 0.0)
+    out[:, cols] -= ex
+    out[:, chest] += ex.sum(1)
+    return out
 
 
 def _halter_rim_follow(obj, co, edges, cq):
@@ -5829,6 +5861,9 @@ def _neck_cord_weights(kind, w, co, bones, edges=None, obj=None):
                 f = _halter_rim_follow(obj, co, edges, cq)
                 if f is not None:
                     sk = sk * (1.0 - f[:, None]) + raw * f[:, None]
+                # with the arms down the stages turn the chest points under the cord
+                # inward: no more of them than the skin has (HALTER_LEAD_MAX)
+                sk = _halter_lead_cap(sk, raw, bones, chest)
             sk = sk / np.maximum(sk.sum(1, keepdims=True), 1e-12)
             # the tucked strap ends take the bodice's weights, looked up at the section
             # centres (per vertex, the thinned end rings stretched x3 in idol_dance@78), after
