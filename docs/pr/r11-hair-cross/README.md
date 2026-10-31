@@ -72,10 +72,51 @@ Over 18 such variants:
 Even with the poses corrected, the brief's "count at or below round 10 AND curve below" cannot be met from the hair side.
 
 ### 5. Full-merge motion report
-FULL_MERGE_PLACEHOLDER
+Reports compared:
+- **r10**: round 10's `main`, ab69d8b, with the mm column added.
+- **integ**: `r11/integrate` 89f6117, with the mm column added (the verifier's report).
+- **round 1**: 89f6117 + a768bc5, which had the hard push.
+- **now**: `r11/integrate` 89f6117 + this branch, fdf5f45, run in a scratch merge.
+
+Hair × garment and hair × skirt crossings, as new pairs / curve mm. A clip's count is its worst-count frame, and its curve its longest frame.
+
+| row | r10 | integ | round 1 | now |
+|---|---|---|---|---|
+| hands_behind_head | 5978 / 6995 | 7349 / 6900 | 7349 / 6900 | 7349 / 6900 |
+| dance_heart | 3678 / 4340 | 6042 / 5232 | 6042 / 5232 | 6042 / 5232 |
+| idol_dance clip | 4573 / 7366 | 6042 / 5259 | 6042 / 5259 | 6042 / 5259 |
+| reach_up_back | 4231 / 6424 | 4709 / 4798 | 4709 / 4798 | 4709 / 4798 |
+| jump_tuck, hair × garment | 112 / 122 | 312 / 239 | 312 / 239 | 312 / 239 |
+| jump_tuck, hair × skirt | 1720 / 1172 | 198 / 138 | 198 / 138 | 198 / 138 |
+| spin clip, hair × skirt | 1352 / 1723 | 1044 / 1307 | 1044 / 1307 | 1044 / 1307 |
+| walk (core) | 1201 / 2397 | 1012 / 1381 | 324 / 481 | 1012 / 1381 |
+| run_r | 876 / 1576 | 407 / 588 | 165 / 173 | 407 / 588 |
+| run clip | 1184 / 2315 | 534 / 699 | 284 / 343 | 534 / 699 |
+| all hair rows | 32621 / 44.07 m | 31382 / 29.18 m | 30116 / 27.36 m | 31382 / 29.18 m |
+
+Without the new per-part rows, "now" matches integ row for row:
+- No row differs by more than 0.1%.
+- No issue is new or gone, and no level changes.
+- Issues: 484, majors 138; hair issues 71, hair majors 22. Round 10 had 479 / 152 / 91 / 32.
+
+With the per-part pop and jitter rows the report lists 518 issues and 163 majors. Of those, 34 issue rows and 25 majors are the new rows; 6 are hair rows.
+
+Clip hair pops, per part (mm):
+- run: hair_back 0.0, hair_front 4.3 (hair_curl_L@3).
+- idol_dance: hair_back 7.1@73, hair_front 49.2 (hair_lock_L@18).
+- spin: hair_back 15.7@40, hair_front 5.3.
+- walk: hair_back 3.2.
+
+All are as on integ; the round-1 push had added run hair_back 20.9 and idol_dance hair_back_side 15.2. Hair motion over all 418 poses and clip frames differs from integ by 0.0 mm.
 
 ### Gates (this branch)
-GATES_PLACEHOLDER
+- check.py: CHECK OK. hair_back 30,490 / 34,000, sleeves 17,752 / 18,000, total 162,561 / 200,000.
+- rig_check.py, full run with the repeatability checks: RIG CHECK OK.
+  - 746 bones (round 1 had 944); hair collision with 68 segments, 353 tests and 25 colliders, as on `r11/integrate`.
+  - 66/66 standard PMX bone names; IK knee 0.04 mm; eyes 0.00 mm.
+  - Worst stretch: squat 1.82; head_left / head_right 1.40 / 1.41 (hair_back); swing 1.56 (hair_back_shell).
+  - Worst penetration: side_bend 1.76 cm.
+- The soft push and drape with the push switched on (8° / 4°) were built and rigged on this code. The rig builds, every driver is a simple expression within 255 characters, and the drape bones are flagged `levi_blender_only`, so `strip_blender_only` removes them.
 
 ### Images
 - `01_back_locks_arm_push.jpg`: the outer back locks over a swinging arm in walk, run@8, idol_dance@68 and @70, zoomed on the lock. Left: round 1's hard push (rods). Middle: soft push 8° / 4° with the drape, which is off (no rods, but 10-11 mm pops). Right: now, the same as `r11/integrate` (the lock hangs and passes through the bag).
