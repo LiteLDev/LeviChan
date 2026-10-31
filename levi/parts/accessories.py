@@ -210,7 +210,8 @@ STRING_FLOOR = 0.0009
 # mirror image), the left strap is fitted and the right one is its mirror image
 # (STRAP_MIRROR), and what the settling leaves of the floor is lifted as one smooth bump
 # (STRING_FLOOR_SMOOTH: the running maximum of the shortfall over 3 sigma, smoothed by
-# sigma along the cord): rest bends by the rim 13.5 -> 5.7 deg, the same on both sides.
+# sigma along the cord): rest bends by the rim 13.5 -> 5.7 deg, the same on both sides
+# (9.3 deg with the lift above the rim, RIM_LIFT).
 # The X strands keep the per-point floor (their lower ends' stretch in idol_dance moves
 # x0.02-0.05 with any change of their path).
 STRING_FLOOR_SYM = True

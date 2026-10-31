@@ -105,11 +105,11 @@ The integration motion report (r11/integrate 1b06af3) put the halter at x2.32 in
 - **Pen.** Halter pen is 0.2 cm, as before.
 
 **Trade-off.**
-- **Raised arms.** In idol_dance@78, reach_up_back, arms_up and dance_heart the junctions and the rim entry are clean (that round's sheets were dropped for size; `integ2_raised.jpg` and `integ2_rim.jpg` show the same spots).
+- **Raised arms.** In idol_dance@78, reach_up_back, arms_up and dance_heart the junctions and the rim entry are clean (that round's sheets were dropped for size; `integ2_raised.jpg` shows the same spots).
 - **Arms down and back.** In hands_on_hips and hug_self the strand's lower end now dips into the bust's top: newly inside the skin up to 1.7 mm on 5-6 % of the visible cord vertices (before 0.6-0.8 mm, round 10 1.2-1.3 mm on 2-3 %).
-  - At 4x zoom it shows as a broken outline along ~1.5 cm of the strand (fixed in round 2: `integ2_armsdown.jpg`, left column). In hug_self the sleeve covers it.
+  - At 4x zoom it shows as a broken outline along ~1.5 cm of the strand (fixed in round 2; `integ4_armsdown.jpg` shows those spots now). In hug_self the sleeve covers it.
   - This is the price of spreading the skin's stage ramp along the cord. Any smoothing that cut the stretch to target put the ramp's start under skin that stays still with the arms back.
-- **Rest.** No change at rest: the 4x rest crops differ in at most 3 anti-aliased pixels (`integ2_rest.jpg`).
+- **Rest.** No change at rest: the 4x rest crops differ in at most 3 anti-aliased pixels.
 
 **acc_flower_R pen_frac** (round 10 0.073, now 0.087, dance_heart and idol_dance@48).
 - The right forearm passes through the head flower in both rounds (`integ_flower_heart.jpg`, sleeves hidden), and the balloon sleeve hides the whole flower in both.
@@ -179,13 +179,13 @@ Measures: visible cord new depth inside the skin (motion_check.inside_depth less
 
 - **Stretch.** idol_dance 1.673 (<= 1.69), reach_up_back 1.326 (<= 1.43), arms_up 1.286 (<= 1.35). Every other pose and clip is at most round 10 + 0.05 except hands_on_hips, 1.255 against 1.150; the skin's own edges under the cord stretch 1.26 there (round 10: 1.08).
 - **Compression.** At least round 10 - 0.05 everywhere but look_over_shoulder: 0.683 (round 10 0.740, 9f30883 0.693), on the right X strand's top ring. The same 0.683 with the old prune keep table, the old floor or no lift; no flips.
-- **Rim entry** (dance_sway left, dance_heart right): sink 0.63 / 0.96 mm (was 1.49 / 1.63), full width at 4x (`integ2_rim.jpg`).
+- **Rim entry** (dance_sway left, dance_heart right): sink 0.63 / 0.96 mm (was 1.49 / 1.63), full width at 4x.
   - The halter compresses 0.727 / 0.799 there (9f30883: 0.754 / 0.810; round 10 0.761 / 0.827 overall).
   - About half of that is the ring itself: with the arm overhead the stage bones turn 90-120° against 上半身2, and a ~0.75 / 0.25 linear blend of those shrinks each cord section to ~0.75 across (the "around" edges of rings 46-52 read 0.744-0.78 before and now alike). The skin under the cord compresses ~0.73 along it there too.
   - The target 0.80 is not met. It would need the rim rings to lag the skin's stages, which sinks them; the tuck cannot go deeper as the bodice comes down onto the skin.
 - **Tucked ends.** Tucked-end vertices that a ray toward a front viewer (straight, ±35° round, ±20° up / down) finds uncovered by the bodice, worst view: hands_behind_head 16 (9f30883: 9), idol_dance@48 9 (5), dance_heart 9 (5), dance_sway 6 (2), jump_tuck 6 (3), idol_dance@80 8 (8), 0 in the other raised poses.
-  - These are the ring just under the rim's edge, seen mostly from 20° above: a 1-2 px sliver of green under the rim line at 4x, as before (`integ2_rim.jpg`).
-- **Rest.** It looks the same at 4x (`integ2_rest.jpg`); the cord still reads as lying on the skin. The white skin slivers poking through the strands' outline at rest (the 0.15 mm spots) are gone.
+  - These are the ring just under the rim's edge, seen mostly from 20° above: a 1-2 px sliver of green under the rim line at 4x, as before.
+- **Rest.** It looks the same at 4x; the cord still reads as lying on the skin. The white skin slivers poking through the strands' outline at rest (the 0.15 mm spots) are gone.
 
 **Full merge** (scratch worktree: r11/integrate 89f6117 + this branch, clean merge). Motion report (extended + clips + core, 2471 s) against round 10 and r11/integrate 9f30883:
 - **acc_halter, worst:** stretch 1.637 / 1.634 / 1.673 (idol_dance, minor as before), compress 0.674 / 0.654 / 0.643 (idol_dance), pen 2.17 / 1.91 / 1.45 mm. No flips.
@@ -202,10 +202,8 @@ Measures: visible cord new depth inside the skin (motion_check.inside_depth less
 - **Not run:** export_pmx, pmx_reimport and motion_vmd, because mmd_tools is not installed.
 
 **Images (integration round 2), 9f30883 vs now, cel / clay / wire (wire: red = halter vertices newly > 0.3 mm inside the body)**
-- `integ2_armsdown.jpg`: hands_on_hips (left strap 2 cm above the junction), hug_self and hands_behind_back (the left junction and the strands' lower thirds).
-- `integ2_rim.jpg`: the rim entry in dance_sway (left), dance_heart, hands_behind_head and idol_dance@48 (right).
 - `integ2_raised.jpg`: the junctions in idol_dance@78, reach_up_back and arms_up (the raised-arm gains kept).
-- `integ2_rest.jpg`: rest, side of the left junction (cel, clay), the left strap, and the chest.
+- Round 4 dropped `integ2_armsdown.jpg`, `integ2_rim.jpg` and `integ2_rest.jpg` (superseded by the `integ4_*` sheets).
 
 ## Integration round 3: the rim entry (elbow, first tucked ring) and the hidden end
 
@@ -216,7 +214,7 @@ The round-2 verifier passed the arms-down sink and the raised-arm stretch, and l
 - whole-object compress on the hidden tucked end (high_kick, raise_bend, spin, idol_dance@76-78), look_over_shoulder 0.683 (bound 0.690) and idol_dance@77 1.569 (bound 1.535);
 - the docs were 1.64 MB.
 
-**Result: the halter is unchanged.** I searched the rim entry thoroughly and found no setting that improves the elbow without bringing back the narrowing the round-2 brief removed. The round-2 halter sits at the corner of the trade-off. The cause is outside the halter: the bodice's top rim sinks into the skin beside the strap entries with the arms raised (below). This round only drops superseded sheets and scales others down (the PR's images 1.64 → 1.10 MB, 1.17 MB with this README) and adds the evidence.
+**Result: the halter is unchanged.** I searched the rim entry thoroughly and found no setting that improves the elbow without bringing back the narrowing the round-2 brief removed. The round-2 halter sits at the corner of that trade-off (round 4 below moves the corner with a smooth floor and a lift above the rim). Round 3 put the cause outside the halter, in the bodice's top rim; the round-3 verifier showed that the numbers given for it were at the wrong spot (corrected below). This round only drops superseded sheets and scales others down (the PR's images 1.64 → 1.10 MB, 1.17 MB with this README) and adds the evidence.
 
 **How the search was done.** I used a lab script on the full-merge rig (`acc_i6/tools/rimlab2.py`). It recomputes the halter's weights with the rig's own code (`rig._weights`, the bone list refitted from the file; identical to the stored weights) and rebuilds the halter in the same session from the part's own functions (identical to the built mesh). It then deforms the halter by numpy LBS, which matches the evaluated mesh to 2.6e-7 m. Each variant was measured in 25 poses (the 11 raised-arm frames, the 6 arms-down poses, high_kick, raise_bend, spin, look_over_shoulder, head turns, bends):
 - the bend per ring centre (the verifier's kink.py rim zone);
@@ -241,15 +239,12 @@ About 1,250 variants:
 | optimizer on the test poses themselves | 18.1° / 14.4° | 1.24 / 2.78 | 1.60 / 2.78 | — |
 | hand-over 3→8 px, smoothed 10 mm | 21.7° | 0.99 | 0.99 | 1.673, but 16 tucked vertices 0.86 mm outside the bodice (dance_heart) |
 
-- `integ3_rim_tradeoff.jpg` shows now / mid / smooth in clay. In the 3/4 view, "smooth" has no elbow. In the side views it narrows above the rim (the 9f30883 look). "mid" softens the corner a little and narrows a little.
+- Round 3's `integ3_rim_tradeoff.jpg` (now / mid / smooth in clay) was dropped in round 4: in the 3/4 view "smooth" had no elbow but narrowed above the rim in the side views; "mid" softened the corner a little and narrowed a little.
 - Even fitted to the test poses, the weights cannot hold the cord within 1 mm of the skin and under 15° per ring. A visible depth ≤ 1.0 mm costs ≥ 24.8°; a bend ≤ 16.5° costs ~2 mm of narrowing.
 - The rim compress follows the skin: 0.727 in dance_sway (round 10 0.761; the skin under the cord ~0.73). It reaches 0.748 only in the "smooth" setting.
 
 **Why** (dance_heart / dance_sway, the strap's rings near the rim):
-- **The bodice rim sinks into the skin.** Bodice shell vertices within 2 cm of the strap entries go newly into the skin by up to:
-  - dance_sway 2.5 mm, dance_heart 2.6, hands_behind_head 2.4, reach_up_back 2.9, arms_up 2.9, idol_dance@78 4.2 mm;
-  - 15-32 vertices past 0.5 mm, deepest at x ±0.088;
-  - none in the arms-down poses.
+- **The bodice rim sinks into the skin** (corrected in round 4, after the round-3 verifier). Within 2 cm of the strap entries (±0.074, -0.096, 1.110) the bodice shell goes newly into the skin by 0.84-1.73 mm, with 1-3 vertices past 0.5 mm (dance_sway, dance_heart, hands_behind_head, reach_up_back, arms_up; idol_dance@78 0.11 mm). The 2.4-4.2 mm this paragraph first gave are at (±0.088, -0.061, 1.105), 3.6 cm from the entries toward the armpit. The same numbers occur on round 10's rig: the rim there has not changed since round 10, and round 10's halter met it with an uncovered rim depth of 0.44 / 0.70 mm.
 - **There is no "under the rim" there.** Take the skin point 2.5 px below the neckline. At x ±0.065 the bodice stands 1.9-2.8 mm off it (rest 3.9). At x ±0.07-0.08, where the straps enter (x ±0.074), a ray along its normal finds no bodice within 3 cm in every raised pose (rest 4.9-6.7 mm). A cord riding the skin there is outside the bodice; a cord riding the bodice is inside the skin.
 - **The elbow is the strap following both.** At the peak ring the bend is about half toward the skin (13-18°, the skin's own ridge: the skin's stage weights peak at the rim) and half sideways (13-20°, the bodice-ridden end moving apart from the skin-ridden strap). The weights along the strap are smooth: 肩補助2 0.15 → 0.17, 肩補助3 0.094 → 0.104 → 0.094 over the last 5 rings.
 - **The first tucked ring.** Its centre is 0.17-0.33 mm inside the skin (dance_sway, dance_heart). The front ~1.1 mm of the cord stays outside, so it shows 97-99 % of its width from the front and meets the rim at full width in clay (verifier: "in clay the strap still meets the rim at full width"). Its deepest vertices are on the skin side of the cord. Keeping that ring under the rim needs a deeper hand-over, which pushes the end out through the bodice front (last row of the table).
@@ -263,7 +258,7 @@ About 1,250 variants:
 - **look_over_shoulder 0.683 (bound 0.690).** The right X strand's along-edges at ring 167-168 (rest -0.021, -0.083, 1.171). Without round 2's floor and upper-bust lift it is 0.693-0.696, but the arms-down sink comes back (hands_on_hips 1.37 mm, hug_self 1.24).
 - **idol_dance@77 junction 1.569** (skin bound 1.535; the clip's worst frame 1.673 ≤ 1.69). A 20 mm rim follow gives 1.536, but the rim rings then sink 1.34 mm.
 
-**Cross-part (for the bodice lane).** With the arms raised, the bodice shell's top rim at x 0.07-0.09 goes 2.4-4.2 mm into the skin. Keeping it ≥ ~2 mm off the skin there (as it is at x ≤ 0.065) would let the strap tuck under a real gap. The rim trade-off above would then go away.
+**Cross-part (for the bodice lane; corrected in round 4).** With the arms raised the bodice's inner face under the rim, by the strap entries, comes from 5.6-8 mm off the skin at rest to 0.0-2.7 mm (dance_heart, along the skin normal at the tucked rings), and the shell itself goes 0.84-1.73 mm into the skin within 2 cm of the entries (2.4-4.2 mm only 3.6 cm away, toward the armpit). This is unchanged since round 10. A rim that kept ~2 mm off the skin there would give the tuck real room; round 4 below shows how far the halter alone gets.
 
 **Full merge** (r11/integrate f5004c9 + this branch = the branch head 5266d89; the halter is the round-2 one):
 - **Halter sweep** (all 417 core / extended poses and clip frames, the round-2 verifier's sweep2.py) reproduces round 2's numbers exactly (max difference 0). Visible-cord depth: 0.96 mm worst, 0 frames over 1 mm, 0 over 1 % past 0.5 mm.
@@ -282,9 +277,73 @@ About 1,250 variants:
   - Not run: export_pmx, pmx_reimport and motion_vmd (no mmd_tools).
 
 **Images (integration round 3)**
-- `integ3_rim_tradeoff.jpg`: the rim entry in clay, now / "mid" / "smooth" (see the trade-off table). hands_behind_head and reach_up_back (right strap, side), hands_behind_head (right strap, 3/4), dance_sway (left strap, side).
-- `integ3_bodice_rim.jpg`: the bodice rim at the strap entries, at rest and in dance_heart, reach_up_back and dance_sway (cel, clay). With the arms up the rim's outer end sinks into the skin, and the trim line leaves the shell's edge and crosses the strap.
+- `integ3_bodice_rim.jpg`: the bodice rim at the strap entries, at rest and in dance_heart, reach_up_back and dance_sway (cel, clay). With the arms up the rim's outer end (toward the armpit) sinks into the skin, and the trim line leaves the shell's edge and crosses the strap.
 
+
+## Integration round 4: the rim entry, the left-only rest crease, the floating outline
+
+Round 3's verifier passed the gates and the arms-down sink, and left these p3 items:
+- the strap turns 21.5-26.1° at one ring just above the bodice rim with the arms raised (dance_sway, dance_heart, hands_behind_head, reach_up_back, idol_dance@80-81, arms_up);
+- in cel a dark line floats ~1 mm beside the strap there, with skin between;
+- dance_sway seen from the side: two bites on the left strap's outer edge; rim compress 0.727 / 0.799 (dance_sway / dance_heart; target 0.80);
+- a left-only corner at rest: rings 40 / 48 / 50 / 51 bend 9.6-13.5°, the mirror rings 1.1-4.7°;
+- T4 bounds on the hidden tucked end (high_kick, raise_bend, spin, idol_dance@77), look_over_shoulder 0.683 and idol_dance@75-77;
+- round 3's README put the bodice rim's sinking at the wrong spot (corrected in that section).
+
+**Diagnosis**
+- **The rest crease** is the floor's last pass. It pushed each point out on its own wherever it met a facet of the real torso, and the torso is triangulated differently on the two sides: by the rim the left facet stands up to 1.3 mm higher than the mirror right one (ring 50: 2.20 mm vs 3.23 mm cage height at the same smooth-skin height). The left strap took a 13.5° crease at ring 48; the right did not.
+- **The elbow** sits where the strap follows two things that move apart with the arm raised:
+  - the skin, whose shoulder-stage weights peak at the rim, so it bulges toward the bodice. The body there is coarse: edges 14-40 mm long, dihedral angles 8-43° at rest and 41-76° in dance_heart / dance_sway / idol_dance@80;
+  - the bodice, whose inner face under the rim comes from 5.6-8 mm off the skin at rest to 0.0-2.7 mm (dance_heart, along the skin normal at the tucked rings). The tucked end rides it.
+  - Round 3's rim follow took the skin's raw (facet-wise linear) weights over the last 3 cm, and the 8 mm hand-over put the whole turn on one or two rings.
+- **The floating line** is the strap's own outline hull: it vanishes with the halter's outline off, and stays with the X strands deleted. A fold of the coarse skin rises inside the 0.6 mm hull beside the strap's underside, and the hull's far side shows beyond the fold (round 10 had it too).
+- **The rim compress** follows the skin: along the strap's path at the rim the skin itself compresses to x0.729-0.734 in dance_sway (footpoints of the ring centres on the posed skin). The cord can only beat that by sliding over the skin, which LBS weights cannot do.
+
+**The fix** (the part, and the accessories section of `rig.py`)
+- **Straps fitted on the floor of both sides and mirrored** (`STRING_FLOOR_SYM`, `STRAP_MIRROR`): the floor is the lesser facet height at a point and at its mirror image; the left strap is fitted and the right one is its mirror image. The X strands keep their own fit.
+- **The floor lifted as one smooth bump** (`STRING_FLOOR_SMOOTH` 3 mm): the running maximum of what the settling left of the floor (over 3 sigma), smoothed along the cord, so it bends the cord by 1-2° per ring.
+  - Rest bend by the rim 13.5° → 9.3°, and the whole cord's 14.1° → 9.3°, the same on both sides (ring 12 by the neck 12.5 / 14.1° → 9.2°).
+- **A little room above the rim** (`RIM_LIFT` 1.3 mm at most, `RIM_LIFT_BAND`): it rises from 10 px above the neckline and is back to 0 by the bodice's real rim (~2 px below it). The hand-over is smoothed over 11.5 mm (`rig.HALTER_RIDE_SMOOTH`, was 8 mm). The rim follow is all of the skin within 1 cm of the tucked end and none from 2.5 cm (`rig.HALTER_RIM_FOLLOW` 0.025 with the new `HALTER_RIM_FOLLOW_IN` 0.010; was 0 / 3 cm), so the turn spreads over more rings without the last visible rings sinking further.
+- **The outline thins on the cords' underside** (`CORD_LINE_FADE` 95° → 135° from the skin's normal, `CORD_LINE_MIN` 0.1, vertex group `cord_line`). The silhouette in front views keeps the full 0.6 mm line; the rest crops are unchanged.
+
+**Dropped on the way** (about 270 lab variants: the same lab as round 3, the halter rebuilt from the part's functions and its weights from the rig's own code, numpy LBS):
+- **Carrying the lift 2-3 px under the rim** (0.5-0.9 mm there) turned the strap only 16-18° (sink 0.96 mm, idol_dance 1.679). But at rest the strap then showed through the bodice just under its rolled top: a green fleck under the trim line (`integ4_rest.jpg`, bottom left). The lab's coverage test (rays along the skin normal) does not see that spot; only the renders do. With the lift back to 0 by the real rim, the lifted strap still grazed the roll on the left (a 1 px line through the trim in the macro crops), so it is 0.08 mm thinner there (`RIM_THIN`; the centre line and the weights are unchanged).
+- **A dive into the skin under the rim**, so the tucked end could ride the skin with no hand-over. The raw skin then kinks the strap 25-33°, and the tucked rings poke 0.6-1 mm through the bodice front in dance_heart.
+- **More lift with more smoothing** (lift 1.0 mm / 12 mm, 0.7 mm / 11-13 mm): it trades the turn for depth. 1.3-1.6 mm into the skin (dance_heart) at 14-17°; 0.9 mm at 21°.
+- **A longer strand join at the lower end** (3.5-4 cm): idol_dance@78 1.63, but the arms-down sink is back (hands_on_hips 1.3-1.6 mm).
+- **A note on idol_dance@78:** the stretch at the right X strand ~1 cm above its lower end moves by ±0.04 with any sub-mm change of the strap's rings near the junction (the skin under it stretches x2.08). The setting above keeps it at 1.676.
+
+**Result** (r11/integrate b71fd46 + this branch; the halter before = the round-2/3 halter on the same tree, 5e7fea2):
+
+| Measure | Round 10 | Before | Now |
+|---|---|---|---|
+| Strap's turn at one ring above the rim, rest (kink.py) | — | 13.5° (left ring 48; right 4.6°) | 9.3° (both sides) |
+| ... dance_sway / dance_heart | — | 23.4 / 24.0° | 18.6 / 20.8° |
+| ... hands_behind_head / reach_up_back / arms_up | — | 26.1 / 25.3 / 21.5° | 21.0 / 19.9 / 16.7° |
+| ... idol_dance@47 / 78 / 80 / 81 | — | 23.6 / 22.9 / 26.2 / 25.1° | 20.5 / 16.7 / 20.8 / 20.0° |
+| Visible cord newly inside the skin, worst of 417 core / extended / clip frames | 2.17 mm | 0.96 mm | **0.89 mm** |
+| ... frames over 1 mm / over 1 % past 0.5 mm | 34 / 17 | 0 / 0 | **0 / 0** |
+| ... counting rim rings the bodice leaves uncovered (geo) | 1.32 mm, 8 frames > 1 mm | 1.32 mm, 11 frames | 1.26 mm, 2 frames |
+| Rim entry depth, dance_sway / dance_heart | 0.76 / 2.10 (uncovered only: 0.44 / 0.70) | 0.63 / 0.96 | **0.71 / 0.78** |
+| Rim compress, dance_sway / dance_heart | 0.761 / 0.827 | 0.727 / 0.799 | 0.739 / **0.810** |
+| Arms down: hands_on_hips / hug_self / hands_behind_back depth | 1.21 / 1.32 / 0.85 | 0.87 / 0.80 / 0.49 | 0.89 / 0.70 / 0.78 (0.3 % past 0.5 mm at most) |
+| Stretch idol_dance / reach_up_back / arms_up | 1.637 / 1.379 / 1.304 | 1.673 / 1.326 / 1.286 | **1.676 / 1.357 / 1.304** |
+| Hidden tucked end compress: high_kick / raise_bend / spin | 0.946 / 0.983 / 0.947 | 0.875 / 0.922 / 0.874 | **0.907 / 0.946 / 0.902** |
+
+(The verifier's sweep2.py and kink.py, run on rigs built from the branch: "before" = 5e7fea2, the round-2/3 halter on r11/integrate b71fd46; "now" = f41a086.)
+
+**What is still open**
+- **Rim compress in dance_sway, 0.739 (target 0.80).** The skin along the strap's path there compresses to x0.729-0.734 itself (the ring centres' footpoints on the posed skin), and round 10 had 0.761. A cord that follows the skin cannot stay longer than it. dance_heart now meets the target (0.810).
+- **The strap's turn above the rim is 17-21°** with the arms raised (before 21.5-26.1°): a rounded bend now, not an elbow, in clay and cel (`integ4_raised.jpg`). Less needs the lift carried under the rim, which shows through the bodice at rest.
+- **dance_sway, side view:** one small bite is left on the left strap's outer edge just above the rim (before: two).
+- **Small dark slivers beside the left strap** remain in cel in some raised-left-arm frames (`integ4_outline.jpg`, idol_dance@80): a fold of the skin beside the strap's upper side. The underside slivers are gone.
+- **T4 bounds still missed**, each about as before:
+  - look_over_shoulder 0.678 (bound 0.690; before 0.683) on the right X strand's top ring;
+  - idol_dance@77 compress 0.782 on the hidden tucked end (bound 0.872; before 0.700);
+  - idol_dance@75 / 76 / 77 stretch 1.213 / 1.325 / 1.566 at the junction (bounds 1.194 / 1.287 / 1.535; before 1.219 / 1.334 / 1.569);
+  - run 1.173 (bound 1.172; before 1.168).
+
+{MOTION}
 
 ## Gates (this branch, other parts as on r11/base)
 - **check:** CHECK OK. Accessories 7,576 / 8,000 faces; total 112,280. The build-twice determinism check passed. The seat check warns on r11/base's hair_front, as expected.
@@ -318,10 +377,17 @@ About 1,250 variants:
 - **Integration round, the part:** the new `cord_ring` point attribute (`obj['levi_cord_ring']`). `_write_point` takes `clamp=False` for it.
 - **Integration round 2, `rig.py` accessories section only:** new `HALTER_LEAD_MAX`, `HALTER_LEAD_BONES` and `_halter_lead_cap` (called once in the halter branch of `_neck_cord_weights`); changed `HALTER_RIM_FOLLOW` (0.025 to 0.030), `HALTER_RIDE_SMOOTH` (0.010 to 0.008) and `HALTER_KEEP` (肩補助 x1.5, 首 x0.5). No shared-code lines.
 - **Integration round 2, the part:** `STRING_FLOOR` (0 to 0.9 mm, now applied while the cord settles: `_floor_gap`, `_cage_height`, `_settle(..., floor)`), `STRING_LOW_LIFT` / `STRING_LOW_BAND`, and `RIDE_FULL` (4 to 5 px). Same face count; the geometry changes only on the lower chest.
-- **Integration round 3:** no code change. The rim entry depends on the bodice's top rim by the straps (bodice lane): with the arms raised it sinks 2.4-4.2 mm into the skin at x ±0.07-0.09.
+- **Integration round 3:** no code change. (Its note on the bodice rim is corrected in that section: 0.84-1.73 mm into the skin within 2 cm of the strap entries, 2.4-4.2 mm at x ±0.088, unchanged since round 10.)
+- **Integration round 4, the part:** `STRING_FLOOR_SYM`, `STRING_FLOOR_SMOOTH`, `STRAP_MIRROR` (`_cage_height(..., sym)`, `_max_filter`, `_fit_string(..., strap=True)`, `_settle(..., sym)`); `RIM_LIFT` / `RIM_LIFT_BAND` in `_string_offset`; `RIM_THIN` / `_rim_thin` on the straps' radii; `CORD_LINE_FADE` / `CORD_LINE_MIN` and the `cord_line` vertex group for `add_outline`. Same face count (7,592).
+- **Integration round 4, `rig.py` accessories section only:** new `HALTER_RIM_FOLLOW_IN` (used in `_halter_rim_follow`); changed `HALTER_RIM_FOLLOW` (0.030 to 0.025) and `HALTER_RIDE_SMOOTH` (0.008 to 0.0115). No shared-code lines.
 
 ## Images
 - `fix_choker_merged.jpg`: a scratch merge of r11/accessories with r11/head, hair-front, body-torso, bodice, hair-back, sleeves, skirt, petticoat and shoes (body-hands and body-legs conflict in `rig.py` and were left out), first build vs fixed, front / 3-4 / left / top.
 - `fix_flower.jpg`: the centre (first build, fixed, bust scale, sheet), and the flower over r11/base's hair_front vs r11/hair-front.
 - `choker.jpg`, `flower.jpg`, `halter.jpg`, `posed.jpg`: the first build vs round 10 beside the sheet and 风堇 (900 px).
 - Integration round 3 dropped the sheets later rounds superseded (`fix_halter`, `fix_junction_macro`, `halter_zoom`, `integ_raised`, `integ_rest`, `integ_armsdown_rim`) and scaled `choker`, `flower`, `halter`, `posed`, `fix_choker_merged` and `fix_flower` to 900 px and `integ_neck` and `integ_flower_heart` to 800 px: the images are 1.10 MB in all (1.17 MB with this README).
+- **Integration round 4** (before = 5e7fea2, now = f41a086, both on r11/integrate b71fd46; the close-up cameras follow a strap vertex, which sits ~1 mm higher now, so the framing shifts a little):
+  - `integ4_rest.jpg`: rest. Left / right strap from the side (clay, wire): the left-only crease by the rim is gone, both sides alike. The rim entry in cel from the front and from above: unchanged. Bottom left: the dropped variant with the lift carried under the rim, showing through the bodice.
+  - `integ4_raised.jpg`: the rim entry with the arms raised, clay: dance_heart, hands_behind_head, reach_up_back (right strap), dance_sway, idol_dance@80 (left strap), dance_sway and dance_heart from the side.
+  - `integ4_outline.jpg`: the same spots in cel: the outline no longer floats beside the strap's underside.
+  - `integ4_armsdown.jpg`: hands_on_hips, hug_self, hands_behind_back, the left strap above the junction and the X strand's lower third (clay): no bites, as before.
