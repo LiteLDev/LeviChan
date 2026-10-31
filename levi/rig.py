@@ -1108,6 +1108,38 @@ DRAPE_GATHER_W = (2.0, 0.5, 0.05, 0.1, 0.2)
 DRAPE_MOVE_FREE = 0.25
 DRAPE_INWARD = 2.0
 DRAPE_SWEEPS = 16           # coordinate descent sweeps (alternating direction)
+# Round 11 (integration review 5): how the solve answers sub-mm changes of its inputs. A harness
+# rebuilt only the drape (this function, on the captured inputs of a build) with the knee joint
+# moved +-0.05 / 0.1 mm, the hip +-0.1 mm or every thigh radius +-0.2 mm: the tables moved by up to
+# 0.20 rad (64-143 of 512 driver tables). Per step: the clearance turns jumped by up to 43 grid
+# steps (1.5 rad): the root's first 2-deg candidate under the threshold moved one step, which
+# moved the next segment's depth curve by ~3 mm where it lay on a plateau within 2.5 mm of the
+# threshold for 20 deg, so its first crossing moved 20 deg; where nothing clears (cloth 40-68 mm
+# deep), the least turn within DRAPE_SLACK of the best depth jumped between the ends of a wavy
+# curve; a cloth point on the edge of the rest thigh flipped in or out of the test. The gather
+# then turned 0.002 rad of noise on the clearance into 0.07-0.08 rad of table (its argmin
+# re-picking neighbouring candidates), and a few pitches have two near-equal gathers (the yaw
+# basin and the lift basin, run pitches 60-75 deg). The thigh is pinned (DRAPE_THIGH_JOINTS),
+# so a lane that moves the legs no longer re-tunes the cloth; the two switches below make the
+# solve itself smoother, but they move the drape off the one the round-11 metrics were tuned on
+# (pose harness: cross_legged inner tier x1.80 -> x2.23, run_r skirt x1.58 -> x1.74, 20 rows'
+# compress 0.03-0.06 lower), so they stay off until the drape is re-tuned with them.
+# DRAPE_SOFT (deg / mm): each segment's turn is the first crossing of the threshold interpolated
+# within the grid interval where the depth falls through it (continuous, no 2-deg steps), but no
+# more than a candidate's turn plus this many deg per mm its cloth still lies past the threshold,
+# over a fixed number of candidates spanning the segment's range (the turn above moves the grid
+# continuously). 30: the knee perturbations moved the tables by up to 0.035 rad, the hip / radii
+# ones by up to 0.17 (the deep-cloth slack picks and the gather remain). None: the first
+# candidate under the threshold (rounds 7-11).
+DRAPE_SOFT = None
+# DRAPE_READOUT ((T, sweeps)): the tables read the gather's descent softened: from its candidates,
+# that many sweeps of each chain's weights over its candidates (a softmax of -energy / T against
+# its neighbours' and the previous sample's softened drapes), the drape their mean, so a
+# neighbouring candidate taking over moves a table by a fraction of a grid step ((0.02, 4) with
+# DRAPE_SOFT 30: knee perturbations up to 0.02 rad but for one gather that changes basin, 0.17).
+# A soft minimum in the descent itself (any temperature up to 0.08) kept two-basin pitches and
+# blurred the yaw (compress -0.03 to -0.08 in 100 pose rows at 0.08). None: the argmin.
+DRAPE_READOUT = None
 DRAPE_PTS = 300             # cloth points per chain sector the clearance tests (without DRAPE_BIN)
 # Round 11: the clearance tests the innermost cloth point of each DRAPE_BIN cell (deg round
 # the chain x m of height) of the sector, over the skirt and the petticoat's full meshes,
@@ -1189,6 +1221,17 @@ def skirt_follow(angle, s):
 # round 10's measurement (radius at t = 0, 0.1 .. 1 along hip -> knee); None measures the body.
 DRAPE_THIGH_PROFILE = (0.0722, 0.0628, 0.0603, 0.0582, 0.0554, 0.0546, 0.0537, 0.0525, 0.0489, 0.0484, 0.0576)
 DRAPE_KNEE_OUT = 0.0049     # m: the drape's knee this far out of the knee joint (round 10's knee)
+# Round 11 (integration review 5): the drape's thigh line is a constant too, the left hip and knee
+# joints (足.L head / tail, m); None reads the thigh bone. Read from the bone, the 0.09 mm the knee
+# joint moved in r11/body-legs (11a9b3a: the condyle width back in the leg warp) rebuilt the tables
+# by up to 0.2 rad (the skirt bones up to 31 mm in seiza): the solve is not continuous in its
+# inputs (DRAPE_SOFT, tools/drape_perturb.py), so a lane that moves the legs re-tuned the cloth.
+# These are the joints since then (r11/integrate b71fd46), so the tables are the ones its motion
+# report measured. (Pinned to the joints before 11a9b3a, the earlier tables come back: run clip
+# strain jitter on petticoat_core 0.207 -> 0.199, but 35 skirt / petticoat rows of 41 poses move
+# by more than 0.03, both ways, as the 0.09 mm itself moved them.)
+DRAPE_THIGH_JOINTS = ((0.07100000232458115, -0.0228240005671978, 0.828607976436615),
+                      (0.06402444839477539, -0.012390410527586937, 0.40590980648994446))
 
 
 def _thigh_profile(body, hip, knee, s):
@@ -1334,7 +1377,8 @@ def _drape_clear(sel, seg, free, J, sph, sg, root_max):
     sector (segment index `seg`; only those `free`, i.e. not inside the thigh at rest)
     off the thigh's spheres `sph` (_thigh_spheres). The root may turn up to root_max,
     each joint below within DRAPE_BEND of the segment above; where nothing clears, the
-    least turn within DRAPE_SLACK of the best depth. Then no zigzag (DRAPE_UP).
+    least turn within DRAPE_SLACK of the best depth (with DRAPE_SOFT, interpolated between
+    the grid's samples and capped, continuous in its inputs). Then no zigzag (DRAPE_UP).
     Returns the absolute signed turns (n,)."""
     n = len(J) - 1
     up = math.radians(DRAPE_UP)
@@ -1346,7 +1390,11 @@ def _drape_clear(sel, seg, free, J, sph, sg, root_max):
         prev = A[-1] if A else 0.0
         bend = _drape_bend(j) if j else 0.0
         lo, hi = (0.0, root_max) if j == 0 else (max(0.0, sg * prev - bend), sg * prev + bend)
-        cand = sg * np.arange(lo, hi + 1e-9, res)
+        if DRAPE_SOFT:
+            # a fixed number of candidates over the range, which moves with the turn above
+            cand = sg * np.linspace(lo, hi, int(round((root_max if j == 0 else 2.0 * bend) / res)) + 1)
+        else:
+            cand = sg * np.arange(lo, hi + 1e-9, res)
         m = (seg == j) & free
         if not m.any():
             best = float(cand[0])
@@ -1363,8 +1411,21 @@ def _drape_clear(sel, seg, free, J, sph, sg, root_max):
             # the smallest turn that clears, or else that comes within DRAPE_SLACK of the
             # least depth any turn reaches (cloth turning barely helps must not swing the
             # panel to the limit)
-            ok = np.nonzero(dep <= max(0.0, dep.min() + DRAPE_SLACK))[0]
-            best = float(cand[ok[0]])
+            thr = max(0.0, dep.min() + DRAPE_SLACK)
+            if DRAPE_SOFT:
+                # the crossing interpolated within the interval where the depth falls through
+                # the threshold, at most a candidate's turn + DRAPE_SOFT x its depth past it (a
+                # minimum of continuous functions of the depths)
+                c = sg * cand
+                over = np.maximum(dep - thr, 0.0)
+                best = float((c + math.radians(DRAPE_SOFT) * 1e3 * over).min())
+                fall = (dep[:-1] > thr) & (dep[1:] <= thr)
+                if fall.any():
+                    x = np.clip(over[:-1] / np.maximum(dep[:-1] - dep[1:], 1e-12), 0.0, 1.0)
+                    best = min(best, float((c[:-1] + (c[1:] - c[:-1]) * x)[fall].min()))
+                best *= sg
+            else:
+                best = float(cand[np.nonzero(dep <= thr)[0][0]])
         A.append(best)
         turn = best - prev
         below = seg >= j
@@ -1422,9 +1483,10 @@ def _drape_gather(Pm, J, rest, sg, init, cy=0.0):
     the clearance turns (magnitudes) at each yaw; J: rest joints (K, n + 1, 3); rest:
     (the rest distances (K, n) of each chain's joints to the next chain's, the scale the
     strain is measured against (the innermost cloth's spacing there; inf across a gap));
-    init: the previous sample's (A, psi) (None at rest). The strain is the joints' change
-    of distance over that scale. Coordinate descent over a grid of yaws x root lifts.
-    Returns (A (K, n) signed turns, psi (K,) rad, (A, psi))."""
+    init: the previous sample's state (None at rest). The strain is the joints' change
+    of distance over that scale. Coordinate descent over a grid of yaws x root lifts
+    (read out softened with DRAPE_READOUT). Returns (A (K, n) signed turns, psi (K,) rad,
+    the state for the next sample)."""
     K, n = J.shape[0], J.shape[1] - 1
     yg = np.radians(np.array(DRAPE_YAW_GRID, dtype=float))
     ys = np.radians(np.arange(-DRAPE_YAW_MAX, DRAPE_YAW_MAX + 1e-9, DRAPE_YAW_STEP))
@@ -1458,12 +1520,6 @@ def _drape_gather(Pm, J, rest, sg, init, cy=0.0):
         move = move + 1e3 * (np.abs(Y) > ymax + 1e-9)
         cand.append((A.reshape(-1, n), X.reshape(-1, n, 3), move.reshape(-1), Y.reshape(-1)))
     rest0, scale = rest
-    if init is None:
-        init = (np.zeros((K, n)), np.zeros(K))
-    A_prev, psi_prev = init
-    # start each chain from the candidate nearest the previous sample's drape
-    st = np.array([int(np.argmin(((cand[k][0] - A_prev[k][None]) ** 2).sum(-1) + (cand[k][3] - psi_prev[k]) ** 2))
-                   for k in range(K)])
 
     def ring(Xa, Xb, k):
         d = np.linalg.norm(Xa - Xb, axis=-1)
@@ -1471,18 +1527,43 @@ def _drape_gather(Pm, J, rest, sg, init, cy=0.0):
         return (np.maximum(s - DRAPE_STRAIN, 0.0) ** 2).sum(-1)
 
     ref = math.radians(DRAPE_YAW_MAX)
+
+    def energy(k, Xp, Xn, pp_, pn_, A_prev_k, psi_prev_k):
+        A, X, move, psi = cand[k]
+        kp = (k - 1) % K
+        return (w_strain * (ring(X, Xp[None], kp) + ring(X, Xn[None], k))
+                + w_move * move + w_yaw * (psi / ref) ** 2
+                + w_ring * (((psi - pp_) / ref) ** 2 + ((psi - pn_) / ref) ** 2)
+                + w_step * (((psi - psi_prev_k) / ref) ** 2 + (((A - A_prev_k[None]) / ref) ** 2).mean(-1)))
+
+    def soft(W, A_prev, psi_prev, T, sweeps):
+        """Soft sweeps: each chain's weights over its candidates, a softmax of -energy / T
+        against its neighbours' weighted means, in turn (alternating direction)."""
+        Xm = np.stack([np.tensordot(W[k], cand[k][1], 1) for k in range(K)])
+        pm = np.array([W[k] @ cand[k][3] for k in range(K)])
+        for sweep in range(sweeps):
+            for k in (range(K) if sweep % 2 == 0 else range(K - 1, -1, -1)):
+                kp, kn = (k - 1) % K, (k + 1) % K
+                en = energy(k, Xm[kp], Xm[kn], pm[kp], pm[kn], A_prev[k], psi_prev[k])
+                w = np.exp(-(en - en.min()) / T)
+                W[k] = w / w.sum()
+                Xm[k] = np.tensordot(W[k], cand[k][1], 1)
+                pm[k] = W[k] @ cand[k][3]
+        return W, np.stack([W[k] @ cand[k][0] for k in range(K)]), pm
+
+    if init is None:
+        init = (np.zeros((K, n)), np.zeros(K))
+    A_prev, psi_prev = init[:2]
+    # start each chain from the candidate nearest the previous sample's drape
+    st = np.array([int(np.argmin(((cand[k][0] - A_prev[k][None]) ** 2).sum(-1) + (cand[k][3] - psi_prev[k]) ** 2))
+                   for k in range(K)])
     for sweep in range(DRAPE_SWEEPS):
         order = range(K) if sweep % 2 == 0 else range(K - 1, -1, -1)
         changed = False
         for k in order:
-            A, X, move, psi = cand[k]
             kp, kn = (k - 1) % K, (k + 1) % K
-            Xp, Xn = cand[kp][1][st[kp]], cand[kn][1][st[kn]]
-            Ap, pp = A_prev[k], psi_prev[k]
-            en = (w_strain * (ring(X, Xp[None], kp) + ring(X, Xn[None], k))
-                  + w_move * move + w_yaw * (psi / ref) ** 2
-                  + w_ring * (((psi - cand[kp][3][st[kp]]) / ref) ** 2 + ((psi - cand[kn][3][st[kn]]) / ref) ** 2)
-                  + w_step * (((psi - pp) / ref) ** 2 + (((A - Ap[None]) / ref) ** 2).mean(-1)))
+            en = energy(k, cand[kp][1][st[kp]], cand[kn][1][st[kn]], cand[kp][3][st[kp]], cand[kn][3][st[kn]],
+                        A_prev[k], psi_prev[k])
             b = int(np.argmin(en))
             if en[b] < en[st[k]] - 1e-12:
                 st[k] = b
@@ -1491,6 +1572,15 @@ def _drape_gather(Pm, J, rest, sg, init, cy=0.0):
             break
     A = np.stack([cand[k][0][st[k]] for k in range(K)])
     psi = np.array([cand[k][3][st[k]] for k in range(K)])
+    if DRAPE_READOUT:
+        # the descent's drape softened (DRAPE_READOUT): soft sweeps from its candidates against
+        # the neighbours' and the previous sample's softened drapes
+        T_r, n_r = DRAPE_READOUT
+        W = np.zeros((K, Y.size))
+        W[np.arange(K), st] = 1.0
+        A_rp, psi_rp = (init[2], init[3]) if len(init) > 3 else (init[0], init[1])
+        W, A_r, psi_r = soft(W, A_rp, psi_rp, T_r, n_r)
+        return A_r, psi_r.copy(), (A, psi, A_r, psi_r.copy())
     return A, psi, (A, psi)
 
 
@@ -2769,9 +2859,11 @@ def _secondary_bones(parts, core):
         drape = {}
         if SKIRT_DRAPE and chains:
             th = byname['足.L']
-            drape = _skirt_drape(chains, pts, cy, np.array(th.head),
-                                 np.array(th.tail) + np.array((DRAPE_KNEE_OUT, -DRAPE_KNEE_FWD, 0.0)), verts('body'),
-                                 inner=verts('skirt', 'petticoat'))
+            # (the drape's own thigh line, DRAPE_THIGH_JOINTS, unless None)
+            d_hip, d_knee = ((np.array(th.head), np.array(th.tail)) if DRAPE_THIGH_JOINTS is None
+                             else (np.array(DRAPE_THIGH_JOINTS[0]), np.array(DRAPE_THIGH_JOINTS[1])))
+            drape = _skirt_drape(chains, pts, cy, d_hip, d_knee + np.array((DRAPE_KNEE_OUT, -DRAPE_KNEE_FWD, 0.0)),
+                                 verts('body'), inner=verts('skirt', 'petticoat'))
         for k, (ang, joints) in enumerate(chains):
             hem_r = max(0.03, math.hypot(joints[-1].x, joints[-1].y - cy) * math.pi / SKIRT_SECTORS)
             # the chain hangs from two follow bones that add a share of each thigh's
