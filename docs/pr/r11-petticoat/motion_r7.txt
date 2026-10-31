@@ -1,0 +1,50 @@
+Full-merge motion report (r11/integrate 04ba5c9 + r11/petticoat 0dc9448, merge 6faf2e4; --quick --no-core --extended --report-core --motion, cpu-00171) against integ17 (b71fd46), round 6's merge (04ba5c9 + 30aab5e, the verifier's run) and round 10 (out/motion_base). The build log: 'rig skirt drape: continued from assets/drape/drape_ref.npz (11200 clearance calls, 140 gathers): tables 0.0000 rad from the reference's'. The per-part run rows (jitter / pop by part) are not in integ17's report (motion_check added them later); the pop column names the clip's worst object, not the part's.
+
+row                                              integ17           now            r6           r10
+cross_legged skirt compress                        0.407         0.407         0.407         0.069
+lie_back_elbows core pen_frac                      0.00%         0.00%         0.00%         0.52%
+cross_legged skirt x petticoat                         0             0             0           214
+run clip pop (any)                          55.4mm skirt   54.1mm body  55.4mm skirt68.5mm petticoat
+walk clip pop (any)                          8.4mm skirt   8.4mm skirt   8.4mm skirt   8.2mm skirt
+run clip jitter (any)                              0.224         0.224         0.224         0.560
+sit_chair skirt stretch                            1.657         1.658         1.657         2.162
+sit_chair petticoat stretch (max obj)              1.777         1.779         1.777         2.030
+sit_chair skirt compress                           0.577         0.577         0.577         0.534
+seiza skirt stretch                                1.480         1.482         1.480         1.730
+seiza petticoat stretch (max obj)                  1.620         1.624         1.620         1.778
+seiza skirt compress                               0.758         0.757         0.758         0.710
+jump_tuck skirt stretch                            1.700         1.700         1.700         2.195
+jump_tuck petticoat stretch (max obj)              1.921         1.921         1.921         2.060
+jump_tuck skirt compress                           0.476         0.476         0.476         0.414
+high_kick skirt stretch                            1.737         1.737         1.737         1.895
+high_kick petticoat stretch (max obj)              1.830         1.830         1.830         2.168
+high_kick skirt compress                           0.501         0.501         0.501         0.422
+cross_legged skirt stretch                         2.051         2.051         2.051         2.604
+cross_legged petticoat stretch (max obj)           2.129         2.129         2.129         2.177
+cross_legged skirt compress                        0.407         0.407         0.407         0.069
+deep_lunge skirt stretch                           1.644         1.644         1.644         1.760
+deep_lunge petticoat stretch (max obj)             1.766         1.759         1.766         1.901
+deep_lunge skirt compress                          0.493         0.493         0.493         0.500
+kneel_one skirt stretch                            1.640         1.640         1.640         1.723
+kneel_one petticoat stretch (max obj)              1.761         1.758         1.761         1.893
+kneel_one skirt compress                           0.495         0.495         0.495         0.531
+run_l skirt stretch                                1.525         1.532         1.525         1.701
+run_l petticoat stretch (max obj)                  1.750         1.750         1.750         1.778
+run_l skirt compress                               0.584         0.586         0.584         0.564
+run_r skirt stretch                                1.583         1.589         1.583         1.752
+run_r petticoat stretch (max obj)                  1.775         1.792         1.775         2.171
+run_r skirt compress                               0.520         0.527         0.520         0.410
+cross_legged tails stretch                         1.580         1.580         1.580         1.740
+kneel_one tails stretch                            1.537         1.537         1.537         1.542
+run tails stretch                                  1.339         1.339         1.339         1.632
+jump_tuck hair x skirt                               198           186           186          1720
+spin hair x skirt                                   1042          1080          1080          1352
+run jitter petticoat                                   -         0.157         0.207             -
+run jitter skirt                                       -         0.130         0.156         0.560
+run jitter tails                                       -         0.133         0.134             -
+run pop petticoat                                      -   51.6mm body  53.8mm skirt68.5mm petticoat
+run pop skirt                               55.4mm skirt   53.3mm body  55.4mm skirt             -
+run pop tails                                          -   49.2mm body  50.7mm skirt             -
+tier x tier crossings (sum all poses)                  0             0             0             0
+
+Against round 6's merge: 1440 skirt-family rows, none past the brief's bounds; 403 differ: one stretch row worse by more than 0.01 (run_r petticoat_tier2 1.775 -> 1.792), six better (run clip tier1 1.832 -> 1.819, run_l / idol_dance@72 core 1.702 -> 1.689 and tier1 1.646 -> 1.631, run clip tier0 1.688 -> 1.677); jitter / pop: run core 0.2073 -> 0.1569, skirt 0.1564 -> 0.1304, tails 0.1340 -> 0.1331, run pop skirt 55.4 -> 53.3 mm, tier0 53.8 -> 51.6 mm. Non-family rows differ by at most 0.0027 (body cross-node noise; hair_back 0.001 where the skirt hulls ride the chain roots).
