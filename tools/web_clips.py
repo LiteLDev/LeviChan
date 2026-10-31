@@ -137,7 +137,7 @@ class Clip:
     """Key poses -> per-frame parameters (monotone cubic per channel, lagged per group)."""
     STEP = 0.25
 
-    def __init__(self, frames, keys, loop_fn=None, root_end=(0.0, 0.0, 0.0)):
+    def __init__(self, frames, keys, loop_fn=None, root_end=(0.0, 0.0, 0.0), free=False):
         self.frames = frames
         self.loop_fn = loop_fn
         assert all(0 <= k[0] <= frames for k in keys), 'a key outside the clip'
@@ -159,7 +159,8 @@ class Clip:
         # moved together) and a whole number of turns round
         for k in ('c', 'fL', 'fR'):
             last[k] = tuple(a - b for a, b in zip(last[k], root_end))
-        assert all(_close(last[k], STANCE[k]) for k in STANCE if k != 'turn') and \
+        # (free: a clip that hands over to a hold loop instead, like lift_up into carry_idle)
+        assert free or all(_close(last[k], STANCE[k]) for k in STANCE if k != 'turn') and \
             abs(last['turn'] / 360.0 - round(last['turn'] / 360.0)) < 1e-9, 'a clip must end in the stance'
         xs = [f for f, _ in full]
         self.curves = {}
@@ -726,7 +727,7 @@ MANIFEST = {}
 def clip(name, frames, keys, kind, desc, look=False, face=(), loop=False, loop_fn=None, root_end=None, **extra):
     """Register a clip. root_end (Blender axes, m: +x her left, -y forward, +z up) displaces the end
     pose; the manifest gives it in MMD axes ([x, up, z], -z toward the viewer)."""
-    CLIPS[name] = Clip(frames, keys, loop_fn, root_end or (0.0, 0.0, 0.0))
+    CLIPS[name] = Clip(frames, keys, loop_fn, root_end or (0.0, 0.0, 0.0), free=bool(extra.get('ends_in') or extra.get('starts_in')))
     face = sorted(face, key=lambda k: (k[1], k[0]))     # per morph, in time
     _check_face(name, frames, face, loop)
     m = {'frames': frames, 'loop': loop, 'look': look, 'kind': kind, 'desc': desc}
@@ -1691,6 +1692,136 @@ clip('look_up_reach', 120, [
     'locomotion', 'Reaches up on tiptoe for something just out of reach, stretches, tries a little hop, then pouts.',
     face=fx('う', 4, 60, 0.6) + fx('真面目', 10, 60, 0.5) + fx('キリッ', 56, 74, 0.5, r=4) + fx('困る', 72, 116, 0.6)
     + fx('▲', 76, 112, 0.6))
+
+
+# hop: an in-place jump the runtime carries anywhere (up onto a ledge, down, across a gap): crouch, spring off
+# the toes, legs tucked in the air (frames air[0]..air[1]: the runtime moves the root along its arc there), a
+# soft landing in a squat, up again
+clip('hop', 44, [
+    S(0), K(4, hp=10, sp=6),
+    K(10, c=C(0, 0.02, -0.16), sp=22, lp=6, hp=8, w=(0.24, 0.08, 0.86), k=(1.0, 0.6, -0.2), p=-40.0, b=0.0, g=0.3, gi=0.2,
+      gt=0.2),
+    K(13, c=C(0, -0.02, 0.02), sp=0, lp=0, hp=-4, tip=35, w=(0.34, -0.22, 1.32), k=(0.6, 0.5, -1.0), p=-60.0, g=0.1,
+      gi=0.05, gt=0.1, sh=8.0),
+    K(17, tip=0, f=(0.0, 0.06, 0.20), fp=25, c=C0),
+    K(22, f=(0.0, 0.02, 0.16), fp=15, w=(0.38, -0.18, 1.20)),
+    K(26, f=(0.0, 0.0, 0.0), fp=0, c=C(0, 0, -0.06)),
+    K(30, c=C(0, 0.03, -0.22), sp=20, hp=6, w=(0.30, -0.32, 0.92), k=(1.0, 0.4, -0.5), p=-40.0, sh=2.0),
+    K(36, c=C(0, 0, -0.04), sp=4, hp=0),
+    K(40, **REST_ARMS), S(44)],
+    'locomotion', 'An in-place jump: crouch, spring off the toes, legs tucked in the air over frames air[0]..air[1] '
+    '(the runtime moves the root along its arc there), a soft landing and up again.', air=[13, 26],
+    face=fx('キリッ', 2, 16, 0.6, r=4) + fx('ワ', 12, 28, 0.7, r=4) + fx('笑い', 26, 42, 0.8))
+
+
+WALLC_N, WALLC_STRIDE = 40, 0.4
+
+
+def _wall_climb(frame):
+    """Climbing a wall in front of her (-Y), 40 frames a cycle: hands and feet in opposite pairs, each planted
+    for most of the cycle and sliding down as she rises (the runtime lifts the root `stride` m a cycle), then
+    reaching up for the next hold; leaning in, looking up."""
+    P = dict(STANCE)
+    u = frame / float(WALLC_N)
+    d = 0.75
+    span = WALLC_STRIDE * d
+
+    def limb(ph, top):
+        ph %= 1.0
+        if ph < d:
+            return top - span * ph / d, 0.0
+        s = (ph - d) / (1 - d)
+        return top - span + span * s * s * (3 - 2 * s), math.sin(math.pi * s)
+    for t, off in (('L', 0.0), ('R', 0.5)):
+        hz, out = limb(u + off, 1.50)
+        P[f'w{t}'] = (0.19, -0.27 + 0.05 * out, hz)
+        P[f'k{t}'] = (1.0, 0.15, -0.25)
+        P[f'p{t}'] = -80.0
+        P[f'b{t}'] = -30.0
+        P[f'g{t}'] = P[f'gm{t}'] = 0.45 - 0.3 * out
+        P[f'gi{t}'] = 0.4 - 0.3 * out
+        P[f'gt{t}'] = 0.3
+        P[f'sh{t}'] = 6.0
+        # the foot of the other side moves with this hand
+        o = 'R' if t == 'L' else 'L'
+        fz, fo = limb(u + off + 0.08, 0.50)
+        P[f'f{o}'] = (0.02, -0.16 + 0.05 * fo, fz)
+        P[f'fp{o}'] = 12.0
+        P[f'fy{o}'] = 6.0
+    a = math.cos(2 * math.pi * u)
+    P['c'] = (0.012 * a, -0.06, STANCE['c'][2] + 0.01 * math.cos(4 * math.pi * u))
+    P['sp'] = 8.0
+    P['lr'] = 3.0 * a
+    P['sr'] = -2.0 * a
+    P['hp'] = -16.0
+    P['hy'] = 4.0 * a
+    return P
+
+
+clip('wall_climb', WALLC_N, [S(0), S(WALLC_N)], 'locomotion', 'Climbing a wall in front of her, in place, one cycle '
+     '(both hands): the runtime lifts the root by stride m a cycle.', loop=True, loop_fn=_wall_climb,
+     stride=WALLC_STRIDE, face=[(0, 'キリッ', 0.5), (WALLC_N, 'キリッ', 0.5), (0, 'う', 0.5), (WALLC_N, 'う', 0.5)])
+
+# carrying something over her head: lift_up (from the floor in front of her to over her head), the hold loops
+# carry_idle / carry_walk, put_down (back onto the floor in front, and her arms down)
+OVERHEAD = dict(w=(0.22, -0.06, 1.56), k=(1.0, 0.3, -0.2), p=-80.0, b=-40.0, g=0.5, gi=0.45, gt=0.3, sh=6.0)
+GRAB_LOW = dict(w=(0.30, -0.40, 0.62), k=(1.0, 0.5, -0.4), p=-20.0, b=0.0)
+SQUAT = dict(c=C(0, 0.05, -0.36), sp=38, lp=6, hp=10, f=(0.03, 0.0, 0.0), fy=10.0)
+
+
+def _carry(P, bob):
+    for t in 'LR':
+        for k, v in OVERHEAD.items():
+            P[k + t] = v
+        w = OVERHEAD['w']
+        P['w' + t] = (w[0], w[1], w[2] + bob)
+        P['gm' + t] = OVERHEAD['g']
+    P['hp'] = -6.0
+    return P
+
+
+def _carry_idle(frame):
+    P = dict(STANCE)
+    u = frame / 60.0
+    P['c'] = (0.012 * math.sin(2 * math.pi * u), 0.0, STANCE['c'][2] - 0.012 + 0.008 * math.cos(4 * math.pi * u))
+    P['sp'] = -2.0
+    P['sr'] = 2.0 * math.sin(2 * math.pi * u)
+    P['hr'] = 3.0 * math.sin(2 * math.pi * u)
+    return _carry(P, 0.012 * math.cos(4 * math.pi * u))
+
+
+def _carry_walk(frame):
+    P = _walk(frame)
+    u = frame / float(WALK_N)
+    P['sp'] = -2.0
+    return _carry(P, 0.015 * math.cos(4 * math.pi * u))
+
+
+clip('lift_up', 56, [
+    S(0), K(8, hp=20, sp=10),
+    K(18, **SQUAT, **GRAB_LOW, g=0.2, gi=0.15, gt=0.2),
+    K(24, g=0.8, gi=0.75, gt=0.6),
+    K(34, c=C(0, 0.02, -0.12), sp=12, lp=0, hp=-2, w=(0.24, -0.30, 1.05), k=(1.0, 0.4, -0.6), p=-60.0, b=-20.0),
+    K(44, c=C0, sp=-2, hp=-8, **OVERHEAD, f=(0.0, 0.0, 0.0), fy=3.0),
+    K(50, c=C(0, 0, -0.03)), K(56, c=C(0, 0, -0.012), hp=-6)],
+    'locomotion', 'Squats, grabs something on the floor in front of her (frame 24) and lifts it over her head '
+    '(frame 44); ends holding it there, in carry_idle.', ends_in='carry_idle', grab=24, up=44,
+    face=fx('真面目', 4, 30, 0.6) + fx('う', 16, 40, 0.6) + fx('キリッ', 30, 50, 0.6) + fx('笑い', 42, 56, 0.6, r=3))
+clip('carry_idle', 60, [S(0), S(60)], 'locomotion', 'Holding something over her head, swaying a little.', loop=True,
+     loop_fn=_carry_idle, face=[(0, '笑い', 0.5), (60, '笑い', 0.5), (0, 'ω', 0.4), (60, 'ω', 0.4)])
+clip('carry_walk', WALK_N, [S(0), S(WALK_N)], 'locomotion', 'Walking in place with something held over her head.',
+     loop=True, loop_fn=_carry_walk, stride=WALK_STRIDE,
+     face=[(0, 'にこり', 0.6), (WALK_N, 'にこり', 0.6), (0, 'ω', 0.5), (WALK_N, 'ω', 0.5)])
+clip('put_down', 60, [
+    K(0, c=C(0, 0, -0.012), sp=-2, hp=-6, **OVERHEAD),
+    K(10, c=C(0, 0.02, -0.12), sp=8, hp=4, w=(0.24, -0.30, 1.05), k=(1.0, 0.4, -0.6), p=-60.0, b=-20.0),
+    K(24, **SQUAT, **GRAB_LOW),
+    K(30, g=0.2, gi=0.15, gt=0.2),
+    K(40, c=C(0, 0.02, -0.12), sp=12, lp=0, hp=0, **REST_ARMS),
+    K(50, c=C0, sp=2, f=(0.0, 0.0, 0.0), fy=3.0, hr=8), S(60)],
+    'locomotion', 'From holding something over her head (carry_idle), sets it down on the floor in front of her '
+    '(down at frame 24, let go at 30) and stands up.', starts_in='carry_idle', down=24, release=30,
+    face=fx('う', 2, 30, 0.6) + fx('真面目', 6, 30, 0.5) + fx('にこり', 24, 58, 0.8) + fx('ω', 34, 56, 0.6))
 
 
 WEB_CLIPS = list(CLIPS)
