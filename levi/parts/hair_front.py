@@ -639,10 +639,11 @@ def crown_groove(p, frame):
 CAP_RAY_ROW = 1.0               # px between rows of the dense sheet mesh the grid is cast onto
 CAP_RAY_AZ = 288                # ... and its sections
 CAP_PHI_CROWN = (0.035, 1.45, 24)   # rad from the whorl: first ring, end of the visible crown, rings
-CAP_PHI_LOW = 19                # rings from there to the lower pole (round 11 plate: 10, then 14
-                                # by polar angle; R2: by weighted arc length, _low_layout)
+CAP_PHI_LOW = 18                # rings from there to the lower pole (round 11 plate: 10, then 14
+                                # by polar angle; R2: by weighted arc length, _low_layout; R6: 19, its
+                                # rings now go where the closure turns, CAP_LOW_CURV)
 CAP_LOW_SAMPLES = 240           # samples of each spoke's lifted profile below the crown
-CAP_LOW_CURV = 0.03             # m: arc weight 1 + this x curvature ...
+CAP_LOW_CURV = 0.08             # m: arc weight 1 + this x curvature ... (R6: 0.03)
 CAP_LOW_RMIN = 0.004            # ... the curvature counted up to 1 / this
 CAP_LOW_HIDDEN = 0.2            # arc weight inside the skull (hidden: few rings there)
 CAP_LOW_LIFTED = 0.0005         # m: a spoke's wall ends where the lift raises it this much ...
@@ -708,15 +709,18 @@ NAPE_ON = True
 NAPE_RAY_Z0 = 1.15              # m: the skull's underside is looked for going up from here
 NAPE_HUG = 0.004                # m the closure stays under the skull's underside behind the jaw
 NAPE_HAIRLINE = (1.262, 0.35)   # m at the midline, and its rise per m of |x|: the nape hairline
-NAPE_JAW = (-0.060, -0.016)     # m (y): the skull bound fades in behind the jaw over these
+NAPE_JAW = (-0.080, 0.005)      # m (y): the skull bound fades in behind the jaw over these
                                 # (round 11 R5: -0.044..-0.024 until R4; over 2 cm the closure rose from
                                 # the nape hairline to the ceiling inside the neck at ~60 deg and folded at
                                 # its foot, 118-133 deg edges at y -2.5 cm, and crossed the neck tube's
-                                # wall, 13 triangle pairs at z 1.274-1.283)
+                                # wall, 13 triangle pairs at z 1.274-1.283. R6: -0.060..-0.016 left the
+                                # foot of that rise a 4 mm radius: a row of 63-70 deg edges across the
+                                # nape at y -1.7 cm, seen from below between the jaw and the neck; its
+                                # foot now lies inside the neck tube, a 13 mm radius)
 NAPE_EAR_CLEAR = 0.004          # m under the ears' lowest point ...
 NAPE_EAR_PLAN = (0.010, 0.012, 0.012)   # m the ears' plan grows inward, forward, back (and
                                 # out to the side walls), fading over NAPE_EAR_FADE
-NAPE_EAR_FADE = 0.012
+NAPE_EAR_FADE = 0.024           # (R6: 0.012, 61-89 deg edges where the ears' bound rose beside the jaw)
 # Round 11 R4: hair_back's lining top rose into the cap (its UNDER_TOP rows 140 / 190 -> 118 / 128,
 # its depth at the top held by the skull): its top edge now lies inside the cap out to |x| 8 cm
 # (0.4-2.5 mm under the cap's surface; R3: 1.4-48 mm outside it, a cavity behind the ears) and
@@ -735,23 +739,30 @@ NAPE_LINING_TOL = 0.003         # m: the build fails when hair_back's lining top
 NAPE_LINING_UNDER = 0.003       # m the closure stays under the lining's top ...
 NAPE_LINING_X = 0.085           # ... out to this |x| (further out the lining's top lies under the side locks)
 NAPE_TUCK = 0.008               # m the closure passes under the lining's top ...
-NAPE_WALL = 1.6                 # ... and rises this steeply (dz / dy) in front of it, from a
-NAPE_WALL_ROUND = 0.020         # rounded foot this wide (m), NAPE_WALL_FWD in front of the lining's top
+NAPE_WALL = 3.0                 # ... and rises this steeply (dz / dy) in front of it, from a
+NAPE_WALL_ROUND = 0.035         # rounded foot this wide (m), NAPE_WALL_FWD in front of the lining's top
+                                # (R6: 1.6 from 20 mm since R4; with the lining's middle top back at row 136
+                                # the closure met its inner face at ~60 deg, a straight lit rim behind the
+                                # neck from front-low with geometry normals; steeper, it leaves the lining
+                                # nearly along its inner face, the rounder foot keeping its edges under 60 deg)
 NAPE_WALL_FWD = 0.005           # (the cap's back wall lies 2-5 mm in front of it at |x| 5-8 cm)
 NAPE_WALL_X = (0.075, 0.100)    # |x| (m): the wall fades out over these (further out the lining's top
                                 # lies under the side locks, 2-6 cm under the sheet cap's lowest point;
                                 # R5: 0.045-0.075 until R4, where the lining's raised middle let the
                                 # side ceiling hold the closure under it)
-NAPE_CEIL = dict(mid=1.295, back=1.310, side=1.276, x=(0.035, 0.062), x_back=(0.020, 0.080))
+NAPE_CEIL = dict(mid=1.295, back=1.310, side=1.276, x=(0.025, 0.075), x_back=(0.020, 0.080))
+# (R6: x 0.035-0.062 until R5; the ceiling's drop to the side folded the closure inside the face
+# at |x| 3.5-4.5 cm, hidden, 22 edges of 60-98 deg)
 # (round 11 R5: side 1.272 until R4; with the lining's middle top back at row 136 the closure
 # under the right ear showed 892 mm2 below z 1.28 from q34 front-right low at 4x, R3 879: 4 mm
 # higher there it shows 758, the ears still inside the cap)
 NAPE_BIG = 0.08                 # m: a bound fades out by rising this much
 NAPE_SIDE = (0.102, 0.116)      # |x| (m): the lift fades out over these
-NAPE_SOFT = 0.012               # m: the smooth minimum's reach (between the bounds) ...
+NAPE_SOFT = 0.016               # m: the smooth minimum's reach (between the bounds) ... (R6: 0.012)
 NAPE_SOFT_WALL = 0.030          # ... and between the wall and the rest (the vault's top)
 NAPE_HAIRLINE_SOFT = 0.012      # m: the smooth maximum's reach at the nape hairline
-NAPE_LIFT_SOFT = 0.012          # m: the lift's smooth maximum's reach
+NAPE_LIFT_SOFT = 0.025          # m: the lift's smooth maximum's reach (R6: 0.012; the side walls' corner
+                                # with the closure)
 NAPE_LINE = 0.015               # m over the closure the cap's outline fades in
 # Round 11 R3: the closure's shading normal turns up (+Z, NAPE_UP of it on the closure,
 # fading out with the outline over NAPE_LINE): with the cap's (volume normal, horizontal
@@ -2048,17 +2059,24 @@ AHOGE_LOCKS = (
     # and deeper (col 284, 1.8 px under the scalp), 1.6 mm wide, and surfaces over 14 mm
     # (emerge; AHOGE_EMERGE 8 mm) from 0.5 px under the scalp (depth), so it grows out of the
     # scalp as a narrowing ridge; its end narrows to 2.6 mm and its outline fades out over its
-    # last 5 mm (line_end), so it runs on into the front lock with no seam line.)
+    # last 5 mm (line_end), so it runs on into the front lock with no seam line. R6 (the review:
+    # from behind-high in clay still a separate pill with a rounded root end on the scalp): its rim
+    # line rose 4.2 mm over its first 11 mm and its top 1.6 mm over 6.5 px, so it surfaced already
+    # 4-5 mm wide as a round dome. Its root now starts 6 px further back (col 290) and rises over
+    # 12 px (rim -1.0 px -> +0.6 px at col 278.5, top 0.1 -> 1.6 mm), narrowing to 1.6 mm, with a
+    # ridged section from the root (p 1.3: it surfaces as a ridge line, middle first) and emerge
+    # 20 mm: a wedge growing out of the scalp, pointed from behind-high, high and above; the
+    # crest, the end and the outlines from the side and the front as R5; the same 636 faces.)
     dict(name='ahoge_back',
-         ctrl=((284.0, None, -1.8, 0.35), (280.5, None, -0.4, 0.35), (277.0, None, 0.9, 0.3), (274.5, None, 2.0, 0.2),
-               (270.5, None, 2.9, -0.1), (267.0, None, 1.4, -0.4), (264.0, None, 0.0, -0.8)),
-         width=((284.0, 0.0016), (282.0, 0.0026), (280.0, 0.0040), (277.5, 0.0056), (275.0, 0.0068), (272.0, 0.0074),
-                (269.5, 0.0070), (267.5, 0.0058), (265.5, 0.0040), (264.0, 0.0026)),
-         top=((284.0, 0.0002), (281.0, 0.0008), (278.0, 0.0016), (274.5, 0.0028), (271.6, 0.0041), (270.2, 0.0048),
-              (269.0, 0.0043), (267.5, 0.0029), (266.0, 0.0018), (264.8, 0.0012), (264.0, 0.0009)),
-         under=((284.0, 0.2, 1.0), (277.0, 0.2, 2.0), (267.0, 0.2, 2.0), (265.0, 0.3, 1.2)),
-         p=((284.0, 2.0), (277.0, 1.3), (270.0, 1.3), (266.5, 1.3), (264.5, 1.6)),
-         n=14, emerge=0.014, depth=0.5, line_end=0.005),
+         ctrl=((290.0, None, -1.0, 0.35), (286.0, None, -0.5, 0.35), (282.0, None, 0.1, 0.35), (278.5, None, 0.6, 0.3),
+               (274.5, None, 2.0, 0.2), (270.5, None, 2.9, -0.1), (267.0, None, 1.4, -0.4), (264.0, None, 0.0, -0.8)),
+         width=((290.0, 0.0016), (287.0, 0.0022), (284.0, 0.0030), (281.0, 0.0040), (278.0, 0.0054), (275.0, 0.0068),
+                (272.0, 0.0074), (269.5, 0.0070), (267.5, 0.0058), (265.5, 0.0040), (264.0, 0.0026)),
+         top=((290.0, 0.0001), (286.0, 0.0004), (282.0, 0.0009), (278.0, 0.0016), (274.5, 0.0028), (271.6, 0.0041),
+              (270.2, 0.0048), (269.0, 0.0043), (267.5, 0.0029), (266.0, 0.0018), (264.8, 0.0012), (264.0, 0.0009)),
+         under=((290.0, 0.2, 1.0), (277.0, 0.2, 2.0), (267.0, 0.2, 2.0), (265.0, 0.3, 1.2)),
+         p=((290.0, 1.3), (277.0, 1.3), (270.0, 1.3), (266.5, 1.3), (264.5, 1.6)),
+         n=14, emerge=0.020, depth=0.3, line_end=0.005),
 )
 AHOGE_WRAP = (0.0, 1.15)    # the crescent's wrap fitted per section stays in this range (R5: 0.7; the
                             # back lock's rims over the front lock's root stopped short of the scalp
@@ -2672,15 +2690,29 @@ def _curl_lock():
 # 5711 mm2, 175 newly open along its back edge). From q34 a 1-3 mm strip of background now
 # shows between the neck and the far curtain (~400 mm2 at 3x), where R3's kite hung flat;
 # keeping the lower path out as in R4 halves it but puts idol_dance@80 back over 7 %.
+# Round 11 R6 (the review: that see-through, 385-415 mm2 in each q34 view at rest, 9 mm wide in
+# projection, not 1-3; and the right lock's tip 8.8 mm inside the shoulder in the core test pose):
+# rays through the strip pass 1-11 mm off the lock's outer face and hair_back_side's front edge
+# behind it. From q34 the lock was seen edge-on: its broad side turned from 66 deg toward the front
+# at the root to 33 deg at row 157, where it is 36 mm wide and 10.6 mm thick, and 45 deg is the
+# q34 line of sight. Its broad side now turns by a facing angle linear in the row (CURTAIN_FACING:
+# 50 -> 33 -> -10 deg, twist <= 3.0 deg a ring), so below row 150 it faces out and a little back and
+# shows its width from q34 and from the side; the width grows to 1.3x (CURTAIN_WIDEN); the path at
+# rows 145-200 is 0-3 px further out, its end 2 px higher and 2 px further back (a tip higher or
+# further forward opens a wedge of background behind it in the side view; further back it sinks
+# deeper into the shoulder in test). Ray-cast against R3 at rest (0.7 mm cells): q34 new background
+# 414 / 388 -> 91 / 90 mm2, side window 5792 -> 5785 mm2 (R3 5944), the posed-penetration proxy at
+# idol_dance@80 4.9 -> 5.5 %, the right tip in test 8.8 -> 6.7 mm (one vertex).
 SIDE_CURTAIN = [
-    ([(57, 62, 304), (63, 108, 303), (62, 145, 306), (59, 176, 314), (56, 202, 318)], 0.033, None),
+    ([(57, 62, 304), (63, 108, 303), (62, 145, 305), (62, 176, 313), (60, 200, 320)], 0.033, None),
 ]
 CURTAIN_TIP = (0.62, 2.0, 0.7)     # its taper (hk.taper: from u, exponents; the side locks' ogive)
 CURTAIN_SWELL = (0.3, 0.25)
-CURTAIN_WIDEN = (0.45, 0.75, 0.8, 1.15)  # (u0, u1, k0, k1): its width x k0 -> k1 over u0..u1 (smoothstep)
+CURTAIN_WIDEN = (0.45, 0.75, 0.8, 1.30)  # (u0, u1, k0, k1): its width x k0 -> k1 over u0..u1 (smoothstep; R5 1.15)
 CURTAIN_ASPECT = 3.4               # (of its widest section; R4 2.4)
-CURTAIN_FORWARD = ((110.0, 1.2), (215.0, 0.6))   # its broad side's turn toward the front (lock_normal):
-                                   # a number, or (row, forward) knots blended by smoothstep between them
+CURTAIN_FACING = ((56.0, 50.0), (100.0, 33.0), (190.0, -10.0))   # its broad side's facing (lock_normal):
+                                   # deg from straight out toward the front, linear over sheet rows (R5:
+                                   # forward 1.2 -> 0.6 over rows 110-215, 66 -> 20 deg)
 
 
 def lock_normal(p, forward=1.2, lateral=False):
@@ -2689,6 +2721,13 @@ def lock_normal(p, forward=1.2, lateral=False):
     lateral: start from the pure sideways direction (+-X) instead of the
     head-radial one. Locks hanging in front of the head axis (beside the face,
     in front of the shoulder) would otherwise turn edge-on to the side view."""
+    if isinstance(forward, dict):
+        # {'deg': ((row, deg), ...)}: a horizontal facing at that angle from straight out (+-X)
+        # toward the front, linear between the knots over sheet rows
+        ks = forward['deg']
+        row = spec.SHEET_GROUND_Y - p.z * spec.PX_PER_M
+        a = math.radians(float(np.interp(row, [k[0] for k in ks], [k[1] for k in ks])))
+        return Vector((math.copysign(math.cos(a), p.x), -math.sin(a), 0.0))
     if not isinstance(forward, (int, float)):
         (r0, f0), (r1, f1) = forward
         row = spec.SHEET_GROUND_Y - p.z * spec.PX_PER_M
@@ -2787,7 +2826,7 @@ def side_specs():
         w = (lambda w0: lambda u: w0 * hk.taper(u, CURTAIN_SWELL, CURTAIN_TIP)
              * (k0 + (k1 - k0) * hk.smooth01((np.asarray(u, float) - u0) / (u1 - u0))))(w)
     out['curtain'] = ('hair_curtain', (ctrl, w, end), dict(
-        forward=CURTAIN_FORWARD, lateral=False, aspect=CURTAIN_ASPECT, swell=CURTAIN_SWELL, tip=CURTAIN_TIP,
+        forward={'deg': CURTAIN_FACING}, lateral=False, aspect=CURTAIN_ASPECT, swell=CURTAIN_SWELL, tip=CURTAIN_TIP,
         wrap=0.15, grad=(0.78, 1.25), keep=LOCK_KEEP, bvh='cap'))
     return out
 
