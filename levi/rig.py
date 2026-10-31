@@ -4151,7 +4151,7 @@ def _crotch_tail(w, co, edges, bones):
 # across the gusset and down the inner thighs uneven (the gusset grid's corners, the tail band),
 # and a stride stretched those edges x2.1-2.3 (high_kick, deep_lunge, run; cross_legged x3.1)
 # where round 10's separate leg tubes hid the change of hands inside the pelvis block (x1.7-1.9;
-# x2.44). With the fit: x1.71-1.83, cross_legged x2.33; ~45 s of the rig build. The fit
+# x2.44). With the fit: x1.63-1.83, cross_legged x2.17; ~75 s of the rig build. The fit
 # moves weight only among each vertex's kept bones of CROTCH_FIT_BONES (the pelvis, the thighs
 # and their hip helpers), never raises a thigh's share on the other side of the midline (the
 # opposite-thigh drag stays as _crotch_tail left it) and keeps the rest of the skin's weights,
@@ -4182,11 +4182,15 @@ CROTCH_FIT_POSES = (
     (False, (('L', (0.64, -0.77, 0.0), 110.0), ('R', (-0.64, -0.77, 0.0), -110.0))),  # cross-legged
     (False, (('L', (0.64, -0.77, 0.0), 55.0), ('R', (-0.64, -0.77, 0.0), -55.0))),
 )
-CROTCH_FIT_ITERS = 900
+CROTCH_FIT_ITERS = 1500
 CROTCH_FIT_STRETCH = 1.4
 CROTCH_FIT_COMPRESS = 0.6
 CROTCH_FIT_FOLD = 0.15
-CROTCH_FIT_W = (1.0, 1.0, 20.0)     # weights of the stretch, compression and fold terms
+# weights of the stretch, compression and fold terms. Integration review 2: the stretch term x3
+# and 1500 steps from (1.0, 1.0, 20.0) and 900 (not converged): deep_lunge x1.75 -> x1.70,
+# high_kick x1.70 -> x1.63, cross_legged x2.27 -> x2.17; the opposite-thigh drag, the folds and
+# every other pose as before; ~30 s more of the rig build.
+CROTCH_FIT_W = (3.0, 1.0, 20.0)
 CROTCH_FIT_SMOOTH = 0.02
 CROTCH_FIT_KEEP = 0.05
 _CROTCH = {}          # deform bone name -> (K, 3, 4) skinning matrices in CROTCH_FIT_POSES (build_rig)
@@ -4518,6 +4522,15 @@ _SLEEVE_S = None               # per-vertex sleeve parameter of the object being
 _SLEEVE_EDGES, _SLEEVE_N = None, 0   # ... its edges and vertex count
 SLEEVE_PARAM_SMOOTH = 0.065    # m: surface smoothing of the sleeve's arm / drape parameters
 SLEEVE_ELBOW_SPREAD = (0.06, 0.65, 0.03, 0.25)   # (band b, gain c, arm radius r0, window): see _sleeve_weights
+# Round 11: the upper arm's side of the elbow takes gain SLEEVE_ELBOW_SPREAD_UP[0], blending from
+# the forearm side's c over +-[1] m along the arm about the elbow. With 风堇's hands the wrist sits
+# 8 mm further down the forearm and the elbow 0.3 mm off, and one face a side of the bag's inner
+# elbow fold in arms_forward (above the elbow, front) crossed the flip test's 120 deg (38 -> 40
+# flipped faces, the new ones at 120.4 deg). 0.72 on both sides took it under (36) but added
+# flips on the forearm side's inner face in the swaying, framing poses (dance_sway 13 -> 15,
+# hands_behind_head 12 -> 16, idol_dance 48 -> 54, its ribbon 27 -> 44). Round 7: 0.8 left a
+# dent at the inner elbow.
+SLEEVE_ELBOW_SPREAD_UP = (0.72, 0.02)
 
 
 def _sleeve_param(obj, co):
@@ -4600,8 +4613,11 @@ def _sleeve_weights(co, bones, sparam=None, edges=None):
             # instead of collapsing (round 7: compress 0.04 and flipped faces at ひじ補助)
             b_, c_, r0, wwin = SLEEVE_ELBOW_SPREAD
             dax = np.minimum(_seg_dist(co, S, E), _seg_dist(co, E, Wp))
-            f = b_ / (b_ + c_ * np.maximum(dax - r0, 0.0))
             da = a - l1
+            if SLEEVE_ELBOW_SPREAD_UP:
+                cu, hw = SLEEVE_ELBOW_SPREAD_UP
+                c_ = c_ + (cu - c_) * (1.0 - _smoothstep(-hw, hw, da))
+            f = b_ / (b_ + c_ * np.maximum(dax - r0, 0.0))
             m = f + (1.0 - f) * _smoothstep(0.5 * wwin, wwin, np.abs(da))
             a = l1 + da * m
         if edges is not None and len(edges) and SLEEVE_PARAM_SMOOTH > 0:
@@ -4677,6 +4693,41 @@ SLEEVE_GATHER_STRAIGHT = (0.55, 0.85)   # shoulder -> wrist / arm length: the sl
 SLEEVE_GATHER_BENT = (0.3, 0.6, 0.7)
 SLEEVE_RIDE_SMOOTH = 0.008   # m: the tails' sampled weights are averaged within this radius
 SLEEVE_RIDE_IN = 0.75   # share of the bag's inward pull that the pieces lying on it follow
+# Round 11: the cuff ruffle's sector press keys (levi.parts.sleeves._press_keys: per side, an
+# 'in' and an 'out' key per 45 deg sector round the cuff, named in obj['levi_sleeve_press'];
+# obj['levi_cuff_frame'] is the left cuff's frame) follow the torso and the other forearm
+# (_sleeve_press, Blender only; the PMX keeps the keys as plain vertex morphs, like the gather
+# keys):
+# - torso (round 1): the front sectors' in keys take 'front' x the front lobe (max(0, -sin th)
+#   ** 1.5) x the larger of the bag's crowd measures on 袖重力 (SLEEVE_NEAR: this wrist at the
+#   torso; SLEEVE_CROWD: the arms folded together), so a hand brought to the chest squashes
+#   the cuff's front flutes against it instead of passing them in (hand_to_shoulder: 1.1 cm,
+#   171 vertices -> 0). 'front' 0.875 keeps round 1's 0.7 share on the upper tier's hanging
+#   part (sleeves.CUFF_PRESS_UPPER: 0.8 there, for the other forearm): at 1.0 the squashed
+#   rim bead's edges went to x0.25 in hug_self (round 1: x0.34), for no less penetration;
+# - the other forearm (round 2): two probes under this side's 手首, at the cuff's rim plane
+#   centre, copy the other side's ひじ and 手首 heads; drivers find where that forearm's axis
+#   meets the rim plane (the line's point nearest the rim centre with the offset along the
+#   cuff weighted 'lam' times: the plane crossing, or the nearest point if the forearm lies
+#   along the plane; on the segment, never past the wrist) and its direction round the cuff.
+#   Beside the rim ('in': its distance from the cuff's centre line ramps the weight up from
+#   in[0] to in[1] and down again from in[2] to in[3]) the in keys on its side press the flare
+#   away from it (hands_behind_back: it runs past the rim's outer side); inside the opening
+#   ('out': full up to out[0], none from out[1]; not within out[2..3] of the centre line, where
+#   its side is undefined; not its wrist end, s_out of the segment) the out keys on its side
+#   spread the flare over it (arms_crossed: it lies along the inner side, between the wrist and
+#   the tiers). Both fade with the meeting point's offset from the plane ('axial', m). The side
+#   lobe is max(0, cos) of the angle to each sector. The torso comes first (round 3): a front
+#   sector the torso presses by f spreads by only (1 - f) of its out weight (arms_crossed: the
+#   inner-front sector spread 0.71 into the belly, its flute tip 3.9 mm into the bodice; now
+#   0.44, 3.1 mm, as without the spread 2.9 mm). Scanned over the 17 core and 24 extended
+#   poses and every clip frame, it acts only in hands_behind_back (in) and arms_crossed (out,
+#   left); in dance_clap and idol_dance@34-37 the other forearm's wrist end is in the opening
+#   (the hands pass through each other), where 's_out' keeps the spread off.
+SLEEVE_PRESS = {'front': 0.875, 'lam': 10.0, 'axial': (0.0124, 0.0249),
+                'in': (0.0467, 0.0560, 0.0747, 0.0902), 'out': (0.0373, 0.0467, 0.0093, 0.0187),
+                's_out': (0.6, 0.8)}
+SLEEVE_PRESS_GROUP = 'sleeve_press'     # hidden bone collection of the probes
 
 
 def _arm_arc(co, S, E, Wp):
@@ -4935,6 +4986,143 @@ def _sleeve_gather(arm, objs, bones):
                     t.id, t.bone_target = arm, bn
                     t.transform_space = 'WORLD_SPACE'
                 drv.expression = expr
+
+
+def _sleeve_press(arm, objs):
+    """SLEEVE_PRESS (Blender only): drivers on the cuff tiers' sector press keys (the objects'
+    obj['levi_sleeve_press'] / obj['levi_cuff_frame']), from the crowd measures on 袖重力
+    (_crowd_props) and two probes per side (袖口探A / 袖口探B under 手首, at the left cuff's rim
+    plane centre or its mirror image) that copy the other side's ひじ / 手首 heads. The probes
+    carry the meeting point's properties (levi_s, levi_px / py / pz in the probe's axes, Y
+    along the cuff, levi_rho, levi_win, levi_wout); strip_blender_only removes them."""
+    if not SLEEVE_PRESS:
+        return
+    objs = [o for o in objs if o.get('levi_sleeve_press') and o.get('levi_cuff_frame') and o.data.shape_keys]
+    sides = [t for t in 'LR' if all(f'{b}.{t}' in arm.pose.bones for b in ('手首', 'ひじ', '袖重力'))]
+    if not objs or sides != ['L', 'R']:
+        return
+    cf = objs[0]['levi_cuff_frame']
+    n = int(objs[0]['levi_sleeve_press']['sectors'])
+    inv = arm.matrix_world.inverted()
+
+    def frame(t):
+        f = (lambda v: Vector(v)) if t == 'L' else (lambda v: Vector((-v[0], v[1], v[2])))
+        c, m, e, b = (f(cf[k]) for k in ('origin', 'mid', 'e', 'b'))
+        return inv @ c, (inv.to_3x3() @ m).normalized(), (inv.to_3x3() @ e).normalized(), (inv.to_3x3() @ b).normalized()
+
+    names = {t: (f'袖口探A.{t}', f'袖口探B.{t}') for t in sides}
+    bpy.context.view_layer.objects.active = arm
+    for o in bpy.context.view_layer.objects:
+        o.select_set(o == arm)
+    bpy.ops.object.mode_set(mode='EDIT')
+    eb = arm.data.edit_bones
+    for t in sides:
+        c, m, e, b = frame(t)
+        head = c + m * float(cf['rim'])
+        for nm in names[t]:
+            k = eb.new(nm)
+            k.head, k.tail = head, head + m * 0.01
+            k.align_roll(b)
+            k.parent = eb[f'手首.{t}']
+            k.use_deform = False
+    bpy.ops.object.mode_set(mode='OBJECT')
+    coll = arm.data.collections.get(SLEEVE_PRESS_GROUP) or arm.data.collections.new(SLEEVE_PRESS_GROUP)
+    coll.is_visible = False
+    lam = SLEEVE_PRESS['lam']
+    a0, a1 = SLEEVE_PRESS['axial']
+    i0, i1, i2, i3 = SLEEVE_PRESS['in']
+    o0, o1, o2, o3 = SLEEVE_PRESS['out']
+    s0, s1 = SLEEVE_PRESS['s_out']
+
+    def prop(pb, name, expr, vars_):
+        pb[name] = 0.0
+        fc = pb.driver_add(f'["{name}"]')
+        drv = fc.driver
+        drv.type = 'SCRIPTED'
+        for vn, kind, a, b_ in vars_:
+            if kind == 'loc':
+                v = drv.variables.new()
+                v.name, v.type = vn, 'TRANSFORMS'
+                tg = v.targets[0]
+                tg.id, tg.bone_target = arm, a
+                tg.transform_type, tg.transform_space = f'LOC_{b_}', 'LOCAL_SPACE'
+            else:
+                _prop_var(drv, vn, arm, f'pose.bones["{a}"]["{b_}"]')
+        drv.expression = expr
+        for md in list(fc.modifiers):
+            fc.modifiers.remove(md)
+
+    for t in sides:
+        o_ = 'R' if t == 'L' else 'L'
+        A, B = names[t]
+        for nm, src, jp, en in ((A, f'ひじ.{o_}', '袖口探A', 'CuffProbeA'), (B, f'手首.{o_}', '袖口探B', 'CuffProbeB')):
+            coll.assign(arm.data.bones[nm])
+            pb = arm.pose.bones[nm]
+            k = pb.constraints.new('COPY_LOCATION')
+            k.name = 'Other forearm'
+            k.target, k.subtarget = arm, src
+            pb['mmd_name_j'], pb['mmd_name_e'] = f'{jp}.{t}', f'{en}.{t}'
+            pb['levi_blender_only'] = True
+        pa = arm.pose.bones[A]
+        loc = [(f'{p}{ax.lower()}', 'loc', bn, ax) for p, bn in (('a', A), ('b', B)) for ax in 'XYZ']
+        prop(pa, 'levi_s', f'min(max(-({lam}*ay*(by-ay)+ax*(bx-ax)+az*(bz-az))/'
+                           f'({lam}*(by-ay)*(by-ay)+(bx-ax)*(bx-ax)+(bz-az)*(bz-az)+1e-12),-0.2),1.0)', loc)
+        sv = [('s', 'prop', A, 'levi_s')]
+        for ax in 'xyz':
+            prop(pa, f'levi_p{ax}', f'a{ax}+s*(b{ax}-a{ax})',
+                 [v for v in loc if v[0] in (f'a{ax}', f'b{ax}')] + sv)
+        prop(pa, 'levi_rho', 'sqrt(x*x+z*z)', [('x', 'prop', A, 'levi_px'), ('z', 'prop', A, 'levi_pz')])
+        wv = [('y', 'prop', A, 'levi_py'), ('r', 'prop', A, 'levi_rho')]
+        prop(pa, 'levi_win', f'(1-smoothstep({a0},{a1},abs(y)))*smoothstep({i0},{i1},r)*(1-smoothstep({i2},{i3},r))', wv)
+        prop(pa, 'levi_wout', f'(1-smoothstep({a0},{a1},abs(y)))*(1-smoothstep({o0},{o1},r))*smoothstep({o2},{o3},r)'
+                              f'*(1-smoothstep({s0},{s1},s))', wv + sv)
+        ref = f'袖重力.{t}'
+        if 'levi_crowd' not in arm.pose.bones[ref]:
+            _crowd_props(arm, ref)
+        c, m, e, b = frame(t)
+        bx = arm.data.bones[A].matrix_local.to_3x3()
+        xa, za = bx.col[0], bx.col[2]
+        for o in objs:
+            keys = o['levi_sleeve_press']
+            for kind in ('in', 'out'):
+                for k in range(n):
+                    kb = o.data.shape_keys.key_blocks.get(f'{keys[f"{t}_{kind}"]}{k}')
+                    if kb is None:
+                        continue
+                    th = 2.0 * math.pi * k / n
+                    u = e * math.cos(th) + b * math.sin(th)
+                    cx, cz = round(u.dot(xa), 5), round(u.dot(za), 5)
+                    kb.value = 0.0
+                    kb.driver_remove('value')
+                    fc = kb.driver_add('value')
+                    drv = fc.driver
+                    drv.type = 'SCRIPTED'
+                    for vn, pn in (('w', 'levi_win' if kind == 'in' else 'levi_wout'), ('x', 'levi_px'),
+                                   ('z', 'levi_pz'), ('r', 'levi_rho')):
+                        _prop_var(drv, vn, arm, f'pose.bones["{A}"]["{pn}"]')
+                    lobe = f'max(0.0,(x*{cx}+z*{cz})/max(r,1e-5))'
+                    front = SLEEVE_PRESS['front'] * max(0.0, -math.sin(th)) ** 1.5
+                    # the torso's press on a front sector, f, comes first: that sector spreads
+                    # over the other forearm by only (1 - f) of its out weight, and a sector that
+                    # spreads is pressed by as much less (in x (1 - out), never both in full)
+                    f = f'min(1.0,{front:.4f}*max(c,n))'
+                    if front > 1e-6:
+                        _prop_var(drv, 'c', arm, f'pose.bones["{ref}"]["levi_crowd"]')
+                        _prop_var(drv, 'n', arm, f'pose.bones["{ref}"]["levi_near"]')
+                    out = f'{lobe}*(1.0-{f})' if front > 1e-6 else lobe
+                    if kind == 'out':
+                        drv.expression = f'w*{out}'
+                    else:
+                        _prop_var(drv, 'o', arm, f'pose.bones["{A}"]["levi_wout"]')
+                        keep = f'(1.0-o*{out})'
+                        if front > 1e-6:
+                            drv.expression = f'min(1.0,{front:.4f}*max(c,n)+w*{lobe})*{keep}'
+                        else:
+                            drv.expression = f'w*{lobe}*{keep}'
+                    assert len(drv.expression) <= 255, drv.expression
+                    for md in list(fc.modifiers):
+                        fc.modifiers.remove(md)
+    bpy.context.view_layer.update()
 
 
 # Thick cloth shells (the skirt's outer face, inner face and rounded hem): vertices at the
@@ -7494,5 +7682,6 @@ def build_rig():
     bpy.context.view_layer.update()
     _sleeve_ride_weights(parts.get('sleeves', []))
     _sleeve_gather(arm, parts.get('sleeves', []), bones)
+    _sleeve_press(arm, parts.get('sleeves', []))
     _hair_collision(arm, bones, parts)
     return arm
