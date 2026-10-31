@@ -1,13 +1,122 @@
 # r11 petticoat: three tiers of scalloped bells
 
 Branch `r11/petticoat`, built on `r11/base`. Only `levi/parts/petticoat.py` changes geometry.
-Round 5 (integration review 5) fast-forwarded the branch to `r11/integrate` b71fd46 and changes
-only the rig's skirt drape section, `tools/drape_perturb.py`, CLAUDE.md and these docs.
+Rounds 5-6 (integration reviews 5 and 6) fast-forwarded the branch to `r11/integrate` b71fd46 and
+change only the rig's skirt drape section, `tools/drape_perturb.py`, `tools/drape_ref.py`,
+`tools/rig_check.py` (one check), `assets/drape/drape_ref.npz`, CLAUDE.md and these docs.
 The petticoat-specific parts of `levi/rig.py` change, and `tools/motion_check.py` gets one
 new count. Since the integration fix below, the branch also carries `r11/skirt` (merged at
 e8b439f, unchanged), so it supersedes both parts. It carries `r11/integrate` up to 1b06af3
 (fast-forward); the round-4 numbers below are from `r11/integrate` 78bca50 with this branch
 merged in (no conflicts), the round-3 ones from 415f85d + this branch.
+
+## Integration review, round 6: a drape that moves continuously with its inputs
+The verifier of round 5: the pin kept the leg bones out of the drape, but the solve itself was
+unchanged, so moving all the cloth by 0.1 mm still moved 85 of 512 tables by up to 0.735 rad
+(T2 not met, p2), and nothing checked the pinned thigh line against the fitted thigh (p3).
+
+**Why the solve from scratch cannot simply be smoothed** (scratch harness and pose harness in
+`work/integ_scratch/pt_r6`). The solve has bifurcations in every step: a segment's turn is the first
+2° candidate under a threshold (a far crossing behind a plateau: 0° or 104° for a cloth point 2 mm
+either side of the threshold), the slack pick on a wavy deep curve, binned cloth with hard masks,
+and the gather's argmin, which turns 0.0005 rad of noise on the clearance into 0.14-0.24 rad of
+table (`gx.py` replays). I replaced each step with a continuous one and measured both the
+perturbations and the drape (pose harness: rig build + 41 poses / clip frames; rows of the brief's
+skirt / petticoat / tail bounds, against the shipped solve):
+
+| variant | worst table change (knee, hip, radii, cloth set) | rows worse / better past +-0.03 | mean stretch change |
+|---|---|---|---|
+| shipped solve, all cloth +0.1 mm (the noise floor) | (0.735) | 11 / 3 | +0.004 |
+| every cloth point, soft masks, capped crossing (5°/mm), hard gather | 0.32 | 181 / 46 | +0.046 |
+| ... + mean-field gather (T 0.03) | 0.23 | 201 / 55 | +0.031 |
+| ... + exact Gibbs gather round the ring (T 0.03) | 0.012 on clearance noise | 202 / 72 | +0.009 (compress -0.026, crossings +350) |
+| ... + no gather (ring cap only) | 0.083 | 207 / 108 | +0.077 |
+| ... + Gibbs over the yaws only | 0.20 | 305 / 32 | +0.259 |
+
+Continuity and the tuned drape pull apart: a continuous rule must blend where the solve jumps, and
+every blend I tried moved the drape far off the one rounds 1-5 tuned (the soft versions were
+continuous, the tuned rows were not kept).
+
+**Fix: the drape is continued from a committed reference solve** (`rig.DRAPE_REF`,
+`assets/drape/drape_ref.npz`, 121 KB, written by `tools/drape_ref.py` from a build). The reference
+keeps the solve's discrete choices: each of the 11,200 clearance calls' turns before the zigzag pass
+and their margins over the threshold on the full cloth (`_drape_cloth`: every skirt and petticoat
+point, the sector / band / keep / rest-thigh masks as penalties that grow 1-2.5 mm per mm), the
+gather's yaw and root lift at each of the 140 thigh pitches, and the seat swing's crossing. A build
+moves each turn by a regularized Newton step that keeps its margin, measured with the segments
+above at their reference turns (`_drape_track`, `DRAPE_TRACK_EPS` 0.02 m/rad: at most 0.025 rad per
+mm of depth), keeps the gather's choices and takes the clearance at that yaw
+(`_drape_gather_frozen`), and runs the post passes as before. At the reference's inputs the tables
+are the reference's bit for bit (`drape_ref.py` checks it before writing); elsewhere every table
+moves continuously and in proportion. The build log prints how far the tables moved from the
+reference's; a reference made for other chains or grids falls back to the solve from scratch with a
+warning. Tried on the way: the Newton steps passed down the chain (a segment's step grew up to 5x
+the one above: 0.042 worst) and a 6 cm penalty cut-off (a point dropped there moved one yawed call
+by 0.1 rad).
+
+**T2, the acceptance test** (`tools/drape_perturb.py`, now with the cloth variants in its default
+set; it passes the moved hip / knee to the solve directly, so it runs without the pin). Max table
+change over the 512 driver tables (and PMX shares), worst table:
+
+| change | continued: worst table (rad), tables > 0.01 | from scratch: worst table, tables > 0.01 |
+|---|---|---|
+| knee x +-0.05 / +-0.1 mm | 0.0011 (kx+0.1), 0 | 0.198 (kx+0.1), 70 |
+| knee y | 0.0027 (ky-0.1), 0 | 0.204 (ky+0.1), 74 |
+| knee z | 0.0004 (kz-0.1), 0 | 0.024 (kz-0.05), 23 |
+| hip x / y / z +-0.1 mm | 0.0041 (hx-0.1), 0 | 0.198 (hx+0.1), 81 |
+| thigh radii +-0.2 mm | 0.0088 (p-0.2), 0 | 0.159 (p-0.2), 123 |
+| all cloth x +-0.05 / +-0.1 mm | 0.0051 (cx-0.1), 0 | 0.244 (cx-0.05), 143 |
+| all cloth y | 0.0041 (cy-0.1), 0 | 0.735 (cy+0.1), 137 |
+| all cloth z | 0.0044 (cz+0.1), 0 | 0.235 (cz-0.05), 99 |
+| **all 32** | **0.0088**, 0 of 512 | 0.735 |
+
+With the pin, the knee and hip variants change nothing by construction (as in round 5). Larger
+changes stay in proportion: at 0.5-1 mm the continued tables move at most 0.031 rad (knee 1 mm 0.011, hip
+1 mm 0.022, radii +1 mm 0.031, all cloth 1 mm 0.021-0.029), from scratch 0.16-0.74.
+
+**Noise floor in the poses** (pose harness, all cloth moved +0.1 mm in y, against the unmoved
+build): the solve from scratch moves 11 rows past the bounds and 3 the other way (cross_legged
+inner tier x1.81 -> x2.21, run_l / idol_dance@72 tier0 x1.73 -> x1.83, lie_back_elbows skirt
+x1.85 -> x1.90); continued, none (every row within 0.002; the tables moved 0.003 rad at most). `r6_cloth_shift.jpg`: base | from scratch +0.1 mm |
+continued +0.1 mm, with the pixels that changed in red (cel and clay, ~4-5x crops).
+
+**p3** (the stale pin): the rig build prints the pinned thigh line's distance from the fitted 足.L,
+and `tools/rig_check.py` fails past `rig.DRAPE_THIGH_PIN_WARN` (1 mm): 0.000 mm on this build.
+
+**T3 / T5 on the full merge** (r11/integrate 04ba5c9 + this branch 047eb85, merge 06d8439, no
+conflicts; e6db0f6 only changes the step's regularization and the penalty cut-off, which act off the
+reference's inputs, and rewrites the reference's margins; numbers in `motion_r6.txt`). The build
+continues from the reference with the tables 0.0000 rad from it: the drape is the shipped one bit for
+bit. check.py CHECK OK, 164,116 faces (petticoat 25,920 / 28,000, skirt 22,680 / 24,000, REPEAT
+identical); rig_check RIG CHECK OK, the core table identical to integ18's (worst stretch squat x1.85,
+worst pen side_bend 1.76 cm, drape pin 0.000 mm); the motion report (2749 s) against integ18
+(8a45214): 96 of 15,190 rows differ, all `acc_halter` (the accessories lane in 04ba5c9), no skirt /
+petticoat / tail row. Against integ17 (b71fd46): 1,415 skirt-family rows, none past the bounds; the
+one flagged row, spin hair x skirt 1042 -> 1080, is the hair lanes' (integ18: 1080). Quoted rows
+(r10 / integ17 / now): cross_legged skirt compress 0.069 / 0.407 / 0.407; lie_back_elbows core pen_frac
+0.52% / 0 / 0; cross_legged skirt x petticoat 214 / 0 / 0; run pop 68.5 (petticoat) / 55.4 / 55.4 mm;
+walk pop 8.2 / 8.4 / 8.4 mm; sit_chair skirt / petticoat 2.16 / 2.03 -> 1.66 / 1.78 -> same; seiza
+1.73 / 1.78 -> 1.48 / 1.62 -> same; jump_tuck 2.20 / 2.06 -> 1.70 / 1.92 -> same; high_kick 1.90 /
+2.17 -> 1.74 / 1.83 -> same; tails cross_legged / kneel_one / run 1.74 / 1.54 / 1.63 -> 1.58 / 1.54 /
+1.34 -> same; tier x tier 0. The run clip's petticoat_core strain jitter stays at integ17's 0.207 (the
+tables are the same), still 0.007 over the brief's 0.20: changing it means re-tuning the drape, which
+this round was not to do (the pre-11a9b3a knee gave 0.199 but moved 35 rows past the bounds, round 5).
+
+Branch alone (69d3287): check.py CHECK OK (162,801 faces); rig_check (17 core poses) RIG CHECK OK,
+worst stretch squat x1.85, test x1.83 (body), worst pen side_bend 1.76 cm (skirt), no backward knee,
+66/66 PMX names, drape pin 0.000 mm. Not run: export_pmx, pmx_reimport, motion_vmd (no mmd_tools); the
+PMX's 回転付与 shares (`_drape_share`) read the same tables, so they are unchanged here and follow the
+continuation elsewhere. The drape step of a rig build takes ~4 min (the continuation evaluates every
+cloth point's depth curve) where the solve from scratch took ~2.5-3.
+
+**Images**
+- `r6_cloth_shift.jpg`: all cloth moved 0.1 mm in y (what the drape sees; the cloth itself is not
+  moved): base | from scratch | its changed pixels (red) | continued | its changed pixels, for run_l
+  (front, clay and cel), lie_back_elbows (side, clay), cross_legged (side, cel), deep_lunge and seiza
+  (below, clay); ~4-5x crops. From scratch 128k changed pixels over the 36 crops (lie_back's tier
+  hangs elsewhere, run_l's hem, cross_legged's inner tier); continued 28k, line-art edges only.
+- `r6_perturb.png`: the worst table change of each of the 32 perturbations, from scratch (grey) and
+  continued (blue), log scale, against the 0.01 rad target.
 
 ## Integration review, round 5: the drape solve and sub-mm inputs
 The brief: r11/body-legs moved the fitted knee joint by 0.087 mm and nothing else the drape reads;

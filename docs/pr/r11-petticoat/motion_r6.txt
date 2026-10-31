@@ -1,0 +1,63 @@
+Full-merge motion report (r11/integrate 04ba5c9 + r11/petticoat 047eb85, merge 06d8439; --quick --no-core --extended --report-core --motion, 2749 s) against integ17 (b71fd46), integ18 (8a45214) and round 10 (out/motion_base). The build log: 'rig skirt drape: continued from assets/drape/drape_ref.npz (11200 clearance calls, 140 gathers): tables 0.0000 rad from the reference's'.
+
+row                                              integ17           now       integ18           r10
+cross_legged skirt compress                        0.407         0.407         0.407         0.069
+lie_back_elbows core pen_frac                      0.00%         0.00%         0.00%         0.52%
+cross_legged skirt x petticoat                         0             0             0           214
+run clip pop (any)                          55.4mm skirt  55.4mm skirt  55.4mm skirt68.5mm petticoat
+walk clip pop (any)                          8.4mm skirt   8.4mm skirt   8.4mm skirt   8.2mm skirt
+run clip jitter (any)                              0.224         0.224         0.224         0.560
+sit_chair skirt stretch                            1.657         1.657         1.657         2.162
+sit_chair petticoat stretch (max obj)              1.777         1.777         1.777         2.030
+sit_chair skirt compress                           0.577         0.577         0.577         0.534
+seiza skirt stretch                                1.480         1.480         1.480         1.730
+seiza petticoat stretch (max obj)                  1.620         1.620         1.620         1.778
+seiza skirt compress                               0.758         0.758         0.758         0.710
+jump_tuck skirt stretch                            1.700         1.700         1.700         2.195
+jump_tuck petticoat stretch (max obj)              1.921         1.921         1.921         2.060
+jump_tuck skirt compress                           0.476         0.476         0.476         0.414
+high_kick skirt stretch                            1.737         1.737         1.737         1.895
+high_kick petticoat stretch (max obj)              1.830         1.830         1.830         2.168
+high_kick skirt compress                           0.501         0.501         0.501         0.422
+cross_legged skirt stretch                         2.051         2.051         2.051         2.604
+cross_legged petticoat stretch (max obj)           2.129         2.129         2.129         2.177
+cross_legged skirt compress                        0.407         0.407         0.407         0.069
+deep_lunge skirt stretch                           1.644         1.644         1.644         1.760
+deep_lunge petticoat stretch (max obj)             1.766         1.766         1.766         1.901
+deep_lunge skirt compress                          0.493         0.493         0.493         0.500
+kneel_one skirt stretch                            1.640         1.640         1.640         1.723
+kneel_one petticoat stretch (max obj)              1.761         1.761         1.761         1.893
+kneel_one skirt compress                           0.495         0.495         0.495         0.531
+run_l skirt stretch                                1.525         1.525         1.525         1.701
+run_l petticoat stretch (max obj)                  1.750         1.750         1.750         1.778
+run_l skirt compress                               0.584         0.584         0.584         0.564
+run_r skirt stretch                                1.583         1.583         1.583         1.752
+run_r petticoat stretch (max obj)                  1.775         1.775         1.775         2.171
+run_r skirt compress                               0.520         0.520         0.520         0.410
+cross_legged tails stretch                         1.580         1.580         1.580         1.740
+kneel_one tails stretch                            1.537         1.537         1.537         1.542
+run tails stretch                                  1.339         1.339         1.339         1.632
+jump_tuck hair x skirt                               198           186           186          1720
+spin hair x skirt                                   1042          1080          1080          1352
+tier x tier crossings (sum all poses)                  0             0             0             0
+
+bound check now vs integ17: 1415 skirt-family rows; 1 violations
+  VIOL ('motion', 'spin', 'cross', 'hair/skirt', 'hair x skirt', 1) 1042.0000 -> 1080.0000
+
+Every row against integ18 (8a45214): 15190 rows, 96 differ, all acc_halter (the accessories lane's halter round 4, merged in 04ba5c9); 0 skirt / petticoat / tail rows differ. The one row past the bounds against integ17 is spin hair x skirt 1042 -> 1080, the hair lanes' (integ18: 1080).
+
+Perturbation acceptance test (tools/drape_perturb.py on the branch build, worst driver-table change, rad):
+| change | continued: worst table (rad), tables > 0.01 | from scratch: worst table, tables > 0.01 |
+|---|---|---|
+| knee x +-0.05 / +-0.1 mm | 0.0011 (kx+0.1), 0 | 0.198 (kx+0.1), 70 |
+| knee y | 0.0027 (ky-0.1), 0 | 0.204 (ky+0.1), 74 |
+| knee z | 0.0004 (kz-0.1), 0 | 0.024 (kz-0.05), 23 |
+| hip x / y / z +-0.1 mm | 0.0041 (hx-0.1), 0 | 0.198 (hx+0.1), 81 |
+| thigh radii +-0.2 mm | 0.0088 (p-0.2), 0 | 0.159 (p-0.2), 123 |
+| all cloth x +-0.05 / +-0.1 mm | 0.0051 (cx-0.1), 0 | 0.244 (cx-0.05), 143 |
+| all cloth y | 0.0041 (cy-0.1), 0 | 0.735 (cy+0.1), 137 |
+| all cloth z | 0.0044 (cz+0.1), 0 | 0.235 (cz-0.05), 99 |
+| **all 32** | **0.0088**, 0 of 512 | 0.735 |
+Larger changes (continued / from scratch): knee x +0.5 mm 0.0053 / 0.160, +1 mm 0.0106 / 0.160; hip z -1 mm 0.0224 / 0.274; radii +1 mm 0.0306 / 0.268; all cloth y +0.5 mm 0.0136 / 0.738, +1 mm 0.0253 / 0.244; z -1 mm 0.0211 / 0.733; x +1 mm 0.0292 / 0.244.
+
+Pose harness (rig build + 41 poses / clip frames, 984 skirt / petticoat / tail rows vs the unmoved build): all cloth +0.1 mm in y, from scratch: 11 rows worse past +-0.03, 3 better (cross_legged tier0 x1.807 -> x2.210, run_l / idol_dance@72 tier0 x1.726 -> x1.834, deep_lunge tier0 x1.600 -> x1.654, lie_back_elbows skirt x1.847 -> x1.898, cross_legged core / tier1 pen_frac +0.4%); continued: 0 / 0, every row within 0.002.
