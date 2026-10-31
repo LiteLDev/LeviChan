@@ -7,7 +7,7 @@ Files changed:
 
 Face counts:
 - Sleeves: 8,664 → 17,992 (budget 18,000; integration round 2: +240, one ring on the upper tier's inner face).
-- Model: 107,968 → 117,296 on r11/base; 162,801 on r11/integrate 89f6117 with this branch.
+- Model (tools/check.py): 153,426 on this branch (r11/integrate 1b06af3 merged in at round 1); 162,801 on r11/integrate 89f6117 with this branch (round 10: 107,968; r11/base with verify round 3 of this part: 117,056, +240 now).
 
 The source is the clothes-detail review (round 11 analysis). It found three problems:
 - The band bow read as a green brick of slab loops.
