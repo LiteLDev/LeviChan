@@ -31,7 +31,9 @@ ref/{front,side}.png:  P(fx, row, sc)
     row = panel row (shared by all views)
     sc  = side-view panel column (smaller = further forward, -Y)
 The long hair below the shoulders is unit `hair_back`; leaves/flowers are
-`accessories`. hair_back reads CAP_PROFILE / CAP_EXP (measurement data only).
+`accessories`. hair_back reads CAP_PROFILE / CAP_EXP (measurement data only); the
+build checks NAPE_LINING against hair_back's lining (its pure _under_layer(), never its
+object), and the cap's closure reads unit head's pure skull / ear surface functions.
 """
 import math
 
@@ -714,6 +716,7 @@ NAPE_EAR_FADE = 0.012
 NAPE_LINING = ((0.00, 0.0584, 1.2613), (0.02, 0.0576, 1.2593), (0.04, 0.0550, 1.2509),
                (0.06, 0.0511, 1.2369), (0.08, 0.0468, 1.2172), (0.10, 0.0440, 1.1928),
                (0.12, 0.0557, 1.1437))   # |x|, y, z of hair_back's lining top (measured, round 11 R2)
+NAPE_LINING_TOL = 0.003         # m: the build fails when hair_back's lining top has moved this far (check_nape_lining)
 NAPE_TUCK = 0.008               # m the closure passes under the lining's top ...
 NAPE_WALL = 3.2                 # ... and rises this steeply (dz / dy) in front of it, from a
 NAPE_WALL_ROUND = 0.012         # rounded foot this wide (m), NAPE_WALL_FWD in front of the lining's top
@@ -728,6 +731,14 @@ NAPE_SOFT_WALL = 0.030          # ... and between the wall and the rest (the vau
 NAPE_HAIRLINE_SOFT = 0.012      # m: the smooth maximum's reach at the nape hairline
 NAPE_LIFT_SOFT = 0.012          # m: the lift's smooth maximum's reach
 NAPE_LINE = 0.015               # m over the closure the cap's outline fades in
+# Round 11 R3: the closure's shading normal turns up (+Z, NAPE_UP of it on the closure,
+# fading out with the outline over NAPE_LINE): with the cap's (volume normal, horizontal
+# under the head, plus VOL_KEEP of its own) the low review view's key light, from in front
+# and below, lit the closure behind the right jaw (851 mm2 lit at 4x in the low view, a
+# hard polygonal terminator on its coarse quads) and left the left side in shade. The
+# underside of the hair now takes the shade tone in every view that can see it, as the
+# lining's inner face does.
+NAPE_UP = 1.0
 
 
 def _smax_c(a, b, k):
@@ -775,6 +786,35 @@ def _lining_top(ax):
     xs = [r[0] for r in NAPE_LINING]
     return (float(np.interp(ax, xs, [r[1] for r in NAPE_LINING])),
             float(np.interp(ax, xs, [r[2] for r in NAPE_LINING])))
+
+
+def check_nape_lining():
+    """NAPE_LINING against hair_back's lining as it is now built: per row, the highest point
+    of its under-layer's faces (hair_back._under_layer, a pure function of its own data and
+    CAP_PROFILE, never its object) within 5 mm of that |x| behind y -2 cm, and the mean y of
+    the points within 4 mm of it (how the table was measured). Raises past NAPE_LINING_TOL,
+    so a change to the lining cannot leave the closure's wall silently out of place.
+    Returns the largest offset (m)."""
+    from . import hair_back as _hb
+    outer, inner, _rest = _hb._under_layer()
+    P = np.concatenate([outer.reshape(-1, 3), inner.reshape(-1, 3)])
+    worst, errs = 0.0, []
+    for ax, y, z in NAPE_LINING:
+        m = (np.abs(np.abs(P[:, 0]) - ax) <= 0.005) & (P[:, 1] > -0.02)
+        if not m.any():
+            errs.append(f'no lining at |x| {ax:.2f}')
+            continue
+        Q = P[m]
+        zt = float(Q[:, 2].max())
+        yt = float(Q[Q[:, 2] > zt - 0.004, 1].mean())
+        d = max(abs(zt - z), abs(yt - y))
+        worst = max(worst, d)
+        if d > NAPE_LINING_TOL:
+            errs.append(f'|x| {ax:.2f}: table (y {y:.4f}, z {z:.4f}), lining (y {yt:.4f}, z {zt:.4f})')
+    if errs:
+        raise hk.HairKernelError('hair_front NAPE_LINING is out of date with hair_back\'s lining '
+                                 f'(> {1000 * NAPE_LINING_TOL:.0f} mm; re-measure it): ' + '; '.join(errs))
+    return worst
 
 
 def _box_out(v, lo, hi):
@@ -1056,11 +1096,13 @@ def build_cap(col, mat):
         v[klay] = VOL_KEEP + (CROWN_KEEP - VOL_KEEP) * env
         return v
     llay = _layer(bm, LINE_ATTR, 1.0)
+    ulay = _layer(bm, UP_ATTR, 0.0)
     vt = vert(top, 0.0)
     vb = vert(bot, 0.0)
     vr = [[vert(p, e) for p, e in zip(r, er)] for r, er in zip(rings, envs)]
     for v in bm.verts:
         v[llay] = nape_line(v.co)
+        v[ulay] = NAPE_UP * _nape_near(v.co)
     S = len(vr[0])
     for i in range(S):
         k = (i + 1) % S
@@ -1184,6 +1226,7 @@ VOL_AXES = (66 * PX, 70 * PX, 86 * PX)
 VOL_FORWARD = 0.55      # forward (-Y) tilt of the side-facing volume normals
 VOL_KEEP = 0.3
 KEEP_ATTR = 'hf_keep'   # per-vertex `keep` (strand attrs)
+UP_ATTR = 'hf_up'       # per-vertex share of +Z in the shading normal (the cap's nape closure)
 LINE_ATTR = 'hf_line'   # per-vertex outline weight (1; settle() fades the roots)
 LINE_GROUP = 'hair_line'
 LINE_MIN = 0.05         # outline width share where a root is still buried
@@ -1214,11 +1257,20 @@ def set_volume_normals(me, keep):
     ks = [d.value for d in attr.data] if attr is not None else None
     if attr is not None:
         me.attributes.remove(attr)
+    attr = me.attributes.get(UP_ATTR)
+    us = [d.value for d in attr.data] if attr is not None else None
+    if attr is not None:
+        me.attributes.remove(attr)
+    up = Vector((0.0, 0.0, 1.0))
     normals = []
     for i, v in enumerate(me.vertices):
         k = ks[i] if ks is not None and ks[i] >= 0 else keep
         n = volume_normal(v.co) * (1 - k) + v.normal * k
-        normals.append(n.normalized() if n.length > 1e-9 else Vector(v.normal))
+        n = n.normalized() if n.length > 1e-9 else Vector(v.normal)
+        if us is not None and us[i] > 0.0:
+            n = n * (1.0 - us[i]) + up * us[i]
+            n = n.normalized() if n.length > 1e-9 else up
+        normals.append(n)
     me.normals_split_custom_set_from_vertices(normals)
 
 
@@ -1907,30 +1959,39 @@ AHOGE_LOCKS = (
     # sink: m of arc over which the end sinks back into the scalp (_sink_end), or none
     # (it rests on the lock under it); n: ring vertices (n = 2 mod 4 puts one on the
     # middle of the top, so a ridge has no flat top seen end-on)
-    # (R2: the front lock's root runs back under the back lock's, cols 281-264)
+    # (R2: the front lock's root runs back under the back lock's, cols 281-264. R3: from col
+    # 276.5, narrower and on the back lock's line, so its flat root lies inside the back
+    # lock's footprint: R2's ran on 4.5 px behind it and 0.6 px aside, a thin flat flange
+    # with its own rim under and behind the back lock (q34-high, side-high), a forked outline
+    # and a square, open root end from above. The spine is a little fuller behind the crest
+    # (cols 264-260: R2 1.0 / 3.3 px), so the underside reaches the scalp under the point (R2
+    # left a 0.29 mm see-through slit there at 16x) and the crest turns less (rho 0.43, R2
+    # 0.46); the top's peak is a little wider (cols 256-257 at full height).)
     dict(name='ahoge_front',
-         ctrl=((281.0, None, -1.0, 1.0), (277.0, None, 0.3, 0.9), (272.5, None, 0.5, 0.8), (268.0, None, 0.6, 0.6),
-               (264.0, None, 1.0, 0.3), (260.0, None, 3.3, 0.1), (256.5, None, 4.0, 0.0),
+         ctrl=((276.5, None, -1.2, 0.35), (272.5, None, 0.4, 0.35), (268.0, None, 0.6, 0.35), (264.0, None, 1.2, 0.25),
+               (260.0, None, 3.5, 0.1), (256.5, None, 4.0, 0.0),
                (252.0, None, 2.6, 0.6), (247.0, None, 0.9, 2.0), (242.5, None, 0.0, 3.6),
                (238.5, None, -0.3, 4.8)),
-         width=((281.0, 0.0060), (277.0, 0.0072), (272.0, 0.0080), (267.0, 0.0088), (264.0, 0.0098), (260.0, 0.0110),
+         width=((276.5, 0.0045), (273.0, 0.0065), (269.0, 0.0080), (266.0, 0.0090), (264.0, 0.0098), (260.0, 0.0110),
                 (256.5, 0.0115), (252.0, 0.0132), (249.0, 0.0135), (246.0, 0.0110), (243.0, 0.0070), (240.5, 0.0045),
                 (238.5, 0.0032)),
-         top=((280.5, 0.0005), (277.0, 0.0008), (272.0, 0.0010), (268.0, 0.0012), (265.0, 0.0015), (263.5, 0.0019),
-              (261.0, 0.0035), (259.0, 0.0053), (257.6, 0.0072), (256.8, 0.0080), (255.9, 0.0074), (254.2, 0.0058),
-              (251.8, 0.0040), (248.8, 0.0026), (245.0, 0.0015), (241.0, 0.0007), (238.0, 0.0005)),
-         under=((281.0, 0.2, 1.0), (276.0, 0.2, 2.0), (246.0, 0.2, 2.0), (241.0, 0.6, 1.2)),
-         p=((281.0, 2.0), (276.0, 1.6), (266.0, 1.4), (262.0, 1.3), (256.0, 1.3), (251.0, 1.4), (246.0, 1.7), (240.0, 2.0)),
+         top=((276.0, 0.0004), (272.0, 0.0008), (268.0, 0.0012), (265.0, 0.0015), (263.5, 0.0019), (261.0, 0.0035),
+              (259.0, 0.0054), (257.8, 0.0071), (256.8, 0.0079), (256.0, 0.0079), (255.0, 0.0072), (253.6, 0.0058),
+              (251.6, 0.0041), (248.8, 0.0026), (245.0, 0.0015), (241.0, 0.0007), (238.0, 0.0005)),
+         under=((276.0, 0.2, 1.0), (272.0, 0.2, 2.0), (246.0, 0.2, 2.0), (241.0, 0.6, 1.2)),
+         p=((276.0, 2.0), (272.0, 1.6), (266.0, 1.4), (262.0, 1.3), (256.0, 1.3), (251.0, 1.4), (246.0, 1.7), (240.0, 2.0)),
          sink=0.024, n=18),
     # (R2: on the midline to its point, its end 1.6 px aside; its root 1.6 px under the
-    # front lock's root it lies on)
+    # front lock's root it lies on. R3: its root narrows from 4.4 mm (R2 6 mm: a square end
+    # from above) and, now resting on the scalp behind col 276.5, it stands 0.5-0.9 px higher
+    # (the point at row 12.85 as in R2); its end thins to a 0.9 mm blade (R2 1.4 mm).)
     dict(name='ahoge_back',
-         ctrl=((281.5, None, -1.6, 0.4), (278.0, None, -0.2, 0.3), (274.5, None, 1.0, 0.1),
-               (270.5, None, 1.5, -0.2), (267.0, None, 0.6, -0.8), (264.5, None, 0.0, -1.6)),
-         width=((281.5, 0.0060), (278.0, 0.0094), (274.0, 0.0102), (270.5, 0.0090), (268.0, 0.0072),
-                (266.0, 0.0056), (264.8, 0.0047), (264.0, 0.0044)),
+         ctrl=((281.5, None, -1.6, 0.4), (278.0, None, 0.2, 0.3), (274.5, None, 2.0, 0.1),
+               (270.5, None, 2.9, -0.2), (267.0, None, 1.4, -0.8), (264.5, None, 0.0, -1.6)),
+         width=((281.5, 0.0044), (279.5, 0.0068), (278.0, 0.0086), (274.0, 0.0102), (270.5, 0.0090), (268.0, 0.0070),
+                (266.0, 0.0052), (264.8, 0.0042), (264.0, 0.0036)),
          top=((281.0, 0.0006), (278.0, 0.0016), (274.5, 0.0028), (271.6, 0.0041), (270.2, 0.0048),
-              (269.0, 0.0044), (267.5, 0.0031), (266.0, 0.0021), (264.8, 0.0016), (264.0, 0.0014)),
+              (269.0, 0.0043), (267.5, 0.0029), (266.0, 0.0018), (264.8, 0.0012), (264.0, 0.0009)),
          under=((281.0, 0.2, 1.0), (277.0, 0.2, 2.0), (267.0, 0.2, 2.0), (265.0, 0.3, 1.2)),
          p=((281.0, 2.0), (277.0, 1.3), (270.0, 1.3), (266.5, 1.3), (264.5, 1.6)),
          n=14),
@@ -2493,9 +2554,25 @@ def _curl_lock():
 # 11 % of it inside the arm, round 10 5 %, now 2 %; with the first build's path above
 # row 145 the arm met its middle and the curl resting on it, 10 %). Its inner rim then
 # lies inside the cap behind the ear (16 % of it past its root, hidden; 8 % before).
+# Round 11 R3 (the side notch): round 11 narrowed it from row ~125 (taper from u 0.55) to a
+# lance 2-2.5 cm across behind the neck, so in the side view the background showed between
+# it and hair_back's side locks (y -1..+1.2 cm at z 1.21-1.26, x 11-13 cm), under the cap,
+# where 89f6117's cap floor (x 3-9 cm, the front view's plate) had hidden it. Below row ~140
+# it now turns its broad side out (CURTAIN_FORWARD 1.2 -> 0.3: its width runs back along the
+# head, not across it), widens (CURTAIN_WIDEN, x 1.4 over u 0.5-0.7) and runs ~1.5 cm further
+# back (rows 145-202, side cols +4..+9), and closes in a blade only past u 0.85 (CURTAIN_TIP):
+# its front rim stays where it was (no slit opens toward the neck) and its back rim meets
+# hair_back's side locks, so from the side the hair behind the ear is one mass down to the
+# shoulders, as the sheet draws it (side view behind the neck: 15 mm2 more background than
+# 89f6117 at z 1.205-1.21, 492 mm2 less below it; R2: 635 mm2 more).
 SIDE_CURTAIN = [
-    ([(57, 62, 304), (63, 108, 305), (65, 145, 306), (66, 176, 307), (67, 202, 309)], 0.032, None),
+    ([(57, 62, 304), (63, 108, 305), (65, 145, 310), (66, 176, 316), (67, 202, 318)], 0.032, None),
 ]
+CURTAIN_TIP = (0.85, 1.6, 0.6)     # its taper (hk.taper: from u, exponents)
+CURTAIN_SWELL = (0.3, 0.25)
+CURTAIN_WIDEN = (0.5, 0.7, 1.4)    # (u0, u1, factor): its width grows by factor over u0..u1 (smoothstep)
+CURTAIN_FORWARD = ((125.0, 1.2), (165.0, 0.3))   # its broad side's turn toward the front (lock_normal):
+                                   # a number, or (row, forward) knots blended by smoothstep between them
 
 
 def lock_normal(p, forward=1.2, lateral=False):
@@ -2504,6 +2581,10 @@ def lock_normal(p, forward=1.2, lateral=False):
     lateral: start from the pure sideways direction (+-X) instead of the
     head-radial one. Locks hanging in front of the head axis (beside the face,
     in front of the shoulder) would otherwise turn edge-on to the side view."""
+    if not isinstance(forward, (int, float)):
+        (r0, f0), (r1, f1) = forward
+        row = spec.SHEET_GROUND_Y - p.z * spec.PX_PER_M
+        forward = f0 + (f1 - f0) * smooth01((row - r0) / (r1 - r0))
     if lateral:
         n = Vector((math.copysign(1.0, p.x), 0.0, 0.0))
     else:
@@ -2592,8 +2673,13 @@ def side_specs():
         grad=(0.55, 0.85), keep=LOCK_KEEP, bvh='cap', curl_face='plane', curl_exp=0.8))
     # The curtain hangs behind the face frame and ends at the choker, well above
     # the other locks' green: its ramp ends past the tip (~45% mint there).
-    out['curtain'] = ('hair_curtain', SIDE_CURTAIN[0], dict(
-        forward=1.2, lateral=False, aspect=2.8, swell=(0.3, 0.25), tip=(0.55, 1.8, 0.7), wrap=0.15,
+    ctrl, w, end = SIDE_CURTAIN[0]
+    if CURTAIN_WIDEN:
+        u0, u1, k = CURTAIN_WIDEN
+        w = (lambda w0: lambda u: w0 * hk.taper(u, CURTAIN_SWELL, CURTAIN_TIP)
+             * (1.0 + (k - 1.0) * hk.smooth01((np.asarray(u, float) - u0) / (u1 - u0))))(w)
+    out['curtain'] = ('hair_curtain', (ctrl, w, end), dict(
+        forward=CURTAIN_FORWARD, lateral=False, aspect=2.8, swell=CURTAIN_SWELL, tip=CURTAIN_TIP, wrap=0.15,
         grad=(0.78, 1.25), keep=None, bvh='cap'))
     return out
 
@@ -2643,6 +2729,9 @@ def build(col):
     err = cap_profile_error()
     print(f'HAIR_FRONT cap: {len(cap_spokes())} spokes x {len(cap_rings()) + CAP_PHI_LOW} rings; '
           f'outside CAP_PROFILE by at most {1000 * err:.2f} mm')
+    if NAPE_ON:
+        print(f'HAIR_FRONT cap nape closure: NAPE_LINING within {1000 * check_nape_lining():.1f} mm of '
+              f'hair_back\'s lining top (limit {1000 * NAPE_LINING_TOL:.0f} mm)')
     rnd = check_cap_round(cap_bvh)
     print(f"HAIR_FRONT cap crown: apex row {rnd['apex_row']:.2f}; front / back outline apex radius "
           f"{rnd['r_apex']:.1f} px (|x| <= {CAP_ROUND_HALF:.0f} px) vs the circle through the apex and the "
