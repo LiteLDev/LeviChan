@@ -14,7 +14,10 @@ every motion clip (motion_poses.CLIPS), with vectorized numpy on the evaluated m
                       through each other (thigh into thigh, forearm into chest), 'contact' for
                       neighbours pressing in at a deep bend (calf into thigh, arm into chest side)
   cross               new triangle crossings between cloth / hair layers (hair through sleeves
-                      or bodice, skirt through petticoat)
+                      or bodice, skirt through petticoat); the row also carries 'mm', the
+                      length of the new intersection curve (round 11: the pair count grows
+                      with mesh density, the curve's length does not), and 'top', the object
+                      pairs with the most of it ('cross mm' column, not a gated metric)
   joint / vol         local collapse at a joint band: median of the skin's distance to the bone
                       axis (posed / rest; a crease squeezes one side, a collapse the whole band)
                       and the band's mean squared radius ratio (local volume); the forearm band
@@ -26,7 +29,10 @@ every motion clip (motion_poses.CLIPS), with vectorized numpy on the evaluated m
                       (a hose-like bend is long, a defined joint short)
   pop / bone_pop      (clips) one-frame spikes of vertex / bone acceleration beyond both
                       neighbours two frames away (popping, IK flips, driver jumps), mm
-  jitter              (clips) the same spike test on edge strain (weight-discontinuity flicker)
+  jitter              (clips) the same spike test on edge strain (weight-discontinuity flicker);
+                      pop and jitter also get one row per part (by_part, round 11), so a skirt
+                      or body pop no longer hides a hair pop ('Clips: pop / jitter per part';
+                      those rows are not counted as issues)
   speed               (clips) fastest vertex, m/s (information)
   eye                 eyes through the face or lids for gaze at rig.EYE_LIMIT combined with the
                       eye morphs (まばたき, ウィンク, 笑い...), mm beyond rest
@@ -389,23 +395,60 @@ class Model:
                 self.spans[jn + side] = dict(idx=idx, t=t[idx], lat=lat[idx] / r[idx, None], U=U, Lo=Lo, du=du, dl=dl,
                                              edges=e, dia=2.0 * float(np.median(r[idx][mid])))
 
-    def cross_sets(self, coords):
+    def cross_groups(self, coords):
+        """{group: (vertices (V, 3), triangles (T, 3), [(object, first tri, end tri)...])}."""
         out = {}
-        bv = {}
         for g, cols in CROSS_GROUPS.items():
-            vs, ts, off = [], [], 0
+            vs, ts, objs, off, toff = [], [], [], 0, 0
             for o in self.objs:
                 inf = self.info[o.name]
                 if (inf['part'] in cols or o.name in cols) and inf['ok'] and len(inf['tris']):
                     vs.append(coords[o.name])
                     ts.append(inf['tris'] + off)
+                    objs.append((o.name, toff, toff + len(inf['tris'])))
                     off += len(coords[o.name])
+                    toff += len(inf['tris'])
             if ts:
-                bv[g] = BVHTree.FromPolygons(np.concatenate(vs).tolist(), np.concatenate(ts).tolist())
+                out[g] = (np.concatenate(vs), np.concatenate(ts), objs)
+        return out
+
+    def cross_sets(self, coords, groups=None):
+        out = {}
+        groups = groups if groups is not None else self.cross_groups(coords)
+        bv = {g: BVHTree.FromPolygons(v.tolist(), t.tolist()) for g, (v, t, _o) in groups.items()}
         for a, b in CROSS_PAIRS:
             if a in bv and b in bv:
                 out[(a, b)] = set(bv[a].overlap(bv[b]))
         return out
+
+
+def tri_cut_length(A, B):
+    """Length of the intersection segment of each triangle pair A[k] x B[k] ((P, 3, 3) each):
+    the farthest apart of the points where an edge of one meets the other triangle (0 for
+    coplanar or touching pairs)."""
+    P = len(A)
+    if not P:
+        return np.zeros(0)
+    pts, ok = [], []
+    for S, T in ((A, B), (B, A)):
+        e1, e2 = T[:, 1] - T[:, 0], T[:, 2] - T[:, 0]
+        for i in range(3):
+            o, d = S[:, i], S[:, (i + 1) % 3] - S[:, i]
+            h = np.cross(d, e2)
+            a = np.einsum('ij,ij->i', e1, h)
+            good = np.abs(a) > 1e-14
+            f = np.where(good, 1.0 / np.where(good, a, 1.0), 0.0)
+            s = o - T[:, 0]
+            u = f * np.einsum('ij,ij->i', s, h)
+            q = np.cross(s, e1)
+            v = f * np.einsum('ij,ij->i', d, q)
+            t = f * np.einsum('ij,ij->i', e2, q)
+            ok.append(good & (u >= 0) & (v >= 0) & (u + v <= 1) & (t >= 0) & (t <= 1))
+            pts.append(o + t[:, None] * d)
+    pts, ok = np.stack(pts, 1), np.stack(ok, 1)            # (P, 6, 3), (P, 6)
+    dist = np.linalg.norm(pts[:, :, None] - pts[:, None], axis=3)
+    dist[~(ok[:, :, None] & ok[:, None])] = 0.0
+    return dist.reshape(P, -1).max(1)
 
 
 def _tri_normals(co, tri):
@@ -694,10 +737,25 @@ class Frame:
 
     def _cross(self):
         m = self.model
-        now = m.cross_sets(self.coords)
+        groups = m.cross_groups(self.coords)
+        now = m.cross_sets(self.coords, groups)
         for k, s in now.items():
-            n = len(s - m.cross0.get(k, set()))
-            self._worst('cross', n, f'{k[0]}/{k[1]}', f'{k[0]} x {k[1]}', f'{k[0]} x {k[1]}')
+            new = np.array(sorted(s - m.cross0.get(k, set())), dtype=np.int64).reshape(-1, 2)
+            mm, top = 0.0, ''
+            if len(new):
+                (va, ta, oa), (vb, tb, ob) = groups[k[0]], groups[k[1]]
+                ln = tri_cut_length(va[ta[new[:, 0]]], vb[tb[new[:, 1]]]) * 1000.0
+                mm = float(ln.sum())
+                # the object pairs with the most of the curve
+                ia = np.searchsorted([e for _n, _s, e in oa], new[:, 0], side='right')
+                ib = np.searchsorted([e for _n, _s, e in ob], new[:, 1], side='right')
+                per = {}
+                for a, b, x in zip(ia.tolist(), ib.tolist(), ln.tolist()):
+                    per[(a, b)] = per.get((a, b), 0.0) + x
+                top = ', '.join(f'{oa[a][0]} x {ob[b][0]} {x:.0f}'
+                                for (a, b), x in sorted(per.items(), key=lambda kv: -kv[1])[:3])
+            self._worst('cross', len(new), f'{k[0]}/{k[1]}', f'{k[0]} x {k[1]}', f'{k[0]} x {k[1]}',
+                        {'mm': round(mm, 1), 'top': top})
 
     def _joints(self):
         m = self.model
@@ -935,7 +993,9 @@ def run_clip(model, clip, log=print, stride=1):
             lo = THRESH[r['metric']][2] == 'lo'
             cur = worst.get(key)
             if cur is None or (r['value'] < cur['value'] if lo else r['value'] > cur['value']):
-                worst[key] = dict(r, frame=fr)
+                worst[key] = dict(r, frame=fr, **{k: cur[k] for k in ('mm_max', 'mm_frame', 'mm_top') if cur and k in cur})
+            if 'mm' in r and r['mm'] > worst[key].get('mm_max', -1.0):
+                worst[key].update(mm_max=r['mm'], mm_frame=fr, mm_top=r.get('top', ''))
         traj.append(np.concatenate([f.coords[n] for n in names]).astype(np.float32))
         strain.append(np.concatenate([
             np.linalg.norm(f.coords[n][model.info[n]['medges'][:, 0]] - f.coords[n][model.info[n]['medges'][:, 1]],
@@ -966,6 +1026,7 @@ def run_clip(model, clip, log=print, stride=1):
         acc = np.linalg.norm(X[2:] - 2 * X[1:-1] + X[:-2], axis=2)       # (F-2, V), frame t+1
         val, t, vi = _spike(acc, POP_FLOOR)
         part, obj, where = locate(vi)
+        part_pop = part
         temporal.append(dict(metric='pop', value=val, part=part, object=obj, where=where, frame=t + 1))
         B = np.stack(bones)
         bacc = np.linalg.norm(B[2:] - 2 * B[1:-1] + B[:-2], axis=2)
@@ -986,6 +1047,36 @@ def run_clip(model, clip, log=print, stride=1):
                 break
             off += ne
         temporal.append(dict(metric='jitter', value=val, part=epart, object=eobj, where=ewhere, frame=t + 1))
+        # ... and the same per part (rows marked by_part), apart from the part the clip's
+        # worst row already names: one row per clip let a skirt or body pop hide every hair
+        # pop (run: the skirt's 55 mm over hair_back's 21 mm)
+        vparts, eparts, off = {}, {}, 0
+        for n, a, b in vmap:
+            p = model.info[n]['part']
+            vparts.setdefault(p, []).append(np.arange(a, b))
+            ne = len(model.info[n]['medges'])
+            eparts.setdefault(p, []).append((n, np.arange(off, off + ne)))
+            off += ne
+        for p in sorted(vparts):
+            if p != part_pop:
+                idx = np.concatenate(vparts[p])
+                val, t, k = _spike(acc[:, idx], POP_FLOOR)
+                if k >= 0:
+                    _p, obj, where = locate(int(idx[k]))
+                    temporal.append(dict(metric='pop', value=val, part=p, object=obj, where=where, frame=t + 1,
+                                         by_part=True))
+            if p != epart:
+                idx = np.concatenate([e for _n, e in eparts[p]])
+                val, t, k = _spike(sacc[:, idx], JITTER_FLOOR)
+                if k >= 0:
+                    ei, base = int(idx[k]), 0
+                    for n, e in eparts[p]:
+                        if e[0] <= ei <= e[-1]:
+                            inf = model.info[n]
+                            temporal.append(dict(metric='jitter', value=val, part=p, object=n,
+                                                 where=model.bone_name(inf['dom'][inf['medges'][ei - e[0], 0]]),
+                                                 frame=t + 1, by_part=True))
+                            break
         vel = np.linalg.norm(X[1:] - X[:-1], axis=2) * motion_poses.FPS
         t, vi = np.unravel_index(int(vel.argmax()), vel.shape)
         part, obj, where = locate(vi)
@@ -1047,17 +1138,23 @@ def _line(name, rows):
 # ------------------------------------------------------------------ report
 
 COLS = (('stretch', 'stretch'), ('compress', 'compress'), ('flip', 'flip'), ('pen', 'pen cm'),
-        ('pen_frac', 'pen %'), ('self', 'self cm'), ('contact', 'contact cm'), ('cross', 'cross'), ('joint', 'joint'), ('vol', 'vol'),
+        ('pen_frac', 'pen %'), ('self', 'self cm'), ('contact', 'contact cm'), ('cross', 'cross'), ('cross_mm', 'cross mm'), ('joint', 'joint'),
+        ('vol', 'vol'),
         ('knee', 'knee'), ('elbow', 'elbow'), ('span', 'span'), ('pop', 'pop mm'), ('bone_pop', 'bone pop mm'),
         ('jitter', 'jitter'), ('speed', 'speed m/s'))
 
 
 def issues(results):
-    """Every row at minor or worse, as flat dicts with set / name / level / excess."""
+    """Every row at minor or worse, as flat dicts with set / name / level / excess. The clips'
+    per-part pop / jitter rows (by_part) are left out: they repeat a clip's pop and jitter
+    for each other part, so they would add issues older reports do not have (they are in
+    the report's 'Clips: pop mm / jitter per part' table only)."""
     out = []
     for set_name, items in results.items():
         for name, data in items.items():
             for r in data['rows']:
+                if r.get('by_part'):
+                    continue
                 lv = level(r['metric'], r['value'])
                 if lv:
                     out.append(dict(r, set=set_name, name=name, level=LEVELS[lv],
@@ -1066,7 +1163,23 @@ def issues(results):
     return out
 
 
+def _cell_mm(rows):
+    """'cross mm' column: the longest new intersection curve of the row's cross pairs (the
+    clips: over their frames, with its frame)."""
+    best = None
+    for r in rows:
+        if r['metric'] == 'cross' and 'mm' in r:
+            v, fr = (r['mm_max'], r['mm_frame']) if 'mm_max' in r else (r['mm'], None)
+            if best is None or v > best[0]:
+                best = (v, fr, r['object'])
+    if best is None:
+        return '-'
+    return f"{best[0]:.0f}" + (f" ({best[2]}{', f' + str(best[1]) if best[1] is not None else ''})" if best[0] >= 1 else '')
+
+
 def _cell(rows, metric):
+    if metric == 'cross_mm':
+        return _cell_mm(rows)
     lo = THRESH[metric][2] == 'lo'
     rs = [r for r in rows if r['metric'] == metric]
     if not rs:
@@ -1094,15 +1207,40 @@ def report(results, out_dir, eye_rows=None, extra=''):
                  f'{k} {_fmt(k, v[0])}/{_fmt(k, v[1])}' for k, v in THRESH.items()) + '.',
              'Cells: plain = ok, *italic* = minor, **bold** = major (location, frame for clips). '
              'pen/self/contact in cm, pop in mm; joint = median skin radius ratio at the worst joint band, '
-             'vol = its mean squared radius ratio; knee/elbow = least signed bend (negative = hyperextended).', '']
+             'vol = its mean squared radius ratio; knee/elbow = least signed bend (negative = hyperextended); '
+             'cross mm = length of the new intersection curve between layers (not gated; clips: longest frame).', '']
     for set_name, items in results.items():
         if set_name == 'eyes':
             continue
-        cols = [c for c in COLS if any(r['metric'] == c[0] for d in items.values() for r in d['rows'])]
+        cols = [c for c in COLS if any(r['metric'] == c[0] or (c[0] == 'cross_mm' and 'mm' in r)
+                                       for d in items.values() for r in d['rows'])]
         lines += [f'## {set_name}', '', '| name | ' + ' | '.join(h for _, h in cols) + ' |',
                   '|---|' + '---|' * len(cols)]
         for name, d in items.items():
             lines.append(f'| {name} | ' + ' | '.join(_cell(d['rows'], m) for m, _ in cols) + ' |')
+        lines.append('')
+    # the clips' pop and jitter per part (the table above shows each clip's worst row only)
+    per_part = [(name, r) for items in results.values() for name, d in items.items() for r in d['rows']
+                if r['metric'] in ('pop', 'jitter') and (r.get('by_part') or any(q.get('by_part') for q in d['rows']))]
+    if per_part:
+        parts = sorted({r['part'] for _n, r in per_part})
+        lines += ['## Clips: pop mm / jitter per part', '',
+                  '| clip | ' + ' | '.join(parts) + ' |', '|---|' + '---|' * len(parts)]
+        for name in dict.fromkeys(n for n, _r in per_part):
+            cells = []
+            for p in parts:
+                bits = []
+                for m in ('pop', 'jitter'):
+                    rs = [r for n, r in per_part if n == name and r['part'] == p and r['metric'] == m]
+                    if not rs:
+                        bits.append('-')
+                        continue
+                    r = max(rs, key=lambda r: r['value'])
+                    v, lv = _fmt(m, r['value']), level(m, r['value'])
+                    bits.append(f"**{v}** ({r['object']}, f{r['frame']})" if lv == 2 else
+                                f"*{v}* ({r['object']}, f{r['frame']})" if lv == 1 else v)
+                cells.append(' / '.join(bits))
+            lines.append(f'| {name} | ' + ' | '.join(cells) + ' |')
         lines.append('')
     if eye_rows:
         lines += ['## eyes (gaze at the limits x eye morphs)', '', '| case | poke mm | where |', '|---|---|---|']
