@@ -2664,12 +2664,14 @@ def _curl_lock():
 # over the head (dance_heart). Its width now grows only past u 0.45 (0.8x -> 1.15x by u 0.75,
 # under the curl's end), at aspect 3.4 (t 11 mm at the widest: still a lens, LOCK_KEEP
 # normals), so the locks in front lie as in R3 (curl, lock: no lift; cheeks 8.8 / 12.5 mm as
-# R3; flower pairs 0). Below row 145 it hangs 3-7 px further in toward the neck and 1-5 px
+# R3; flower pairs 0). Below row 145 it hangs 3-11 px further in toward the neck and 1-5 px
 # further back, its broad side turning from 1.2 to 0.6 forward over rows 110-215 (twist
 # 2.8 deg a ring): a raised arm beside the head (idol_dance@80) met its back half at rows
-# 150-181 (8.3 % of it inside the arm), and the side view keeps the hair behind the ear one
-# mass down to the shoulders (side window background 5969 -> 5626 mm2 in the raster count,
-# 104 mm2 newly open along its back edge).
+# 150-181 (8.3 % of it inside the arm; now 4.9 %), and the side view keeps the hair behind the
+# ear one mass down to the shoulders (side window background at 3x 5969 / 5864 (R3) -> 5817 /
+# 5711 mm2, 175 newly open along its back edge). From q34 a 1-3 mm strip of background now
+# shows between the neck and the far curtain (~400 mm2 at 3x), where R3's kite hung flat;
+# keeping the lower path out as in R4 halves it but puts idol_dance@80 back over 7 %.
 SIDE_CURTAIN = [
     ([(57, 62, 304), (63, 108, 303), (62, 145, 306), (59, 176, 314), (56, 202, 318)], 0.033, None),
 ]
