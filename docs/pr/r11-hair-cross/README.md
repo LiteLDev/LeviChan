@@ -116,7 +116,12 @@ All are as on integ; the round-1 push had added run hair_back 20.9 and idol_danc
   - 66/66 standard PMX bone names; IK knee 0.04 mm; eyes 0.00 mm.
   - Worst stretch: squat 1.82; head_left / head_right 1.40 / 1.41 (hair_back); swing 1.56 (hair_back_shell).
   - Worst penetration: side_bend 1.76 cm.
-- The soft push and drape with the push switched on (8° / 4°) were built and rigged on this code. The rig builds, every driver is a simple expression within 255 characters, and the drape bones are flagged `levi_blender_only`, so `strip_blender_only` removes them.
+- The soft push and drape with the push switched on (8° / 4°) were built and rigged on this code. The rig builds, and every driver is a simple expression within 255 characters.
+- `strip_blender_only` was run on both rigs:
+  - push on: removes 604 of 954 bones;
+  - push off: removes 396 of 746 bones.
+
+  Both leave the same 350 bones as `r11/integrate`, with no dangling driver targets and no colliders left.
 
 ### Images
 - `01_back_locks_arm_push.jpg`: the outer back locks over a swinging arm in walk, run@8, idol_dance@68 and @70, zoomed on the lock. Left: round 1's hard push (rods). Middle: soft push 8° / 4° with the drape, which is off (no rods, but 10-11 mm pops). Right: now, the same as `r11/integrate` (the lock hangs and passes through the bag).
