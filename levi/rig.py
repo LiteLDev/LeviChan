@@ -4151,7 +4151,7 @@ def _crotch_tail(w, co, edges, bones):
 # across the gusset and down the inner thighs uneven (the gusset grid's corners, the tail band),
 # and a stride stretched those edges x2.1-2.3 (high_kick, deep_lunge, run; cross_legged x3.1)
 # where round 10's separate leg tubes hid the change of hands inside the pelvis block (x1.7-1.9;
-# x2.44). With the fit: x1.71-1.83, cross_legged x2.33; ~45 s of the rig build. The fit
+# x2.44). With the fit: x1.63-1.83, cross_legged x2.17; ~75 s of the rig build. The fit
 # moves weight only among each vertex's kept bones of CROTCH_FIT_BONES (the pelvis, the thighs
 # and their hip helpers), never raises a thigh's share on the other side of the midline (the
 # opposite-thigh drag stays as _crotch_tail left it) and keeps the rest of the skin's weights,
@@ -4182,11 +4182,15 @@ CROTCH_FIT_POSES = (
     (False, (('L', (0.64, -0.77, 0.0), 110.0), ('R', (-0.64, -0.77, 0.0), -110.0))),  # cross-legged
     (False, (('L', (0.64, -0.77, 0.0), 55.0), ('R', (-0.64, -0.77, 0.0), -55.0))),
 )
-CROTCH_FIT_ITERS = 900
+CROTCH_FIT_ITERS = 1500
 CROTCH_FIT_STRETCH = 1.4
 CROTCH_FIT_COMPRESS = 0.6
 CROTCH_FIT_FOLD = 0.15
-CROTCH_FIT_W = (1.0, 1.0, 20.0)     # weights of the stretch, compression and fold terms
+# weights of the stretch, compression and fold terms. Integration review 2: the stretch term x3
+# and 1500 steps from (1.0, 1.0, 20.0) and 900 (not converged): deep_lunge x1.75 -> x1.70,
+# high_kick x1.70 -> x1.63, cross_legged x2.27 -> x2.17; the opposite-thigh drag, the folds and
+# every other pose as before; ~30 s more of the rig build.
+CROTCH_FIT_W = (3.0, 1.0, 20.0)
 CROTCH_FIT_SMOOTH = 0.02
 CROTCH_FIT_KEEP = 0.05
 _CROTCH = {}          # deform bone name -> (K, 3, 4) skinning matrices in CROTCH_FIT_POSES (build_rig)
