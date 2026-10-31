@@ -5970,7 +5970,11 @@ HALTER_REACH = (0.02, 0.06)   # m off the skin: the halter takes the skin's weig
 # stretched the strap x1.7-2.3 and one carried 1 cm up the visible strap sank it 1.6 mm.
 HALTER_SMOOTH = 0.020    # m: smoothing of the halter's sampled weights along the cord
 HALTER_RIM_FOLLOW = 0.030    # m: within this of the tucked end a strap blends back to the skin's own weights
-HALTER_RIDE_SMOOTH = 0.008   # m: smoothing of the tucked ends' hand-over to the bodice
+HALTER_RIDE_SMOOTH = 0.011   # m: smoothing of the tucked ends' hand-over to the bodice
+# Integration round 4: 8 -> 11 mm with the straps standing a little higher just above the rim
+# (accessories.RIM_LIFT): the hand-over's turn spread over more rings (23-26 -> 16-18 deg at
+# one ring in the raised-arm poses), and the hidden tucked end compresses less (high_kick,
+# raise_bend, spin x0.87-0.92 -> x0.90-0.95).
 HALTER_LEAD_MAX = 0.01   # most the stages' weights (HALTER_LEAD_BONES) may exceed the skin's own
 HALTER_LEAD_BONES = ('肩補助', '肩補助2', '肩補助3')
 # Round 11: the halter's straps end tucked under the bodice's top rim, and its X strands end

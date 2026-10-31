@@ -169,6 +169,14 @@ CROSS = tuple((x, y, 193 + (24.9 - x) * 40.0 / 66.4) for x, y in (
 # cords in every view (a heavy chest crossing, swollen branch junctions).
 STRING_R = 0.0014
 STRING_LINE = 0.0006
+# The cords' outline hull thins from full width at CORD_LINE_FADE[0] deg from the skin's
+# normal (the silhouette in any front view) to CORD_LINE_MIN of it at CORD_LINE_FADE[1]
+# (the underside on the skin; vertex group 'cord_line'). Integration round 4: with the
+# arms raised the skin's coarse facets fold up within the 0.6 mm hull under the straps'
+# sides by the bodice rim, and the hull's far side showed beyond the fold as a dark line
+# floating 1 mm off the strap (dance_heart, dance_sway, hands_behind_head; round 10 too).
+CORD_LINE_FADE = (95.0, 135.0)
+CORD_LINE_MIN = 0.1
 STRING_SIDES = 8          # round cords
 STRING_PER_SEG = 8        # Catmull-Rom samples per control span (round 10: 3, a kink every ~1 cm)
 STRING_STEP = 0.0028      # m between the cord's rings (resampled evenly by arc length)
@@ -194,6 +202,20 @@ SLACK_FADE = 18.0         # px above the tuck over which the cord comes down to 
 STRING_SKIN_SUBDIV = 1
 STRING_SETTLE_SMOOTH = 0.004
 STRING_FLOOR = 0.0009
+# Integration round 4: the floor's last pass pushed each point out on its own, so the
+# straps creased wherever a few points met a facet (the left strap 13.5 deg at ring 48
+# just above the bodice rim, its mirror ring 4.6 deg: the torso's facets are triangulated
+# differently on the two sides, up to 1.3 mm apart in height there). The straps now take
+# the floor of both sides (STRING_FLOOR_SYM: the lesser facet height at a point and at its
+# mirror image), the left strap is fitted and the right one is its mirror image
+# (STRAP_MIRROR), and what the settling leaves of the floor is lifted as one smooth bump
+# (STRING_FLOOR_SMOOTH: the running maximum of the shortfall over 3 sigma, smoothed by
+# sigma along the cord): rest bends by the rim 13.5 -> 5.7 deg, the same on both sides.
+# The X strands keep the per-point floor (their lower ends' stretch in idol_dance moves
+# x0.02-0.05 with any change of their path).
+STRING_FLOOR_SYM = True
+STRING_FLOOR_SMOOTH = 0.003
+STRAP_MIRROR = True
 # Over the upper slope of the bust (STRING_LOW_BAND: px relative to the bodice
 # neckline, fading in over the first pair and out over the second) the cords stand
 # STRING_LOW_LIFT higher: there the merged torso's skin hands the chest from the
@@ -226,6 +248,19 @@ BODICE_TUCK = 3.0
 STRAP_UNDER = 8.0
 TUCK_FADE = 10.0
 STRING_TUCK_GAP = 0.0008
+# Integration round 4: over the last ~1 cm above the rim the straps stand RIM_LIFT higher
+# (RIM_LIFT_BAND: px relative to the neckline, rising over the first pair, back down under
+# the rim over the second, so the tucked end keeps its height under the bodice). With the
+# arms raised the skin there bulges toward the bodice (the shoulder stages' weights peak at
+# the rim) and the bodice under the rim comes 5-7 mm closer to the skin; the lift is the
+# room that lets the hand-over to the bodice spread over more rings (rig.HALTER_RIDE_SMOOTH
+# 8 -> 11 mm) without the last visible rings sinking further into the skin: the strap's
+# turn at one ring above the rim 23-26 -> 16-18 deg (dance_sway, dance_heart,
+# hands_behind_head, reach_up_back, idol_dance@80). More lift or smoothing trades one
+# for the other (1 mm with 12 mm: the right strap's turn back to 21 deg; 13 mm: the
+# right strap 1.6 mm into the skin in dance_heart).
+RIM_LIFT = 0.0007
+RIM_LIFT_BAND = (-10.0, -3.0, 1.0, 4.0)
 # Skinning marks for the rig (rig._halter_ride / _halter_joins, point attributes named by
 # obj['levi_cord_ride'] / obj['levi_cord_join']). With the skin's weights the tucked strap
 # ends took some of the clavicle bone, which the bodice over them does not, and a raised arm drew
@@ -764,6 +799,8 @@ def _string_offset(p, cross=0):
     a, b, c, d = STRING_LOW_BAND
     base += STRING_LOW_LIFT * _body.smoothstep(a, b, depth) * (1.0 - _body.smoothstep(c, d, depth))
     base += (STRING_R + STRING_TUCK_GAP - base) * _body.smoothstep(-TUCK_FADE, BODICE_TUCK, depth)
+    a, b, c, d = RIM_LIFT_BAND
+    base += RIM_LIFT * _body.smoothstep(a, b, depth) * (1.0 - _body.smoothstep(c, d, depth))
     if cross:
         g = math.exp(-(p.x / (CROSS_SIGMA * PX)) ** 2)
         under = STRING_R + CROSS_UNDER_GAP
@@ -848,13 +885,28 @@ def _floor_gap(p, cross=0):
     return max(min(STRING_FLOOR, _string_offset(p, cross) - STRING_R), 0.0)
 
 
-def _cage_height(floor, p):
-    """Signed distance from `p` to the nearest facet of the real torso `floor`."""
+def _cage_height(floor, p, sym=False):
+    """Signed distance from `p` to the nearest facet of the real torso `floor` (sym: the
+    lesser of `p`'s and its mirror image's)."""
     loc, n, _, d = floor.tree.find_nearest(p)
-    return d if (p - loc).dot(n) >= 0 else -d
+    d = d if (p - loc).dot(n) >= 0 else -d
+    if sym:
+        q = Vector((-p.x, p.y, p.z))
+        loc, n, _, e = floor.tree.find_nearest(q)
+        d = min(d, e if (q - loc).dot(n) >= 0 else -e)
+    return d
 
 
-def _settle(skin, pts, cross, floor=None):
+def _max_filter(v, s, r):
+    """Running maximum of the values `v` at arc lengths `s` over +-r."""
+    out = []
+    for si in s:
+        lo, hi = bisect.bisect_left(s, si - r), bisect.bisect_right(s, si + r)
+        out.append(max(v[lo:hi]))
+    return out
+
+
+def _settle(skin, pts, cross, floor=None, sym=False):
     """The path moved along the smooth skin normal into its height band: at least
     its offset above the skin, at most STRING_SLACK more (a taut cord over a
     hollow; none where it lies exactly), and its surface at least _floor_gap off
@@ -866,17 +918,20 @@ def _settle(skin, pts, cross, floor=None):
         off = _string_offset(p, cross)
         m = min(max(h, off), off + STRING_SLACK * (1.0 - _string_exact(p, cross))) - h
         if floor is not None:
-            m = max(m, STRING_R + _floor_gap(p, cross) - _cage_height(floor, p))
+            m = max(m, STRING_R + _floor_gap(p, cross) - _cage_height(floor, p, sym))
         d.append(m)
     d = _smooth_values(d, _arclen(pts), STRING_SETTLE_SMOOTH)
     return [p + n * di for p, (_, n, _), di in zip(pts, proj, d)]
 
 
-def _fit_string(skin, path, cross=0, first=None, last=None, floor=None):
+def _fit_string(skin, path, cross=0, first=None, last=None, floor=None, strap=False):
     """Evenly resampled path lifted onto the skin, then settled like a taut cord
     (STRING_ROUNDS of smoothing along it and pushing it back out of the skin), so
     neither the torso's facets nor a hollow kink it. first / last: fixed end
-    points (inside a choker bead, on a strap's centre line)."""
+    points (inside a choker bead, on a strap's centre line). strap: the floor of both
+    sides, lifted as a smooth bump (STRING_FLOOR_SYM, STRING_FLOOR_SMOOTH)."""
+    sym = STRING_FLOOR_SYM and strap
+    smooth = STRING_FLOOR_SMOOTH if strap else 0.0
     pts = _resample(path, STRING_STEP)
     pts = [skin.lift(p, _string_offset(p, cross)) for p in pts]
 
@@ -890,8 +945,21 @@ def _fit_string(skin, path, cross=0, first=None, last=None, floor=None):
     pts = pin(pts)
     for _ in range(STRING_ROUNDS):
         pts = _smooth_path(pts, STRING_RELAX)
-        pts = _resample(pin(_settle(skin, pts, cross, floor)), STRING_STEP)
+        pts = _resample(pin(_settle(skin, pts, cross, floor, sym)), STRING_STEP)
     floor = floor or skin
+    if smooth > 0:
+        # what the smoothed settling left of the floor, lifted as a smooth bump along the
+        # smooth skin normal: the running maximum of the shortfall (over 3 sigma) smoothed
+        # by STRING_FLOOR_SMOOTH, which stays at or above it and bends the cord by ~1-2 deg
+        # per ring (a per-point push creased it at the facet edges it met: 13.5 deg at rest)
+        for _ in range(3):
+            short = [max(STRING_R + _floor_gap(p, cross) - _cage_height(floor, p, sym), 0.0) for p in pts]
+            if max(short) <= 1e-6:
+                break
+            s = _arclen(pts)
+            lift = _smooth_values(_max_filter(short, s, 3 * smooth), s, smooth)
+            pts = pin([p + skin.project(p)[1] * (h * 1.02) if h > 0 else p for p, h in zip(pts, lift)])
+        return pts
     out = []
     for p in pts:
         # the true distance to the nearest facet (the smooth-normal height overstates
@@ -936,8 +1004,12 @@ def _strings(col, skin, loop, cage):
         f = STRAP_BEAD / CHOKER_BEADS
         start = _loop_at(loop, f if sx > 0 else 1.0 - f)[0]
         strap = _catmull([start] + [_mirror(P(*p), sx) for p in STRAP], STRING_PER_SEG)
-        # fitted first, then cut, so the end lands STRAP_UNDER px under the rim
-        straps[sx] = _tucked(_fit_string(skin, strap, first=start, floor=cage))
+        # fitted first, then cut, so the end lands STRAP_UNDER px under the rim; the
+        # right strap is the left one's mirror image (STRAP_MIRROR)
+        if STRAP_MIRROR and sx < 0:
+            straps[sx] = [_mirror(p, -1) for p in straps[1]]
+        else:
+            straps[sx] = _tucked(_fit_string(skin, strap, first=start, floor=cage, strap=True))
         radii = [STRING_R * (1.0 - (1.0 - TUCK_TIP) * _body.smoothstep(RIDE_FROM, STRAP_UNDER, _row(p) - _rim_row(p.x)))
                  for p in straps[sx]]
         _tube(bm, straps[sx], radii, STRING_SIDES)
@@ -971,7 +1043,19 @@ def _strings(col, skin, loop, cage):
     obj['levi_cord_ride'] = 'cord_ride'
     obj['levi_cord_join'] = 'cord_join'
     obj['levi_cord_ring'] = 'cord_ring'
-    add_outline(obj, width=STRING_LINE)
+    # outline width by the angle round each ring from the skin's normal at its centre
+    co = [obj.matrix_world @ v.co for v in obj.data.vertices]
+    c0, c1 = (math.cos(math.radians(a)) for a in CORD_LINE_FADE)
+    vg = obj.vertex_groups.new(name='cord_line')
+    for r0 in range(0, len(co), STRING_SIDES):
+        vs = range(r0, r0 + STRING_SIDES)
+        c = sum((co[i] for i in vs), Vector()) / STRING_SIDES
+        n = skin.project(c)[1]
+        for i in vs:
+            d = co[i] - c
+            t = (d.dot(n) / max(d.length, 1e-12) - c1) / (c0 - c1)
+            vg.add([i], _body.smoothstep(0.0, 1.0, t), 'REPLACE')
+    add_outline(obj, width=STRING_LINE, vertex_group='cord_line', min_factor=CORD_LINE_MIN)
 
 
 def build(col):
