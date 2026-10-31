@@ -31,7 +31,8 @@ every motion clip (motion_poses.CLIPS), with vectorized numpy on the evaluated m
                       neighbours two frames away (popping, IK flips, driver jumps), mm
   jitter              (clips) the same spike test on edge strain (weight-discontinuity flicker);
                       pop and jitter also get one row per part (by_part, round 11), so a skirt
-                      or body pop no longer hides a hair pop ('Clips: pop / jitter per part')
+                      or body pop no longer hides a hair pop ('Clips: pop / jitter per part';
+                      those rows are not counted as issues)
   speed               (clips) fastest vertex, m/s (information)
   eye                 eyes through the face or lids for gaze at rig.EYE_LIMIT combined with the
                       eye morphs (まばたき, ウィンク, 笑い...), mm beyond rest
@@ -1144,11 +1145,16 @@ COLS = (('stretch', 'stretch'), ('compress', 'compress'), ('flip', 'flip'), ('pe
 
 
 def issues(results):
-    """Every row at minor or worse, as flat dicts with set / name / level / excess."""
+    """Every row at minor or worse, as flat dicts with set / name / level / excess. The clips'
+    per-part pop / jitter rows (by_part) are left out: they repeat a clip's pop and jitter
+    for each other part, so they would add issues older reports do not have (they are in
+    the report's 'Clips: pop mm / jitter per part' table only)."""
     out = []
     for set_name, items in results.items():
         for name, data in items.items():
             for r in data['rows']:
+                if r.get('by_part'):
+                    continue
                 lv = level(r['metric'], r['value'])
                 if lv:
                     out.append(dict(r, set=set_name, name=name, level=LEVELS[lv],
