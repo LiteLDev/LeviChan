@@ -304,6 +304,23 @@ def _poke(bvh, co, piv):
     return out
 
 
+def check_drape_pin(arm, errors):
+    """The skirt drape's pinned thigh line (rig.DRAPE_THIGH_JOINTS) still on the fitted 足.L, within
+    rig.DRAPE_THIGH_PIN_WARN: a lane that moves the hip or knee must re-pin it (the drape clears that line)."""
+    if not getattr(rig, 'SKIRT_DRAPE', False) or getattr(rig, 'DRAPE_THIGH_JOINTS', None) is None:
+        return
+    b = arm.data.bones.get('足.L')
+    if b is None:
+        return
+    mw = arm.matrix_world
+    off = max((mw @ b.head_local - Vector(rig.DRAPE_THIGH_JOINTS[0])).length,
+              (mw @ b.tail_local - Vector(rig.DRAPE_THIGH_JOINTS[1])).length)
+    print(f'drape pin: {off * 1e3:.3f} mm off the fitted 足.L')
+    if off > rig.DRAPE_THIGH_PIN_WARN:
+        errors.append(f'rig.DRAPE_THIGH_JOINTS is {off * 1e3:.1f} mm off the fitted 足.L '
+                      f'(> {rig.DRAPE_THIGH_PIN_WARN * 1e3:.1f} mm): re-pin the drape thigh line')
+
+
 def check_eyes(arm, errors):
     """Eyes turned by 両目 (目 appends it fully) in GAZE directions stay behind the face:
     seen from its eyeball centre, no eye vertex comes out through the face skin more than
@@ -533,6 +550,7 @@ def main():
     check_weights(arm, errors)
     check_symmetry(arm, errors)
     check_eyes(arm, errors)
+    check_drape_pin(arm, errors)
     # the throwaway fixtures (tubes, no hands) only make sense for the round-1 test pose
     fixtures = args.fixtures or not (args.parts or builder.available_parts())
     default = ["test"] if fixtures else list(rig_pose.POSES)
