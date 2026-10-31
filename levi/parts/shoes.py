@@ -392,7 +392,9 @@ def _shell(bm, sx):
     bm.normal_update()
     sub = set(faces)
     bnd = [e for e in bm.edges if e.is_boundary and e.link_faces[0] in sub]
-    bverts = {v for e in bnd for v in e.verts}
+    # in edge order, not a set: BMVerts hash by address, so a set's order (and the
+    # new rim vertices' indices) changed from one process to the next
+    bverts = list(dict.fromkeys(v for e in bnd for v in e.verts))
     top = {}
     for v in bverts:
         n = v.normal.copy()
