@@ -2014,12 +2014,17 @@ AHOGE_LOCKS = (
     # (R2: on the midline to its point, its end 1.6 px aside; its root 1.6 px under the
     # front lock's root it lies on. R3: its root narrows from 4.4 mm (R2 6 mm: a square end
     # from above) and, now resting on the scalp behind col 276.5, it stands 0.5-0.9 px higher
-    # (the point at row 12.85 as in R2); its end thins to a 0.9 mm blade (R2 1.4 mm).)
+    # (the point at row 12.85 as in R2); its end thins to a 0.9 mm blade (R2 1.4 mm). R4 (the
+    # review: from high and behind-high still an egg sitting on the front lock): at most 7 mm
+    # wide (R3 10.2 mm at col 274, wider than the front lock under it), within the front lock's
+    # outline from above, its root on the scalp narrowing to 2.4 mm and its end to 2.4 mm: a
+    # narrower spindle on the front lock's back half; the side, front and q34 outlines are
+    # unchanged (its top line is).)
     dict(name='ahoge_back',
          ctrl=((281.5, None, -1.6, 0.4), (278.0, None, 0.2, 0.3), (274.5, None, 2.0, 0.1),
                (270.5, None, 2.9, -0.2), (267.0, None, 1.4, -0.8), (264.5, None, 0.0, -1.6)),
-         width=((281.5, 0.0044), (279.5, 0.0068), (278.0, 0.0086), (274.0, 0.0102), (270.5, 0.0090), (268.0, 0.0070),
-                (266.0, 0.0052), (264.8, 0.0042), (264.0, 0.0036)),
+         width=((281.5, 0.0024), (279.5, 0.0042), (277.5, 0.0058), (275.0, 0.0068), (272.0, 0.0070), (269.5, 0.0064),
+                (267.5, 0.0052), (266.0, 0.0040), (264.8, 0.0030), (264.0, 0.0024)),
          top=((281.0, 0.0006), (278.0, 0.0016), (274.5, 0.0028), (271.6, 0.0041), (270.2, 0.0048),
               (269.0, 0.0043), (267.5, 0.0029), (266.0, 0.0018), (264.8, 0.0012), (264.0, 0.0009)),
          under=((281.0, 0.2, 1.0), (277.0, 0.2, 2.0), (267.0, 0.2, 2.0), (265.0, 0.3, 1.2)),
