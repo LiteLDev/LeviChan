@@ -4585,7 +4585,10 @@ SLEEVE_RIDE_IN = 0.75   # share of the bag's inward pull that the pieces lying o
 #   its side is undefined; not its wrist end, s_out of the segment) the out keys on its side
 #   spread the flare over it (arms_crossed: it lies along the inner side, between the wrist and
 #   the tiers). Both fade with the meeting point's offset from the plane ('axial', m). The side
-#   lobe is max(0, cos) of the angle to each sector. Scanned over the 17 core and 24 extended
+#   lobe is max(0, cos) of the angle to each sector. The torso comes first (round 3): a front
+#   sector the torso presses by f spreads by only (1 - f) of its out weight (arms_crossed: the
+#   inner-front sector spread 0.71 into the belly, its flute tip 3.9 mm into the bodice; now
+#   0.44, 3.1 mm, as without the spread 2.9 mm). Scanned over the 17 core and 24 extended
 #   poses and every clip frame, it acts only in hands_behind_back (in) and arms_crossed (out,
 #   left); in dance_clap and idol_dance@34-37 the other forearm's wrist end is in the opening
 #   (the hands pass through each other), where 's_out' keeps the spread off.
@@ -4966,19 +4969,25 @@ def _sleeve_press(arm, objs):
                                    ('z', 'levi_pz'), ('r', 'levi_rho')):
                         _prop_var(drv, vn, arm, f'pose.bones["{A}"]["{pn}"]')
                     lobe = f'max(0.0,(x*{cx}+z*{cz})/max(r,1e-5))'
-                    front = SLEEVE_PRESS['front'] * max(0.0, -math.sin(th)) ** 1.5 if kind == 'in' else 0.0
+                    front = SLEEVE_PRESS['front'] * max(0.0, -math.sin(th)) ** 1.5
+                    # the torso's press on a front sector, f, comes first: that sector spreads
+                    # over the other forearm by only (1 - f) of its out weight, and a sector that
+                    # spreads is pressed by as much less (in x (1 - out), never both in full)
+                    f = f'min(1.0,{front:.4f}*max(c,n))'
+                    if front > 1e-6:
+                        _prop_var(drv, 'c', arm, f'pose.bones["{ref}"]["levi_crowd"]')
+                        _prop_var(drv, 'n', arm, f'pose.bones["{ref}"]["levi_near"]')
+                    out = f'{lobe}*(1.0-{f})' if front > 1e-6 else lobe
                     if kind == 'out':
-                        drv.expression = f'w*{lobe}'
+                        drv.expression = f'w*{out}'
                     else:
-                        # a sector that spreads over the other forearm is not pressed as well
                         _prop_var(drv, 'o', arm, f'pose.bones["{A}"]["levi_wout"]')
-                        keep = f'(1.0-o*{lobe})'
+                        keep = f'(1.0-o*{out})'
                         if front > 1e-6:
-                            _prop_var(drv, 'c', arm, f'pose.bones["{ref}"]["levi_crowd"]')
-                            _prop_var(drv, 'n', arm, f'pose.bones["{ref}"]["levi_near"]')
                             drv.expression = f'min(1.0,{front:.4f}*max(c,n)+w*{lobe})*{keep}'
                         else:
                             drv.expression = f'w*{lobe}*{keep}'
+                    assert len(drv.expression) <= 255, drv.expression
                     for md in list(fc.modifiers):
                         fc.modifiers.remove(md)
     bpy.context.view_layer.update()
