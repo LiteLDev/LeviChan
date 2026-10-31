@@ -2,18 +2,19 @@
 
 Files changed:
 - `levi/parts/sleeves.py`
-- `levi/rig.py`: a small shared hook, see "Rig fits"; the integration fix adds `SLEEVE_PRESS` and `_sleeve_press` in the sleeve section, see "Integration fix".
+- `levi/rig.py`: a small shared hook, see "Rig fits"; the integration fix adds `SLEEVE_PRESS` and `_sleeve_press` in the sleeve section, see "Integration fix"; its round 2 makes `SLEEVE_PRESS` a dict, adds the press probes and `SLEEVE_ELBOW_SPREAD_UP`, see "Integration fix, round 2".
+- `CLAUDE.md`: the press keys and the elbow spread (two Rig lines).
 
 Face counts:
-- Sleeves: 8,664 → 17,752 (budget 18,000).
-- Model: 107,968 → 117,056.
+- Sleeves: 8,664 → 17,992 (budget 18,000; integration round 2: +240, one ring on the upper tier's inner face).
+- Model: 107,968 → 117,296 on r11/base; 162,801 on r11/integrate 89f6117 with this branch.
 
 The source is the clothes-detail review (round 11 analysis). It found three problems:
 - The band bow read as a green brick of slab loops.
 - The band frill read as a low cup.
 - The wrist ruffle read as a thin grey collar from the front and as an 11-point star end-on.
 
-A first pass fixed the construction. An independent review then found that it had moved the rig and added kinks, outline breaks and a cuff that lay on the hand; a second pass fixed those. The owner then looked at the dressed model at 4× and found that from the front the wrist ruffle read as a fan of sharp triangular shards, worst in clay (HD review, p1). The HD fix rebuilt the ruffle's shape for that (see "HD review: the wrist ruffle"). An independent 4× verification of it then found that the under tier passed through itself and still showed a fang from above and tapered tongues from the palm side; a second pass reshaped the under tier for that (see "HD verify (round 2)"). A third 4× verification found one more pointed tip, a small thorn at the cuff's edge in both 3/4 front views and a horn in reach_forward; that version removed it (see "HD verify (round 3)"). The integration of every round-11 lane then found the cuffs going into the chest where a hand comes to it, and the taller frill into the chest in seiza; this version presses the cuff's front flutes when the wrist meets the body and lowers the frill's inner side (see "Integration fix").
+A first pass fixed the construction. An independent review then found that it had moved the rig and added kinks, outline breaks and a cuff that lay on the hand; a second pass fixed those. The owner then looked at the dressed model at 4× and found that from the front the wrist ruffle read as a fan of sharp triangular shards, worst in clay (HD review, p1). The HD fix rebuilt the ruffle's shape for that (see "HD review: the wrist ruffle"). An independent 4× verification of it then found that the under tier passed through itself and still showed a fang from above and tapered tongues from the palm side; a second pass reshaped the under tier for that (see "HD verify (round 2)"). A third 4× verification found one more pointed tip, a small thorn at the cuff's edge in both 3/4 front views and a horn in reach_forward; that version removed it (see "HD verify (round 3)"). The integration of every round-11 lane then found the cuffs going into the chest where a hand comes to it, and the taller frill into the chest in seiza; this version presses the cuff's front flutes when the wrist meets the body and lowers the frill's inner side (see "Integration fix"). Its independent check found hands_behind_back's "placement" wrong (the HD flare went into the other forearm) and arms_crossed, dance_clap and the arms_forward flips not met; round 2 presses or spreads the cuff on whichever side the other forearm meets it and spreads the elbow band on the upper arm's side (see "Integration fix, round 2").
 
 ## What the part does now
 
@@ -175,6 +176,34 @@ A first pass fixed the construction. An independent review then found that it ha
   - Taking the frill's inner radius in by 10%: seiza 0, but the rim fell inside 5 cm of the arm bones, so the drape root fit (`rig._secondary_bones`) moved 8 mm down the forearm and the shoulder hair capsule 5.0 → 4.8 cm. Raising the frill's fit share to 7/8 put the root back (0.2 mm from round 10) but moved the shoulder and upper-arm capsules' spans (0–9 → 2.2–9 cm, 5.1–15.7 → 6.9–15.2 cm). The drop leaves all the fits as they were: root 1.0 mm from round 10 (r11/integrate 1.7 mm), joints 3.0 / 2.0 mm, capsules unchanged.
 - arms_forward flips (38 → 40, `sleeve_balloon` at ひじ補助): one face a side in the inner elbow fold crosses the 120° threshold, cos −0.5018 against round 10's −0.4995 (120.1° vs 119.97°). It stays at 40 with round 10's exact drape chain forced into the rig and with the gather key set to round 10's value; that face's vertices are within 0.16 mm of round 10's in the pose and their weights within 0.0007. The integrated body moved the elbow joint 0.3 mm. It is left as it is: the sleeves have no lever on it short of retuning the bag for one face.
 
+**Integration fix, round 2: the press follows the other forearm (verifier of round 1)**
+- The independent check of round 1 (a45a3a2 on a full merge) confirmed hand_to_shoulder and seiza and found the rest not met: arms_forward flips stayed at 40 (38 in round 10), arms_crossed and dance_clap were only partly placement, and the hands_behind_back "placement" was wrong (p2): both wrists are 1.7 cm outside the other forearm, farther than in round 10, and the regression 0.0256 → 0.0443 comes from the HD flare.
+- Diagnosis. Cross-sections of the posed left cuff (`integ_scratch/sleeves3/tools/dump_slices.py`, `plot_slices.py`): the cuff's tiers and the other arm's skin cut across the cuff's centre line every 6 px, in the cuff's own posed frame (`integ2_hbb.jpg`, `integ2_ac.jpg`, top rows). A probe (`diag_dir.py`) lists the cuff vertices more than 5 mm inside the body by (d, angle, radius) and finds the other forearm's axis in the same frame. On round 10's rig with the same probe the placement is the same (hands_behind_back: the other forearm 3.9 cm from the cuff centre, at 3° round, both rounds).
+
+  | pose | where the other forearm is | cuff vertices inside it (a side) | round 10's cuff |
+  |---|---|---|---|
+  | hands_behind_back | it crosses this forearm at the cuff's root and runs out past the rim's outer side (its axis 15 px off the cuff's at d 1, 47 px at d 31) | upper tier 85, th 0–15°, d 6–28 px, r 23–38 px (median 35) | 27, r 21–36 (median 25): round 10's bell was ~4 px slimmer at d 9–18 |
+  | arms_crossed | it lies along the left cuff's inner side inside the opening, between the wrist and the tiers (axis 15–25 px off, th 180°, every d) | under tier 85 (its hidden part and shoulder, r 19–31) | 17 |
+  | dance_clap | its wrist end is in this cuff's opening at the rim (12 px off the axis at d 34; the hands pass through each other) | under tier 53, the hanging part, th 128–142° | 6 |
+
+  So a press toward the cuff's centre line works where the other forearm is beside the rim (hands_behind_back), and is wrong where it is inside the opening: there the cloth has to spread over it. Round 1's front-only press reached neither; pressing all round made arms_crossed worse (round 1's notes).
+- Tried and measured before building it (an offline emulation in the posed rig, `diag_emul.py`, `diag_caps.py`):
+  - A collision push out of a capsule round the other forearm: no penetration, but stretch ×12 where the cloth straddles the forearm's axis (neighbours pushed apart to opposite sides). Dropped.
+  - The inward press on the forearm's side for every pose: hands_behind_back 0.044 → 0.021, but arms_crossed 0.022 → 0.043 and dance_clap 0.028 → 0.059 (pressed into the forearm in the opening).
+  - Spreading the inner side outward 7 px in arms_crossed: 0.022 → 0.003.
+- Fix, the part (`sleeves.py`): the cuff tiers carry sector press keys instead of round 1's one key per side. Per side, an 'in' key (`左袖口寄せ0`…`7`) and an 'out' key (`左袖口広げ0`…`7`) for each 45° sector round the centre line; a sector's share is a hat (1 at its angle, 0 at the neighbours', the shares sum to 1), so any mix of the keys is one radial map per place, strictly increasing in the radius, and the nested tiers cannot cross.
+  - in: r → r0 + (r − r0)(1 − share·w), r0 24 px, share 0.7 (0.8 on the upper tier's hanging part past d 18, `CUFF_PRESS_UPPER`), fading in over the root's first 12 px. r0 rises by up to 10 px where the back of the hand comes out under the tiers (`CUFF_PRESS_HAND`, round 38°; at rest the hand is 26 px out at d 27 and 32 px at d 36 there), so a press never takes a tier into the hand.
+  - out: r → r + 5 px·w, ramped in over the first 32 px along the cuff (`CUFF_SPREAD`).
+  - The upper tier's inner face has one more station, d 18 on its chord from d 21 to 15: its 6 px quads crossed the outer face's belly when the gap between them was pressed. Every other ring of both tiers is bit-identical to before; the new one lies within 0.6 px (0.9 mm) of the old chord, on the hidden inner face, and the press keys are 0 at rest, so the rest cuff is unchanged (rest close-ups before | after differ only by the framing, which centres on the vertices' mean). Sleeves 17,752 → 17,992 faces (budget 18,000); `sleeve_balloon` still has the most vertices (4,128 vs 4,080).
+  - How strong: as strong as stays crossing-free. Build checks the tiers (gap, crossings, self-crossings) fully pressed in, fully spread, the rig's side lobe toward the outer and the inner side, and the front press with a spread on the inner side or the front: 0 crossings in all nine; smallest gap 0.65 px (fully pressed). r0 22 / share 0.8, a narrower hand rise, or a 6–7 px spread each crossed the under tier's long hidden quads (19 px, twisting half a flute) or the upper tier's inner face (4–156 pairs).
+- Fix, the rig (`rig.SLEEVE_PRESS`, `rig._sleeve_press`, sleeve section): two Blender-only probes per side under 手首 (`袖口探A/B`, at the cuff's rim-plane centre, `levi_blender_only`, so `strip_blender_only` removes them) copy the other side's ひじ and 手首 heads; drivers on the probe find where that forearm's axis meets the cuff's rim plane (the line's point nearest the rim centre with the offset along the cuff weighted 10×: the plane crossing, or the nearest point if the forearm lies along the plane; on the segment, never past its wrist) and its direction round the cuff.
+  - Beside the rim (its axis from 4.7–5.6 cm off the centre line, fading out from 7.5 to 9 cm; hands_behind_back: 6.4 cm): the in keys on its side, a max(0, cos) lobe over the sectors, press the flare away from it.
+  - Inside the opening (full up to 3.7 cm, none from 4.7 cm; arms_crossed: 3.3 cm): the out keys on its side spread the flare over it. Not within 0.9–1.9 cm of the centre line, where its side is undefined, and not at the forearm's wrist end (from 60 to 80% of the way to the wrist). Both fade as the meeting point leaves the plane (1.2–2.5 cm). A sector that spreads is not pressed as well (in × (1 − out)).
+  - The front sectors' in keys keep round 1's drive by max(`levi_crowd`, `levi_near`) of 袖重力 (a hand at the chest), at 0.875 so the upper tier's hanging part keeps round 1's 0.7 share there (at 1.0 hug_self's squashed rim bead went to ×0.25, for no less penetration).
+  - Scanned over the 17 core and 24 extended poses and every clip frame on the merged rig (`scan_rig.py`): the forearm-driven keys act only in hands_behind_back (in, both sides) and arms_crossed (out, left); idol_dance@34 0.01.
+- dance_clap is left as placement: the other forearm's wrist end sits in this cuff's opening (the hands pass through each other, each 手首 on the other hand's skin). A 10 px spread there (emulated) took it only to 0.019, and with the wrist end allowed the spread switched on within one frame as idol_dance claps (frame 34 → 35), so the out keys stay off at the wrist end.
+- arms_forward flips (`rig.SLEEVE_ELBOW_SPREAD_UP`): the elbow spread's gain on the upper arm's side of the elbow 0.65 → 0.72, blending over ±2 cm along the arm. The new flipped faces (one a side, 120.4°) are in the fold above the elbow, at the front. 0.72 on both sides took arms_forward to 36 but added flips on the forearm side's inner face, under 袖_0 (dance_sway 13 → 15, hands_behind_head 12 → 16, idol_dance balloon 48 → 54 and ribbon 27 → 44); on the upper side alone it is 38 (round 10: 38) with every other pose as before (`flipscan.py`: hands_behind_head, dance_sway, reach_up_back, hands_on_hips, hands_behind_back, arms_up, raise_bend, hug_self, lie_back_elbows, reach_forward and the whole idol_dance clip unchanged). 0.76 gives the same 38. The fold is hidden inside the crease; its 4× cel and clay crops look the same (`integ2_elbow_press.jpg`).
+
 **Rig fits (`rig.RIG_FIT_PROP`, `rig._fit_verts`; `sleeves.RIG_FIT_SHARE`)**
 - Two rig fits read the sleeves' vertices:
   - the sleeve drape chain, from the centroid of the vertices far from the arm bones and band centroids under it;
@@ -230,8 +259,8 @@ A first pass fixed the construction. An independent review then found that it ha
   |---|---|
   | `sleeve_balloon` | 4,128 |
   | `sleeve_ruffle` | 4,032 |
+  | `sleeve_cuff` | 4,080 (integration round 2: one ring on the inner face; verify round 3: 3,840; verify round 2: 3,120) |
   | `sleeve_cuff_under` | 3,840 |
-  | `sleeve_cuff` | 3,840 (verify round 2: 3,120) |
   | `sleeve_ribbon` | 2,848 |
 
 - Every sleeve object carries `levi_sleeve_s` and `levi_sleeve_param`.
@@ -239,6 +268,35 @@ A first pass fixed the construction. An independent review then found that it ha
 - The cuff tiers and the ribbon set `levi_cast_shadow = False`.
 
 ## Results
+
+### Integration fix, round 2 (r11/integrate 89f6117 + this branch)
+Gates:
+- On the branch (r11/integrate 1b06af3 merged in round 1): `tools/check.py` CHECK OK, determinism included, sleeves 17,992 of 18,000, model 153,426; `tools/rig_check.py` RIG CHECK OK; sleeve rows arms_up pen 0.61 cm, arms_forward stretch 1.80 / pen 0.39 cm, raise_bend pen 0.62 cm, reach_forward stretch 1.60 (the verifier's run of round 1, on 78bca50: 0.61, 1.80 / 0.39, 0.60, 1.59); worst stretch squat 1.82, worst pen side_bend 1.76 cm (skirt), no backward knee.
+- On a scratch merge of r11/integrate 89f6117 and this branch: `tools/check.py` CHECK OK with its new second-process repeat ("62 meshes identical in a second process"), sleeves 17,992, model 162,801.
+
+Motion report (`rig_check --quick --no-core --extended --report-core --motion`) on that merge, against the same merge with round 1 (before), round 10 (`out/motion_base`) and r11/integrate 1b06af3 (`integ14`):
+- All parts: round 10 152 major / 327 minor, integ14 138 / 343, before 133 / 339, now 132 / 340. Against before, the only row of any part past its minor threshold that worsens is hands_behind_back's `sleeve_cuff` compress 0.32 → 0.19 (the pressed rim bead, minor; the major threshold is 0.12); five improve past it (arms_forward flips 40 → 38; the balloon's compress at ひじ補助 in run_l / run_r 0.22 → 0.24 and the run clip 0.27 → 0.30, the upper arm's wider elbow band; hands_behind_back hair × garment crossings 110 → 106). No pop, jitter or flip row of any clip changes.
+- Sleeves: 9 / 70 → 17 / 64 → 12 / 58 → 11 / 59. The 11 majors are round 1's less hands_behind_back: the cuff tiers' pen_frac and idol_dance's depth where the hand is pressed to the body (hug_self, dance_point, idol_dance; every pen_frac at or below round 10's cuff + 0.005, the depth 4.9 / 4.4 cm against round 10's 5.4), and the balloon's round-10 majors (idol_dance pen and pen_frac, arms_forward compress).
+- The targets (pen_frac per piece; target round 10 + 0.005; flips ≤ 38):
+
+  | pose | piece | round 10 | integ14 | round 1 (verified) | now |
+  |---|---|---|---|---|---|
+  | hands_behind_back | cuff | 0.0256 (1.23 cm) | 0.0443 | 0.0443 (1.47 cm) | **0.0265** (1.28 cm) |
+  | arms_crossed | under tier (cuff) | 0.0080 (cuff) | 0.0221 / 0 | 0.0221 / 0 | **0.0104** / 0 (0.91 cm) |
+  | dance_clap | under tier (cuff) | 0.0057 (cuff) | 0.0281 / 0 | 0.0281 / 0 | 0.0281 / 0 (placement, below) |
+  | arms_forward | balloon flips | 38 | 40 | 40 | **38** |
+  | hand_to_shoulder | cuff / under tier | 0.0128 | 0.0247 / 0.0198 | 0 / 0 | 0 / 0 |
+  | seiza | frill | 0.0118 | 0.0303 | 0.0099 | 0.0099 |
+  | hug_self | cuff / under tier | 0.1241 | 0.1284 / 0.1268 | 0.1203 / 0.1172 | 0.1221 / 0.1214 |
+  | dance_point | cuff / under tier | 0.0691 | 0.0758 / 0.0727 | 0.0688 / 0.0609 | 0.0708 / 0.0628 |
+  | idol_dance | cuff / under tier | 0.1619 | 0.1620 / 0.1411 | 0.1620 / 0.1411 | 0.1623 / 0.1414 |
+  | hug_self | frill | 0.0053 | 0.0109 | 0.0122 | 0.0122 |
+
+  The front press now runs through the sector keys (hats instead of round 1's smooth lobe, the hand rise instead of round 1's hand exclusion), which moved hug_self and dance_point by +0.002 against round 1, still below round 10 + 0.005.
+- dance_clap stays placement: the other forearm's wrist end is inside this cuff's opening at the rim (its axis 12 px off the cuff's at d 34 px; each 手首 on the other hand's skin, the hands pass through each other; round 10's wrists were 1.3 cm apart). Nothing the cuff can do there clears it: a spread toward it (emulated, 10 px) reached 0.019, a press 0.038–0.072.
+- Compress (the pressed flutes and rim bead, edge ratio, minor below 0.30): hands_behind_back cuff 0.19 (before 0.32), hug_self 0.33 (0.34), hand_to_shoulder 0.38 (0.39), idol_dance 0.34 (0.35), dance_point 0.41 (0.42); the under tier 0.33–0.59.
+- Rig fits: the drape root (0.2215, −0.0314, 0.9091) is 1.8 mm from round 10 (before 1.0 mm; the cuff's new ring, at the cuff's fit share), joints 2.7 / 1.9 mm (2.8 / 1.9); the hair capsules as before except the upper arm's span 5.1–15.7 → 5.1–15.6 cm.
+- Not run: export_pmx.py, pmx_reimport.py and motion_vmd.py (mmd_tools is not installed). The 32 sector keys per tier merge into 32 'other' morphs (`左袖口寄せ0`…, 11 bytes in Shift-JIS, within VMD's 15).
 
 ### Integration fix (r11/integrate 1b06af3 + this branch)
 Gates on the branch (r11/integrate merged in, so the full model):
@@ -257,7 +315,7 @@ Motion report (`rig_check --quick --no-core --extended --report-core --motion`) 
   | seiza | frill | 0.0118 | 0.0303 | 0.0099 |
   | arms_crossed | under tier | 0.0080 (cuff) | 0.0221 | 0.0221 (placement) |
   | dance_clap | under tier | 0.0057 (cuff) | 0.0281 | 0.0281 (placement) |
-  | hands_behind_back | cuff | 0.0256 | 0.0443 | 0.0443 (placement) |
+  | hands_behind_back | cuff | 0.0256 | 0.0443 | 0.0443 ("placement": wrong, see round 2) |
   | hug_self | cuff / under tier | 0.1241 (cuff) | 0.1284 / 0.1268 | 0.1203 / 0.1172 |
   | dance_point | cuff / under tier | 0.0691 (cuff) | 0.0758 / 0.0727 | 0.0688 / 0.0609 |
   | arms_forward | balloon flips | 38 | 40 | 40 (threshold, see "Integration fix") |
@@ -365,7 +423,10 @@ Verify round 3 (r11/base): all parts 160 major / 317 minor and sleeves 16 / 63, 
 - `cuff_hd.jpg` and `cuff_verify.jpg` were downscaled in verify round 3 to keep this folder near 1.3 MB.
 - `integ_press.jpg`: the integration fix of the cuff, before (r11/integrate 1b06af3) | after, left cuff, 0.18 m wide orthographic close-ups (~9× the full-body frame): hand_to_shoulder from behind and dance_point from behind as x-rays of the sleeves alone (red: more than 2 mm inside the body, darker deeper), then the same poses in cel and clay from the viewer's side (the press acts on the side against the chest; the visible side is unchanged).
 - `integ_frill.jpg`: the frill's inner side, before | after: seiza as an x-ray from the front-inner side and in cel from the front; the rest pose from the front (cel, clay).
-- `integ_placement.jpg`: the three poses left to the arms' placement (after the fix): arms_crossed, dance_clap and hands_behind_back from low behind, in cel, with the clothes hidden (the forearms or wrists pass through each other) and as x-rays.
+- `integ2_hbb.jpg` (integration round 2): hands_behind_back, before (r11/integrate 89f6117 + round 1) | after. Rows: the left cuff cut across its centre line every 6 px in its posed frame, with the other forearm's skin (black), the own arm (orange), the tiers (blue upper, green under) and the vertices more than 5 mm inside the body (red), before and after; the cuff tiers alone from behind, behind-below and end-on (0.16 m wide, red inside the body); cel, clay and the sleeves' x-ray from behind-below with the hair hidden.
+- `integ2_ac.jpg`: the same for arms_crossed (the inner side spreads over the right forearm); the last row front and low cel and low clay (the change is behind the right forearm).
+- `integ2_elbow_press.jpg`: arms_forward's inner elbow fold from the inner side and from above-behind, cel, clay and the flipped faces (red: past 120°, orange: past 101°), before | after (the elbow spread on the upper arm's side); then hug_self and hand_to_shoulder before | after (the front press, re-tuned into the sector keys: cel, clay, x-ray).
+- Round 1's `integ_placement.jpg` was dropped: its hands_behind_back "placement" was wrong (see "Integration fix, round 2").
 - `rig_fit.jpg`: the elbow inside the bag in dance_sway, reach_up_back and hands_behind_head (3/4 cel crops).
 - `bow.jpg`: the bow from above and from 3/4 (cel).
 - `panels.jpg`: sheet | round 10 | first pass | now, at panel scale, enlarged. Rows: band front and side, wrist front and side.
