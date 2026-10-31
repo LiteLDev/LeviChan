@@ -248,19 +248,20 @@ BODICE_TUCK = 3.0
 STRAP_UNDER = 8.0
 TUCK_FADE = 10.0
 STRING_TUCK_GAP = 0.0008
-# Integration round 4: over the last ~1 cm above the rim the straps stand RIM_LIFT higher
-# (RIM_LIFT_BAND: px relative to the neckline, rising over the first pair, back down under
-# the rim over the second, so the tucked end keeps its height under the bodice). With the
+# Integration round 4: over the last ~1.5 cm above the rim the straps stand up to RIM_LIFT
+# higher (RIM_LIFT_BAND: px relative to the neckline, rising over the first pair, back down
+# by the rim over the second, so the tucked end keeps its height under the bodice). With the
 # arms raised the skin there bulges toward the bodice (the shoulder stages' weights peak at
 # the rim) and the bodice under the rim comes 5-7 mm closer to the skin; the lift is the
 # room that lets the hand-over to the bodice spread over more rings (rig.HALTER_RIDE_SMOOTH
-# 8 -> 11 mm, rig.HALTER_RIM_FOLLOW) without the last visible rings sinking further into
-# the skin: the strap's turn at one ring above the rim 23-26 -> 16-18 deg (dance_sway,
+# 8 -> 11.5 mm, rig.HALTER_RIM_FOLLOW) without the last visible rings sinking further into
+# the skin: the strap's turn at one ring above the rim 23-26 -> 19-21 deg (dance_sway,
 # dance_heart, hands_behind_head, reach_up_back, idol_dance@80), <= 1 mm newly inside.
-# Each of these trades the turn for depth: 0.7 mm sank the right strap 1.33 mm in
-# dance_heart, 1.0 mm with a 12 mm hand-over turned it 21 deg again.
-RIM_LIFT = 0.0009
-RIM_LIFT_BAND = (-10.0, -3.0, 1.0, 4.0)
+# The lift is gone by the bodice's real rim (~2 px below the neckline): carried 2-3 px
+# under it (0.5-0.9 mm there) it turned the strap only 16-18 deg, but the strap then
+# showed through the bodice just under its rolled top at rest.
+RIM_LIFT = 0.0013
+RIM_LIFT_BAND = (-10.0, -3.0, -0.5, 1.5)
 # Skinning marks for the rig (rig._halter_ride / _halter_joins, point attributes named by
 # obj['levi_cord_ride'] / obj['levi_cord_join']). With the skin's weights the tucked strap
 # ends took some of the clavicle bone, which the bodice over them does not, and a raised arm drew

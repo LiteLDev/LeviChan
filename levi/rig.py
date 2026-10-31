@@ -5969,16 +5969,16 @@ HALTER_REACH = (0.02, 0.06)   # m off the skin: the halter takes the skin's weig
 # the bodice there comes 5-8 mm closer to the skin, so a hand-over inside the tuck alone
 # stretched the strap x1.7-2.3 and one carried 1 cm up the visible strap sank it 1.6 mm.
 HALTER_SMOOTH = 0.020    # m: smoothing of the halter's sampled weights along the cord
-HALTER_RIM_FOLLOW = 0.020    # m: within this of the tucked end a strap blends back to the skin's own weights
+HALTER_RIM_FOLLOW = 0.025    # m: within this of the tucked end a strap blends back to the skin's own weights
 HALTER_RIM_FOLLOW_IN = 0.010   # m: ... all of them within this
-HALTER_RIDE_SMOOTH = 0.011   # m: smoothing of the tucked ends' hand-over to the bodice
+HALTER_RIDE_SMOOTH = 0.0115   # m: smoothing of the tucked ends' hand-over to the bodice
 # Integration round 4: with the straps standing a little higher just above the rim
-# (accessories.RIM_LIFT) the hand-over is smoothed over 11 mm (8 mm), spreading its turn over
-# more rings (23-26 -> 16-18 deg at one ring in the raised-arm poses; the hidden tucked end
-# compresses less: high_kick, raise_bend, spin x0.87-0.92 -> x0.91-0.96), and the rim follow
-# is all of the skin over the last 1 cm above the tucked end, none from 2 cm (0 / 3 cm): the
-# X strands end on the straps ~2 cm above the rim, and the rim follow's share there set their
-# lower ends' stretch in idol_dance@78 (x1.68 -> x1.71-1.74 with the lift and 3 cm).
+# (accessories.RIM_LIFT) the hand-over is smoothed over 11.5 mm (8 mm), spreading its turn
+# over more rings (23-26 -> 19-21 deg at one ring in the raised-arm poses; the hidden tucked
+# end compresses less: high_kick, raise_bend, spin x0.87-0.92 -> x0.90-0.95), and the rim
+# follow is all of the skin over the last 1 cm above the tucked end, none from 2.5 cm (0 / 3
+# cm): the X strands end on the straps ~2 cm above the rim, where the rim follow's share
+# sets their lower ends' stretch in idol_dance@78 (x1.68; x1.72-1.76 with the lift and 3 cm).
 HALTER_LEAD_MAX = 0.01   # most the stages' weights (HALTER_LEAD_BONES) may exceed the skin's own
 HALTER_LEAD_BONES = ('肩補助', '肩補助2', '肩補助3')
 # Round 11: the halter's straps end tucked under the bodice's top rim, and its X strands end
