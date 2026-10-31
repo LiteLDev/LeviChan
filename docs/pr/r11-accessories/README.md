@@ -343,7 +343,17 @@ Round 3's verifier passed the gates and the arms-down sink, and left these p3 it
   - idol_dance@75 / 76 / 77 stretch 1.213 / 1.325 / 1.566 at the junction (bounds 1.194 / 1.287 / 1.535; before 1.219 / 1.334 / 1.569);
   - run 1.173 (bound 1.172; before 1.168).
 
-{MOTION}
+**Full merge** (scratch worktree: r11/integrate b71fd46 + this branch, a fast-forward to f41a086). Motion report (extended + clips + core, 3,615 s) against the same tree with the round-2/3 halter (5e7fea2, 3,617 s) and round 10:
+- **Only halter rows move**, plus hair x garment crossings by 4-5 pairs (the cord is in the garment group). Issue counts per part are identical (458 / 458; round 10 479; accessories 15, 8 major: the flower and leaf hair-penetration ones round 10 already had).
+- **acc_halter worst**, round 10 / before / now: stretch 1.637 / 1.673 / 1.676 (idol_dance@78, minor as before); compress 0.674 / 0.643 / 0.653 (idol_dance@80); pen 2.2 / 1.4 / 1.6 mm (idol_dance, the tucked end under the bodice); no flips.
+- **Better:** compress high_kick 0.875 → 0.907, raise_bend 0.922 → 0.946, spin 0.874 → 0.902, head_right 0.753 → 0.799; stretch deep_lunge, kneel_one, twist_bend by 0.02-0.03.
+- **Worse, within the bounds:** stretch hands_behind_head 1.227 → 1.252 and reach_up_back 1.326 → 1.357 (round 10 1.366 / 1.379); compress hands_behind_back 0.892 → 0.871 (round 10 0.815); pen arms_up 0 → 1.0 mm on the tucked end (round 10 1.8 mm; the visible cord 0.12 mm in the sweep).
+- **acc_choker:** unchanged (1.264 / 0.539).
+
+**Gates** (f41a086; 4c1b902 adds only this README and a comment)
+- **check.py:** CHECK OK, "62 meshes identical in a second process". Accessories 7,592 / 8,000; total 162,801 / 200,000.
+- **build --rig, rig_check (17 core poses):** RIG CHECK OK. Worst stretch squat 1.85 / test 1.83 / arms_up 1.81 (body); worst pen side_bend 1.76 cm (skirt); every knee ok; 66/66 PMX bone names. The accessories are never the worst object.
+- **Not run:** export_pmx, pmx_reimport and motion_vmd (mmd_tools is not installed).
 
 ## Gates (this branch, other parts as on r11/base)
 - **check:** CHECK OK. Accessories 7,576 / 8,000 faces; total 112,280. The build-twice determinism check passed. The seat check warns on r11/base's hair_front, as expected.
