@@ -3,9 +3,116 @@
 Branch `r11/petticoat`, built on `r11/base`. Only `levi/parts/petticoat.py` changes geometry.
 The petticoat-specific parts of `levi/rig.py` change, and `tools/motion_check.py` gets one
 new count. Since the integration fix below, the branch also carries `r11/skirt` (merged at
-e8b439f, unchanged), so it supersedes both parts. It carries `r11/integrate` up to bcd38b0;
-the round-3 numbers below are from `r11/integrate` 415f85d with this branch merged in (no
-conflicts).
+e8b439f, unchanged), so it supersedes both parts. It carries `r11/integrate` up to 1b06af3
+(fast-forward); the round-4 numbers below are from `r11/integrate` 78bca50 with this branch
+merged in (no conflicts), the round-3 ones from 415f85d + this branch.
+
+## Integration review, round 4
+The integrate run 1b06af3 (i14) left three skirt x petticoat rows this lane owns: cross_legged
+skirt compress x0.050 at スカート14_2 (round 10 x0.069, integrate before rounds 1-3 x0.097),
+lie_back_elbows petticoat_core pen_frac 1.9% (round 10 0.5%), cross_legged skirt x petticoat
+crossings 226 (round 10 214). Both fixes are weight-only (`levi/rig.py`, skirt shell and
+petticoat sections), so the drape tables, the tiers and every round-3 row stay as they were.
+
+**Diagnosis** (scratch tools and dumps in `work/integ_scratch/pt_r4`)
+- *Bisect.* In a rig harness on the full model (each run: rig build + 41 poses and clip
+  frames), round 3's settings one at a time (`DRAPE_UP` 10, `DRAPE_STRAIN` 0.3, no
+  `DRAPE_RING_CAP_PITCH`) leave the compress at x0.040-0.052; only all of rounds 1-3's drape
+  changes reverted together (`DRAPE_BIN` off too) give x0.097, with 24 stretch rows over the
+  bound. `DRAPE_BIN` alone off: x0.068, 210 crossings, 17 rows. So the drape only moves the
+  symptom; its cause is in the weights.
+- *The skirt rim.* The worst edge is a 1.1 mm edge of the rolled hem's rim at 138 deg (front
+  left, between chains 13 and 14, over the raised thigh). There chain 13's hem stands 117 mm
+  above chain 14's (the same rest point under each chain's transform: 129 mm apart), so the
+  blend's weight gradient moves points by 0.13 mm per 0.001 of weight. Across that edge the
+  weight changes by 0.009, where the angle alone accounts for 0.0035: the rest is a slope
+  with height. The shell share (`_shell_share`) averages each 1.5 deg x 4 mm cell's members
+  into its node, and the members sit off the node by up to half a cell (0.03 of the ring
+  blend) differently in each height row, so the rim's four rows took weights up to 0.01 per
+  mm apart. On the real mesh the plain angle blend has a height slope of at most 0.0044 per
+  mm on these edges (measurement floor), the shell share 0.013. The weight step cancels the
+  edge's own length and the rim flattens (`r4_hem_rim.jpg`: purple strip before).
+- *The core.* All 226 new crossings are skirt x core: the core's side (76-110 deg, its top
+  rings) against the skirt's front-left waist (114-135 deg). All 13 lie_back vertices are the
+  core's top two rings at the sides and back-sides. The core lies 6-10 cm inside the chain
+  roots' pivots, and its top rings ride the root segments (80% at the top ring, the plain
+  blend's hand-over): a root's forward turn swings a point that far inside the pivot about
+  three times as far as the skirt at the same height. In cross_legged the side of the core
+  came forward through the skirt's waist fold; in lie_back its top went into the hips
+  (`r4_core_sections.jpg`, plane cuts of the posed meshes).
+- *What did not work* (fast LBS search on dumped skinning matrices, 73 + 19 weight fields,
+  then the harness): a wider plain hand-over for the core (`ROOT_BLEND` 0.65 / 0.8 / 1.0, with
+  上半身) 238 / 210 / 0 crossings, but 3 / 13 / 20 stretch rows (x2.2 in the kicks and
+  seated poses). A pelvis share only at the sides (angle window) x3.6 at the window's edge.
+  The pelvis share added to the plain blend between the root and middle segments makes a
+  fifth bone; pruned and refitted, it stretched the core x1.99 at chain 13 in jump_tuck and
+  high_kick (6 rows). A local linear fit in the shell share instead of the cell mean
+  (compress x0.14) helps less than the hem rule below.
+
+**Fix**
+- `SHELL_HEM` (0.25 deg, ramp 0-0.25 chain units): where the shell rides its chains' last
+  segment alone, its weights are one function of the angle (the band's mean per 0.25 deg,
+  read back linearly). cross_legged skirt compress x0.050 -> x0.41; the shell's own
+  rows fall or hold (seiza x1.502 -> x1.463, the run's front hem x1.68 -> x1.64, walk clip
+  x1.31 -> x1.27; sit_chair x1.621 -> x1.630).
+- `PLAIN_BODY` (0.5, 1.3, 2.0): the core hands half its weight to 下半身 at its top, fading
+  out by 1.3 chain units below the roots, and rides the root segments alone down to there;
+  its segment blend then catches up with the plain one by 2.0 (above the tiers' seams). At
+  most four bones by construction (no prune), the seams unchanged. Crossings 226 -> 0, lie_back
+  core pen_frac 1.9% -> 0%, and the core stretches less where the roots turn most
+  (jump_tuck x1.85 -> 1.73, sit_chair x1.74 -> 1.69, high_kick x1.88 -> 1.83), a little more
+  in strides under the tiers' values (curtsy x1.25 -> 1.29, run x1.79 -> 1.80).
+
+**Full merge** (`r11/integrate` 78bca50 + this branch 0f3b98a, scratch merge af2f695, no
+conflicts; full motion report 3516 s, `motion_r4.txt`), against round 10 and i14 (1b06af3):
+
+| target | round 10 | i14 | now |
+|---|---|---|---|
+| cross_legged skirt compress (>= 0.069) | 0.069 | 0.050 | **0.406** |
+| lie_back_elbows core pen_frac (<= 1.3%) | 0.5% | 1.9% | **0.0%** |
+| cross_legged skirt x petticoat crossings (<= 220) | 214 | 226 | **0** |
+| stretch rows over min(round 10, petticoat alone) | 42 | 1 | **0** |
+| tier x tier crossings (all poses) | 0 | 0 | 0 |
+| run clip skirt pop | - | 55.0 mm | 55.0 mm |
+| walk clip skirt pop | 8.2 mm | 9.6 mm | 9.6 mm |
+| cross_legged petticoat flips | 3 | 7 | 2 |
+
+The petticoat's pen falls wherever it changed: high_kick 1.24 -> 0.60 cm (pen_frac 1.5% ->
+0.45%), lie_back 1.15 -> 0.46 cm, sit_chair 0.87 -> 0.66 cm (1.9% -> 1.3%), jump_tuck 1.8%
+-> 0.9%, kneel_one 0.9% -> 0.15%, deep_lunge 0.6% -> 0%, sit_stand clip 2.1% -> 1.6%. No skirt
+or petticoat row regresses against i14 (`mdiff`); the regressions it lists are hair x garment
+/ hair x skirt crossings and one hair_back stretch, which come with `r11/integrate`'s new hair
+merges after 1b06af3: on one model with only this round's change (the rig harness, 41 poses
+and clip frames), every hair crossing count is identical before and after.
+
+**Ribbon tails** (bodice; they ride the skirt chains through `SKIRT_BAND`, whose weights this
+round does not touch, and the drape is unchanged): kneel_one x1.683, deep_lunge x1.678,
+lie_back x1.700, cross_legged x2.091, run clip x1.604, run jitter 0.216, cross_legged
+pen_frac 2.0%, all as in i14. The harness shows `DRAPE_BIN` (round 1) is what raised them
+(off: kneel_one x1.51, deep_lunge x1.40, run x1.34; but cross_legged x2.14 and 17 skirt /
+petticoat rows), so it stays; the tails' own weights are r11/bodice's fix.
+
+**Gates (branch, 0f3b98a = r11/integrate 1b06af3 + this round):** `check.py` CHECK OK, 153,186
+faces (petticoat 25,920 / 28,000, skirt 22,680 / 24,000, unchanged). `rig_check.py` RIG CHECK
+OK: walk x1.57 (petticoat_tier2), worst squat x1.82 / arms_up x1.81 (body); worst pen
+side_bend 1.76 cm (skirt); no backward knee; 66/66 PMX names. Full merge: CHECK OK, 162,561
+faces. Not run: export_pmx, pmx_reimport, motion_vmd (mmd_tools is not installed).
+
+**Images**
+- `r4_hem_rim.jpg`: cross_legged, the skirt's hem rim at the worst edge, 2 cm wide, same
+  camera before / after, from the front-left and from below: faces by their shortest
+  edge's ratio (white >= 0.92, yellow 0.5, red 0.25, purple <= 0.08), and clay. Before, a
+  purple strip along the rim (the roll flattened to a hard edge in clay); after, yellow at
+  worst and a round roll.
+- `r4_core_sections.jpg`: plane cuts of the posed body (grey), skirt (green, both faces) and
+  core (magenta). Top: cross_legged at z = 0.21 m (the crossing band): before, the core runs
+  through the skirt's waist fold; after, it stays under it. Bottom: lie_back_elbows at x =
+  0.07 m: before, the core's top crosses into the hip; after, it follows the hip's outline.
+- `r4_core_visible.jpg`: the same places with everything shown (ids and cel): the core is
+  hidden in both, nothing visible changes.
+- `r4_poses.jpg`: jump_tuck, sit_chair (skirt hidden) and high_kick from below, clay and
+  cel, before / after: the core's gathers cover the hips in high_kick instead of opening a
+  dark gap, the rest as before.
 
 ## Integration review, round 3
 The verifier's round-2 result: 16 skirt / petticoat stretch rows above min(round 10,
