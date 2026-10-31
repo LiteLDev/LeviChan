@@ -400,6 +400,16 @@ SKIRT_FRONT = [(340, -92), (360, -98), (380, -106), (400, -110), (420, -111), (4
 SKIRT_HW = [(340, 50), (400, 100), (450, 140), (500, 180), (560, 230)]
 TAIL_PROUD = 2.5
 HIP_LIFT = (6.5, 405.0, 30.0)    # extra px, centre row, half width (gaussian)
+# Round 11 (integration review 3): the lower strands, below the hip, stand TAIL_LOW_LIFT[0] px
+# further off (fading in over rows TAIL_LOW_LIFT[1:]). They ride the two nearest skirt chains
+# (rig._tail_weights), the skirt itself a blend smoothed over three (~0.85 of the nearest
+# chain and ~0.07 of each neighbour, then pruned and refitted), which no four-bone pair of
+# chains matches: where a thigh lifts one panel off its neighbours (cross_legged) the strand
+# lying over that chain's line sank up to 5 mm toward the cloth, through its outer face where
+# it lay 3.1-3.8 mm off (40 vertices, at most 1.8 mm, in four short notches) and grazing
+# it in lie_back_elbows (0.3 mm). 1.5 px (2.3 mm) clears them: none behind the cloth, the
+# least clearance 0.2 mm in cross_legged and 1.4 mm in lie_back_elbows.
+TAIL_LOW_LIFT = (1.5, 425.0, 455.0)
 
 # Leaf cluster at the neckline, character's left (image right in front view).
 # (base col,row) -> (tip col,row), half-width px, forward tilt px.
@@ -1463,7 +1473,8 @@ def tail_strand(dpath, width_px, gain, partner_dense):
         dx, row = p.x, p.z
         nrm = surface_normal_px(dx, row, lambda a, r: tail_surface(a, r, width_px))
         h, c, w = HIP_LIFT
-        proud = TAIL_PROUD + h * math.exp(-((row - c) / w) ** 2)
+        proud = (TAIL_PROUD + h * math.exp(-((row - c) / w) ** 2)
+                 + TAIL_LOW_LIFT[0] * smoothstep(TAIL_LOW_LIFT[1], TAIL_LOW_LIFT[2], row))
         # an edge-on ribbon stands its half width off the skirt (a rounded |sin|:
         # no kink where the twist changes sign); the offset is along the skirt's normal
         s = math.sin(phi[i])
