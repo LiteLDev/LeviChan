@@ -716,7 +716,7 @@ NAPE_EAR_FADE = 0.012
 # Round 11 R4: hair_back's lining top rose into the cap (its UNDER_TOP rows 140 / 190 -> 118 / 128,
 # its depth at the top held by the skull): its top edge now lies inside the cap out to |x| 8 cm
 # (0.4-2.5 mm under the cap's surface; R3: 1.4-48 mm outside it, a cavity behind the ears) and
-# its inner face comes in to ~2 cm off the back of the neck from z 1.26 down. The closure in
+# its inner face comes in to 3-3.5 cm off the back of the neck at z 1.20-1.24 (R3 4.5-7 cm). The closure in
 # front of it is unchanged (the skull, the ears, the ceiling); the wall now lies between the
 # lining's two faces (hidden), so it rises at half the slope from a wider foot (R3: 3.2 from 12 mm:
 # 84-91 deg creases at its foot), and check_nape_lining also checks that the closure stays
@@ -2603,7 +2603,7 @@ def _curl_lock():
 # Round 11 R4 (the review: below row ~140 R3's lock was a flat kite, its x1.4 widening meeting
 # the u 0.85 taper in a corner and closing in a kite point, twisting 6.7 deg a ring; its back
 # rim ran through hair_back_side behind the ear, 63 crossing triangle pairs a side): hair_back's
-# lining now fills the side notch from behind (its inner face runs up to the cap ~2 cm off the
+# lining now fills the side notch from behind (its inner face runs up to the cap 3-3.5 cm off the
 # neck), so the lock is a lock again. One width curve: CURTAIN_WIDEN eases its width from 0.8x
 # near the root (behind the ear, where hair_back_side's front edge lies 5 mm behind R3's back rim)
 # to 1.15x by mid-length, and it closes in the side locks' ogive past u 0.62 (CURTAIN_TIP);

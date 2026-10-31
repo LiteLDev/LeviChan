@@ -618,7 +618,7 @@ BASE = [(0, -2.6), (110, -2.6), (122, -2.2), (134, -1.8), (165, -2.0), (210, -0.
 # top is held by the skull, not by CAP_PROFILE (LINING_SKULL_IN): CAP_PROFILE's rows 135-178
 # under the occiput are empty since hair_front lifted its closure under the skull, and the old
 # clamp kept the lining's inner face 4-5 cm behind the neck up to the nape. Now the inner face
-# comes in to ~2 cm off the back of the neck from z ~1.26 down and runs up into the cap, so
+# comes in to 3-3.5 cm off the back of the neck at z 1.20-1.24 (4.5-7 cm until R4) and runs up into the cap, so
 # from the front, front-low and the side the hair behind the neck is the lining's inner face
 # (the inside of the hair) up to where the closure under the skull meets it.
 UNDER_TOP = (118.0, 128.0)     # top edge row: in the middle, at the side edges
@@ -1917,6 +1917,16 @@ def _rim_dirs(bm, em, top=True):
 # the rig weights it at (WEIGHT_CO_ATTR, named by obj['levi_weight_co'];
 # rig._follow_lock_skin): its outer-face twin, so the two faces carry the same weights and
 # the lining cannot shear through its thickness.
+# Round 11 R4: the lining's top now rises into the cap (UNDER_TOP), above the roots of the lock
+# chains over it (後髪束N_0 heads at z 1.279-1.287); a weighting point above a chain's root
+# projects onto it at u 0 (rig._polyline_u clamps), takes none of it, and rig._hair_head_fade then
+# gives it all of 頭 where its neighbour just below gets 頭 0.7-0.85 and the chains the rest: the
+# top tore x7.7 in head_left / right (x5.1 test, x2.8 side_bend). The weighting points' height is
+# held under WEIGHT_TOP (the old top edge's height in the middle, 1.4 cm under the lowest of those
+# roots) by a soft minimum (WEIGHT_TOP_SOFT): the part above moves with the lining just under it,
+# as R3's top edge did.
+WEIGHT_TOP = 1.262
+WEIGHT_TOP_SOFT = 0.004
 WEIGHT_CO_ATTR = 'hb_weight_co'
 FOLLOW_LOCKS = 'hair_back'
 FOLLOW_ANGLE = 40.0         # deg round from straight back: the primaries (6-32 deg), not the side
@@ -1928,6 +1938,8 @@ def _weight_coords(obj, outer):
     vertices are the outer grid then the inner grid (_emit_grid_shell)."""
     me = obj.data
     P = np.concatenate([outer.reshape(-1, 3), outer.reshape(-1, 3)])
+    k = WEIGHT_TOP_SOFT
+    P[:, 2] = P[:, 2] - k * np.logaddexp(0.0, (P[:, 2] - WEIGHT_TOP) / k)
     assert len(P) == len(me.vertices), 'hair_back_shell: unexpected vertex count'
     attr = me.attributes.new(WEIGHT_CO_ATTR, 'FLOAT_VECTOR', 'POINT')
     attr.data.foreach_set('vector', P.astype(np.float32).ravel())
