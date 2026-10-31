@@ -298,7 +298,7 @@ KNOT_NT = 24              # samples round the knot's axis
 # rigid on their own, the knot was not: the two parted, x0.31 in twist_bend at a short
 # hand-over); each strand that leaves the knot hands over to its own weights over a length
 # that suits it: the last lacing cords over most of their span to the eyelets
-# (LACE_KNOT_BLEND; a free cord between two fixed ends), the tails down to the skirt
+# (LACE_KNOT_BLEND; a free cord between two fixed ends), the tails down through the skirt
 # chains' root (TAIL_KNOT_BLEND). A torso twist turns 上半身 and 下半身 ~1 rad apart 15 cm
 # in front of the spine, so a 0.05 weight difference moves ~7 mm: short hand-overs crush.
 KNOT_ATTR = 'knot_out'
@@ -306,7 +306,10 @@ LINE_VG = 'bodice_line'
 LINE_FADE = 0.0015
 KNOT_FAR = 0.006          # m: strands that come no nearer the knot than this keep 1.0 (far)
 LACE_KNOT_BLEND = 0.04
-TAIL_KNOT_BLEND = 0.018
+# Round 11 (integration review 2): 5 cm for the tails, through the skirt chains' root, where
+# rig._tail_weights hands them on to the chains (at 3 cm and 4 cm the thin strands stretched
+# x1.77 and x1.68 just below the knot in lie_back_elbows; 5 cm: x1.60).
+TAIL_KNOT_BLEND = 0.05
 
 # Ribbon tails (front view, px). Two strands per side meet at the tip.
 # name: (control points, ribbon width px, twist gain)
@@ -397,6 +400,16 @@ SKIRT_FRONT = [(340, -92), (360, -98), (380, -106), (400, -110), (420, -111), (4
 SKIRT_HW = [(340, 50), (400, 100), (450, 140), (500, 180), (560, 230)]
 TAIL_PROUD = 2.5
 HIP_LIFT = (6.5, 405.0, 30.0)    # extra px, centre row, half width (gaussian)
+# Round 11 (integration review 3): the lower strands, below the hip, stand TAIL_LOW_LIFT[0] px
+# further off (fading in over rows TAIL_LOW_LIFT[1:]). They ride the two nearest skirt chains
+# (rig._tail_weights), the skirt itself a blend smoothed over three (~0.85 of the nearest
+# chain and ~0.07 of each neighbour, then pruned and refitted), which no four-bone pair of
+# chains matches: where a thigh lifts one panel off its neighbours (cross_legged) the strand
+# lying over that chain's line sank up to 5 mm toward the cloth, through its outer face where
+# it lay 3.1-3.8 mm off (40 vertices, at most 1.8 mm, in four short notches) and grazing
+# it in lie_back_elbows (0.3 mm). 1.5 px (2.3 mm) clears them: none behind the cloth, the
+# least clearance 0.2 mm in cross_legged and 1.4 mm in lie_back_elbows.
+TAIL_LOW_LIFT = (1.5, 425.0, 455.0)
 
 # Leaf cluster at the neckline, character's left (image right in front view).
 # (base col,row) -> (tip col,row), half-width px, forward tilt px.
@@ -1460,7 +1473,8 @@ def tail_strand(dpath, width_px, gain, partner_dense):
         dx, row = p.x, p.z
         nrm = surface_normal_px(dx, row, lambda a, r: tail_surface(a, r, width_px))
         h, c, w = HIP_LIFT
-        proud = TAIL_PROUD + h * math.exp(-((row - c) / w) ** 2)
+        proud = (TAIL_PROUD + h * math.exp(-((row - c) / w) ** 2)
+                 + TAIL_LOW_LIFT[0] * smoothstep(TAIL_LOW_LIFT[1], TAIL_LOW_LIFT[2], row))
         # an edge-on ribbon stands its half width off the skirt (a rounded |sin|:
         # no kink where the twist changes sign); the offset is along the skirt's normal
         s = math.sin(phi[i])
