@@ -1128,17 +1128,19 @@ DRAPE_SWEEPS = 16           # coordinate descent sweeps (alternating direction)
 # within the grid interval where the depth falls through it (continuous, no 2-deg steps), but no
 # more than a candidate's turn plus this many deg per mm its cloth still lies past the threshold,
 # over a fixed number of candidates spanning the segment's range (the turn above moves the grid
-# continuously). 30: the knee perturbations moved the tables by up to 0.035 rad, the hip / radii
-# ones by up to 0.17 (the deep-cloth slack picks and the gather remain). None: the first
-# candidate under the threshold (rounds 7-11).
+# continuously). None: the first candidate under the threshold (rounds 7-11). 30 with
+# DRAPE_READOUT (0.02, 4), unpinned: the knee perturbations moved the tables by 0.001-0.020 rad
+# but one (a gather changing basin, 0.17), the hip / radii ones by 0.016-0.24 (rounds 7-11:
+# 0.007-0.20 and 0.06-0.20); the clearance still jumps where deep cloth's slack pick or a cascade
+# down a flat crossing does.
 DRAPE_SOFT = None
 # DRAPE_READOUT ((T, sweeps)): the tables read the gather's descent softened: from its candidates,
 # that many sweeps of each chain's weights over its candidates (a softmax of -energy / T against
 # its neighbours' and the previous sample's softened drapes), the drape their mean, so a
-# neighbouring candidate taking over moves a table by a fraction of a grid step ((0.02, 4) with
-# DRAPE_SOFT 30: knee perturbations up to 0.02 rad but for one gather that changes basin, 0.17).
-# A soft minimum in the descent itself (any temperature up to 0.08) kept two-basin pitches and
-# blurred the yaw (compress -0.03 to -0.08 in 100 pose rows at 0.08). None: the argmin.
+# neighbouring candidate taking over moves a table by a fraction of a grid step (0.002 rad of
+# clearance noise: 0.07 -> 0.004 rad of table). A soft minimum in the descent itself (any
+# temperature up to 0.08) kept the two-basin pitches and blurred the yaw (0.08: compress 0.03-0.08
+# lower in 100 pose rows). None: the argmin.
 DRAPE_READOUT = None
 DRAPE_PTS = 300             # cloth points per chain sector the clearance tests (without DRAPE_BIN)
 # Round 11: the clearance tests the innermost cloth point of each DRAPE_BIN cell (deg round
