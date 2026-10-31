@@ -726,11 +726,11 @@ NAPE_EAR_FADE = 0.012
 # 84-91 deg creases at its foot), and check_nape_lining also checks that the closure stays
 # NAPE_LINING_UNDER under the lining's top out to NAPE_LINING_X (the top tucked into the cap).
 # Round 11 R5: hair_back's top edge is back at row 136 in the middle (UNDER_TOP 118 / 128 -> 136 /
-# 122: its raised middle made a lock chain's collision probe push it out in reach_up_back), the
+# 128: its raised middle made a lock chain's collision probe push it out in reach_up_back), the
 # sides still raised into the cap.
-NAPE_LINING = ((0.00, 0.0565, 1.2675), (0.02, 0.0559, 1.2687), (0.04, 0.0538, 1.2722),
-               (0.06, 0.0480, 1.2773), (0.08, 0.0330, 1.2849), (0.10, -0.0029, 1.2893),
-               (0.12, 0.0553, 1.1418))   # |x|, y, z of hair_back's lining top (measured, round 11 R5)
+NAPE_LINING = ((0.00, 0.0564, 1.2675), (0.02, 0.0557, 1.2682), (0.04, 0.0531, 1.2702),
+               (0.06, 0.0472, 1.2731), (0.08, 0.0341, 1.2771), (0.10, 0.0044, 1.2799),
+               (0.12, 0.0563, 1.1417))   # |x|, y, z of hair_back's lining top (measured, round 11 R5)
 NAPE_LINING_TOL = 0.003         # m: the build fails when hair_back's lining top has moved this far (check_nape_lining)
 NAPE_LINING_UNDER = 0.003       # m the closure stays under the lining's top ...
 NAPE_LINING_X = 0.085           # ... out to this |x| (further out the lining's top lies under the side locks)
@@ -738,7 +738,7 @@ NAPE_TUCK = 0.008               # m the closure passes under the lining's top ..
 NAPE_WALL = 1.6                 # ... and rises this steeply (dz / dy) in front of it, from a
 NAPE_WALL_ROUND = 0.020         # rounded foot this wide (m), NAPE_WALL_FWD in front of the lining's top
 NAPE_WALL_FWD = 0.005           # (the cap's back wall lies 2-5 mm in front of it at |x| 5-8 cm)
-NAPE_WALL_X = (0.060, 0.085)    # |x| (m): the wall fades out over these (further out the lining's top
+NAPE_WALL_X = (0.075, 0.100)    # |x| (m): the wall fades out over these (further out the lining's top
                                 # lies under the side locks, 2-6 cm under the sheet cap's lowest point;
                                 # R5: 0.045-0.075 until R4, where the lining's raised middle let the
                                 # side ceiling hold the closure under it)

@@ -621,15 +621,16 @@ BASE = [(0, -2.6), (110, -2.6), (122, -2.2), (134, -1.8), (165, -2.0), (210, -0.
 # comes in to 3-3.5 cm off the back of the neck at z 1.20-1.24 (4.5-7 cm until R4) and runs up into the cap, so
 # from the front, front-low and the side the hair behind the neck is the lining's inner face
 # (the inside of the hair) up to where the closure under the skull meets it.
-# Round 11 R5: in the middle the top edge sits at row 136 again (R4 118; R3 140), only the
-# sides stay raised (122): R4's top in the middle, tucked under the occiput inside the head's
+# Round 11 R5: in the middle the top edge sits at row 136 again (R4 118; R3 140), the sides
+# stay raised as in R4 (128; higher, 122, the raised sides tore x5-6 in head_left / right, above
+# the side chains' roots): R4's top in the middle, tucked under the occiput inside the head's
 # convex hull and weighted to the lock chains' roots, made chain 8's collision probe keep its
 # full rest distance from the head (rig._hair_collision: 31 -> 52 mm), so in reach_up_back it
 # pushed chain 8 out 13 mm and the lining between chains 7 and 8 stretched x1.74 (R3 x1.25;
-# this top x1.58, under the minor limit). A deeper or shallower inner face below the nape
+# this top x1.55, under the minor limit). A deeper or shallower inner face below the nape
 # changed nothing there (x1.62-1.74). In the middle R3's top edge lay 1-3 mm outside the cap
 # only; at the sides, where the cavity was, the top stays inside it.
-UNDER_TOP = (136.0, 122.0)     # top edge row: in the middle, at the side edges
+UNDER_TOP = (136.0, 128.0)     # top edge row: in the middle, at the side edges
 # The locks still settle on the under-layer as it was built until R4 (_under_layer(settle=True):
 # its top edge at UNDER_SETTLE_TOP, its depth held by CAP_PROFILE + LINING_CAP_IN, no top band),
 # so raising the lining's top moved no lock (settling on the new one moved the primaries by up to
