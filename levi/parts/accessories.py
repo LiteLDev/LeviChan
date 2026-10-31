@@ -233,11 +233,16 @@ STRING_TUCK_GAP = 0.0008
 # 4.4 mm off the strap they end on. So:
 # * ride: share of the bodice's own weights: none above RIDE_FROM px below the neckline
 #   (where the bodice's real rim is: the visible cord rides the skin), all from RIDE_FULL
-#   px down (the strap's end), so the tucked end moves with the bodice over it and cannot
-#   come out through it (round 11's first build on the skin: a cut stub on the bodice in
-#   idol_dance@78). Integration round 2: over the whole tuck (round 11: 2 -> 4 px, then
-#   smoothed 10 mm along the cord, which carried the bodice's weights ~1 cm up the visible
-#   strap); the bodice there moves up to 9 mm away from the skin with the arms raised.
+#   px down, so the tucked end moves with the bodice over it and cannot come out through
+#   it (round 11's first build on the skin: a cut stub on the bodice in idol_dance@78).
+#   Integration round 2: with the arms raised the bodice by the straps comes down from
+#   ~6.5 mm off the skin to 0-2 mm (dance_heart, dance_sway, hands_behind_head), so the
+#   strap must bend into the skin where it goes under the rim. A ramp over the whole tuck
+#   (to 8 px) kept that bend under the rim but the tucked end then followed the skin out
+#   through the bodice front; 2 -> 4 px, smoothed 10 mm up the visible strap (rig.
+#   HALTER_RIDE_SMOOTH), sank the last rings above the rim 1.6 mm. 2 -> 5 px with 8 mm
+#   is the compromise (<= 1 mm above the rim, the tucked end covered but for a sliver at
+#   the rim's edge in a few raised poses).
 #   The skin under the bodice moves out against it in a raised-arm pose, so the tucked end
 #   then dips into the skin there, hidden under the bodice. (Fading in above the rim, the
 #   visible cord sank up to 3.5 mm into the chest; a partial share left the end poking out.)
@@ -248,7 +253,7 @@ STRING_TUCK_GAP = 0.0008
 #   strands' ends, vertices of one ring ~1 % apart in them squashed it to x0.59 in
 #   hands_behind_head).
 RIDE_FROM = 2.0
-RIDE_FULL = 8.0
+RIDE_FULL = 5.0
 JOIN_SPAN = 0.03
 # Under the rim the strap thins to TUCK_TIP of its radius (by STRAP_UNDER): ~0.4 mm more
 # room under the bodice, which presses in a little in some poses (idol_dance@78: a speck of

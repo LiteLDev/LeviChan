@@ -5539,10 +5539,10 @@ HALTER_REACH = (0.02, 0.06)   # m off the skin: the halter takes the skin's weig
 # to 上半身2; the cords also stand a little higher there, accessories.STRING_LOW_LIFT),
 # follows the skin from HALTER_RIM_FOLLOW above its tucked end (25 mm let the smoothing's
 # lag sink the last rings above the rim 0.7-0.9 mm with the arm raised: dance_heart,
-# dance_sway), and the bodice hand-over runs from the rim to the strap's end
-# (accessories.RIDE_FROM / RIDE_FULL) with a shorter smoothing (HALTER_RIDE_SMOOTH): the
-# bodice there moves up to 9 mm away from the skin with the arms raised
-# (hands_behind_head), so a hand-over inside the tuck alone stretched it x1.7-2.3.
+# dance_sway), and the bodice hand-over is a little longer under the rim with a shorter
+# smoothing (accessories.RIDE_FROM / RIDE_FULL, HALTER_RIDE_SMOOTH): with the arms raised
+# the bodice there comes 5-8 mm closer to the skin, so a hand-over inside the tuck alone
+# stretched the strap x1.7-2.3 and one carried 1 cm up the visible strap sank it 1.6 mm.
 HALTER_SMOOTH = 0.020    # m: smoothing of the halter's sampled weights along the cord
 HALTER_RIM_FOLLOW = 0.030    # m: within this of the tucked end a strap blends back to the skin's own weights
 HALTER_RIDE_SMOOTH = 0.008   # m: smoothing of the tucked ends' hand-over to the bodice
