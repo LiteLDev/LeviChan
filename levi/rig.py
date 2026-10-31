@@ -5969,12 +5969,16 @@ HALTER_REACH = (0.02, 0.06)   # m off the skin: the halter takes the skin's weig
 # the bodice there comes 5-8 mm closer to the skin, so a hand-over inside the tuck alone
 # stretched the strap x1.7-2.3 and one carried 1 cm up the visible strap sank it 1.6 mm.
 HALTER_SMOOTH = 0.020    # m: smoothing of the halter's sampled weights along the cord
-HALTER_RIM_FOLLOW = 0.030    # m: within this of the tucked end a strap blends back to the skin's own weights
+HALTER_RIM_FOLLOW = 0.020    # m: within this of the tucked end a strap blends back to the skin's own weights
+HALTER_RIM_FOLLOW_IN = 0.010   # m: ... all of them within this
 HALTER_RIDE_SMOOTH = 0.011   # m: smoothing of the tucked ends' hand-over to the bodice
-# Integration round 4: 8 -> 11 mm with the straps standing a little higher just above the rim
-# (accessories.RIM_LIFT): the hand-over's turn spread over more rings (23-26 -> 16-18 deg at
-# one ring in the raised-arm poses), and the hidden tucked end compresses less (high_kick,
-# raise_bend, spin x0.87-0.92 -> x0.90-0.95).
+# Integration round 4: with the straps standing a little higher just above the rim
+# (accessories.RIM_LIFT) the hand-over is smoothed over 11 mm (8 mm), spreading its turn over
+# more rings (23-26 -> 16-18 deg at one ring in the raised-arm poses; the hidden tucked end
+# compresses less: high_kick, raise_bend, spin x0.87-0.92 -> x0.91-0.96), and the rim follow
+# is all of the skin over the last 1 cm above the tucked end, none from 2 cm (0 / 3 cm): the
+# X strands end on the straps ~2 cm above the rim, and the rim follow's share there set their
+# lower ends' stretch in idol_dance@78 (x1.68 -> x1.71-1.74 with the lift and 3 cm).
 HALTER_LEAD_MAX = 0.01   # most the stages' weights (HALTER_LEAD_BONES) may exceed the skin's own
 HALTER_LEAD_BONES = ('肩補助', '肩補助2', '肩補助3')
 # Round 11: the halter's straps end tucked under the bodice's top rim, and its X strands end
@@ -6154,8 +6158,9 @@ def _halter_lead_cap(sk, raw, bones, chest):
 
 def _halter_rim_follow(obj, co, edges, cq):
     """(V,) share of the skin's own weights on the straps near their tucked ends: 1 at the
-    tucked rings (the part's ride share > 0), 0 from HALTER_RIM_FOLLOW away (section
-    centres `cq`), none on the X strands; None without the ride marks."""
+    tucked rings (the part's ride share > 0) and within HALTER_RIM_FOLLOW_IN of them, 0 from
+    HALTER_RIM_FOLLOW away (section centres `cq`), none on the X strands; None without the
+    ride marks."""
     r = _point_param(obj, co, 'levi_cord_ride') if obj is not None else None
     if r is None or not (r > 0).any() or HALTER_RIM_FOLLOW <= 0:
         return None
@@ -6163,7 +6168,7 @@ def _halter_rim_follow(obj, co, edges, cq):
     strap = np.isin(lab, np.unique(lab[r > 0]))
     tree = _kd(cq[r > 0])
     d = np.array([tree.find(q)[2] for q in cq])
-    return np.where(strap, _smoothstep(HALTER_RIM_FOLLOW, 0.0, d), 0.0)
+    return np.where(strap, _smoothstep(HALTER_RIM_FOLLOW, HALTER_RIM_FOLLOW_IN, d), 0.0)
 
 
 def _halter_skin(cq, bones, base):

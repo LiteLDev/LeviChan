@@ -254,12 +254,12 @@ STRING_TUCK_GAP = 0.0008
 # arms raised the skin there bulges toward the bodice (the shoulder stages' weights peak at
 # the rim) and the bodice under the rim comes 5-7 mm closer to the skin; the lift is the
 # room that lets the hand-over to the bodice spread over more rings (rig.HALTER_RIDE_SMOOTH
-# 8 -> 11 mm) without the last visible rings sinking further into the skin: the strap's
-# turn at one ring above the rim 23-26 -> 16-18 deg (dance_sway, dance_heart,
-# hands_behind_head, reach_up_back, idol_dance@80). More lift or smoothing trades one
-# for the other (1 mm with 12 mm: the right strap's turn back to 21 deg; 13 mm: the
-# right strap 1.6 mm into the skin in dance_heart).
-RIM_LIFT = 0.0007
+# 8 -> 11 mm, rig.HALTER_RIM_FOLLOW) without the last visible rings sinking further into
+# the skin: the strap's turn at one ring above the rim 23-26 -> 16-18 deg (dance_sway,
+# dance_heart, hands_behind_head, reach_up_back, idol_dance@80), <= 1 mm newly inside.
+# Each of these trades the turn for depth: 0.7 mm sank the right strap 1.33 mm in
+# dance_heart, 1.0 mm with a 12 mm hand-over turned it 21 deg again.
+RIM_LIFT = 0.0009
 RIM_LIFT_BAND = (-10.0, -3.0, 1.0, 4.0)
 # Skinning marks for the rig (rig._halter_ride / _halter_joins, point attributes named by
 # obj['levi_cord_ride'] / obj['levi_cord_join']). With the skin's weights the tucked strap
