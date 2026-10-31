@@ -1,7 +1,7 @@
 # r11 petticoat: three tiers of scalloped bells
 
 Branch `r11/petticoat`, built on `r11/base`. Only `levi/parts/petticoat.py` changes geometry.
-Rounds 5-6 (integration reviews 5 and 6) fast-forwarded the branch to `r11/integrate` b71fd46 and
+Rounds 5-7 (integration reviews 5-7) fast-forwarded the branch to `r11/integrate` b71fd46 and
 change only the rig's skirt drape section, `tools/drape_perturb.py`, `tools/drape_ref.py`,
 `tools/rig_check.py` (one check), `assets/drape/drape_ref.npz`, CLAUDE.md and these docs.
 The petticoat-specific parts of `levi/rig.py` change, and `tools/motion_check.py` gets one
@@ -9,6 +9,118 @@ new count. Since the integration fix below, the branch also carries `r11/skirt` 
 e8b439f, unchanged), so it supersedes both parts. It carries `r11/integrate` up to 1b06af3
 (fast-forward); the round-4 numbers below are from `r11/integrate` 78bca50 with this branch
 merged in (no conflicts), the round-3 ones from 415f85d + this branch.
+
+## Integration review, round 7: the run clip's strain spike at the thigh's turn-back
+The verifier of round 6: the continuation holds (T1, T2, T4, T5 met, no regression), but the run
+clip's petticoat_core strain jitter stayed at integ17's 0.2073 (frame 6, スカート13_1), 0.007 over
+the brief's 0.20 bound (T3 partly met), since the tables were kept on purpose.
+
+**Diagnosis** (`work/integ_scratch/pt_r7`: `tools/jdiag.py` records every frame's edge strains, the
+drape drivers' values and the bone matrices on the merge rig; `tools/apply.py` re-runs only the drape's
+post pass on the captured raw turns with other settings and rewrites the 1454 driver F-curves in place,
+~10 s per clip, ~5 min with 41 poses; on the unchanged settings it reproduces the tables and every
+number exactly).
+- The spike is one edge row on the core's front-left hem (x 0.13, y -0.14, z 0.68, 12 mm long),
+  weighted half and half to chains 13 and 14 (123.75° and 146.25°, the left front). Its strain over
+  frames 3-9: 1.24, 1.36, 1.56, **1.775**, 1.72, 1.55, 1.43; the strain acceleration at frame 6 is
+  0.278 against 0.071 / 0.042 two frames either side (the metric's excess 0.207).
+- Frame 6 is where the right thigh turns back: pitch 62.8° / 71.5° / 68.9° at frames 5 / 6 / 7 (a
+  second difference of -11.4° per frame²). The left thigh is at rest. The edge's strain is a function
+  of that pitch with a slope of ~0.024 per degree between 63° and 72°, so the turn-back alone makes the
+  spike (0.024 x 11.4°).
+- The slope comes from the ring cap. Chains 15, 14 and 13 beside the lifted front chain 0 step down
+  from it by about the cone's step (the roots at 70°: 62.3 / 45.8 / 28.8 / 12.2°, steps of 16.5 / 17.0 /
+  16.6° against a cap of 17.4° there), and below 75° the cone is narrowed (`DRAPE_RING_CAP_PITCH`, 55%
+  below 45°, smoothstep to the full cap by 75°), its fastest widening at 55-65°. Chains 14 - 13 at the
+  root: 10.7° / 12.7° / 16.6° / 18.0° apart at 60 / 65 / 70 / 75°: 0.78° per degree of pitch where the
+  run's thigh turns.
+  At frame 6 the difference's second difference is -8.4° (root) and -6.6° (middle segment).
+- The tiers (0.196 / 0.195), the skirt (0.156) and the run pop (55.4 mm skirt) peak at the same frame
+  for the same reason. The run clip's worst jitter row overall is the body's (0.2235 at 足.R, frame 7,
+  the IK leg itself), which the drape does not touch.
+
+**Fix: the full cap by 77° instead of 75°** (`DRAPE_RING_CAP_PITCH = ((45, 77), 0.55)`; the post-cone
+smoothing follows the same range). Both halves of it help: the cone alone (smoothing to 75) gives core
+0.173, the smoothing alone 0.190, both 0.157. The tables move at most 0.024 rad (41 of 64 chain tables
+past 0.01 rad); `tools/drape_ref.py` on the same inputs keeps every discrete choice bit-identical
+(t_ref, m_ref, psi_ref, lift_ref, the seat) and rewrites only the reference's tables, so the build
+continues from it with the tables 0.0000 rad from the reference's, and the merge rig's 1454 driver
+F-curves are bit-identical to the harness's. The edge above: strain acceleration 0.278 -> 0.228, excess
+0.207 -> 0.140; chains 14 - 13 second difference at frame 6 -8.4 -> -7.8° (root), -6.6 -> -5.3° (middle).
+
+Swept in the harness (run clip jitter per object; rows of the 41-pose harness against the unchanged
+rig with the brief's bounds):
+
+| full cap by | core | tier0 | tier1 | tier2 | skirt | tails | run pop | tables moved | rows past the bounds | worst row |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 75° (shipped) | 0.207 | 0.166 | 0.196 | 0.195 | 0.156 | 0.134 | 55.4 mm | - | - | - |
+| 76° | 0.192 | 0.149 | 0.180 | 0.176 | 0.143 | 0.134 | 54.2 | 0.012 | 0 | run_r core +0.014 |
+| **77°** | **0.157** | 0.137 | 0.146 | 0.154 | 0.130 | 0.133 | 53.3 | 0.024 | 0 | run_r tier2 +0.017 |
+| 78° | 0.153 | 0.139 | 0.146 | 0.154 | 0.131 | 0.133 | 52.7 | 0.036 | 0 | run_r skirt +0.021 |
+| 80° | 0.149 | 0.132 | 0.146 | 0.154 | 0.131 | 0.132 | 51.9 | 0.060 | 1 | run_r skirt +0.052 |
+| 82° | 0.168 | 0.133 | 0.145 | 0.154 | 0.130 | 0.130 | 51.4 | 0.082 | 3 | run_r skirt +0.083 |
+| 85° | 0.171 | 0.135 | 0.146 | 0.154 | 0.130 | 0.127 | 50.8 | 0.113 | (clips only) | |
+| 75°, 65% below 45° | 0.171 | 0.136 | 0.144 | 0.151 | 0.128 | 0.134 | 55.5 | 0.107 | (clips only) | |
+| 40-70° | 0.228 | 0.190 | 0.232 | 0.243 | 0.193 | 0.130 | 66.2 | 0.111 | (clips only) | |
+| `DRAPE_SMOOTH` 10 | 0.209 | 0.157 | 0.200 | 0.182 | 0.168 | 0.135 | 53.6 | 0.106 | (clips only) | |
+
+77° is the least change that clears the bound with margin (76° leaves the core at 0.19). Its frame-6
+spike is 0.152; the core's worst is now frame 14's 0.157 (the left thigh rising through 48°, 0.163
+before). Walk, turn, spin, sit_stand and idol_dance jitter / pop are unchanged within 0.003 / 1 mm
+(sit_stand core pop 2.5 -> 1.4 mm). The PMX's 回転付与 shares (`_drape_share`, read at 60°) move by at
+most 0.0105 (chain 2 L root 0.146 -> 0.157).
+
+**Continuity (T2) kept**: `tools/drape_perturb.py` on the branch with the new reference: every table
+within 0.0088 rad, 0 of 512 past 0.01 (knee 0.0027, hip 0.0041, radii 0.0088, cloth 0.0051), as in
+round 6: the cap's range is a constant of the post pass, which stays 1-Lipschitz in the raw turns.
+
+**T3 on the full merge** (r11/integrate 04ba5c9 + this branch 0dc9448, merge 6faf2e4, no conflicts;
+`motion_r7.txt`; report 2737 s on cpu-00171). The build continues from the rewritten reference (tables
+0.0000 rad from it); check.py CHECK OK, 164,116 faces (petticoat 25,920 / 28,000, skirt 22,680 / 24,000);
+rig_check RIG CHECK OK, the core table as round 6's (squat x1.85, test x1.83, side_bend 1.76 cm on the
+skirt; test's pen 0.35 -> 0.36 cm on the core), 66/66 PMX names, drape pin 0.000 mm.
+
+| row | r10 | integ17 | round 6 | now |
+|---|---|---|---|---|
+| **run clip jitter, petticoat (core)** | - | 0.207 | 0.207 | **0.157** |
+| run clip jitter, skirt / tails | 0.560 / - | 0.156 / 0.134 | 0.156 / 0.134 | 0.130 / 0.133 |
+| run clip pop, skirt | 68.5 mm (petticoat) | 55.4 mm | 55.4 mm | 53.3 mm |
+| walk clip pop | 8.2 mm | 8.4 mm | 8.4 mm | 8.4 mm |
+| cross_legged skirt compress | x0.069 | x0.407 | x0.407 | x0.407 |
+| lie_back_elbows core pen_frac | 0.52% | 0 | 0 | 0 |
+| cross_legged skirt x petticoat | 214 | 0 | 0 | 0 |
+| sit_chair skirt / petticoat stretch | 2.16 / 2.03 | 1.657 / 1.777 | same | 1.658 / 1.779 |
+| seiza | 1.73 / 1.78 | 1.480 / 1.620 | same | 1.482 / 1.624 |
+| jump_tuck | 2.20 / 2.06 | 1.700 / 1.921 | same | same |
+| high_kick | 1.90 / 2.17 | 1.737 / 1.830 | same | same |
+| run_r | 1.75 / 2.17 | 1.583 / 1.775 | same | 1.589 / 1.792 |
+| run_l | 1.70 / 1.78 | 1.525 / 1.750 | same | 1.532 / 1.750 |
+| tails cross_legged / kneel_one / run | 1.74 / 1.54 / 1.63 | 1.580 / 1.537 / 1.339 | same | same |
+| tier x tier crossings (all poses) | 0 | 0 | 0 | 0 |
+| hair x skirt jump_tuck / spin | 1720 / 1352 | 198 / 1042 | 186 / 1080 | 186 / 1080 |
+
+Against integ17: 1,415 skirt-family rows, none past the brief's bounds; the one flagged row, spin hair x
+skirt 1042 -> 1080, is the hair lanes' (round 6 and integ18 have it too). Against round 6's merge:
+1,440 rows, none past the bounds, 403 differ: one stretch row worse by more than 0.01 (run_r tier2
++0.017), six better (run clip tier1 1.832 -> 1.819, run_l / idol_dance@72 core 1.702 -> 1.689 and
+tier1 1.646 -> 1.631, run clip tier0 1.688 -> 1.677); non-family rows by at most 0.0027 (body,
+cross-node noise; hair_back by 0.001 where the skirt hulls ride the chain roots).
+
+Branch alone (0dc9448): check.py CHECK OK (162,801 faces); rig_check (17 core poses) RIG CHECK OK, the
+same core table, drape pin 0.000 mm. Not run: export_pmx, pmx_reimport, motion_vmd (no mmd_tools).
+
+**Images**
+- `r7_jitter.png`: the run clip's frames 0-20: the right thigh's pitch; chains 14 - 13's middle segment
+  turn; the jitter excess per frame of the core and of the tiers (max of the three), before (orange,
+  dashed) and now (blue), against the 0.20 bound.
+- `r7_heat.jpg`: the jitter test painted on the cloth (each vertex the largest excess of its edges at
+  that frame, blue 0 -> red 0.22; skirt hidden, and tiers hidden in the middle row): run@6 front-low
+  and low (the spike between chains 13 and 14 on the core and tiers, red -> orange), run@14 (unchanged);
+  clay beside. Camera fixed on the left hip joint.
+- `r7_hem.jpg`: the hem over the raised thigh (seiza, run_l, sit_chair, deep_lunge, jump_tuck, run@14,
+  run@6, run_r, rest), before | now in cel, then clay, then the changed pixels in red: the tier frills
+  move by a few pixels in seiza, run_l, run@6 and run_r, nothing elsewhere (sit_chair 80 px, jump_tuck 2,
+  rest 0); no poke-through, no bowl.
 
 ## Integration review, round 6: a drape that moves continuously with its inputs
 The verifier of round 5: the pin kept the leg bones out of the drape, but the solve itself was
