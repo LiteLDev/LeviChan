@@ -84,7 +84,9 @@ from behind (outline_weights).
 The scalp cap, bangs and face-framing side locks belong to hair_front (this part
 reads its CAP_PROFILE / CAP_EXP measurement data only). The lining reads her torso
 surface from body.build_torso, built into a private bmesh (the body's pure surface
-function; no body object is read).
+function; no body object is read), and, at its top, unit head's skull from
+head.skull_points / skull_mesh (pure surface functions, as hair_front's nape closure
+reads them; no head object is read).
 """
 import math
 
@@ -609,7 +611,22 @@ BASE = [(0, -2.6), (110, -2.6), (122, -2.2), (134, -1.8), (165, -2.0), (210, -0.
 # never per point; every row and column is validated (_validate_grid, the strands'
 # limits). It spans well over rig.HAIR_LOCK_SPAN round the head (_check_islands): never a
 # lock of its own; the rig hangs it from the locks' chains (_weight_coords).
-UNDER_TOP = (140.0, 190.0)     # top edge row: in the middle, at the side edges
+# Round 11 R4 (hair_front lane, the lining top): the top edge rose from rows 140 / 190 (middle /
+# side edges) to 118 / 128, so it lies inside hair_front's cap all the way out to |x| ~10 cm
+# (it used to drop to z 1.19 at |x| 10 cm, 2 cm behind and 4-8 cm under the cap's closure: a
+# cavity behind the ears shown alone, 48 mm outside the cap at |x| 8 cm), and its depth at the
+# top is held by the skull, not by CAP_PROFILE (LINING_SKULL_IN): CAP_PROFILE's rows 135-178
+# under the occiput are empty since hair_front lifted its closure under the skull, and the old
+# clamp kept the lining's inner face 4-5 cm behind the neck up to the nape. Now the inner face
+# comes in to ~2 cm off the back of the neck from z ~1.26 down and runs up into the cap, so
+# from the front, front-low and the side the hair behind the neck is the lining's inner face
+# (the inside of the hair) up to where the closure under the skull meets it.
+UNDER_TOP = (118.0, 128.0)     # top edge row: in the middle, at the side edges
+# The locks still settle on the under-layer as it was built until R4 (_under_layer(settle=True):
+# its top edge at UNDER_SETTLE_TOP, its depth held by CAP_PROFILE + LINING_CAP_IN, no top band),
+# so raising the lining's top moved no lock (settling on the new one moved the primaries by up to
+# 34 mm: they rest on the lining's faces two-sided).
+UNDER_SETTLE_TOP = (140.0, 190.0)
 UNDER_BOT = (350.0, 318.0)     # bottom edge row: in the middle, at the side edges
 UNDER_STEP = 3.5               # px between rows
 UNDER_COLS = 95                # (71 until round 11 R4: the deeper lining's crescent and pleats need the
@@ -649,7 +666,10 @@ UNDER_LIMITS = dict(turn=8.0, gap=0.010)
 # below the lining filled the gaps between the lock ends as one sheet with a round hem,
 # the board the first review flagged.) Going in from the outer face (along the volume
 # normal, smoothed) it stops at the first of:
-#   - hair_front's scalp cap (CAP_PROFILE) + LINING_CAP_IN px: under the occiput the
+#   - (round 11 R4) unit head's skull + LINING_SKULL_IN px: at the top the lining runs up
+#     inside hair_front's cap behind and under the occiput, its inner face tucked into the
+#     skull there (hidden inside the cap and the head); (until R4: hair_front's CAP_PROFILE
+#     + LINING_CAP_IN px; under the occiput the
 #     lining continues the cap down onto the nape, its top tucked into the cap and under
 #     the locks (no top face or rim shows);
 #   - her torso and neck (body.build_torso, built into a private bmesh: the body's pure
@@ -664,7 +684,17 @@ UNDER_LIMITS = dict(turn=8.0, gap=0.010)
 # every horizontal section, its rims under the outermost primaries, and the top closing
 # onto the outer face where the cap does not hold it. The depth field is smoothed from
 # below (_floor_field) and both faces are validated.
-LINING_CAP_IN = 6.0            # px into the cap's CAP_PROFILE envelope (hidden inside the real cap)
+LINING_CAP_IN = 6.0            # px into the cap's CAP_PROFILE envelope (until round 11 R4: now only the
+                               # surface the locks settle on, UNDER_SETTLE_TOP)
+LINING_SKULL_IN = 4.0          # px the inner face may go into unit head's skull (round 11 R4)
+# Round 11 R4: with the lining deep up to its top, the side ease's minimum of the distances to
+# the two side edges (a corner on the centre line) and the clamps' corners turned the inner
+# face 13-14 deg across a row on the centre line (UNDER_LIMITS 8): over the top LINING_TOP_BAND
+# px (fading out over the next ones) the minimum is a soft one (LINING_TOP_SOFT px) and the
+# depth is blurred (LINING_TOP_BLUR samples: rows, columns). Below the band nothing changes.
+LINING_TOP_BAND = (90.0, 40.0)
+LINING_TOP_SOFT = 8.0
+LINING_TOP_BLUR = (1.5, 3.0)
 LINING_CLEAR = 9.0             # px (1.4 cm) off her neck and back
 LINING_IN = [(170, 0.0), (248, 4.0), (262, 10.0), (282, 28.0), (302, 52.0), (322, 76.0), (342, 96.0)]
 LINING_SKIRT_GAP = 9.0         # px (1.4 cm) off the skirt's back
@@ -756,12 +786,29 @@ def _torso_tree():
     return _TORSO['tree']
 
 
-def _lining_depth(E, Nv, rows):
+_SKULL = {}
+
+
+def _skull_tree():
+    """BVH of unit head's skull (head.skull_points / skull_mesh, pure surface functions;
+    no head object is read), cached per build."""
+    if 'tree' not in _SKULL:
+        from mathutils.bvhtree import BVHTree
+        from . import head as _head
+        pts, _ = _head.skull_points()
+        V, F = _head.skull_mesh(pts)
+        _SKULL['tree'] = BVHTree.FromPolygons([tuple(float(c) for c in v) for v in V], F)
+    return _SKULL['tree']
+
+
+def _lining_depth(E, Nv, rows, legacy=False):
     """Depth (px along -Nv from the outer face E) of the lining's inner face per grid node
-    (see LINING_*): the first of the cap, her body, the skirt's back and LINING_IN, eased
-    out over the bottom rows, smoothed from below, eased out toward the side and top
-    edges."""
+    (see LINING_*): the first of the skull (at the top), her body, the skirt's back and
+    LINING_IN, eased out over the bottom rows, smoothed from below, eased out toward the
+    side and top edges. legacy: as until round 11 R4 (CAP_PROFILE + LINING_CAP_IN instead
+    of the skull, no top band; the surface the locks settle on, see UNDER_SETTLE_TOP)."""
     tree = _torso_tree()
+    skull = _skull_tree()
     pb, psx, prow = to_px(E)
     ny = np.maximum(Nv[..., 1], 0.3)
     D = np.full(rows.shape, LINING_MAX)
@@ -770,9 +817,14 @@ def _lining_depth(E, Nv, rows):
     D = np.where(np.isfinite(sk), np.minimum(D, (psx - sk) / ny), D)
     for j in range(rows.shape[0]):
         for k in range(rows.shape[1]):
-            cs = cap_sx(pb[j, k], prow[j, k])
-            if cs is not None:
-                D[j, k] = min(D[j, k], (psx[j, k] - cs) / ny[j, k] + LINING_CAP_IN)
+            if legacy:
+                cs = cap_sx(pb[j, k], prow[j, k])
+                if cs is not None:
+                    D[j, k] = min(D[j, k], (psx[j, k] - cs) / ny[j, k] + LINING_CAP_IN)
+            else:
+                hs = skull.ray_cast(Vector(E[j, k]), Vector(-Nv[j, k]), LINING_REACH)
+                if hs[0] is not None:
+                    D[j, k] = min(D[j, k], hs[3] * PX + LINING_SKULL_IN)
             hit = tree.ray_cast(Vector(E[j, k]), Vector(-Nv[j, k]), LINING_REACH)
             if hit[0] is not None:
                 D[j, k] = min(D[j, k], hit[3] * PX - LINING_CLEAR)
@@ -780,9 +832,18 @@ def _lining_depth(E, Nv, rows):
     bot = rows[-1:, :]
     D = D * (1.0 - hk.smooth01((rows - (bot - LINING_ROWS[0])) / (LINING_ROWS[0] - LINING_ROWS[1])))
     D = np.maximum(_floor_field(D, LINING_SIGMA), 0.0)
-    # eased out toward the side edges and the top edge
-    side = np.minimum(np.abs(pb - pb[:, :1]), np.abs(pb - pb[:, -1:]))
+    # eased out toward the side edges and the top edge (the top band: a soft minimum of the
+    # side distances and a blur, see LINING_TOP_BAND)
+    dl, dr = np.abs(pb - pb[:, :1]), np.abs(pb - pb[:, -1:])
+    side = np.minimum(dl, dr)
+    band = 1.0 - hk.smooth01((prow - prow[:1, :] - LINING_TOP_BAND[0]) / LINING_TOP_BAND[1])
+    band = band * (0.0 if legacy else 1.0)
+    soft = side - LINING_TOP_SOFT * np.log1p(np.exp(-np.abs(dl - dr) / LINING_TOP_SOFT))
+    side = side + (soft - side) * band
     D = D * np.tanh(side / LINING_EASE[0]) * np.tanh((prow - prow[:1, :]) / LINING_EASE[1])
+    Db = np.apply_along_axis(lambda v: hk._blur(v, LINING_TOP_BLUR[0]), 0, D)
+    Db = np.apply_along_axis(lambda v: hk._blur(v, LINING_TOP_BLUR[1]), 1, Db)
+    D = D + (Db - D) * band
     # pleats along the flow: phase by the column's place across (its arc length on the
     # outer face from the middle column), drifting slowly down the rows
     amp, lam, d0 = LINING_PLEAT
@@ -816,13 +877,16 @@ def _under_edges(rows):
     return out[0], out[1]
 
 
-def _under_layer():
+def _under_layer(settle=False):
     """(outer (R, C, 3), inner (R, C, 3), rest (R, C, 3)) world grids of the under-layer
-    (validated) and of the surface the locks rest on (UNDER_CLEAR over its outer face)."""
+    (validated) and of the surface the locks rest on (UNDER_CLEAR over its outer face).
+    settle: the under-layer the locks settle on (as built until round 11 R4, see
+    UNDER_SETTLE_TOP), not validated."""
     u = np.linspace(-1.0, 1.0, UNDER_COLS)
     a = u * (1.0 + UNDER_COL_EDGE) - UNDER_COL_EDGE * u ** 3   # columns closer together at the rims
     edge_a = a * a                  # 0 in the middle -> 1 at the side edges (a parabola: bounded curvature)
-    top = UNDER_TOP[0] + (UNDER_TOP[1] - UNDER_TOP[0]) * edge_a
+    t0, t1 = UNDER_SETTLE_TOP if settle else UNDER_TOP
+    top = t0 + (t1 - t0) * edge_a
     bot = UNDER_BOT[0] + (UNDER_BOT[1] - UNDER_BOT[0]) * edge_a
     n_r = int(math.ceil((bot - top).max() / UNDER_STEP)) + 1
     v = np.linspace(0.0, 1.0, n_r)
@@ -879,7 +943,7 @@ def _under_layer():
     # inner face comes in toward her from there (see LINING_*)
     rest = E
     outer = E - Nv * (UNDER_CLEAR / PX)
-    depth = thick + _lining_depth(outer, Nv, rows)
+    depth = thick + _lining_depth(outer, Nv, rows, legacy=settle)
     # where the lining is deep its inner face hangs from a smoother copy of the outer face:
     # an inward offset 5-10 cm deep magnifies the outer face's relief (what is left of the
     # lobes' parting valley) into a crease down the middle
@@ -889,8 +953,9 @@ def _under_layer():
         sm[..., c] = np.apply_along_axis(lambda q: _blur_lin(q, UNDER_INNER_SMOOTH[0]), 0, sm[..., c])
     w = hk.smooth01((depth - UNDER_INNER_SMOOTH[2]) / UNDER_INNER_SMOOTH[3])[..., None]
     inner = outer + (sm - outer) * w - Nv * (depth / PX)[..., None]
-    _validate_grid(outer, 'hair_back_shell (outer face)')
-    _validate_grid(inner, 'hair_back_shell (inner face)')
+    if not settle:
+        _validate_grid(outer, 'hair_back_shell (outer face)')
+        _validate_grid(inner, 'hair_back_shell (inner face)')
     return outer, inner, rest
 
 
@@ -1884,7 +1949,8 @@ def build_strands():
     the under-layer grids."""
     cap = _cap_proxy()
     outer, inner, rest = _under_layer()
-    under = _Surface(_shell_tris(rest, inner), 'under')
+    _so, s_inner, s_rest = _under_layer(settle=True)
+    under = _Surface(_shell_tris(s_rest, s_inner), 'under')
     built = []
     lowers = [cap, under]
     # the wave and crescent side locks grow from the side of the head below the crown,
