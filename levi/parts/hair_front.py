@@ -742,7 +742,10 @@ NAPE_WALL_X = (0.060, 0.085)    # |x| (m): the wall fades out over these (furthe
                                 # lies under the side locks, 2-6 cm under the sheet cap's lowest point;
                                 # R5: 0.045-0.075 until R4, where the lining's raised middle let the
                                 # side ceiling hold the closure under it)
-NAPE_CEIL = dict(mid=1.295, back=1.310, side=1.272, x=(0.035, 0.062), x_back=(0.020, 0.080))
+NAPE_CEIL = dict(mid=1.295, back=1.310, side=1.276, x=(0.035, 0.062), x_back=(0.020, 0.080))
+# (round 11 R5: side 1.272 until R4; with the lining's middle top back at row 136 the closure
+# under the right ear showed 892 mm2 below z 1.28 from q34 front-right low at 4x, R3 879: 4 mm
+# higher there it shows 758, the ears still inside the cap)
 NAPE_BIG = 0.08                 # m: a bound fades out by rising this much
 NAPE_SIDE = (0.102, 0.116)      # |x| (m): the lift fades out over these
 NAPE_SOFT = 0.012               # m: the smooth minimum's reach (between the bounds) ...
