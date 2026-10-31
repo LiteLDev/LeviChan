@@ -760,6 +760,23 @@ def band(points, width, thick, face=Vector((0, -1, 0)), widths=None, loop=False,
     return bm
 
 
+def thicken(bm, vec):
+    """Close an open sheet into a slab: a reversed copy of its faces moved by `vec` and walls
+    along its border, in the sheet's own order. (bmesh.ops.extrude_face_region orders the
+    faces it makes by address, so the face order changed from one build process to the next.)"""
+    faces = list(bm.faces)
+    border = [e for e in bm.edges if e.is_boundary]
+    vec = Vector(vec)
+    dup = {v: bm.verts.new(v.co + vec) for v in list(bm.verts)}
+    for f in faces:
+        bm.faces.new([dup[v] for v in reversed(f.verts)])
+    for e in border:
+        lp = e.link_loops[0]
+        u, w = lp.vert, lp.link_loop_next.vert
+        bm.faces.new((w, u, dup[u], dup[w]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+
+
 def merge_bms(bms):
     out = bmesh.new()
     for bm in bms:
@@ -1172,10 +1189,7 @@ def build_diamond(col, mat):
     for a in range(g):
         for b in range(g):
             bm.faces.new((vs[a, b], vs[a + 1, b], vs[a + 1, b + 1], vs[a, b + 1]))
-    sol = bmesh.ops.extrude_face_region(bm, geom=list(bm.faces))
-    moved = [e for e in sol['geom'] if isinstance(e, bmesh.types.BMVert)]
-    bmesh.ops.translate(bm, vec=(0, 0.0015, 0), verts=moved)
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    thicken(bm, (0, 0.0015, 0))
     # smooth over the cushion, sharp at the rim (the side walls are ~90 deg)
     return finish(col, 'bodice_diamond', [bm], mat, outline=0.0009, angle=50)
 
@@ -1655,10 +1669,7 @@ def leaf_bm(base, tip, half_w, tilt_px, roll_px=0.0):
     for j in range(na - 1):
         bm.faces.new((vs[-1][j], vs[-1][j + 1], tip_v))
     # a little thickness so the outline hull reads cleanly
-    ext = bmesh.ops.extrude_face_region(bm, geom=list(bm.faces))
-    moved = [e for e in ext['geom'] if isinstance(e, bmesh.types.BMVert)]
-    bmesh.ops.translate(bm, vec=(0, LEAF_THICK, 0), verts=moved)
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    thicken(bm, (0, LEAF_THICK, 0))
     return bm
 
 
