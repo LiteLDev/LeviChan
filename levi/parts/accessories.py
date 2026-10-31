@@ -262,6 +262,11 @@ STRING_TUCK_GAP = 0.0008
 # showed through the bodice just under its rolled top at rest.
 RIM_LIFT = 0.0013
 RIM_LIFT_BAND = (-10.0, -3.0, -0.5, 1.5)
+# ... and as the lifted strap comes back down behind the rim's rolled top (~0.5-2 px below
+# the neckline) it grazed the roll on the left (a 1 px green line through the trim in the
+# macro rest crops): there the strap is RIM_THIN[2] thinner (px from, full, m, px back
+# from, to). Its centre line, and so its weights, are unchanged.
+RIM_THIN = (0.2, 0.9, 0.00008, 1.6, 2.6)
 # Skinning marks for the rig (rig._halter_ride / _halter_joins, point attributes named by
 # obj['levi_cord_ride'] / obj['levi_cord_join']). With the skin's weights the tucked strap
 # ends took some of the clavicle bone, which the bodice over them does not, and a raised arm drew
@@ -810,6 +815,14 @@ def _string_offset(p, cross=0):
     return base
 
 
+def _rim_thin(depth):
+    """Radius taken off the strap behind the rim's rolled top (RIM_THIN)."""
+    if RIM_THIN is None:
+        return 0.0
+    a, b, amt, c, d = RIM_THIN
+    return amt * _body.smoothstep(a, b, depth) * (1.0 - _body.smoothstep(c, d, depth))
+
+
 def _string_exact(p, cross=0):
     """1 where the cord lies at exactly its height above the skin (the crossing,
     the tuck under the bodice rim), 0 where it may bridge a hollow."""
@@ -1012,7 +1025,7 @@ def _strings(col, skin, loop, cage):
         else:
             straps[sx] = _tucked(_fit_string(skin, strap, first=start, floor=cage, strap=True))
         radii = [STRING_R * (1.0 - (1.0 - TUCK_TIP) * _body.smoothstep(RIDE_FROM, STRAP_UNDER, _row(p) - _rim_row(p.x)))
-                 for p in straps[sx]]
+                 - _rim_thin(_row(p) - _rim_row(p.x)) for p in straps[sx]]
         _tube(bm, straps[sx], radii, STRING_SIDES)
         for p in straps[sx]:
             ride += [_body.smoothstep(RIDE_FROM, RIDE_FULL, _row(p) - _rim_row(p.x))] * STRING_SIDES
