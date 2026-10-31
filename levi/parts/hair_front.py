@@ -11,8 +11,9 @@ The scalp cap is a grid around the crown whorl, so the crown's grooves run along
 its columns as smooth pleats; its crown is a round dome (CROWN_DOME: the round-10
 table made it a pointed tent); under the occiput it no longer closes in a floor in
 front of hair_back's lining (the owner's "plate in the back hair") but on a closure
-that leaves its back wall where the lining hangs from it and rises into the skull
-(NAPE_*), so only the lining shows behind the neck; and the ahoge is two locks of the crown hair that
+that hugs the skull behind the jaw and the ears and rises as a wall in front of the
+lining's top (NAPE_*), so behind the neck the lining runs on up into the hair with no
+floor, pouch or rim; and the ahoge is two locks of the crown hair that share one root,
 spring up out of the scalp, turn forward over a rounded point and lie down again
 (AHOGE_LOCKS: the front one down the forehead, the back one onto the front one's
 root), solid from every side, one lock of the hair raised the way 风堇's model
@@ -699,8 +700,9 @@ CAP_RECESS_FADE = 10.0
 # laid out along each spoke by arc length on the lifted surface (cap_grid), so the closure,
 # its turn into the side walls and the wall in front of the lining are sampled evenly. On the
 # closure and NAPE_LINE over it the cap has no outline (the lining behind it is the same
-# tone) and its own normals (the hair-volume normal points backward there, so the closure
-# shaded dark against the lining's lit inner face).
+# tone). Its shading normals stay the cap's (VOL_KEEP of its own): with its own normals
+# (keep 0.6-1) the wall in front of the lining caught the review views' low key light and
+# printed lit islands beside the neck in the front-low and low cel views.
 NAPE_ON = True
 NAPE_RAY_Z0 = 1.15              # m: the skull's underside is looked for going up from here
 NAPE_HUG = 0.004                # m the closure stays under the skull's underside behind the jaw
@@ -726,8 +728,7 @@ NAPE_SOFT = 0.012               # m: the smooth minimum's reach (between the bou
 NAPE_SOFT_WALL = 0.030          # ... and between the wall and the rest (the vault's top)
 NAPE_HAIRLINE_SOFT = 0.012      # m: the smooth maximum's reach at the nape hairline
 NAPE_LIFT_SOFT = 0.012          # m: the lift's smooth maximum's reach
-NAPE_LINE = 0.015               # m over the closure the cap's outline and own normals fade out
-NAPE_KEEP = 1.0                 # own-normal share on the closure
+NAPE_LINE = 0.015               # m over the closure the cap's outline fades in
 
 
 def _smax_c(a, b, k):
@@ -825,7 +826,7 @@ def _nape_w(p):
 
 
 def _nape_near(p):
-    """1 on the nape closure, fading out NAPE_LINE over it (0 elsewhere)."""
+    """1 on the nape closure, fading out NAPE_LINE over it (0 elsewhere): its outline weight."""
     if not NAPE_ON:
         return 0.0
     h = p.z - nape_closure(p.x, p.y)
@@ -1053,8 +1054,7 @@ def build_cap(col, mat):
 
     def vert(p, env):
         v = bm.verts.new(p)
-        k = VOL_KEEP + (CROWN_KEEP - VOL_KEEP) * env
-        v[klay] = k + (NAPE_KEEP - k) * _nape_near(p)
+        v[klay] = VOL_KEEP + (CROWN_KEEP - VOL_KEEP) * env
         return v
     llay = _layer(bm, LINE_ATTR, 1.0)
     vt = vert(top, 0.0)
