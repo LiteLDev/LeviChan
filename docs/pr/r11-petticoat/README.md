@@ -1,11 +1,129 @@
 # r11 petticoat: three tiers of scalloped bells
 
 Branch `r11/petticoat`, built on `r11/base`. Only `levi/parts/petticoat.py` changes geometry.
+Round 5 (integration review 5) fast-forwarded the branch to `r11/integrate` b71fd46 and changes
+only the rig's skirt drape section, `tools/drape_perturb.py`, CLAUDE.md and these docs.
 The petticoat-specific parts of `levi/rig.py` change, and `tools/motion_check.py` gets one
 new count. Since the integration fix below, the branch also carries `r11/skirt` (merged at
 e8b439f, unchanged), so it supersedes both parts. It carries `r11/integrate` up to 1b06af3
 (fast-forward); the round-4 numbers below are from `r11/integrate` 78bca50 with this branch
 merged in (no conflicts), the round-3 ones from 415f85d + this branch.
+
+## Integration review, round 5: the drape solve and sub-mm inputs
+The brief: r11/body-legs moved the fitted knee joint by 0.087 mm and nothing else the drape reads;
+64 driver tables changed by up to 0.198 rad and skirt bones moved up to 31 mm (seiza). This round
+is about why, and about keeping lanes that touch the legs from re-tuning the cloth.
+
+**Harness** (`tools/drape_perturb.py`; the scratch version with call-order records and replays is
+`work/integ_scratch/pt_r5/tools/perturb.py`). It builds the rig until `rig._skirt_drape` is
+called, keeps its inputs and rebuilds only the drape (16 chains x 43 pitches x 4 tables x 5
+tabulated yaws, ~160 s) with the knee moved +-0.05 / 0.1 mm along x, y, z, the hip +-0.1 mm and
+every thigh radius +-0.2 mm, then compares each step by call order: the clearance turns, the
+gather's turns and yaws, and the 512 tables the drivers hold (plus the PMX shares and the seat).
+The unchanged rebuild matches the build's own tables exactly, and moving the knee by r11/body-legs'
+0.09 / 0.04 mm reproduces the brief's 0.1983 on スカート15追従左1 drape_Lp0.
+
+**Per step, the original solve (no pin)**: clearance max change (grid steps of 2°), gather max,
+table max (tables over 0.01 of 512):
+
+| change | clearance | gather | tables |
+|---|---|---|---|
+| knee x +0.05 / -0.05 | 0.35 (10) / 0.63 (18) | 0.05 / 0.14 | 0.007 (0) / 0.024 (24) |
+| knee x +0.1 / -0.1 | 0.35 (10) / 1.01 (29) | 0.21 / 0.14 | **0.198 (70)** / 0.024 (24) |
+| knee y +0.1 / -0.1 | 1.01 (29) / 0.28 (8) | 0.21 / 0.14 | **0.204 (74)** / 0.007 (0) |
+| knee z +0.1 / -0.1 | 0.63 (18) / 0.03 (1) | 0.14 / 0.07 | 0.007 (0) / 0.024 (23) |
+| hip x / y / z +0.1 | 0.35 / 0.45 / 0.63 | 0.37 / 0.28 / 0.31 | 0.198 / 0.024 / 0.079 |
+| hip x / y / z -0.1 | 1.01 / 1.01 / 1.50 (43) | 0.18 / 0.37 / 0.21 | 0.079 / 0.079 / 0.198 |
+| radii +0.2 / -0.2 | 0.73 / 0.98 | 0.42 / 0.24 | 0.124 / 0.159 |
+| r11/body-legs' knee | 0.38 (11) | 0.21 | **0.198 (70)** |
+
+Worst 0.204 rad. What turns a sub-mm change into a jump (depth curves in
+`work/integ_scratch/pt_r5/evidence_depcurves.txt`):
+1. *Clearance, first candidate under the threshold.* R thigh at 65°, chain 0, yaw +15°: the root's
+   depth at 54° is +0.004 mm before and -0.01 mm after the knee moves 0.1 mm, so the root takes 56°
+   or 54°. That 2° moves the middle segment's depth curve by up to 3 mm, and the curve lies on a
+   plateau within 2.5 mm of the threshold for 20°: its first crossing moves 48° -> 68°, the hem
+   54° -> 44°.
+2. *Clearance, where nothing clears.* L thigh at 55°, chain 15: the middle segment's cloth is
+   54-58 mm deep at every candidate, the threshold is the least depth + `DRAPE_SLACK`, and one
+   candidate 0.03 mm over it moves the turn 0° -> 2°; the hem's range then ends 2° later, its least
+   depth drops 57.9 -> 53.4 mm and its turn jumps 0° -> 16°.
+3. *The free mask.* One cloth point of chains 4-5 (R) lies within 0.1 mm of the rest thigh's
+   surface; the hip -0.1 mm or the radii -0.2 mm flip it into the test (0.14 rad on the R tables).
+4. *The gather.* Replaying the build's own clearance with 0.002 rad of noise moves the tables by
+   0.07-0.08 rad: the argmin re-picks neighbouring candidates (2 lift or 3 yaw steps). Some pitches
+   have two near-equal gathers (L 65-75°: chains 15 / 0 yawed 30° vs chains 0-3 lifted 46°; La 60°,
+   R 80-85°), so a soft minimum switches basin there too.
+5. The post passes (monotone, early lift, smoothing, ring cap) are 1-Lipschitz; they pass the jumps
+   on, and the smoothed shortfall keeps a spike at its height.
+
+**Fix: the drape's thigh line is a constant** (`rig.DRAPE_THIGH_JOINTS`, like `DRAPE_THIGH_PROFILE`):
+r11/integrate b71fd46's 足.L head and tail, so the tables are bit-identical to the ones integ17
+measured and a lane that moves the leg bones no longer reaches them. Checked end to end (rig build
+with the body's `levi_joints` knee moved +0.1 mm in x, -0.1 mm in y, and -0.09 / -0.04 mm): every
+table identical to the pinned build (max 0.0); without the pin, +0.1 mm in x and the original knee
+change move the tables by 0.198.
+
+**Continuity switches, off** (`rig.DRAPE_SOFT`, `rig.DRAPE_READOUT`). DRAPE_SOFT: the clearance
+crossing interpolated within the grid interval where the depth falls through the threshold, at most
+a candidate's turn + 30°/mm of depth past it, over a fixed number of candidates. DRAPE_READOUT: the
+tables read the gather's descent softened (4 soft sweeps at T 0.02 from its candidates). With both,
+unpinned: knee changes 0.001-0.020 rad but one 0.167 (ky -0.1: a gather that changes basin), hip /
+radii 0.016-0.24 (deep-cloth slack picks and cascades remain); the 0.002 rad replay noise gives
+0.004 instead of 0.07. They move the drape off the one rounds 1-4 tuned: in the pose harness (rig
+build + 41 poses and clip frames, against the same harness on the original solve) 58 skirt /
+petticoat / tail rows move past the brief's bounds (cross_legged tier0 x1.80 -> x2.20, run_r skirt
+x1.58 -> x1.71, 34 compress rows 0.03-0.06 lower); the clearance interpolation alone 36. Also tried
+and dropped: a soft minimum in the descent itself (T 0.003-0.08, annealed or not: the two-basin
+pitches still switch up to T 0.05; at 0.08, with a 10°/mm cap, the yaw blurs and 193 rows move past
+the bounds), the clearance capped at 2-4°/mm or deep cloth counted as at most 24 mm deep (the
+abducted table drops 17-35° at 85-140°), a rest-depth allowance for the free mask (the root swings
+back 45° more at backward pitches), a continuous yaw interpolation in the gather (no fewer basin
+switches).
+
+Pinning the joints from before 11a9b3a instead brings the earlier tables back (the brief's "before"
+row for スカート15追従左1 exactly): run strain jitter on petticoat_core 0.207 -> 0.199, but in the pose
+harness 35 skirt / petticoat rows move past the bounds, both ways, as much as the 0.09 mm itself
+moved them. The b71fd46 joints keep integ17's drape.
+
+**Gates.** Branch (683515e; ffe09dd adds comments and docs): check.py CHECK OK, 162,801 faces
+(petticoat 25,920 / 28,000, skirt 22,680 / 24,000); rig_check (17 core poses) RIG CHECK OK, worst
+stretch squat x1.85 / test x1.83 (body), worst pen side_bend 1.76 cm (skirt), no backward knee. Full
+merge (r11/integrate b71fd46 + this branch, a fast-forward; `motion_r5.txt`): all 15,082 rows against
+integ17, none of the 1,128 skirt / petticoat / tail / crossing rows past the brief's bounds; 209
+rows differ by at most 0.0027 (body 150 around the crotch fit, garments at most 4e-5), build noise,
+since the drape tables are bit-identical. Rows the brief quotes (round 10 / integ17 / now):
+
+| row | r10 | integ17 | now |
+|---|---|---|---|
+| cross_legged skirt compress | x0.069 | x0.407 | x0.407 |
+| lie_back_elbows core pen_frac | 0.5% | 0.0% | 0.0% |
+| cross_legged skirt x petticoat crossings | 214 | 0 | 0 |
+| run clip skirt pop | 68.5 mm (tier0) | 55.4 mm | 55.4 mm |
+| walk clip skirt pop | 8.2 mm | 8.4 mm | 8.4 mm |
+| sit_chair skirt / petticoat stretch | 2.16 / 2.03 | 1.66 / 1.78 | 1.66 / 1.78 |
+| seiza skirt / petticoat stretch | 1.73 / 1.78 | 1.48 / 1.62 | 1.48 / 1.62 |
+| jump_tuck skirt / petticoat stretch | 2.20 / 2.06 | 1.70 / 1.92 | 1.70 / 1.92 |
+| high_kick skirt / petticoat stretch | 1.90 / 2.17 | 1.74 / 1.83 | 1.74 / 1.83 |
+| tails stretch cross_legged / kneel_one / run clip | 1.74 / 1.54 / 1.63 | 1.58 / 1.54 / 1.34 | 1.58 / 1.54 / 1.34 |
+| hair x skirt crossings jump_tuck / spin | 1720 / 1352 | 198 / 1042 | 198 / 1042 |
+| tier x tier crossings (summed) | 0 | 0 | 0 |
+
+Run clip strain jitter (the verifier's `jit.py` on the branch rig): petticoat_core 0.207 (frame 6,
+the core's front hem), tiers 0.166-0.196, skirt 0.156, tails 0.134. The 0.263 at frame 14 the brief
+cites was measured before the round-4 core weights (`PLAIN_BODY`) were merged; on b71fd46 that spike
+is gone, and 0.207 is integ17's own value (with the pre-11a9b3a joints: 0.199).
+
+Not run: export_pmx, pmx_reimport, motion_vmd (no mmd_tools). The PMX's `_drape_share` reads the
+same tables, so its 回転付与 shares are unchanged and no longer follow the leg bones either.
+
+**Images**
+- `r5_pin_diff.jpg`: what the 0.09 mm knee change did to the drape (clay, 4x crops): this branch
+  (= integ17) | the knee before 11a9b3a | pixels that differ (red), seiza / run_l / deep_lunge
+  (front hem over the raised thigh), sit_chair, jump_tuck (below), run@14.
+- `r5_hem_side.jpg`, `r5_hem_front.jpg`: the hem over the raised thigh in seiza, run_l, sit_chair,
+  deep_lunge, jump_tuck, run@14 and rest, round 10 | now (= integ17) | knee before 11a9b3a, cel then
+  clay, side and front-low cameras at ~4x.
 
 ## Integration review, round 4
 The integrate run 1b06af3 (i14) left three skirt x petticoat rows this lane owns: cross_legged

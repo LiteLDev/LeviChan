@@ -1,0 +1,33 @@
+Full-merge motion report (r11/integrate b71fd46 + r11/petticoat 683515e, a fast-forward; --quick --no-core --extended --report-core --motion, 3230 s) against round 10 (out/motion_base) and integ17 (b71fd46).
+
+row                                            r10   integ17       now
+cross_legged skirt compress                  0.069     0.407     0.407
+lie_back_elbows core pen_frac                0.005     0.000     0.000
+cross_legged skirt x petticoat cross           214         0         0
+run clip skirt pop (mm)                          -    55.414    55.414
+run clip petticoat pop (mm)                 68.525         -         -
+walk clip skirt pop (mm)                     8.156     8.395     8.395
+run clip jitter (any skirt-family)               -         -         -
+sit_chair skirt stretch                      2.162     1.657     1.657
+sit_chair petticoat stretch                  2.030     1.777     1.777
+seiza skirt stretch                          1.730     1.480     1.480
+seiza petticoat stretch                      1.778     1.620     1.620
+jump_tuck skirt stretch                      2.195     1.700     1.700
+jump_tuck petticoat stretch                  2.060     1.921     1.921
+high_kick skirt stretch                      1.895     1.737     1.737
+high_kick petticoat stretch                  2.168     1.830     1.830
+run clip skirt stretch                       1.823     1.658     1.658
+run clip petticoat stretch                   2.300     1.880     1.880
+cross_legged tails stretch                   1.740     1.580     1.580
+kneel_one tails stretch                      1.542     1.537     1.537
+run clip tails stretch                       1.632     1.339     1.339
+jump_tuck hair x skirt cross                  1720       198       198
+spin clip hair x skirt cross                  1352      1042      1042
+tier x tier crossings summed r10 0
+tier x tier crossings summed integ17 0.0
+tier x tier crossings summed now 0.0
+
+Run clip strain jitter (verify_body-legs_r1/scripts/jit.py on the branch rig): petticoat_core 0.2073 (frame 6, core front hem), tier0 0.166, tier1 0.196, tier2 0.195, skirt 0.156, bodice_ribbon_tails 0.134.
+With the joints before 11a9b3a pinned instead: petticoat_core 0.1985, tier0 0.195, tier1 0.190, tier2 0.186, skirt 0.149, tails 0.138.
+
+Every row of the report against integ17: 15082 rows, 0 of 1128 skirt / petticoat / tail / crossing rows past the brief's bounds; 209 rows differ by at most 0.0027 (body 150, petticoat 35, skirt 18, sleeves 6; garment rows by at most 4e-5): rig-build noise around the crotch fit, the drape tables are bit-identical.
