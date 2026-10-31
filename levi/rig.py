@@ -2022,17 +2022,31 @@ HAIR_CAPSULE_FADE_BY = {'hair_cheek': (0.5, 1.0)}
 HAIR_COLLIDE_REACH = 0.12   # m: trunk / skirt / head hulls farther than this from a probe at rest are not tested
 # (not normalised, on purpose: pushed alike with both neighbours a segment moves 1.3x its push,
 # which is spare clearance; normalised, an isolated push was resolved only by half)
-# Round 11: an arm swung back (the walk and run strides, idol_dance@72) passed through the back
+# Round 11: an arm swung back (the walk and run strides, idol_dance@72) passes through the back
 # locks beside it, the sleeve's bag cutting into them from the side (walk: 1.4 m of crossing
-# curve with the sleeve, run_r 0.6 m). The back-hair locks below HAIR_COLLIDE_BACK_TOP now
-# meet the upper arm and forearm as capsules of their own, as fat as the sleeve's bag
-# (HAIR_COLLIDE_BACK_Q-th percentile of the skin and sleeve's distance from the bone, not the
-# side locks' HAIR_CAPSULE_Q), so the locks lie over the bag (walk 0.48 m, run_r 0.17 m).
-# The capsule's fade (HAIR_CAPSULE_FADE) keeps an arm sweeping right through from flinging
-# them across, and the push and turn caps hold. Above that height an arm reaches the back
-# hair only overhead or behind the head, where the hair is the head's (HAIR_HEAD_FADE) and
-# cannot give way.
-HAIR_COLLIDE_BACK_ARMS = ('upperarm', 'forearm')
+# curve with the sleeve, run_r 0.6 m; round 10: 2.4 / 1.6 m). HAIR_COLLIDE_BACK_ARMS lets the
+# back-hair locks below HAIR_COLLIDE_BACK_TOP meet the upper arm and forearm as capsules of
+# their own, as fat as the sleeve's bag (HAIR_COLLIDE_BACK_Q-th percentile of the skin and
+# sleeve's distance from the bone, not the side locks' HAIR_CAPSULE_Q). It is OFF: a
+# kinematic push has no memory, and the run's arm passes a lock in about 6 frames a stride.
+#   - A hard push (integration round 1: the common turn cap, 2 x 20 deg) cleared the bag
+#     (walk 0.48 m, run_r 0.17 m), but every segment below the contact turned with it: the
+#     outer locks stood out as stiff rods up to 88 deg from straight down (walk, the run
+#     strides, idol_dance@64-71), and they flicked out and back in a frame or two (hair
+#     pops: run 21 mm, idol_dance 15 mm; none without the push).
+#   - Round 2 added a soft push (HAIR_COLLIDE_BACK_AHEAD / _RAMP / _TURN: anticipated, a
+#     smoothstep of the depth, no corner where it starts or where it is capped) and a drape
+#     (HAIR_COLLIDE_BACK_DRAPE: the segment below a pushed one hangs as it would from the
+#     unpushed one). The rods went (turns of 12 / 6 deg: at most 28 deg at a joint and 55 deg
+#     from straight down; 8 / 4 deg: 22 and 55 deg) and the jitter fell below minor, but the
+#     lift still comes and goes within those 6 frames: hair pops of 14 mm (12 / 6 deg) and
+#     11 mm (8 / 4 deg) in the run, 11 and 10 mm in idol_dance (major >= 6). A lift that
+#     clears the bag in that time is a pop.
+# So the back hair still meets only the trunk and the skirt (walk / run crossings as before,
+# below round 10's). MMD's physics does this job in the PMX. Above BACK_TOP an arm reaches
+# the back hair only overhead or behind the head, where the hair is the head's
+# (HAIR_HEAD_FADE) and cannot give way.
+HAIR_COLLIDE_BACK_ARMS = ()     # ('upperarm', 'forearm') to try it
 HAIR_COLLIDE_BACK_Q = 85.0
 HAIR_COLLIDE_BACK_TOP = L['shoulder_z'] - 0.08
 # ... only the locks hanging at least this far round from straight back (lock_angle, deg): the
@@ -2054,6 +2068,20 @@ HAIR_COLLIDE_BACK_PREFIX = 'back_'     # collider name prefix of those capsules
 HAIR_COLLIDE_BACK_SIDE = (-0.35, 0.05)
 HAIR_COLLIDE_BACK_ROOM = (0.12, 0.16)
 HAIR_COLLIDE_BACK_TRUNK = '上半身'
+# ... the push is soft: it starts HAIR_COLLIDE_BACK_AHEAD (m) before the bag reaches the
+# probe's unpushed point and rises as a smoothstep of the depth over HAIR_COLLIDE_BACK_RAMP (m)
+# to at most the turn HAIR_COLLIDE_BACK_TURN (deg; tail probe, mid probe) of the segment
+HAIR_COLLIDE_BACK_AHEAD = 0.04
+HAIR_COLLIDE_BACK_RAMP = 0.10
+HAIR_COLLIDE_BACK_TURN = (8.0, 4.0)
+# ... and the lock drapes over the bag: the segment below a pushed one hangs as it would from
+# the unpushed segment (HAIR_COLLIDE_BACK_DRAPE of the push's turn taken back), its own probes
+# then lift it only as far as the bag reaches it. The take-back fades in with the parent's
+# contact (HAIR_COLLIDE_BACK_DRAPE_IN m about the push's reach), so the skirt's and the
+# trunk's pushes on the same lock (jump_tuck, spin) are not taken back: hung back into the
+# skirt below every pushed joint, the chain creased (x2.1 in jump_tuck, round 7).
+HAIR_COLLIDE_BACK_DRAPE = 0.8
+HAIR_COLLIDE_BACK_DRAPE_IN = 0.01
 
 
 def _fit_verts(o, *arrays):
@@ -2493,6 +2521,21 @@ def _hair_collision(arm, bones, parts):
             plan.append((b, ct, cm))
     if not plan:
         return
+    # (see HAIR_COLLIDE_BACK_DRAPE) the segments that hang from a segment the arm's bag
+    # pushes: [(anchor, projector, kept distance)] of the parent's bag tests on its side
+    tested = {b.name: (ct, cm) for b, ct, cm in plan}
+    drape = {}
+    for b, _t, _m in plan:
+        p = by.get(b.parent)
+        if p is None or p.name not in tested:
+            continue
+        side = '.L' if p.tail.x > 0 else '.R'
+        contacts = [(anc, f'{anc}_{t[1]}', t[3] + HAIR_COLLIDE_BACK_AHEAD)
+                    for anc, tl in ((f'{p.name}_hca', tested[p.name][0]), (f'{p.name}_hcma', tested[p.name][1]))
+                    for t in tl if t[0] == 'capsule' and t[1].startswith(HAIR_COLLIDE_BACK_PREFIX)
+                    and t[1].endswith(side)]
+        if contacts:
+            drape[b.name] = contacts
     # bones: ghost (copy of s), tail probe; ghost 2 (the ghost aimed at the tail probe),
     # mid probe (half way along ghost 2). s aims at the mid probe, which is ghost 2's
     # middle unless that is in a collider: a shoulder rising right under the segment
@@ -2531,6 +2574,9 @@ def _hair_collision(arm, bones, parts):
         if b.name in nbrs:
             made += [(f'{b.name}_hcs', e.tail, e.tail + d * 0.005, gname),
                      (f'{b.name}_hcn', (e.head + e.tail) / 2, (e.head + e.tail) / 2 + d * 0.005, g2name)]
+        if b.name in drape:
+            # the hang: s as it would hang from its parent's ghost (the unpushed parent)
+            made.append((f'{b.name}_hcg', e.head, e.tail, f'{b.parent}_hc'))
         # capsule tests read the probe's unpushed point from an anchor (_hca / _hcma: the
         # probe itself is what they push); a projector per capsule clamps it onto the axis
         for probe_tests, anchor, at, gparent in ((_t, f'{b.name}_hca', e.tail, gname),
@@ -2556,7 +2602,8 @@ def _hair_collision(arm, bones, parts):
         made = [(gname, b.jp + '衝', b.en + '_hc'), (pname, b.jp + '衝先', b.en + '_hcp'),
                 (g2name, b.jp + '衝2', b.en + '_hc2'), (mname, b.jp + '衝中', b.en + '_hcm'),
                 (f'{b.name}_hcs', b.jp + '衝先均', b.en + '_hcs'), (f'{b.name}_hcn', b.jp + '衝中均', b.en + '_hcn'),
-                (f'{b.name}_hca', b.jp + '衝先錨', b.en + '_hca'), (f'{b.name}_hcma', b.jp + '衝中錨', b.en + '_hcma')]
+                (f'{b.name}_hca', b.jp + '衝先錨', b.en + '_hca'), (f'{b.name}_hcma', b.jp + '衝中錨', b.en + '_hcma'),
+                (f'{b.name}_hcg', b.jp + '衝垂', b.en + '_hcg')]
         made += [(f'{anc}_{t[1]}', b.jp + sj + t[1], b.en + se + '_' + t[1])
                  for anc, tl, sj, se in ((f'{b.name}_hca', cons, '衝先軸', '_hcq'), (f'{b.name}_hcma', mcons, '衝中軸', '_hcmq'))
                  for t in tl if t[0] == 'capsule']
@@ -2569,22 +2616,52 @@ def _hair_collision(arm, bones, parts):
             pbn['levi_blender_only'] = True
         src, gpb = arm.pose.bones[b.name], arm.pose.bones[gname]
         src.rotation_mode = gpb.rotation_mode = 'QUATERNION'
-        for i in range(4):        # the ghost turns as s's own pose does (its input, not its result)
-            fc = gpb.driver_add('rotation_quaternion', i)
+        copies = [gpb] + ([arm.pose.bones[f'{b.name}_hcg']] if b.name in drape else [])
+        for cpb in copies:
+            cpb.rotation_mode = 'QUATERNION'
+            for i in range(4):        # the ghost turns as s's own pose does (its input, not its result)
+                fc = cpb.driver_add('rotation_quaternion', i)
+                drv = fc.driver
+                drv.type = 'AVERAGE'
+                v = drv.variables.new()
+                v.name, v.type = 'q', 'SINGLE_PROP'
+                v.targets[0].id_type, v.targets[0].id = 'OBJECT', arm
+                v.targets[0].data_path = f'pose.bones["{b.name}"].rotation_quaternion[{i}]'
+                for m in list(fc.modifiers):
+                    fc.modifiers.remove(m)
+            for c in src.constraints:     # ... and takes s's own constraints (pitch gravity)
+                k = cpb.constraints.new(c.type)
+                k.target, k.subtarget = c.target, c.subtarget     # first: the spaces it allows depend on it
+                for prop in c.bl_rna.properties:
+                    if not prop.is_readonly and prop.identifier not in ('rna_type', 'type', 'target', 'subtarget'):
+                        setattr(k, prop.identifier, getattr(c, prop.identifier))
+        if b.name in drape:
+            # (see HAIR_COLLIDE_BACK_DRAPE) the ghost turns back toward the hang as the
+            # parent meets the bag: 1 - smoothstep over DRAPE_IN about each contact's kept distance
+            k = gpb.constraints.new('COPY_ROTATION')
+            k.name = 'Drape'
+            k.target, k.subtarget = arm, f'{b.name}_hcg'
+            k.target_space = k.owner_space = 'WORLD'
+            k.mix_mode = 'REPLACE'
+            fc = k.driver_add('influence')
             drv = fc.driver
-            drv.type = 'AVERAGE'
-            v = drv.variables.new()
-            v.name, v.type = 'q', 'SINGLE_PROP'
-            v.targets[0].id_type, v.targets[0].id = 'OBJECT', arm
-            v.targets[0].data_path = f'pose.bones["{b.name}"].rotation_quaternion[{i}]'
+            drv.type = 'SCRIPTED'
+            terms = []
+            for j, (anc, centre, dist) in enumerate(drape[b.name][:6]):
+                v = drv.variables.new()
+                v.name, v.type = 'abcdef'[j], 'LOC_DIFF'
+                for tg, bn in zip(v.targets, (anc, centre)):
+                    tg.id, tg.bone_target, tg.transform_space = arm, bn, 'WORLD_SPACE'
+                terms.append(f'smoothstep({dist - HAIR_COLLIDE_BACK_DRAPE_IN:.4f},'
+                             f'{dist + HAIR_COLLIDE_BACK_DRAPE_IN:.4f},{"abcdef"[j]})')
+            near = terms[-1]
+            for t in reversed(terms[:-1]):       # (two-argument min: a simple expression)
+                near = f'min({t},{near})'
+            drv.expression = f'{HAIR_COLLIDE_BACK_DRAPE}*(1-{near})'
+            if not drv.is_simple_expression:
+                print(f'rig hair collision: {b.name} drape: not a simple driver expression')
             for m in list(fc.modifiers):
                 fc.modifiers.remove(m)
-        for c in src.constraints:     # ... and takes s's own constraints (pitch gravity)
-            k = gpb.constraints.new(c.type)
-            k.target, k.subtarget = c.target, c.subtarget     # first: the spaces it allows depend on it
-            for prop in c.bl_rna.properties:
-                if not prop.is_readonly and prop.identifier not in ('rna_type', 'type', 'target', 'subtarget'):
-                    setattr(k, prop.identifier, getattr(c, prop.identifier))
         for probe, tl, ghost, at, anchor in ((pname, cons, gname, 1.0, f'{b.name}_hca'),
                                              (mname, mcons, g2name, 0.5, f'{b.name}_hcma')):
             ppb = arm.pose.bones[probe]
@@ -2610,6 +2687,13 @@ def _hair_collision(arm, bones, parts):
                     k.target, k.subtarget = arm, centre
                     k.limit_mode = 'LIMITDIST_OUTSIDE'
                     k.distance = dist
+                    back = cname.startswith(HAIR_COLLIDE_BACK_PREFIX)
+                    if back:
+                        # (see HAIR_COLLIDE_BACK_AHEAD) reach AHEAD further; the influence
+                        # below makes the push c * smoothstep(0, RAMP, depth)
+                        k.distance = dist = dist + HAIR_COLLIDE_BACK_AHEAD
+                        seg_len = float((b.tail - b.head).length) * at
+                        c_push = seg_len * math.tan(math.radians(HAIR_COLLIDE_BACK_TURN[at < 1.0])) / HAIR_COLLIDE_PASSES
                     fade = _capsule_fade(b)
                     if fade is not None:
                         # the push fades out as the unpushed point nears the centre: a limb
@@ -2623,6 +2707,11 @@ def _hair_collision(arm, bones, parts):
                         for tg, bn in zip(v.targets, (anchor, centre)):
                             tg.id, tg.bone_target, tg.transform_space = arm, bn, 'WORLD_SPACE'
                         drv.expression = f'smoothstep({fade[0] * r:.4f}, {fade[1] * r:.4f}, d)'
+                        if back:
+                            # (see HAIR_COLLIDE_BACK_AHEAD) push / depth, the depth D - d
+                            drv.expression = (f'smoothstep({fade[0] * r:.4f},{fade[1] * r:.4f},d)'
+                                              f'*{c_push:.4f}*smoothstep(0,{HAIR_COLLIDE_BACK_RAMP},{dist:.4f}-d)'
+                                              f'/max({dist:.4f}-d,1e-4)')
                         if cname.startswith(HAIR_COLLIDE_BACK_PREFIX) and HAIR_COLLIDE_BACK_TRUNK in arm.pose.bones:
                             # (see HAIR_COLLIDE_BACK_SIDE) outward only, seen from above
                             # u, v: the unpushed point; x, y: its point on the axis; s, t: the trunk's
@@ -2635,11 +2724,13 @@ def _hair_collision(arm, bones, parts):
                                 tg.id, tg.bone_target = arm, bn
                                 tg.transform_type, tg.transform_space = 'LOC_' + ch, 'WORLD_SPACE'
                             lo, hi = HAIR_COLLIDE_BACK_SIDE
-                            r0, r1 = (dist + q for q in HAIR_COLLIDE_BACK_ROOM)
+                            r0, r1 = (dist - HAIR_COLLIDE_BACK_AHEAD + q for q in HAIR_COLLIDE_BACK_ROOM)
                             # (pow, not **: a simple expression, evaluated without Python)
                             drv.expression += (f'*max(smoothstep({lo},{hi},((u-x)*(x-s)+(v-y)*(y-t))/'
                                                f'(sqrt((pow(u-x,2)+pow(v-y,2))*(pow(x-s,2)+pow(y-t,2)))+1e-6)),'
-                                               f'smoothstep({r0:.4f},{r1:.4f},sqrt(pow(x-s,2)+pow(y-t,2))))')
+                                               f'smoothstep({r0:.3f},{r1:.3f},sqrt(pow(x-s,2)+pow(y-t,2))))')
+                            if len(drv.expression) > 255:
+                                print(f'rig hair collision: {b.name} {cname}: driver expression too long')
                             if not drv.is_simple_expression:
                                 print(f'rig hair collision: {b.name} {cname}: not a simple driver expression')
                         for m in list(fc.modifiers):

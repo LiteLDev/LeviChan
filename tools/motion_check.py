@@ -29,7 +29,9 @@ every motion clip (motion_poses.CLIPS), with vectorized numpy on the evaluated m
                       (a hose-like bend is long, a defined joint short)
   pop / bone_pop      (clips) one-frame spikes of vertex / bone acceleration beyond both
                       neighbours two frames away (popping, IK flips, driver jumps), mm
-  jitter              (clips) the same spike test on edge strain (weight-discontinuity flicker)
+  jitter              (clips) the same spike test on edge strain (weight-discontinuity flicker);
+                      pop and jitter also get one row per part (by_part, round 11), so a skirt
+                      or body pop no longer hides a hair pop ('Clips: pop / jitter per part')
   speed               (clips) fastest vertex, m/s (information)
   eye                 eyes through the face or lids for gaze at rig.EYE_LIMIT combined with the
                       eye morphs (まばたき, ウィンク, 笑い...), mm beyond rest
@@ -1023,6 +1025,7 @@ def run_clip(model, clip, log=print, stride=1):
         acc = np.linalg.norm(X[2:] - 2 * X[1:-1] + X[:-2], axis=2)       # (F-2, V), frame t+1
         val, t, vi = _spike(acc, POP_FLOOR)
         part, obj, where = locate(vi)
+        part_pop = part
         temporal.append(dict(metric='pop', value=val, part=part, object=obj, where=where, frame=t + 1))
         B = np.stack(bones)
         bacc = np.linalg.norm(B[2:] - 2 * B[1:-1] + B[:-2], axis=2)
@@ -1043,6 +1046,36 @@ def run_clip(model, clip, log=print, stride=1):
                 break
             off += ne
         temporal.append(dict(metric='jitter', value=val, part=epart, object=eobj, where=ewhere, frame=t + 1))
+        # ... and the same per part (rows marked by_part), apart from the part the clip's
+        # worst row already names: one row per clip let a skirt or body pop hide every hair
+        # pop (run: the skirt's 55 mm over hair_back's 21 mm)
+        vparts, eparts, off = {}, {}, 0
+        for n, a, b in vmap:
+            p = model.info[n]['part']
+            vparts.setdefault(p, []).append(np.arange(a, b))
+            ne = len(model.info[n]['medges'])
+            eparts.setdefault(p, []).append((n, np.arange(off, off + ne)))
+            off += ne
+        for p in sorted(vparts):
+            if p != part_pop:
+                idx = np.concatenate(vparts[p])
+                val, t, k = _spike(acc[:, idx], POP_FLOOR)
+                if k >= 0:
+                    _p, obj, where = locate(int(idx[k]))
+                    temporal.append(dict(metric='pop', value=val, part=p, object=obj, where=where, frame=t + 1,
+                                         by_part=True))
+            if p != epart:
+                idx = np.concatenate([e for _n, e in eparts[p]])
+                val, t, k = _spike(sacc[:, idx], JITTER_FLOOR)
+                if k >= 0:
+                    ei, base = int(idx[k]), 0
+                    for n, e in eparts[p]:
+                        if e[0] <= ei <= e[-1]:
+                            inf = model.info[n]
+                            temporal.append(dict(metric='jitter', value=val, part=p, object=n,
+                                                 where=model.bone_name(inf['dom'][inf['medges'][ei - e[0], 0]]),
+                                                 frame=t + 1, by_part=True))
+                            break
         vel = np.linalg.norm(X[1:] - X[:-1], axis=2) * motion_poses.FPS
         t, vi = np.unravel_index(int(vel.argmax()), vel.shape)
         part, obj, where = locate(vi)
@@ -1179,6 +1212,29 @@ def report(results, out_dir, eye_rows=None, extra=''):
                   '|---|' + '---|' * len(cols)]
         for name, d in items.items():
             lines.append(f'| {name} | ' + ' | '.join(_cell(d['rows'], m) for m, _ in cols) + ' |')
+        lines.append('')
+    # the clips' pop and jitter per part (the table above shows each clip's worst row only)
+    per_part = [(name, r) for items in results.values() for name, d in items.items() for r in d['rows']
+                if r['metric'] in ('pop', 'jitter') and (r.get('by_part') or any(q.get('by_part') for q in d['rows']))]
+    if per_part:
+        parts = sorted({r['part'] for _n, r in per_part})
+        lines += ['## Clips: pop mm / jitter per part', '',
+                  '| clip | ' + ' | '.join(parts) + ' |', '|---|' + '---|' * len(parts)]
+        for name in dict.fromkeys(n for n, _r in per_part):
+            cells = []
+            for p in parts:
+                bits = []
+                for m in ('pop', 'jitter'):
+                    rs = [r for n, r in per_part if n == name and r['part'] == p and r['metric'] == m]
+                    if not rs:
+                        bits.append('-')
+                        continue
+                    r = max(rs, key=lambda r: r['value'])
+                    v, lv = _fmt(m, r['value']), level(m, r['value'])
+                    bits.append(f"**{v}** ({r['object']}, f{r['frame']})" if lv == 2 else
+                                f"*{v}* ({r['object']}, f{r['frame']})" if lv == 1 else v)
+                cells.append(' / '.join(bits))
+            lines.append(f'| {name} | ' + ' | '.join(cells) + ' |')
         lines.append('')
     if eye_rows:
         lines += ['## eyes (gaze at the limits x eye morphs)', '', '| case | poke mm | where |', '|---|---|---|']
