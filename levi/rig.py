@@ -1163,7 +1163,11 @@ DRAPE_READOUT = None
 # (and at the reference's own inputs the tables are the reference's, bit for bit). None (or a
 # reference made for other chains or grids, with a warning): the solve from scratch. The build log
 # prints how far the tables moved from the reference's; when a lane changes the cloth or the legs
-# far enough to want new choices, rewrite the reference and check the drape.
+# far enough to want new choices, rewrite the reference and check the drape. tools/drape_perturb.py
+# (knee +-0.05 / 0.1 mm, hip +-0.1, thigh radii +-0.2, all cloth +-0.05 / 0.1, without the pin): every
+# table within 0.0088 rad (knee 0.0027, hip 0.0041, radii 0.0088, cloth 0.0051; from scratch 0.74),
+# and in the pose harness all cloth moved 0.1 mm moves no skirt / petticoat / tail row past +-0.03
+# (from scratch 14, cross_legged's inner tier x1.81 -> x2.21).
 DRAPE_REF = os.path.join('assets', 'drape', 'drape_ref.npz')
 DRAPE_TRACK_EPS = 0.02      # m/rad: the step's slope regularization (at most 0.025 rad per mm of depth)
 DRAPE_TRACK_H = 2.0         # deg: half-step of the depth slope at a turn
@@ -1655,8 +1659,9 @@ def _arc_bound(P, Jj, t_lo, t_hi, sph):
 def _drape_cloth(J, a, cpts, cang, cy):
     """One chain's cloth for the continuation (DRAPE_REF): every point of the full skirt and
     petticoat meshes near its sector, (P (M, 3), u (M,) its chain parameter, pen (M,) m of depth
-    taken off): past the sector's edge and above DRAPE_KEEP_U, a penalty that grows continuously
-    (DRAPE_CLOTH_SOFT) instead of DRAPE_BIN's innermost point per cell and the hard masks."""
+    taken off): past the sector's edge and above the keep parameter, a penalty that grows
+    continuously (DRAPE_CLOTH_SOFT), instead of DRAPE_BIN's innermost point per cell and the hard
+    masks (the segment band and the rest thigh are added per call, _drape_track / _skirt_drape)."""
     n = len(J) - 1
     half = 0.6 * 360.0 / SKIRT_SECTORS
     (wa, ka), ks, (k0, kk), _ = DRAPE_CLOTH_SOFT
