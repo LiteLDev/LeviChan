@@ -1082,8 +1082,14 @@ DRAPE_RING_CAP_MIN = 0.35               # least share of the cap a narrow step k
 # further round the front (walk x1.61, curtsy x1.40, skirt x1.49 / 1.30, with the other
 # round-11 settings); above 75 deg (seated, kicks, the tuck
 # jump) the cap is as before, where a narrower cone lifted the whole ring into a bowl
-# (round 8's pairwise review)
-DRAPE_RING_CAP_PITCH = ((45.0, 75.0), 0.55)
+# (round 8's pairwise review). Integration review 7: the full cap by 77 deg (was 75). The run
+# clip's thigh turns back at 71.5 deg, 11 deg/frame^2: where the cone was still widening fast
+# (65-72 deg) the chains beside the lifted front (13 / 14 at the right thigh's top) parted by
+# 0.8 deg per deg of pitch, and the cloth between them took the turn-back as a one-frame strain
+# spike (petticoat_core 0.207, tiers 0.196 / 0.195 at frame 6). Spread to 77 (the cone and the
+# post-cone smoothing, each about half of it): 0.157 / 0.146 / 0.154, the tables within 0.024 rad
+# of 75's; 78-82 moved run_r's skirt / tier stretch up to +0.05, 76 left the core at 0.19
+DRAPE_RING_CAP_PITCH = ((45.0, 77.0), 0.55)
 DRAPE_YAW_GRID = (-30.0, -15.0, 0.0, 15.0, 30.0)   # deg: yaws at which the clearance is tabulated
 DRAPE_YAW_MAX = 30.0        # deg a chain may turn round the body ...
 DRAPE_YAW_BACK = (60.0, 120.0)   # ... fading in from straight back over these skirt angles (deg)
