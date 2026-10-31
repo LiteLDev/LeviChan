@@ -2696,13 +2696,14 @@ def _curl_lock():
 # behind it. From q34 the lock was seen edge-on: its broad side turned from 66 deg toward the front
 # at the root to 33 deg at row 157, where it is 36 mm wide and 10.6 mm thick, and 45 deg is the
 # q34 line of sight. Its broad side now turns by a facing angle linear in the row (CURTAIN_FACING:
-# 50 -> 33 -> -10 deg, twist <= 3.0 deg a ring), so below row 150 it faces out and a little back and
+# 50 -> 38 -> -10 deg, twist <= 2.8 deg a ring), so below row 150 it faces out and a little back and
 # shows its width from q34 and from the side; the width grows to 1.3x (CURTAIN_WIDEN); the path at
 # rows 145-200 is 0-3 px further out, its end 2 px higher and 2 px further back (a tip higher or
 # further forward opens a wedge of background behind it in the side view; further back it sinks
-# deeper into the shoulder in test). Ray-cast against R3 at rest (0.7 mm cells): q34 new background
-# 414 / 388 -> 91 / 90 mm2, side window 5792 -> 5785 mm2 (R3 5944), the posed-penetration proxy at
-# idol_dance@80 4.9 -> 5.5 %, the right tip in test 8.8 -> 6.7 mm (one vertex).
+# deeper into the shoulder in test; turned out further at row 100, 33 deg, its back rim met the
+# hands in hands_behind_head, 2 vertices past 5 mm). Ray-cast against R3 at rest (0.7 mm cells): q34
+# new background 414 / 388 -> 100 / 100 mm2, side window 5792 -> 5785 mm2 (R3 5944); rig-skinned,
+# idol_dance@80 4.9 -> 5.3 % inside the arm, the right tip in test 8.8 -> 4.9 mm.
 SIDE_CURTAIN = [
     ([(57, 62, 304), (63, 108, 303), (62, 145, 305), (62, 176, 313), (60, 200, 320)], 0.033, None),
 ]
@@ -2710,7 +2711,7 @@ CURTAIN_TIP = (0.62, 2.0, 0.7)     # its taper (hk.taper: from u, exponents; the
 CURTAIN_SWELL = (0.3, 0.25)
 CURTAIN_WIDEN = (0.45, 0.75, 0.8, 1.30)  # (u0, u1, k0, k1): its width x k0 -> k1 over u0..u1 (smoothstep; R5 1.15)
 CURTAIN_ASPECT = 3.4               # (of its widest section; R4 2.4)
-CURTAIN_FACING = ((56.0, 50.0), (100.0, 33.0), (190.0, -10.0))   # its broad side's facing (lock_normal):
+CURTAIN_FACING = ((56.0, 50.0), (100.0, 38.0), (190.0, -10.0))   # its broad side's facing (lock_normal):
                                    # deg from straight out toward the front, linear over sheet rows (R5:
                                    # forward 1.2 -> 0.6 over rows 110-215, 66 -> 20 deg)
 
