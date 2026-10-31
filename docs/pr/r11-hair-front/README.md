@@ -5,7 +5,150 @@ Owner's request (round 11): 脑袋尖尖的，得优化，你看看风堇建模�
 
 Earlier passes on this lane (kept): the crown is a round dome (`CROWN_DOME`, `check_cap_round`: outline ratio 0.93,
 3D ratio 0.43); the ahoge is two wave locks; the cap's floor under the occiput was lifted onto a closure (round 2-R1,
-R2).
+R2); round 4 runs hair_back's lining up into the cap behind it.
+
+Images in this folder: the round-4 sheets (`r4_*.jpg`, below); the first round-11 pass's sheets (r10 / r11-first /
+r11-final: `overview_base_first_final.jpg`, `bangs_d7_d8_tips_base_first_final.jpg`,
+`cheek_wisp_temple_base_first_final.jpg`, `curl_d5_base_first_final.jpg`, `side_locks_motion_base_first_final.jpg`),
+the round crown (`crown_4x_cel_clay.jpg`) and the ahoge against 风堇's crescent forelock (`ahoge_vs_hyacine.jpg`).
+The intermediate rounds' sheets named below (R2, R3 and the earlier ahoge / plate passes) were pruned in round 4 to
+keep the folder small; they are in the history at a7fd563 (R3) and 457e88c (R2).
+
+## Round 4 (integration, fourth verifier pass)
+
+Commits b0029b6 (code), 67c1839 (the ahoge's back lock) and afd31e3 (the lining's weighting height) on
+r11/hair-front, on r11/integrate 8a45214.
+`levi/parts/hair_front.py`, and `levi/parts/hair_back.py` for the lining's top only (no lock moved: every
+hair_back and hair_back_side vertex is where it was, checked vertex by vertex).
+
+### The nape: the lining runs up into the cap (verifier p2 nape in clay, p3 lining cavity, p3 geometry)
+
+Diagnosis (sections at x 0 / 3 / 6 / 9 / 11 cm, cap and lining alone, ray-cast visibility in 1 mm cells): the
+cavity behind the ears and the "collar" were one problem. hair_back's lining stopped at its top edge (rows 140 /
+190, z 1.26 in the middle, 1.19 at |x| 10 cm), its inner face held 4-5 cm behind the neck there by CAP_PROFILE's
+rows 135-178 (empty since the closure was lifted under the skull), so between the neck and the hair the only
+surface was the cap's closure: a dark collar in clay from front-low, low and below, with a polygonal rim where it
+met the lining, and 6 cm of open cavity under the cap at |x| 6-10 cm.
+
+- hair_back (`UNDER_TOP` and what derives from it): the top edge rises to rows 118 / 128, inside the cap; at the
+  top the lining's depth is held by unit head's skull (`LINING_SKULL_IN`; `head.skull_points / skull_mesh`, pure
+  functions, as the closure reads them), not by CAP_PROFILE; over the top 90 px a soft minimum of the side
+  distances and a blur keep its inner face within the grid limits (`LINING_TOP_*`). The locks still settle on the
+  under-layer as it was (`UNDER_SETTLE_TOP`, `_under_layer(settle=True)`): settling on the new one moved the
+  primaries by up to 34 mm. Its weighting points (`_weight_coords`, the outer-face twins the rig weights both
+  faces at) are held under z 1.262 by a soft minimum (`WEIGHT_TOP`): the raised top lay above the lock chains'
+  roots (z 1.279-1.287), where the rig's head fade jumps from 頭 0.7-0.85 to all of 頭 between neighbouring
+  vertices (the first gate run: x7.7 tears in head_left / right, x5.1 in test, x2.8 in side_bend). The part
+  above moves with the lining just under it, as R3's top edge did. hair_back 30,490 -> 31,820 faces (34,000).
+- hair_front: the closure shades with hair_back's own volume normal (`nape_normal`), the one the lining's inner
+  face shades with (R3: +Z), so the two read as one surface; `NAPE_LINING` re-measured, and `check_nape_lining`
+  now also fails the build unless the closure lies 3 mm under the lining's top out to |x| 8.5 cm; the wall under
+  the lining's top (now hidden between the lining's faces) rises at half the slope from a wider foot; the lower
+  pole sits at the last ring's middle (the cast pole lay off it and its fan folded: twelve 180° edges).
+
+| | R3 (8a45214) | R4 |
+|---|---|---|
+| lining top outside the cap at abs(x) 0 / 2 / 4 / 6 / 8 / 10 cm, mm (- = inside) | 1.4 / 3.2 / 8.1 / 21.8 / 48.1 / 81.6 | -0.4 / -0.5 / -0.8 / -1.3 / -2.5 / 3.1 |
+| lining inner face behind the back of the neck at x 0, z 1.20 / 1.22 / 1.24 / 1.26, mm | 45 / 59 / 72 / 84 | 29 / 32 / 35 / 47 |
+| visible cap below z 1.28, mm²: front / front-low / low | 805 / 4536 / 4494 | 458 / 1926 / 3546 |
+| q34 front-left / -right low; side-low left / right | 1255 / 1275; 671 / 672 | 646 / 682; 281 / 317 |
+| cap edges over 60°: all / folded (> 170°) / with a ray escaping past the other meshes | 90 / 12 / 27 | 76 / 0 / 1 |
+
+In clay the area behind the neck is one even dark tone from the jaw to the shoulders in front-low, low and from
+below (hair and head only), no collar and no rim; cel unchanged (shade tone). In geo (custom normals cleared)
+the lining's pleated inner face fills most of it; the closure beside the jaw keeps some lumps (fewer and
+smaller). 75 of the 76 creases lie inside the neck, the face or between the lining's faces; the one exposed is
+at (0.0, -2.5, 126.4) cm behind the throat, 3 of 98 directions escaping.
+
+### The side curtain lock (verifier p2)
+
+With the lining filling the notch behind the neck from behind, the lock is a lock again (`SIDE_CURTAIN`,
+`CURTAIN_*`): one width curve (0.8x near the root behind the ear, 1.15x by mid-length, `CURTAIN_WIDEN`) closing
+in the side locks' ogive past u 0.62 (R3: a x1.4 widening meeting the u 0.85 taper in a corner, a kite point);
+its broad side turns from 1.2 to 0.75 toward the front over rows 125-205 (R3: 1.2 -> 0.3 over 125-165); a
+rounder section (aspect 2.4, R3 2.8) shading with the hanging locks' own-normal share (`LOCK_KEEP`; R3 the
+cap's volume normal: a flat paper sheet in clay); the path runs back half as far as R3 below row 145 and 2 px
+further forward behind the ear, off hair_back_side's front edge.
+
+| | R3 | R4 |
+|---|---|---|
+| kernel twist (deg / ring), rings, faces a side | 6.7, 28, 341 | 2.2, 29, 353 |
+| triangle pairs through hair_back_side, a side; through hair_back (right) | 63, 63; 41 | 16, 16; 0 |
+| side view behind the neck, background mm² (y -4..12, z 1.14..1.34 cm) | 5951 | 5918 |
+| posed, same window: head_left / head_right / look_over_shoulder | 6089 / 5173 / 4968 | 6019 / 5153 / 4943 |
+
+Rest views (12 ortho views round the neck, 1 mm cells): background no higher than R3 in 9; side-low +121 mm² a
+side, q34 back-left / right +11 / +7. id renders at 3x / 4x: the side and side-low views trade slivers (side:
+422 mm² newly open along the back of the shoulder under the lock's tip, 477 newly covered behind it), all along
+silhouettes; nothing opens behind the neck. With the head turned (head_left side view) the gap under the jaw
+in front of the far shoulder stays as in R3: the throat seen in profile with the far side's hair behind it.
+
+### The ahoge (verifier p3)
+
+The back lock is at most 7 mm wide (R3 10.2 mm at col 274, wider than the front lock under it: an egg from high
+and behind-high), within the front lock's outline from above, its root on the scalp and its end narrowing to
+2.4 mm (R3 4.4 / 3.6). Side, front and q34 outlines unchanged (its top line is): points at side cols
+256.5 / 270.2, rows 12.3 / 12.9 (R3 12.3 / 12.8), notch 17.1; 12.0 % of the area inside the cap (R3 12.6);
+back lock turn / rho 3.7 / 0.23 (R3 3.6 / 0.29); hair_crown 2 islands, 100 % 頭; round dome check unchanged
+(0.93 / 0.43). 580 -> 622 faces.
+
+### Faces, IoU, gates and motion
+
+hair_front 15,944 -> 15,986 / 16,000; hair_back 30,490 -> 31,820 / 34,000; total 164,116 -> 165,488 / 200,000.
+IoU front / side / back 0.8922 / 0.8070 / 0.8954 -> 0.8921 / 0.8075 / 0.8953.
+
+Gates on afd31e3 (r11/integrate 8a45214 fast-forwards to it, so the lane and the full merge are the same tree):
+`tools/check.py` CHECK OK (62 meshes identical in a second process, every budget met); `build.py --rig` exit 0;
+`tools/rig_check.py` (full, 17 core poses) RIG CHECK OK, every pose's stretch / pen as on 8a45214 (head_left /
+right 1.40 / 1.41 on hair_back, pen 0.02 / 0.01 cm; swing 1.53, 8a45214 1.56); PMX names 66/66; eye poke 0.00 mm.
+The first gate runs (b0029b6 and 67c1839, before `WEIGHT_TOP`) failed: the lining's raised top tore x7.7 / x7.2 in head_left /
+right, x5.1 in test, x2.8 in side_bend (see the lining above).
+
+Full motion report on the full merge (r11/integrate 8a45214 + afd31e3; `rig_check.py --quick --no-core --extended
+--report-core --motion`), row by row against the integrate-before report (8a45214, same tool) and round 10:
+
+| issues (minor / major) | r10 | 8a45214 | R4 merge |
+|---|---|---|---|
+| all | 479 (327/152) | 442 (313/129) | 441 (314/127) |
+| hair_front | 41 (25/16) | 29 (18/11) | 27 (18/9) |
+| hair_back | 14 (12/2) | 10 (9/1) | 11 (10/1) |
+| crossings on hair (all sets) | 36 (22/14) | 15 (6/9) | 15 (6/9) |
+
+- No new major; two majors down to minor (jump_tuck `hair_curl_L/R` pen_frac 3.19 -> 2.95 %); hands_behind_head's
+  two curtain pen minors gone. Every non-hair issue identical (no value moved by 1 %).
+- One new minor: reach_up_back `hair_back_shell` stretch x1.74 at 後髪束7_2 (z 1.09). The lock chains' collision
+  probes keep the lining's inner face off her trunk, and the deeper lining (z 1.12-1.26) makes them push chains
+  7 / 8 further back there (their posed bones differ; the lining's weights at that spot are the same). Keeping
+  the old depth under the nape (a blend back to the legacy depth over rows 172-196) broke the grid limits
+  (17° down a column) and was dropped.
+- Existing issues that grew: idol_dance `hair_curl_L/R` pen_frac 5.65 / 5.45 -> 6.11 / 5.80 % and `hair_cheek_R`
+  (with dance_heart) 3.09 -> 3.81 % (majors: the side locks nest over the rounder curtain lock: main / curl /
+  cheek locks lifted 4.1 / 5.6 / 1.4-2.5 mm further out); arms_up / dance_sway hair x garment crossings 684 -> 789, 855 -> 1096 (majors: the cheek locks over
+  the raised sleeves); reach_up_back curtain pen_frac 0.59 -> 2.01 % (minor). Fell: idol_dance@80 `hair_curtain_L`
+  pen_frac 8.90 -> 8.31 % (major; the target was R2's 6.0 %, not met), reach_up_back cheek 1.45 -> 1.25 %.
+- Report: `integ_scratch/hf7/data/motion_m3/` (report.md, motion_report.json), comparison `hf7/data/mcmp_r4_final.txt`.
+
+### Images (round 4)
+
+- `r4_nape.jpg`: front-low and low clay at 8x, from below (hair and head only) in clay, front-low geo at 8x;
+  R3 top, R4 bottom.
+- `r4_lining.jpg`: sections at x 0 / 6 / 9 cm (R3 | R4: cap orange, lining green, neck brown), and the cap, the
+  lining, head and body alone from side-low, low back and q34 front-left low (R3: the cavity behind the ears).
+- `r4_curtain.jpg`: head_left q34 front-right in cel and clay, look_over_shoulder in clay, the rest side view at
+  6x; R3 top, R4 bottom.
+- `r4_ahoge.jpg`: high, behind-high and q34 behind-high in clay and the top view in cel at 16x; R3 top, R4 bottom.
+
+### Not done / not verified (round 4)
+
+- 76 cap edges still turn over 60° (target ~10); all but one lie inside the neck, the face or the lining.
+- Motion: the new reach_up_back lining minor and the curl / cheek / crossing growth above; idol_dance@80's curtain
+  pen_frac stays a major (8.3 %, target 6.0 %).
+- Side-view slivers: the side and side-low views trade 300-420 mm² of background along the back of the shoulder
+  for as much covered behind it (above); not under the ~100 mm² sliver allowance view by view.
+- The ahoge's front view keeps its small base jogs at 16x and q34 front-left its short inner stroke near the notch
+  (`AHOGE_LINE_RISE` 0.8 -> 2.5 mm changed nothing visible); from behind-high the back lock still reads as a
+  smaller lock lying on the front one, not one lock splitting.
+- export_pmx / pmx_reimport / motion_vmd not run (mmd_tools is not installed on the cluster).
 
 ## Round 3 (integration, third verifier pass)
 
@@ -118,7 +261,7 @@ hair_front 15,944 / 16,000 faces (R2 15,968); total 163,876 / 200,000. hair_crow
   (its depth 1.56 -> 1.69 cm, minor); reach_up_back's curtain minors fell 1.5 -> 0.6 %.
   hair_cap pen in idol_dance 1.17 -> 1.36 mm (minor, as R2).
 
-### Images (round 3)
+### Images (round 3; pruned in round 4, see a7fd563)
 
 - `r3_side_notch_89f6117_r2_r3.jpg`: side and q34 back-left at 3x, cel: 89f6117's pouch, R2's notch, R3.
 - `r3_low_lit_cap_r2_r3.jpg`: low (-40°) and front-low (-20°) at 8x under the right jaw, cel and clay, R2 vs R3.
@@ -205,7 +348,7 @@ hair_front 15,968 / 16,000 faces.
   views round the neck): no plate, hole or open edge; against R1 the only pixels that turned to background are the
   gap behind the neck under the jaw in the side view with the head turned (~1900 px at 4x), where R1's pouch hung.
 
-### Images
+### Images (round 2; pruned in round 4, see 457e88c)
 
 - `r2_plate_8x_r1_r2.jpg`: front, front-low, low, q34 front-left low at 8x, cel and clay, R1 vs R2 (left of the neck).
 - `r2_plate_capz_capwire_r1_r2.jpg`: the cap below z 1.28 in magenta (4x id) in five views; the cap, lining and
