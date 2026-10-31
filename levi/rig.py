@@ -3059,7 +3059,8 @@ KNOT_BLEND = 0.012
 #   it lies on where a thigh lifts the panels apart (integration review 3: 6 cm put 570
 #   tail vertices through the skirt's outer face in cross_legged, up to 6 mm, the lower
 #   loops cut off at the surface, and 73 in lie_back_elbows). At 3 cm: 40 (at most 1.8 mm)
-#   and 0; unsmoothed 27 and 2 (x1.67); 4 cm 178 and 0;
+#   and 0; unsmoothed 27 and 2 (x1.67); 4 cm 178 and 0. The part's lower strands stand a
+#   little further off the cloth for the rest (bodice.TAIL_LOW_LIFT: 0, least 0.2 mm);
 # - the body hands over to the chains across their root, the pivot the drape turns them
 #   about: a smoothstep from TAIL_ROOT[0] above it to TAIL_ROOT[1] below, like any skin
 #   across a joint. Handed over from the root down only (the skirt's own ROOT_BLEND, or an
