@@ -668,16 +668,12 @@ CAP_RECESS_FADE = 10.0
 # back hair"), in front of hair_back's lining. 风堇's hood is an open shell that ends on her
 # nape, its inside hidden by the head. Our cap stays one closed volume (the strands' root
 # tests and settling need an inside), so its lower surface is lifted (along +z; x and y kept,
-# a smooth maximum with compact support, nape_lift) onto a closure
-#     z = z0 + slope (yb - y), at most zmax,
-# that leaves the cap's back wall where the lining hangs from it and rises forward: behind the
-# neck and the jaw (|x| <= NAPE_X[0]) into the skull, at the sides (|x| >= NAPE_X[1]) from the
-# back wall's foot to under the ear (the ear stays covered, the hair behind it still reaches
-# down beside the neck), blended between. Below the skull only the lining (and the hair
-# beside the ears) shows behind the neck. The lift fades out at the cap's side silhouette
+# a smooth maximum with compact support, nape_lift) onto a closure that leaves the cap's back
+# wall where the lining hangs from it. The lift fades out at the cap's side silhouette
 # (NAPE_SIDE), so the side walls do not fold over themselves.
-# Round 11 R2 (the plate, second pass): the first closure (two planes, z0 + slope (yb - y) at
-# most zmax, NAPE_MID / NAPE_SIDES) still left a pouch of cap under each ear and behind the jaw,
+# Round 11 R1 lifted it onto two planes (z0 + slope (yb - y), at most zmax: into the skull
+# behind the neck, to under the ears at the sides); that still left a pouch of cap under each
+# ear and behind the jaw,
 # 3-9 cm under the skull: a flat floor at z 1.266 under the ears, the side walls' feet down to
 # 1.23 round it (a box with a polygonal lower edge and a rim line in the front, front-low and
 # low views), and its few lower rings (14 from the crown's last ring to the lower pole, now
@@ -694,8 +690,11 @@ CAP_RECESS_FADE = 10.0
 #     passes NAPE_TUCK under its top and rises in front of it as a steep wall (NAPE_WALL),
 #     so seen from the front and below, the lining's inner face runs on up into the cap's
 #     wall to where the jaw hides it, with no floor between;
-#   - in front of the jaw (and at the sides behind the ears) a ceiling (NAPE_CEIL) inside
-#     the head, so the lifted surface stays under the cap's own side walls.
+#   - a ceiling (NAPE_CEIL): inside the face in front of the jaw, under the cheeks and the
+#     ears at the sides (and behind them, NAPE_WALL_X: there the lining's top lies under the
+#     side locks, 2-6 cm under the sheet cap's lowest point, which the lift cannot lower), and
+#     a shallow vault under the occiput between them, so the lifted surface stays under the
+#     cap's own side walls and the side walls end level (no notch behind the ears).
 # The lift itself is unchanged (z only, a smooth maximum), but the rings below the crown are
 # laid out along each spoke by arc length on the lifted surface (cap_grid), so the closure,
 # its turn into the side walls and the wall in front of the lining are sampled evenly. On the
