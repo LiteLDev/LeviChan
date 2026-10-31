@@ -339,10 +339,10 @@ Not run: export_pmx, pmx_reimport, motion_vmd (no mmd_tools). The PMX's `_drape_
 same tables, so its 回転付与 shares are unchanged and no longer follow the leg bones either.
 
 **Images**
-- `r5_pin_diff.jpg`: what the 0.09 mm knee change did to the drape (clay, 4x crops): this branch
+- `r5_pin_diff.jpg` (dropped from the PR for size; later rounds' crops supersede it): what the 0.09 mm knee change did to the drape (clay, 4x crops): this branch
   (= integ17) | the knee before 11a9b3a | pixels that differ (red), seiza / run_l / deep_lunge
   (front hem over the raised thigh), sit_chair, jump_tuck (below), run@14.
-- `r5_hem_side.jpg`, `r5_hem_front.jpg`: the hem over the raised thigh in seiza, run_l, sit_chair,
+- `r5_hem_side.jpg` (dropped from the PR for size; later rounds' crops supersede it), `r5_hem_front.jpg` (dropped from the PR for size; later rounds' crops supersede it): the hem over the raised thigh in seiza, run_l, sit_chair,
   deep_lunge, jump_tuck, run@14 and rest, round 10 | now (= integ17) | knee before 11a9b3a, cel then
   clay, side and front-low cameras at ~4x.
 
@@ -573,7 +573,7 @@ brought back 10-11 other rows or the cross_legged crossings. Close-ups show no f
   dumped frames (0.27 before the post-cone smoothing).
 - The waist-bow ribbon tails (bodice) ride the skirt chains: their top edge below the bow
   stretches x1.68 in deep_lunge and kneel_one (round 2 1.50 / 1.54, round 10 1.52 / 1.54) and
-  x1.60 in the run clip. The close-ups (`r3_ribbon_tails.jpg`) show no visible change.
+  x1.60 in the run clip. The close-ups (`r3_ribbon_tails.jpg` (dropped from the PR for size; later rounds' crops supersede it)) show no visible change.
 
 **The round-2 p3 items:**
 - *Front tiers in walk / curtsy:* fixed (above).
@@ -583,13 +583,13 @@ brought back 10-11 other rows or the cross_legged crossings. Close-ups show no f
   the bodice's (its tails take the skirt chains' weights).
 
 **Images:**
-- `r3_heat.jpg`: stretch heat on the tier that sets each row (white 1.0, yellow 1.6, red 2.0),
+- `r3_heat.jpg` (dropped from the PR for size; later rounds' crops supersede it): stretch heat on the tier that sets each row (white 1.0, yellow 1.6, red 2.0),
   outer layers hidden. Walk tier1, curtsy, sit_chair and jump_tuck tier2, round 2 against
   now.
-- `r3_walk_curtsy.jpg`: walk and curtsy, cel, and clay with the skirt hidden.
-- `r3_seated_lying.jpg`: sit_chair and run_l with the skirt hidden, lie_back from below, and
+- `r3_walk_curtsy.jpg` (dropped from the PR for size; later rounds' crops supersede it): walk and curtsy, cel, and clay with the skirt hidden.
+- `r3_seated_lying.jpg` (dropped from the PR for size; later rounds' crops supersede it): sit_chair and run_l with the skirt hidden, lie_back from below, and
   cross_legged.
-- `r3_ribbon_tails.jpg`: the waist-bow tails in kneel_one and deep_lunge.
+- `r3_ribbon_tails.jpg` (dropped from the PR for size; later rounds' crops supersede it): the waist-bow tails in kneel_one and deep_lunge.
 
 **Gates:**
 - This branch: `check.py` CHECK OK (151,344; petticoat 25,920 / 28,000). `rig_check.py` RIG
@@ -619,7 +619,7 @@ look_over_shoulder stretched the skirt x1.53 / 1.45 / 1.64 / 1.56 (round 10: 1.3
 - Fix: when a skirt-family vertex picks its four bones, the body bones (上半身 / 下半身) rank at
   twice their weight. A neighbouring chain root moves like the vertex's own except in a drape;
   in a twist, 上半身 alone turns the waist. 上半身 now stays at 0.045.
-- Result: x1.17 / 1.15 / 1.22 / 1.18 (`r2_waist_twist_heat.jpg`: stretch heat, white 1.0,
+- Result: x1.17 / 1.15 / 1.22 / 1.18 (`r2_waist_twist_heat.jpg` (dropped from the PR for size; later rounds' crops supersede it): stretch heat, white 1.0,
   yellow 1.6). Also lower: squat skirt 1.44 → 1.39, high_kick 1.90 → 1.87, deep_lunge
   1.65 → 1.61, kneel_one 1.72 → 1.60. The petticoat does not change: its tiers carry no body
   weight and the core is not pruned. A factor of 3 also moved the cross_legged hem
@@ -654,7 +654,7 @@ which the inner layers' clearance needs:
   But the thighs go 2.5-3.5 cm into the core and the inner tiers in 14 of the 34 poses and
   clips measured (this branch: none over 2.2 cm), including the gated test (2.9 cm) and squat
   (3.1 cm) poses
-  (`r2_core_clearance_test.jpg`). Before the integration fix, the sparse sample of the core
+  (`r2_core_clearance_test.jpg` (dropped from the PR for size; later rounds' crops supersede it)). Before the integration fix, the sparse sample of the core
   is what let the inner tiers go 2.9 cm into the thigh in run@18.
 - *The solve is sensitive.* Other changes move these rows by ±0.1-0.2, in both directions:
   an 8-16 mm offset of the core in the clearance (v3 / v4), coarser clearance bins (v5), or
@@ -704,7 +704,7 @@ sit_stand, deep_lunge, run_l and seiza too). Hair, sleeves, torso and hands chan
 - *Core: the 4-bone prune's motion refit.* The core's 7 sparse rings, smoothed 6 cm,
   carry 6-12 bones per vertex. The refit picks 4 per vertex from the generic samples, of
   which only a few move the skirt chains, so neighbouring vertices landed on chain 4 vs
-  chain 6 (rest azimuth -56, z 0.64: a purple column in `integ_core_heat.jpg`). Swap test:
+  chain 6 (rest azimuth -56, z 0.64: a purple column in `integ_core_heat.jpg` (dropped from the PR for size; later rounds' crops supersede it)). Swap test:
   the merged rig's core weights with the petticoat-alone bone matrices still give x3.20,
   the petticoat-alone weights with the merged matrices x2.08; the unpruned weights x1.83.
 - *Drape: an unstable clearance sample.* The clearance tested 300 sector points taken by
@@ -774,9 +774,9 @@ sit_stand, deep_lunge, run_l and seiza too). Hair, sleeves, torso and hands chan
 test 1.83, walk 1.78 on tier1; worst pen side_bend 1.76 cm; no backward knee; 66/66 PMX
 names). Full merge: CHECK OK (148,540) and RIG CHECK OK.
 
-**Images.** `integ_run18.jpg` / `integ_run18_zoom.jpg`: run@18 from the left and the front,
+**Images.** `integ_run18.jpg` (dropped from the PR for size; later rounds' crops supersede it) / `integ_run18_zoom.jpg` (dropped from the PR for size; later rounds' crops supersede it): run@18 from the left and the front,
 cel and clay, before / after (the thigh no longer cuts the front frill).
-`integ_core_heat.jpg`: the core in cross_legged and lie_back_elbows coloured by edge
+`integ_core_heat.jpg` (dropped from the PR for size; later rounds' crops supersede it): the core in cross_legged and lie_back_elbows coloured by edge
 stretch (white 1.0, yellow 1.6, red 2.0, purple 2.6+), tiers and skirt hidden.
 
 ## What it is now
@@ -922,9 +922,9 @@ The skirt moves only because its chain fit sees the new petticoat.
 - `poses_cel.jpg`: deep_lunge front, high_kick back, cross_legged lap, sit_chair from
   below.
 - `below_q34_cel.jpg`: the view from below and the 3/4 view.
-- `r2_waist_twist_heat.jpg`: integration review round 2. The skirt's front-left waist band in
+- `r2_waist_twist_heat.jpg` (dropped from the PR for size; later rounds' crops supersede it): integration review round 2. The skirt's front-left waist band in
   torso_left, twist_bend and look_over_shoulder, coloured by stretch (white 1.0, yellow 1.6),
   before and after `CHAIN_BODY_KEEP`.
-- `r2_core_clearance_test.jpg`: the gated test pose with the core in the drape's clearance (this
+- `r2_core_clearance_test.jpg` (dropped from the PR for size; later rounds' crops supersede it): the gated test pose with the core in the drape's clearance (this
   branch) and left out of it (experiment v2): the thigh comes through the core and the inner
   tiers hang into it (cel; clay zoomed, skirt and bodice hidden).
